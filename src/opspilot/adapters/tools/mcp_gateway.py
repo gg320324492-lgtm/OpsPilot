@@ -64,8 +64,8 @@ raise.
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -74,48 +74,26 @@ from mcp.types import CallToolResult, InputRequiredResult
 from opspilot.domain.tools import TOOL_REGISTRY, ToolSpec
 from opspilot.ports.tool_gateway import ToolResult
 
-if TYPE_CHECKING:
-    from opspilot.adapters.retrieval.search import RetrievalOutcome
-
 __all__ = ["MCPToolGateway", "build_in_process_servers"]
-
-# The knowledge retriever the gateway may be handed: given a query and a bounded
-# top-k, return the shared retrieval outcome. Structural rather than imported
-# from ``mcp_servers.knowledge.server`` so this adapter does not depend on a
-# server module at module scope (the server import is function-local, like the
-# other three); the shape is the server's ``Retriever`` alias.
-type _Retriever = Callable[[str, int], Awaitable["RetrievalOutcome"]]
 
 # The SDK's ``call_tool`` return union. Named so the narrowing helper and the
 # call site agree on the two arms without repeating the union.
 CallToolReturn = CallToolResult | InputRequiredResult
 
-# Every server the gateway can dispatch to. ``crm`` / ``billing`` / ``issues``
-# are the external demo servers; ``knowledge`` is in-process rather than a
-# sibling process (``docs/mcp-contracts.md`` §4). A ``server`` value that is not
-# here (or an alias below) is a misconfiguration and is refused as a result
-# rather than raised.
-_KNOWN_SERVERS: frozenset[str] = frozenset({"crm", "billing", "issues", "knowledge"})
-
-# ``knowledge.search``'s ``TOOL_REGISTRY`` spec names its server ``internal``
-# (``domain/tools.py``, transcribed from ``docs/tool-permissions.md`` §2), to say
-# "not one of the three external MCP servers". The gateway's server map is keyed
-# by the MCP server name, which is ``knowledge``. Translating here is what lets
-# gate 2's registry lookup and the dispatch agree without editing the static
-# registry -- a registry key is a permission-bearing fact and is not the place to
-# accommodate a transport detail.
-_SERVER_ALIASES: dict[str, str] = {"internal": "knowledge"}
+# Every server the gateway can dispatch to. Exactly the three external demo
+# servers. There is deliberately **no** ``knowledge`` entry: ``knowledge.search``
+# is ``server="internal"`` in ``TOOL_REGISTRY`` and is dispatched in-process by
+# the knowledge tool, not over MCP (``docs/mcp-contracts.md`` §4 -- "The
+# ``knowledge`` tool is not an MCP server"). A ``server`` value that is not here
+# is a misconfiguration and is refused as a result rather than raised.
+_KNOWN_SERVERS: frozenset[str] = frozenset({"crm", "billing", "issues"})
 
 # The structured error code every refusal honours. Present, non-``None``, on a
 # failed result and ``None`` on a success (``docs/mcp-contracts.md`` §2).
 _ERROR_CODE_FIELD = "code"
 
 
-def build_in_process_servers(
-    data_dir: object = None,
-    *,
-    retriever: _Retriever | None = None,
-) -> dict[str, MCPServer]:
+def build_in_process_servers(data_dir: object = None) -> dict[str, MCPServer]:
     """Build the in-process MCP servers, each backed by an isolated store.
 
     Args:
@@ -123,15 +101,9 @@ def build_in_process_servers(
             ``None`` each server builds its default store, which honours
             ``OPSPILOT_MCP_DATA_DIR``. A test passes ``tmp_path`` so a mutation
             cannot leak between tests.
-        retriever: Optional ``(query, top_k) -> RetrievalOutcome`` callable for
-            the knowledge server. When ``None`` the knowledge server is still
-            built and callable and answers ``not_configured``
-            (``mcp_servers/knowledge/server.py``); the application supplies the
-            real one, which binds the embedder and vector store in the
-            deployment.
 
     Returns:
-        ``{"billing": ..., "crm": ..., "issues": ..., "knowledge": ...}``.
+        ``{"billing": ..., "crm": ..., "issues": ...}``.
 
     Notes:
         ``billing`` and ``issues`` expose a ``create_server(store)`` factory;
@@ -141,7 +113,7 @@ def build_in_process_servers(
         is, since it is read-only and therefore cannot leak a mutation.
 
         The imports are local to the function so importing this adapter does not
-        import four server modules (and their Pydantic models) at process start.
+        import three server modules (and their Pydantic models) at process start.
     """
     from pathlib import Path
 
@@ -149,7 +121,6 @@ def build_in_process_servers(
     from mcp_servers.billing import server as billing_server
     from mcp_servers.crm import server as crm_server
     from mcp_servers.issues import server as issues_server
-    from mcp_servers.knowledge import server as knowledge_server
 
     servers: dict[str, MCPServer] = {"crm": crm_server.server}
 
@@ -170,7 +141,6 @@ def build_in_process_servers(
     )
     servers["billing"] = billing
     servers["issues"] = issues
-    servers["knowledge"] = knowledge_server.create_server(retriever=retriever)
     return servers
 
 
@@ -179,10 +149,9 @@ class MCPToolGateway:
 
     Args:
         servers: Optional pre-built map of server name to ``MCPServer``. When
-            omitted, the gateway builds all in-process servers -- the three
-            external ones and the internal knowledge one -- on first use
-            (lazily, so constructing the gateway is cheap and cannot fail on a
-            missing seed file at import).
+            omitted, the gateway builds the three in-process external servers on
+            first use (lazily, so constructing the gateway is cheap and cannot
+            fail on a missing seed file at import).
 
     A gateway instance is used from one event loop; it holds no per-call state
     beyond the server map, so it is safe to reuse across calls within a run.
@@ -285,18 +254,20 @@ class MCPToolGateway:
     def _server_for(self, server_name: str) -> MCPServer | None:
         """Return the server for a ``ToolSpec.server`` value, building on first use.
 
-        ``server_name`` is the registry's ``server`` field, not necessarily the
-        MCP server's own name: ``knowledge.search``'s spec says ``internal`` and
-        the alias map translates that to the ``knowledge`` server. An unknown
-        name returns ``None``, which the caller reports as ``server_unavailable``
-        rather than raising.
+        ``server_name`` is the registry's ``server`` field. A value that is not
+        one of the three external servers -- including ``knowledge.search``'s
+        ``internal`` -- returns ``None``, which the caller reports as
+        ``server_unavailable`` rather than raising. This is correct for
+        ``knowledge.search``: it is dispatched in-process by the knowledge tool
+        (``docs/mcp-contracts.md`` §4), never by this gateway, so a dispatch
+        attempt reaching here for it is a wiring bug that should fail loudly
+        rather than silently gain an MCP server.
         """
-        resolved = _SERVER_ALIASES.get(server_name, server_name)
-        if resolved not in _KNOWN_SERVERS:
+        if server_name not in _KNOWN_SERVERS:
             return None
         if self._servers is None:
             self._servers = dict(self._server_factory())
-        return self._servers.get(resolved)
+        return self._servers.get(server_name)
 
 
 def _narrow(raw: CallToolReturn) -> CallToolResult:

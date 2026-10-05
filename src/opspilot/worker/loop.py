@@ -47,6 +47,7 @@ from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
 from opspilot.ports.stores import (
     ApprovalStore,
+    CitationStore,
     PendingToolCall,
     RunStore,
     TicketStore,
@@ -56,6 +57,10 @@ from opspilot.ports.tool_gateway import ToolGateway
 from opspilot.tracing.recorder import TraceRecorder
 
 type RecorderFactory = Callable[[UUID], TraceRecorder]
+
+# The abstention threshold used when a caller does not supply one. It matches
+# ``RETRIEVAL_MIN_SCORE``'s default; the entry point wires the setting's value.
+_DEFAULT_MIN_SCORE: float = 0.35
 
 
 async def claim_next(
@@ -174,6 +179,8 @@ async def drain_once(
     orchestrator: Orchestrator,
     recorder_factory: RecorderFactory | None = None,
     retrieval: RetrievalCallable | None = None,
+    citation_store: CitationStore | None = None,
+    retrieval_min_score: float | None = None,
 ) -> bool:
     """Claim and drive a single run; ``True`` if one was processed.
 
@@ -185,6 +192,12 @@ async def drain_once(
     ``recorder_factory`` builds the ``TraceRecorder`` for the claimed run. It is
     a factory rather than an instance because the run id is not known until the
     claim succeeds; when omitted, the runtime builds one lazily from settings.
+
+    ``citation_store`` is threaded to the runtime so a run's retrieved hits are
+    persisted as citation rows bound to the run. It is injected like
+    ``approval_store`` -- a database collaborator, not something this module
+    constructs. ``retrieval_min_score`` overrides the runtime's default
+    abstention threshold; ``None`` leaves the runtime's own default in place.
 
     ``RunParked`` is caught here -- and only here -- because release-the-row is
     exactly what the worker is for. It is *not* mapped to ``FAILED``.
@@ -199,6 +212,8 @@ async def drain_once(
         run, tool_call_store=tool_call_store, approval_store=approval_store
     )
 
+    min_score = retrieval_min_score if retrieval_min_score is not None else _DEFAULT_MIN_SCORE
+
     with contextlib.suppress(RunParked):
         await run_loop(
             ctx,
@@ -212,6 +227,8 @@ async def drain_once(
             executed_lookup=executed_lookup_for(tool_call_store),
             resume_tool_call_id=resume_tool_call_id,
             retrieval=retrieval,
+            citation_store=citation_store,
+            retrieval_min_score=min_score,
             responded_without_tool=responded_without_tool,
         )
     return True
@@ -230,6 +247,8 @@ async def poll_forever(
     poll_interval: float,
     recorder_factory: RecorderFactory | None = None,
     retrieval: RetrievalCallable | None = None,
+    citation_store: CitationStore | None = None,
+    retrieval_min_score: float | None = None,
 ) -> None:
     """Loop: claim, drive, sleep. Never returns under normal operation."""
     while True:
@@ -244,6 +263,8 @@ async def poll_forever(
             orchestrator=orchestrator,
             recorder_factory=recorder_factory,
             retrieval=retrieval,
+            citation_store=citation_store,
+            retrieval_min_score=retrieval_min_score,
         )
         if not processed:
             await sleep(poll_interval)

@@ -13,7 +13,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | done | See below |
 | M4 — Agent runtime | done | See below |
-| M5 — RAG | in progress | M5a (chunking/embeddings/stores) done; M5b (ingest/search) separate; M5c-tool (`knowledge.search` callable) done |
+| M5 — RAG | in progress | M5a (chunking/embeddings/stores) done; M5b (ingest/search) separate; M5c done — in-process `knowledge.search`, citations persisted, API/worker wired (the fourth MCP server was built then deleted; see M5c correction) |
 | M6 — Golden workflow | not started | |
 | M7 — Dashboard | not started | |
 | M8 — Evals and security | not started | |
@@ -831,7 +831,25 @@ because no test *can*: the code path is unreachable for any input.
 
 **Started:** 2026-10-05
 
-### Scope
+> **CORRECTION (2026-10-06).** The first attempt at this slice built a **fourth
+> MCP server** (`mcp_servers/knowledge/server.py`) and wired it into the gateway
+> with an `_SERVER_ALIASES = {"internal": "knowledge"}` translation. That violated
+> `docs/mcp-contracts.md` §4, titled "The `knowledge` tool is not an MCP server",
+> which says retrieval "is implemented in-process against pgvector rather than as
+> a fourth MCP server". Its nine tests all passed — they verified the server was
+> built *correctly* and none asked whether it should be built at all.
+>
+> The server, the alias and `tests/integration/test_mcp_knowledge.py` have been
+> **deleted**. The replacement is `src/opspilot/adapters/tools/knowledge_tool.py`
+> (`KnowledgeTool`), an in-process dispatcher returning the same `ToolResult`
+> shape as `MCPToolGateway`; `knowledge.search` stays registered with
+> `server="internal"` and `Permission.READ`. A new guard,
+> `tests/integration/test_knowledge_is_not_mcp.py`, reads §4's claim out of the
+> document and fails if the fourth server grows back. The section below is kept
+> as the record of the original (reverted) attempt; the wiring that shipped is
+> described in "M5c (rewired)" further down.
+
+### Scope (original attempt — reverted)
 
 One focused slice: make `knowledge.search` — already declared in
 `TOOL_REGISTRY` (`domain/tools.py:68`) as `permission=READ, server="internal"` —
@@ -922,6 +940,97 @@ No production wiring of a real embedder/vector store into
 `build_in_process_servers`; the application supplies the retriever. The gateway
 default builds the knowledge server with no backend, answering
 `not_configured`, which is the honest default until the deployment wires one.
+
+---
+
+## M5c (rewired) — retrieval in-process, citations persisted, API and worker wired
+
+**Date:** 2026-10-06. This is the slice that shipped; it supersedes the original
+M5c above.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `mcp_servers/knowledge/` | **Deleted** (the fourth MCP server) |
+| `tests/integration/test_mcp_knowledge.py` | **Deleted** (9 tests that verified the server was built, not that it should be) |
+| `src/opspilot/adapters/tools/mcp_gateway.py` | `knowledge` removed from `_KNOWN_SERVERS`; `_SERVER_ALIASES` removed; `build_in_process_servers` no longer takes `retriever` or builds a knowledge server |
+| `src/opspilot/adapters/tools/knowledge_tool.py` | **New.** `KnowledgeTool`, the in-process `knowledge.search` dispatcher returning a `ToolResult`; same refusal codes (`not_configured`, `retrieval_failed`, `validation_error`, `unknown_tool`) |
+| `src/opspilot/adapters/wiring.py` | **New.** `build_retrieval_stack(settings, *, session_factory)` builds embedder + vector store + the runtime `RetrievalCallable` + `KnowledgeTool` + reindex runner + `KnowledgeDocumentStore` from settings |
+| `src/opspilot/agents/runtime.py` | `run_loop` gains `citation_store` and `retrieval_min_score`; `_retrieve` persists strong hits as citations; below threshold the run abstains and escalates via `PLANNING -> RESPONDING` |
+| `src/opspilot/worker/loop.py` | `drain_once`/`poll_forever` thread `citation_store` and `retrieval_min_score` to the runtime |
+| `src/opspilot/worker/__main__.py` | `build_worker_retrieval()` builds the stack from settings for the M6 loop to pass in |
+| `src/opspilot/api/app.py` | `_bind_stores` builds the retrieval stack from settings when the caller injects neither `knowledge_store` nor `reindex_runner` |
+| `tests/integration/test_knowledge_is_not_mcp.py` | **New guard.** Reads §4's claim out of the document and asserts no fourth server |
+| `tests/integration/test_retrieval.py` | The two M5 retrieval tests (golden path recall, abstention) |
+| `tests/security/test_prompt_injection.py` | The M5 injection test (outcome, not model resistance) |
+| `tests/integration/test_retrieval_wiring.py`, `tests/integration/test_api_knowledge.py`, `tests/unit/test_knowledge_tool.py` | **New.** Runtime citation/abstention wiring, the knowledge routes, and the in-process tool surface |
+
+### How abstention escalates, and why
+
+`docs/agent-state-machine.md` §3 says "Knowledge insufficient to answer ->
+`COMPLETED` (via `RESPONDING`) — Abstention is a supported outcome, not an
+error", and §2's table has **no** `RETRIEVING -> RESPONDING` edge. The legal
+route is therefore `RETRIEVING -> PLANNING -> RESPONDING`, using the "no tool
+needed" edge the model takes when it has nothing left to do. The pump transitions
+to `PLANNING`, detects that the top hit is below `retrieval_min_score` (or the
+backend returned nothing), sets `escalated=True`, drops the weak hits from the
+context, records a `retrieval_abstained` audit event, and calls `_respond`. No
+edge was invented. `FAILED` was rejected: it means "OpsPilot did not finish the
+job", and abstention is the job finishing correctly.
+
+An unwired retrieval (`retrieval is None`) is **not** an abstention: the step is
+an honest no-hit step and the pump proceeds to planning, as it did before M5.
+
+### Findings a reviewer must see
+
+- **The in-memory vector store never writes `knowledge_chunks` rows.** Unlike
+  `PgVectorStore.upsert`, `InMemoryVectorStore.upsert` keeps chunks in process
+  memory only. Consequences on the SQLite/test configuration: `GET
+  /api/knowledge` reports `chunk_count == 0` for every document, and runtime
+  citations are silently skipped by `SqlCitationStore.create_many` (it skips hits
+  with no chunk row). `tests/integration/test_retrieval_wiring.py` seeds the
+  chunk rows itself to make the citation assertions real;
+  `tests/integration/test_api_knowledge.py` asserts the zero counts rather than
+  hiding them. Fixing this needs a change inside the frozen
+  `src/opspilot/adapters/retrieval/**` — **reported, not made.**
+- **The local deterministic embedder cannot rank this corpus.** Its cosine
+  scores sit in ~0.04–0.09 with complete overlap between answerable and
+  unanswerable questions, so at `RETRIEVAL_MIN_SCORE=0.35` *every* query
+  abstains. `tests/integration/test_retrieval.py` therefore asserts Recall@K
+  (K=10) — the eval's own metric — for the ranking claim, which is threshold-free
+  and real, and asserts the abstention flag at the configured threshold. The
+  README's retrieval numbers must come from a real provider, not this embedder
+  (`embeddings.py` says as much).
+
+### Commands run
+
+```
+pytest -q                   440 passed, 7 skipped
+mypy --strict               Success: no issues found in 131 source files
+ruff check . / format       All checks passed
+```
+
+### Mutation verification
+
+| Break applied | Test(s) confirmed red |
+|---|---|
+| `knowledge` reintroduced into `_KNOWN_SERVERS` + `_SERVER_ALIASES` restored | `test_knowledge_is_not_in_the_gateway_server_set`, `test_no_server_alias_translates_internal_to_a_server` |
+| Gate 5 weakened (`HIGH_RISK_WRITE and False`) | all 3 in `test_prompt_injection.py`, including the §6 invariant query |
+| Citations never persisted in `_retrieve` | `test_retrieved_hits_persist_as_citations_bound_to_the_run`, `test_citations_are_written_only_for_a_completed_run` |
+| Abstention short-circuit disabled | `test_below_threshold_retrieval_escalates_via_responding`, `test_abstention_records_an_audit_event` |
+| `ingest_directory` indexes nothing | `test_golden_path_question_retrieves_both_policy_documents`, `test_answerable_cases_meet_recall_at_k`, `test_the_golden_path_matches_the_datasets_own_duplicate_case` |
+| Reindex content-hash short-circuit disabled | `test_reindex_is_idempotent` |
+| `not_configured` replaced with an empty success | `test_not_configured_is_a_refusal_with_a_code` |
+
+### Least-confident decision
+
+Where the runtime's `retrieval_min_score` comes from. The runtime takes it as a
+parameter defaulting to `0.35` rather than importing `Settings`, to keep the
+`agents` layer configuration-free — but this duplicates the setting's default in
+two places (`settings.py` and `runtime.py`), and `worker/loop.py` duplicates it a
+third time in `_DEFAULT_MIN_SCORE`. A future change should inject the value from
+one place at every entry point.
 
 ---
 
@@ -1120,3 +1229,50 @@ turns `test_reingesting_unchanged_document_indexes_nothing` and
 the implementation agrees with the implementation. The only defence that has
 actually worked in this project is exercising the object the *production* code
 exercises, and asking the real corpus rather than a fixture.
+
+### M5c — the reviewer's finding: the golden path now abstains
+
+M5c's report was accurate about its own work and its three full-repo commands
+came back green when I re-ran them. Two things it flagged in passing are worth
+more than the way it filed them.
+
+**1. With retrieval wired as production wires it, the golden path abstains.**
+
+I ran the M4 end-to-end script with `retrieval=stack.retrieval` instead of
+`retrieval=None`. The run reaches `completed` with **zero tool calls and zero
+citations** -- no `crm.get_customer`, no `billing.list_transactions`, no refund
+proposal, no approval. The customer's duplicate charge is never investigated.
+
+The cause is arithmetic, not logic. The abstention branch itself is correct and
+its docstring is right that `RETRIEVING -> PLANNING -> RESPONDING` is the legal
+route. But `LocalDeterministicEmbedder` scores the whole corpus in a 0.04-0.09
+band, and `RETRIEVAL_MIN_SCORE` defaults to 0.35. Measured: the highest score
+**any** query reaches against any chunk in `knowledge/` is **+0.0847**. Every
+query abstains, answerable or not. The M4 script passed only because it injects
+`retrieval=None` -- which takes the "unwired" path that deliberately skips the
+threshold -- so the regression is invisible to it.
+
+This is why the retrieval test's own docstring says the local embedder "exists
+as plumbing, not as a good embedder". That was honest, and it is now load
+bearing: the default configuration cannot complete the golden path.
+
+**2. `test_unanswerable_cases_abstain` passes for the wrong reason.**
+
+It asserts the five `expect_abstention` cases abstain. They do -- along with all
+thirteen answerable ones. A test that would pass equally well if the corpus were
+empty, or if the threshold were 1.0, is not measuring retrieval quality. It is
+the project's recurring pattern once more: the assertion is true, and it does not
+mean what its name says.
+
+**Open, and assigned to M6.** Neither is M5c's to fix -- M6 is "the golden
+workflow", and it owns the end-to-end path. Recorded here so M6 cannot start
+without confronting them:
+
+- The shipped default (`EMBEDDING_PROVIDER=local`, `RETRIEVAL_MIN_SCORE=0.35`)
+  makes the golden path abstain. M6 must decide: raise the local embedder's
+  quality, lower the documented default threshold, or make the default
+  configuration use a real embedder for the demo. Any of the three is a
+  documented decision; shipping an abstaining golden path is not.
+- The abstention test needs a second assertion it can fail: that an *answerable*
+  question does **not** abstain at the configured threshold. Without it, the
+  suite cannot tell "retrieval works" from "retrieval always abstains".

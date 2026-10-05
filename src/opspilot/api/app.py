@@ -31,7 +31,9 @@ from opspilot.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from pathlib import Path
 
+    from opspilot.adapters.wiring import RetrievalStack
     from opspilot.ports.stores import ApprovalStore, RunStore, TicketStore
 
 # The name the OpenAPI document is tagged with; also what a probe sees.
@@ -49,7 +51,7 @@ def create_app(
     ticket_store: TicketStore | None = None,
     approval_store: ApprovalStore | None = None,
     knowledge_store: object | None = None,
-    reindex_runner: Callable[[object], Awaitable[object]] | None = None,
+    reindex_runner: Callable[[Path], Awaitable[object]] | None = None,
     readiness_check: Callable[[], Awaitable[dict[str, str]]] | None = None,
 ) -> FastAPI:
     """Construct and return the configured FastAPI application.
@@ -117,7 +119,7 @@ def _bind_stores(
     ticket_store: TicketStore | None,
     approval_store: ApprovalStore | None,
     knowledge_store: object | None,
-    reindex_runner: Callable[[object], Awaitable[object]] | None,
+    reindex_runner: Callable[[Path], Awaitable[object]] | None,
     readiness_check: Callable[[], Awaitable[dict[str, str]]] | None,
 ) -> None:
     """Attach the store implementations to ``app.state`` for the dependencies.
@@ -132,12 +134,43 @@ def _bind_stores(
         ticket_store = ticket_store or sql_ticket
         approval_store = approval_store or sql_approval
 
+    # The knowledge surfaces are wired from the same settings the SQL stores use,
+    # but only when the caller did not inject fakes. `GET /api/knowledge` then
+    # lists real documents and `POST /api/knowledge/reindex` ingests them; a
+    # deployment that cannot build the stack (no database yet) leaves both
+    # unbound, and the router degrades to the documented empty/zero responses
+    # rather than taking the API down (``knowledge.py``).
+    if knowledge_store is None or reindex_runner is None:
+        stack = _try_build_retrieval_stack()
+        if stack is not None:
+            knowledge_store = knowledge_store or stack.knowledge_store
+            reindex_runner = reindex_runner or stack.reindex_runner
+
     app.state.run_store = run_store
     app.state.ticket_store = ticket_store
     app.state.approval_store = approval_store
     app.state.knowledge_store = knowledge_store
     app.state.reindex_runner = reindex_runner
     app.state.readiness_check = readiness_check
+
+
+def _try_build_retrieval_stack() -> RetrievalStack | None:
+    """Build the retrieval stack, or ``None`` when persistence is unavailable.
+
+    The stack needs a session factory, which needs the database layer; while that
+    layer is incomplete (or the process is starting without a database) the app
+    must still construct, so the failure is caught and reported as "not wired"
+    rather than raised. The router already handles an unbound store, so a
+    partially-configured deployment degrades instead of refusing to start.
+    """
+    try:
+        from opspilot.adapters.wiring import build_retrieval_stack
+    except ImportError:  # pragma: no cover - wiring fault while a layer is absent
+        return None
+    try:
+        return build_retrieval_stack(get_settings())
+    except (ImportError, TypeError):  # pragma: no cover - persistence not finished
+        return None
 
 
 def _build_sql_stores() -> tuple[RunStore, TicketStore, ApprovalStore]:

@@ -54,7 +54,13 @@ from opspilot.domain.tools import (
 )
 from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
-from opspilot.ports.stores import ApprovalStore, RunStore, ToolCallStore
+from opspilot.ports.stores import (
+    ApprovalStore,
+    CitationRecord,
+    CitationStore,
+    RunStore,
+    ToolCallStore,
+)
 from opspilot.ports.tool_gateway import ToolGateway, ToolResult
 from opspilot.ports.vector_store import SearchHit
 from opspilot.tracing.recorder import TraceRecorder
@@ -63,12 +69,26 @@ from opspilot.tracing.recorder import TraceRecorder
 # context may carry its own.
 _DEFAULT_MAX_STEPS: Final[int] = 24
 
+# The abstention threshold defaults to ``RETRIEVAL_MIN_SCORE``'s value. The
+# runtime takes it as a parameter rather than importing settings (the ``agents``
+# layer holds no configuration, exactly as it takes ``max_steps``); a caller
+# wires it from settings. Below this top score the evidence is too weak to plan
+# from and the run escalates via ``PLANNING -> RESPONDING`` rather than answering
+# from a weak match (``docs/architecture.md`` §9, ``docs/agent-state-machine.md``
+# §3).
+_DEFAULT_RETRIEVAL_MIN_SCORE: Final[float] = 0.35
+
 # Audit event types written by this module. Named constants so a test asserts on
 # a symbol rather than a string literal a typo could quietly change.
 AUDIT_TOOL_EXECUTED: Final[str] = "tool_executed"
 AUDIT_TOOL_REJECTED: Final[str] = "tool_rejected"
 AUDIT_APPROVAL_REQUESTED: Final[str] = "approval_requested"
 AUDIT_RUN_FAILED: Final[str] = "run_failed"
+# Written when the top retrieved score is below the abstention threshold and the
+# run escalates via ``PLANNING -> RESPONDING`` rather than planning from weak
+# evidence. A distinct event so an abstention is visible in the trace rather than
+# inferred from an empty retrieval step.
+AUDIT_RETRIEVAL_ABSTAINED: Final[str] = "retrieval_abstained"
 
 # The gate names written to ``ToolCall.rejection_reason``. They are the answer to
 # "which gate refused this", so they name the gate, not the rule.
@@ -636,6 +656,8 @@ async def run_loop(
     executed_lookup: ExecutedLookup | None = None,
     resume_tool_call_id: UUID | None = None,
     retrieval: RetrievalCallable | None = None,
+    citation_store: CitationStore | None = None,
+    retrieval_min_score: float = _DEFAULT_RETRIEVAL_MIN_SCORE,
     responded_without_tool: bool = False,
 ) -> RunContext:
     """Drive a run until it is terminal or parked.
@@ -668,6 +690,20 @@ async def run_loop(
         retrieval: An optional ``(query) -> list[SearchHit]`` callable. When
             absent the RETRIEVING step is still recorded, with ``count=0`` and no
             fabricated citations.
+        citation_store: An optional ``CitationStore``. When present, the run's
+            retrieved hits are persisted as ``Citation`` rows bound to this run
+            in the same RETRIEVING step that produced them, so the run-detail
+            router can render the Sources panel (``docs/api-contract.md`` §3).
+            Injected like ``approval_store`` -- a database read/write is a
+            collaborator, not something the runtime constructs. When absent, no
+            citations are written and the reason is that no store was wired, not
+            that retrieval found nothing.
+        retrieval_min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``).
+            When the top hit's score is below it, the evidence is too weak to
+            plan from: the run skips the tool-planning loop and escalates via
+            ``PLANNING -> RESPONDING`` (``docs/agent-state-machine.md`` §3:
+            "Knowledge insufficient to answer -> COMPLETED (via RESPONDING) --
+            Abstention is a supported outcome, not an error").
         responded_without_tool: Set by the worker when the run was flipped to
             ``RESPONDING`` by a *rejection*; the reply escalates.
 
@@ -738,6 +774,8 @@ async def run_loop(
         lookup=lookup,
         recorder=trace,
         retrieval=retrieval,
+        citation_store=citation_store,
+        retrieval_min_score=retrieval_min_score,
         max_steps=max_steps,
     )
 
@@ -793,6 +831,8 @@ async def _pump(
     lookup: ExecutedLookup,
     recorder: TraceRecorder,
     retrieval: RetrievalCallable | None,
+    citation_store: CitationStore | None,
+    retrieval_min_score: float,
     max_steps: int,
 ) -> RunContext:
     """The provider-driven classify/retrieve/plan/execute/respond pump."""
@@ -803,10 +843,43 @@ async def _pump(
 
     # -- RETRIEVING ------------------------------------------------------
     await _transition(ctx, run_store, RunStatus.RETRIEVING)
-    ctx.retrieval_hits = await _retrieve(ctx, retrieval, recorder)
+    ctx.retrieval_hits = await _retrieve(
+        ctx,
+        retrieval,
+        recorder,
+        citation_store=citation_store,
+        min_score=retrieval_min_score,
+    )
+
+    # -- PLANNING --------------------------------------------------------
+    await _transition(ctx, run_store, RunStatus.PLANNING)
+
+    # Abstention: a retrieval backend answered and its top hit is below the
+    # threshold (or it returned nothing), so the evidence is too weak to plan a
+    # tool call from. This is only an abstention when retrieval was actually
+    # wired: with no backend the RETRIEVING step is an honest no-hit step and the
+    # pump proceeds to planning, exactly as it did before M5 -- an unwired
+    # deployment is a configuration fact, not a statement about the corpus.
+    #
+    # There is no ``RETRIEVING -> RESPONDING`` edge, and inventing one would be
+    # wrong: the legal route is ``RETRIEVING -> PLANNING -> RESPONDING``, using
+    # the same "no tool needed" edge the model takes when it has nothing left to
+    # do (``docs/agent-state-machine.md`` §2). The run still reaches ``COMPLETED``
+    # through ``RESPONDING`` with ``escalated=True`` -- abstention is a supported
+    # outcome, not a failure (§3: "Knowledge insufficient to answer ->
+    # ``COMPLETED`` (via ``RESPONDING``)"). Weak hits are dropped from the
+    # context so the reply is not composed from evidence below the threshold.
+    if retrieval is not None and _is_abstention(ctx.retrieval_hits, retrieval_min_score):
+        ctx.escalated = True
+        ctx.retrieval_hits = []
+        await recorder.record_audit(
+            event_type=AUDIT_RETRIEVAL_ABSTAINED,
+            actor="runtime",
+            payload={"min_score": retrieval_min_score},
+        )
+        return await _respond(ctx, provider, run_store, recorder)
 
     # -- PLANNING / EXECUTING -------------------------------------------
-    await _transition(ctx, run_store, RunStatus.PLANNING)
     while True:
         if ctx.steps_taken >= max_steps:
             await _fail_run(ctx, run_store, recorder=recorder, reason="max_steps_exceeded")
@@ -945,18 +1018,52 @@ async def _classify(
     return value
 
 
+def _is_abstention(hits: list[SearchHit], min_score: float) -> bool:
+    """Whether a *wired* retrieval's evidence is too weak to plan from.
+
+    ``True`` when the backend returned nothing, or the best hit's score is below
+    ``min_score``. The top hit is ``hits[0]`` because the vector stores return
+    best-first (``rank`` starts at 1 with the best hit). The caller only consults
+    this when a retrieval callable was supplied -- an unwired retrieval is not an
+    abstention.
+    """
+    if not hits:
+        return True
+    return hits[0].score < min_score
+
+
 async def _retrieve(
-    ctx: RunContext, retrieval: RetrievalCallable | None, recorder: TraceRecorder
+    ctx: RunContext,
+    retrieval: RetrievalCallable | None,
+    recorder: TraceRecorder,
+    *,
+    citation_store: CitationStore | None = None,
+    min_score: float = _DEFAULT_RETRIEVAL_MIN_SCORE,
 ) -> list[SearchHit]:
-    """Run the retrieval callable, or record an honest no-hit step.
+    """Run the retrieval callable, persist citations, and record the step.
 
     With no retrieval port wired (M5 supplies one) the step still runs and is
     recorded with ``count=0``. Citations are never fabricated: an empty hit list
     is the truth, and the response step abstains rather than inventing sources.
+
+    When a ``citation_store`` is injected, the hits are persisted as citation
+    rows bound to this run **before** the step is recorded -- so a recorded
+    retrieval step and a persisted citation cannot disagree, and the run-detail
+    router can render ``citations[]`` (``docs/api-contract.md`` §3). Only hits at
+    or above ``min_score`` are cited: a run that abstains must not carry the weak
+    evidence it refused to rely on, and citing below-threshold chunks would make
+    the Sources panel claim support the run did not have. The store receives
+    ``CitationRecord``s whose ``chunk`` is ``"{document_slug}#{anchor}"`` -- the
+    exact string the contract shows -- so the router never joins tables.
     """
     hits: list[SearchHit] = []
     if retrieval is not None:
         hits = await retrieval(ctx.ticket_subject + "\n" + ctx.ticket_body)
+
+    strong = [hit for hit in hits if hit.score >= min_score]
+    if citation_store is not None and strong:
+        await citation_store.create_many(ctx.run.id, _citation_records(strong))
+
     await recorder.record_step(
         step_type="retrieval",
         output_payload={
@@ -965,6 +1072,23 @@ async def _retrieve(
         },
     )
     return hits
+
+
+def _citation_records(hits: list[SearchHit]) -> list[CitationRecord]:
+    """Project retrieved hits onto the citation rows the run-detail router reads.
+
+    ``chunk`` is ``"{document_slug}#{anchor}"`` and ``rank`` is the hit's own
+    1-based rank, both exactly as ``docs/api-contract.md`` §3 shows them.
+    """
+    return [
+        CitationRecord(
+            document=hit.document_slug,
+            chunk=f"{hit.document_slug}#{hit.anchor}",
+            score=hit.score,
+            rank=hit.rank,
+        )
+        for hit in hits
+    ]
 
 
 async def _plan(
@@ -1105,6 +1229,7 @@ def registered_tool_names() -> list[str]:
 
 __all__: list[str] = [
     "AUDIT_APPROVAL_REQUESTED",
+    "AUDIT_RETRIEVAL_ABSTAINED",
     "AUDIT_RUN_FAILED",
     "AUDIT_TOOL_EXECUTED",
     "AUDIT_TOOL_REJECTED",
