@@ -1,0 +1,69 @@
+# ---- Secrets: never committed, under any circumstance ----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+
+# ---- Python bytecode / build artifacts ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# ---- Test, lint, type caches ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage.xml
+.coverage
+coverage.json
+htmlcov/
+
+# ---- Database files ----
+# The MCP servers each own a SQLite file when run outside Docker, and the local
+# dev database is SQLite. These are seeded from committed JSON, so nothing here
+# is a source of truth and none of it belongs in the repository.
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# ---- Frontend ----
+node_modules/
+.next/
+out/
+.turbo/
+apps/web/.env.local
+apps/web/next-env.d.ts
+
+# ---- Editors / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Local working notes ----
+# Kept out of the repository. Unlike GigaXML, where docs/ was a private journal,
+# OpsPilot's docs/ IS the specification and is committed -- so this directory is
+# named for scratch work specifically and must not be confused with docs/.
+.scratch/
+
+# Eval runs produce one JSON per run plus a working database. The results
+# directory is committed selectively: only the run the README quotes is added
+# back, by explicit path. Everything else stays local, because a directory of
+# every eval run is noise that grows without bound.
+evals/results/*
+!evals/results/.gitkeep
+!evals/results/README.md
+
+# ---- Alembic ----
+# No local override; migrations are the artifact.

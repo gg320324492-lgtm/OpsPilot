@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "customers": [
+    {
+      "customer_id": "CUS-1001",
+      "company": "ACME",
+      "contact_name": "Dana Whitfield",
+      "email": "billing@acme.example",
+      "plan": "enterprise",
+      "status": "active",
+      "created_at": "2024-03-11T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1002",
+      "company": "Globex",
+      "contact_name": "Hank Scorpio",
+      "email": "ap@globex.example",
+      "plan": "growth",
+      "status": "active",
+      "created_at": "2024-05-02T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1003",
+      "company": "Initech",
+      "contact_name": "Bill Lumbergh",
+      "email": "accounts@initech.example",
+      "plan": "growth",
+      "status": "active",
+      "created_at": "2024-06-19T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1004",
+      "company": "Umbrella",
+      "contact_name": "Albert Wesker",
+      "email": "billing@umbrella.example",
+      "plan": "enterprise",
+      "status": "active",
+      "created_at": "2024-02-08T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1005",
+      "company": "Stark Industries",
+      "contact_name": "Pepper Potts",
+      "email": "finance@stark.example",
+      "plan": "enterprise",
+      "status": "active",
+      "created_at": "2024-01-15T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1006",
+      "company": "Wayne Enterprises",
+      "contact_name": "Lucius Fox",
+      "email": "ap@wayne.example",
+      "plan": "enterprise",
+      "status": "active",
+      "created_at": "2024-04-22T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1007",
+      "company": "Soylent",
+      "contact_name": "Robert Thorn",
+      "email": "billing@soylent.example",
+      "plan": "starter",
+      "status": "active",
+      "created_at": "2024-08-30T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1008",
+      "company": "Hooli",
+      "contact_name": "Gavin Belson",
+      "email": "invoices@hooli.example",
+      "plan": "enterprise",
+      "status": "active",
+      "created_at": "2024-03-05T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1009",
+      "company": "Vandelay Industries",
+      "contact_name": "Art Vandelay",
+      "email": "billing@vandelay.example",
+      "plan": "growth",
+      "status": "active",
+      "created_at": "2024-07-11T00:00:00Z"
+    },
+    {
+      "customer_id": "CUS-1010",
+      "company": "Massively Dynamic",
+      "contact_name": "Jian Yang",
+      "email": "accounts@massivelydynamic.example",
+      "plan": "growth",
+      "status": "past_due",
+      "created_at": "2024-09-27T00:00:00Z"
+    }
+  ],
+  "accounts": [
+    {
+      "account_id": "ACC-2201",
+      "customer_id": "CUS-1001",
+      "billing_contact_email": "billing@acme.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "OR"
+      }
+    },
+    {
+      "account_id": "ACC-2202",
+      "customer_id": "CUS-1002",
+      "billing_contact_email": "ap@globex.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "CO"
+      }
+    },
+    {
+      "account_id": "ACC-2203",
+      "customer_id": "CUS-1003",
+      "billing_contact_email": "accounts@initech.example",
+      "payment_terms": "net45",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "TX"
+      }
+    },
+    {
+      "account_id": "ACC-2204",
+      "customer_id": "CUS-1004",
+      "billing_contact_email": "billing@umbrella.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "MI"
+      }
+    },
+    {
+      "account_id": "ACC-2205",
+      "customer_id": "CUS-1005",
+      "billing_contact_email": "finance@stark.example",
+      "payment_terms": "net15",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "NY"
+      }
+    },
+    {
+      "account_id": "ACC-2206",
+      "customer_id": "CUS-1006",
+      "billing_contact_email": "ap@wayne.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "NJ"
+      }
+    },
+    {
+      "account_id": "ACC-2207",
+      "customer_id": "CUS-1007",
+      "billing_contact_email": "billing@soylent.example",
+      "payment_terms": "net15",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "CA"
+      }
+    },
+    {
+      "account_id": "ACC-2208",
+      "customer_id": "CUS-1008",
+      "billing_contact_email": "invoices@hooli.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "CA"
+      }
+    },
+    {
+      "account_id": "ACC-2209",
+      "customer_id": "CUS-1009",
+      "billing_contact_email": "billing@vandelay.example",
+      "payment_terms": "net45",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "NY"
+      }
+    },
+    {
+      "account_id": "ACC-2210",
+      "customer_id": "CUS-1010",
+      "billing_contact_email": "accounts@massivelydynamic.example",
+      "payment_terms": "net30",
+      "currency": "USD",
+      "billing_address": {
+        "country": "US",
+        "region": "CA"
+      }
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscription_id": "SUB-4410",
+      "customer_id": "CUS-1001",
+      "plan": "enterprise",
+      "seat_count": 120,
+      "monthly_amount": 129.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4411",
+      "customer_id": "CUS-1002",
+      "plan": "growth",
+      "seat_count": 45,
+      "monthly_amount": 89.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4412",
+      "customer_id": "CUS-1003",
+      "plan": "growth",
+      "seat_count": 60,
+      "monthly_amount": 89.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4413",
+      "customer_id": "CUS-1004",
+      "plan": "enterprise",
+      "seat_count": 300,
+      "monthly_amount": 420.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4414",
+      "customer_id": "CUS-1005",
+      "plan": "enterprise",
+      "seat_count": 500,
+      "monthly_amount": 750.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4415",
+      "customer_id": "CUS-1006",
+      "plan": "enterprise",
+      "seat_count": 250,
+      "monthly_amount": 380.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4416",
+      "customer_id": "CUS-1007",
+      "plan": "starter",
+      "seat_count": 8,
+      "monthly_amount": 29.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4417",
+      "customer_id": "CUS-1008",
+      "plan": "enterprise",
+      "seat_count": 800,
+      "monthly_amount": 1100.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4418",
+      "customer_id": "CUS-1009",
+      "plan": "growth",
+      "seat_count": 30,
+      "monthly_amount": 89.0,
+      "currency": "USD",
+      "status": "active",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    },
+    {
+      "subscription_id": "SUB-4419",
+      "customer_id": "CUS-1010",
+      "plan": "growth",
+      "seat_count": 55,
+      "monthly_amount": 89.0,
+      "currency": "USD",
+      "status": "past_due",
+      "current_period_start": "2026-10-01T00:00:00Z",
+      "current_period_end": "2026-11-01T00:00:00Z"
+    }
+  ]
+}

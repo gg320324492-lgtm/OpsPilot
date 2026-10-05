@@ -1,0 +1,20 @@
+{"id": "cls-001", "input": "We were charged twice for invoice INV-2026-384. The same $129.00 hit our card 2 seconds apart.", "expected_category": "billing_dispute"}
+{"id": "cls-002", "input": "I can't log into the admin console after the password reset. It keeps saying my session expired.", "expected_category": "account_access"}
+{"id": "cls-003", "input": "The bulk export endpoint returns 503 since this morning. No error body, just the gateway timeout page.", "expected_category": "technical_issue"}
+{"id": "cls-004", "input": "Our invoice is wrong because your API was down for six hours last Tuesday and we couldn't use the product — we want the overcharge reversed.", "expected_category": "billing_dispute"}
+{"id": "cls-005", "input": "Please add our new AP analyst to the account so she can download invoices.", "expected_category": "account_access"}
+{"id": "cls-006", "input": "Our invoice for September shows $1450 but our contract says $1100. This has been wrong since the plan change.", "expected_category": "billing_dispute"}
+{"id": "cls-007", "input": "SSO is redirecting to the wrong tenant and everyone on the finance team is locked out.", "expected_category": "account_access"}
+{"id": "cls-008", "input": "Webhooks stopped firing after we rotated our signing secret. We're getting no deliveries at all.", "expected_category": "technical_issue"}
+{"id": "cls-009", "input": "We were double-charged again this month and the second transaction was never refunded. This is the third time.", "expected_category": "billing_dispute"}
+{"id": "cls-010", "input": "Can you tell me what our current seat count is and how it maps to what we're billed?", "expected_category": "other"}
+{"id": "cls-011", "input": "The dashboard renders blank in Safari 17 but works in Chrome. Console shows a CSP violation.", "expected_category": "technical_issue"}
+{"id": "cls-012", "input": "Please cancel the extra 20 seats we added in August and credit us for the difference on the next invoice.", "expected_category": "billing_dispute"}
+{"id": "cls-013", "input": "I forgot the MFA device and I'm the only owner on the account. I need the recovery codes reissued.", "expected_category": "account_access"}
+{"id": "cls-014", "input": "Our payment failed because the card on file expired, but your error message just said 'something went wrong' — which is a UI bug and also why we're now past due.", "expected_category": "billing_dispute"}
+{"id": "cls-015", "input": "Do you offer a SOC 2 report and a DPA for enterprise customers?", "expected_category": "other"}
+{"id": "cls-016", "input": "Rate limits on the search endpoint are rejecting legitimate traffic. We're under our quota but still seeing 429s.", "expected_category": "technical_issue"}
+{"id": "cls-017", "input": "The refund for our duplicate charge says it was issued but it never landed on the card. Can you trace TX-88219?", "expected_category": "billing_dispute"}
+{"id": "cls-018", "input": "Two of our users left the company. Please deactivate their access to the workspace.", "expected_category": "account_access"}
+{"id": "cls-019", "input": "Where can I find the release notes for the October 2026 platform update?", "expected_category": "other"}
+{"id": "cls-020", "input": "Your service went down during our Black Friday sale, which cost us revenue. We want the invoice for that month waived — arguing about it is pointless if you keep timing out on us.", "expected_category": "billing_dispute"}

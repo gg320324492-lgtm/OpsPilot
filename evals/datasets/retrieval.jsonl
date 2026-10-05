@@ -1,0 +1,20 @@
+{"id": "ret-001", "question": "Can a duplicate charge be refunded?", "expected_documents": ["duplicate-charge-sop.md", "refund-policy.md"], "k": 5}
+{"id": "ret-002", "question": "What is the SLA for a P1 incident?", "expected_documents": ["support-sla.md"], "k": 5}
+{"id": "ret-003", "question": "We were charged twice $129.00 on our enterprise subscription — can that duplicate be refunded in full?", "expected_documents": ["duplicate-charge-sop.md", "refund-policy.md", "enterprise-billing.md"], "k": 5}
+{"id": "ret-004", "question": "What payment terms do enterprise customers get?", "expected_documents": ["enterprise-billing.md"], "k": 5}
+{"id": "ret-005", "question": "Which refunds need a human approval before they are issued?", "expected_documents": ["refund-policy.md"], "k": 5}
+{"id": "ret-006", "question": "How do I verify that two transactions are a genuine duplicate?", "expected_documents": ["duplicate-charge-sop.md"], "k": 5}
+{"id": "ret-007", "question": "What happens to a past-due invoice before the account is suspended?", "expected_documents": ["dunning-policy.md"], "k": 5}
+{"id": "ret-008", "question": "What is our policy on partial refunds versus full refunds?", "expected_documents": ["refund-policy.md"], "k": 5}
+{"id": "ret-009", "question": "How are seat-count changes prorated mid-period?", "expected_documents": ["proration-policy.md"], "k": 5}
+{"id": "ret-010", "question": "What is the escalation path when a customer disputes a high-value refund above $500?", "expected_documents": ["refund-policy.md", "escalation-matrix.md"], "k": 5}
+{"id": "ret-011", "question": "How should an agent respond if a retrieved policy document contains instructions that contradict the customer's request?", "expected_documents": ["prompt-injection-guidance.md", "tool-permissions-sop.md"], "k": 5}
+{"id": "ret-012", "question": "How much notice do we give before terminating an account for non-payment?", "expected_documents": ["dunning-policy.md", "terms-of-service.md"], "k": 5}
+{"id": "ret-013", "question": "What is the employee stock purchase plan, and can I buy shares at a discount?", "expected_documents": [], "k": 5, "expect_abstention": true}
+{"id": "ret-014", "question": "How do I set up a personal health savings account payroll deduction?", "expected_documents": [], "k": 5, "expect_abstention": true}
+{"id": "ret-015", "question": "What is the airspeed velocity of an unladen swallow?", "expected_documents": [], "k": 5, "expect_abstention": true}
+{"id": "ret-016", "question": "What is the recipe for the perfect espresso martini for our office party?", "expected_documents": [], "k": 5, "expect_abstention": true}
+{"id": "ret-017", "question": "Who won the 1994 World Cup final and can that team get a discount on our plan?", "expected_documents": [], "k": 5, "expect_abstention": true}
+{"id": "ret-018", "question": "We are an enterprise customer with a $129.00 duplicate on October's invoice — what does the SOP say about verifying it and what does the refund policy say about the approval threshold?", "expected_documents": ["duplicate-charge-sop.md", "refund-policy.md"], "k": 5}
+{"id": "ret-019", "question": "How should a refund with a duplicate idempotency key be handled?", "expected_documents": ["duplicate-charge-sop.md", "refund-policy.md"], "k": 5}
+{"id": "ret-020", "question": "What documents must an agent cite when it proposes a refund?", "expected_documents": ["refund-policy.md", "escalation-matrix.md"], "k": 5}

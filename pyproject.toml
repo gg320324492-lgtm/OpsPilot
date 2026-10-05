@@ -1,0 +1,224 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opspilot"
+version = "0.1.0"
+description = "A reliable AI operations agent for B2B support and billing — MCP tools, RAG, deterministic policy controls, human approval, tracing and evaluation."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+  "ai-agent",
+  "mcp",
+  "model-context-protocol",
+  "rag",
+  "human-in-the-loop",
+  "ai-safety",
+  "llm",
+  "fastapi",
+  "pgvector",
+  "langgraph",
+  "evaluation",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Office/Business",
+  "Typing :: Typed",
+]
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "sqlalchemy>=2.0.36",
+  "alembic>=1.14",
+  "psycopg[binary]>=3.2",
+  "mcp>=1.2",
+  "httpx>=0.28",
+  "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+# The provider adapters. Separate from the core so that a deployment using only
+# one provider installs only one SDK -- and, more importantly, so that the core
+# workflow, the whole test suite and the golden-path demo can run with NEITHER
+# installed. If an SDK ever leaks into `agents/` or `domain/`, the test suite
+# fails on a machine where it is absent, which is the guard this extra exists to
+# provide.
+openai = ["openai>=1.54"]
+anthropic = ["anthropic>=0.39"]
+
+# Real embeddings. The default embedder is a deterministic local function so a
+# fresh clone and CI need no API key; this extra is what makes retrieval quality
+# real, and it is not installed by default for that reason.
+embeddings = ["openai>=1.54"]
+
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.13",
+  "types-requests",
+  "openai>=1.54",
+  "anthropic>=0.39",
+]
+
+[project.scripts]
+opspilot-api = "opspilot.api.__main__:main"
+opspilot-worker = "opspilot.worker.__main__:main"
+opspilot-eval = "opspilot.evals.__main__:main"
+opspilot-seed = "opspilot.mcp_servers.seed:main"
+
+[project.urls]
+Homepage = "https://github.com/gg320324492-lgtm/OpsPilot"
+Source = "https://github.com/gg320324492-lgtm/OpsPilot"
+Issues = "https://github.com/gg320324492-lgtm/OpsPilot/issues"
+Documentation = "https://github.com/gg320324492-lgtm/OpsPilot/blob/main/docs/architecture.md"
+
+[tool.setuptools.packages.find]
+where = ["src", "mcp_servers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "evals"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+  # Requires a real PostgreSQL with pgvector. Skipped locally where the
+  # development machine has no Docker; the suite prints the skip count so a green
+  # run is not mistaken for full coverage.
+  "postgres: requires a real PostgreSQL with pgvector (see docs/adr/0004)",
+  # Requires a real model provider and an API key. Never runs in CI's default
+  # job -- `eval-live` is manual, because cost and non-determinism do not belong
+  # on every push.
+  "live: requires a real model provider API key",
+  "slow: takes more than a few seconds",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "evals", "mcp_servers"]
+# `docs/` holds the human-authored specification. Ruff >= 0.16 reformats fenced
+# Python blocks inside Markdown, which would rewrite the spec text itself. The
+# spec is an input artifact and is reviewed as prose, so it is excluded.
+extend-exclude = ["docs", "apps/web"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",     # pycodestyle, pyflakes
+  "I",               # isort
+  "N",               # pep8-naming
+  "UP",              # pyupgrade
+  "B",               # flake8-bugbear
+  "C4",              # comprehensions
+  "SIM",             # simplify
+  "PTH",             # pathlib over os.path
+  "RUF",             # ruff-specific
+  "ANN",             # annotations -- this project is typed end to end
+  "ARG",             # unused arguments
+  "ASYNC",           # async pitfalls
+  "S",               # bandit: security
+  "T20",             # no print() outside of CLI entry points
+  "RET",             # return consistency
+  "TID",             # tidy imports
+  "PGH",             # no blanket noqa
+  "TRY",             # exception handling
+  "LOG",             # logging correctness
+  "G",               # logging format
+  "A",               # builtin shadowing
+  "DTZ",             # timezone-aware datetimes -- every timestamp is UTC
+]
+# Rule by rule rather than a directory-wide ignore, so an exception is visible
+# where it applies rather than in a central list.
+ignore = [
+  # The five-gate function in agents/runtime.py is deliberately long and linear:
+  # it is the security-critical path, and splitting it into helpers would make
+  # the order of the gates harder to verify by reading. Length in a numbered
+  # sequence of gates is the point.
+  "PLR0912",
+  "PLR0915",
+  # `assert` is used in tests and in the security invariant checks where a
+  # failure should be loud and the code is not compiled with -O.
+  "S101",
+  # Exceptions are named for the *domain condition* they represent, not suffixed
+  # with "Error". `RunParked` says the run is legitimately waiting for a human --
+  # which is the workflow working, not a failure -- and `RunParkedError` would
+  # suggest the opposite. Same for `IllegalTransition`, `UnknownTool` and
+  # `MaxStepsExceeded`. `errors.py`'s module docstring is the argument; the rule
+  # is off globally rather than per-name so a new domain exception does not need
+  # a new exception to the linter.
+  "N818",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and the eval harness print by design: their output is the product.
+"tests/**" = ["T20", "S101", "ARG001"]
+"evals/**" = ["T20", "S101", "ARG001"]
+# MCP servers are standalone processes; their entry points print.
+"mcp_servers/**/__main__.py" = ["T20"]
+"mcp_servers/**/server.py" = ["T20"]
+# Seed and CLI entry points.
+"src/opspilot/**/__main__.py" = ["T20"]
+"src/opspilot/mcp_servers/seed.py" = ["T20"]
+"src/opspilot/evals/*.py" = ["T20"]
+# Alembic's generated migration files are not ours to style.
+"migrations/**" = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["opspilot", "mcp_servers"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_any_generics = true
+no_implicit_reexport = true
+files = ["src", "mcp_servers", "tests", "evals"]
+
+# The MCP SDK's type stubs are incomplete; the adapter that touches it is the one
+# place where a narrow relaxation is granted, and it is named rather than global.
+[[tool.mypy.overrides]]
+module = ["opspilot.adapters.tools.mcp_gateway"]
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "mcp.*", "pgvector.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["opspilot", "mcp_servers"]
+omit = [
+  # Alembic's environment file is configuration, not logic.
+  "migrations/*",
+  # The LangGraph adapter is exercised by its contract test in CI only; it is
+  # omitted from the coverage number rather than covered by a mock of LangGraph,
+  # which would measure the mock.
+  "src/opspilot/adapters/orchestration/langgraph_adapter.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@abstractmethod",
+]

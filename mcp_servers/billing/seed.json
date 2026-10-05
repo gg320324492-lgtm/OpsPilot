@@ -1,0 +1,541 @@
+{
+  "version": 1,
+  "refunds": [],
+  "next_refund_id": 10091,
+  "invoices": [
+    {
+      "invoice_id": "INV-2026-384",
+      "customer_id": "CUS-1001",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- October 2026",
+          "amount": 129.0
+        }
+      ],
+      "total": 129.0,
+      "amount_paid": 129.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-385",
+      "customer_id": "CUS-1001",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- September 2026",
+          "amount": 129.0
+        }
+      ],
+      "total": 129.0,
+      "amount_paid": 129.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-386",
+      "customer_id": "CUS-1002",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- October 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 89.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-387",
+      "customer_id": "CUS-1003",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-11-15T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- October 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 0.0,
+      "status": "open"
+    },
+    {
+      "invoice_id": "INV-2026-388",
+      "customer_id": "CUS-1003",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- September 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 40.0,
+      "status": "partially_paid"
+    },
+    {
+      "invoice_id": "INV-2026-389",
+      "customer_id": "CUS-1004",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- October 2026",
+          "amount": 420.0
+        }
+      ],
+      "total": 420.0,
+      "amount_paid": 420.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-390",
+      "customer_id": "CUS-1004",
+      "issued_at": "2026-08-01T00:00:00Z",
+      "due_at": "2026-08-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- August 2026",
+          "amount": 420.0
+        }
+      ],
+      "total": 420.0,
+      "amount_paid": 0.0,
+      "status": "overdue"
+    },
+    {
+      "invoice_id": "INV-2026-391",
+      "customer_id": "CUS-1005",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- October 2026",
+          "amount": 750.0
+        }
+      ],
+      "total": 750.0,
+      "amount_paid": 750.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-392",
+      "customer_id": "CUS-1005",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-09-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- September 2026",
+          "amount": 750.0
+        }
+      ],
+      "total": 750.0,
+      "amount_paid": 750.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-393",
+      "customer_id": "CUS-1006",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- October 2026",
+          "amount": 380.0
+        }
+      ],
+      "total": 380.0,
+      "amount_paid": 380.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-394",
+      "customer_id": "CUS-1006",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- September 2026",
+          "amount": 380.0
+        }
+      ],
+      "total": 380.0,
+      "amount_paid": 380.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-395",
+      "customer_id": "CUS-1007",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Starter plan -- October 2026",
+          "amount": 29.0
+        }
+      ],
+      "total": 29.0,
+      "amount_paid": 29.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-396",
+      "customer_id": "CUS-1008",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- October 2026",
+          "amount": 1450.0
+        }
+      ],
+      "total": 1450.0,
+      "amount_paid": 1450.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-397",
+      "customer_id": "CUS-1008",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- September 2026",
+          "amount": 1100.0
+        }
+      ],
+      "total": 1100.0,
+      "amount_paid": 1100.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-398",
+      "customer_id": "CUS-1009",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-11-15T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- October 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 0.0,
+      "status": "open"
+    },
+    {
+      "invoice_id": "INV-2026-399",
+      "customer_id": "CUS-1009",
+      "issued_at": "2026-08-01T00:00:00Z",
+      "due_at": "2026-09-15T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- August 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 0.0,
+      "status": "overdue"
+    },
+    {
+      "invoice_id": "INV-2026-400",
+      "customer_id": "CUS-1010",
+      "issued_at": "2026-10-01T00:00:00Z",
+      "due_at": "2026-10-31T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- October 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 0.0,
+      "status": "open"
+    },
+    {
+      "invoice_id": "INV-2026-401",
+      "customer_id": "CUS-1010",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- September 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 50.0,
+      "status": "partially_paid"
+    },
+    {
+      "invoice_id": "INV-2026-402",
+      "customer_id": "CUS-1002",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- September 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 89.0,
+      "status": "paid"
+    },
+    {
+      "invoice_id": "INV-2026-403",
+      "customer_id": "CUS-1004",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-10-01T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- September 2026",
+          "amount": 420.0
+        }
+      ],
+      "total": 420.0,
+      "amount_paid": 420.0,
+      "status": "refunded"
+    },
+    {
+      "invoice_id": "INV-2026-404",
+      "customer_id": "CUS-1007",
+      "issued_at": "2026-09-01T00:00:00Z",
+      "due_at": "2026-09-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Starter plan -- September 2026",
+          "amount": 29.0
+        }
+      ],
+      "total": 29.0,
+      "amount_paid": 29.0,
+      "status": "refunded"
+    },
+    {
+      "invoice_id": "INV-2026-405",
+      "customer_id": "CUS-1003",
+      "issued_at": "2026-08-01T00:00:00Z",
+      "due_at": "2026-09-15T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Growth plan -- August 2026",
+          "amount": 89.0
+        }
+      ],
+      "total": 89.0,
+      "amount_paid": 0.0,
+      "status": "overdue"
+    },
+    {
+      "invoice_id": "INV-2026-406",
+      "customer_id": "CUS-1005",
+      "issued_at": "2026-08-01T00:00:00Z",
+      "due_at": "2026-08-16T00:00:00Z",
+      "currency": "USD",
+      "line_items": [
+        {
+          "description": "Enterprise plan -- August 2026",
+          "amount": 750.0
+        }
+      ],
+      "total": 750.0,
+      "amount_paid": 750.0,
+      "status": "paid"
+    }
+  ],
+  "transactions": [
+    {
+      "transaction_id": "TX-88218",
+      "invoice_id": "INV-2026-384",
+      "amount": 129.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T02:14:07Z",
+      "payment_method": "card_****4242"
+    },
+    {
+      "transaction_id": "TX-88219",
+      "invoice_id": "INV-2026-384",
+      "amount": 129.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T02:14:09Z",
+      "payment_method": "card_****4242"
+    },
+    {
+      "transaction_id": "TX-88001",
+      "invoice_id": "INV-2026-385",
+      "amount": 129.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-01T02:11:03Z",
+      "payment_method": "card_****4242"
+    },
+    {
+      "transaction_id": "TX-88002",
+      "invoice_id": "INV-2026-386",
+      "amount": 89.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-02T09:00:11Z",
+      "payment_method": "card_****1881"
+    },
+    {
+      "transaction_id": "TX-88003",
+      "invoice_id": "INV-2026-388",
+      "amount": 40.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-20T11:32:44Z",
+      "payment_method": "card_****7702"
+    },
+    {
+      "transaction_id": "TX-88004",
+      "invoice_id": "INV-2026-389",
+      "amount": 420.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T06:05:19Z",
+      "payment_method": "card_****3310"
+    },
+    {
+      "transaction_id": "TX-88005",
+      "invoice_id": "INV-2026-391",
+      "amount": 750.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T04:47:52Z",
+      "payment_method": "card_****9004"
+    },
+    {
+      "transaction_id": "TX-88006",
+      "invoice_id": "INV-2026-392",
+      "amount": 750.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-01T04:51:07Z",
+      "payment_method": "card_****9004"
+    },
+    {
+      "transaction_id": "TX-88007",
+      "invoice_id": "INV-2026-393",
+      "amount": 380.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T08:12:30Z",
+      "payment_method": "card_****5120"
+    },
+    {
+      "transaction_id": "TX-88008",
+      "invoice_id": "INV-2026-394",
+      "amount": 380.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-01T08:15:41Z",
+      "payment_method": "card_****5120"
+    },
+    {
+      "transaction_id": "TX-88009",
+      "invoice_id": "INV-2026-395",
+      "amount": 29.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T13:22:09Z",
+      "payment_method": "card_****6033"
+    },
+    {
+      "transaction_id": "TX-88010",
+      "invoice_id": "INV-2026-396",
+      "amount": 1450.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-10-01T07:02:55Z",
+      "payment_method": "card_****2440"
+    },
+    {
+      "transaction_id": "TX-88011",
+      "invoice_id": "INV-2026-397",
+      "amount": 1100.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-01T07:05:12Z",
+      "payment_method": "card_****2440"
+    },
+    {
+      "transaction_id": "TX-88012",
+      "invoice_id": "INV-2026-401",
+      "amount": 50.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-28T15:44:38Z",
+      "payment_method": "card_****8217"
+    },
+    {
+      "transaction_id": "TX-88013",
+      "invoice_id": "INV-2026-403",
+      "amount": 420.0,
+      "currency": "USD",
+      "status": "refunded",
+      "processed_at": "2026-09-03T10:18:26Z",
+      "payment_method": "card_****3310",
+      "refund_id": "REF-99001"
+    },
+    {
+      "transaction_id": "TX-88014",
+      "invoice_id": "INV-2026-404",
+      "amount": 29.0,
+      "currency": "USD",
+      "status": "refunded",
+      "processed_at": "2026-09-04T16:29:03Z",
+      "payment_method": "card_****6033",
+      "refund_id": "REF-99002"
+    },
+    {
+      "transaction_id": "TX-88015",
+      "invoice_id": "INV-2026-406",
+      "amount": 750.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-08-01T04:44:19Z",
+      "payment_method": "card_****9004"
+    },
+    {
+      "transaction_id": "TX-88016",
+      "invoice_id": "INV-2026-402",
+      "amount": 89.0,
+      "currency": "USD",
+      "status": "charged",
+      "processed_at": "2026-09-02T09:03:24Z",
+      "payment_method": "card_****1881"
+    }
+  ]
+}
