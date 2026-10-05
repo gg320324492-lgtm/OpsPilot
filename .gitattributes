@@ -1,0 +1,64 @@
+# Normalise line endings in the repository, so a checkout on Windows and a
+# checkout on Linux produce the same bytes.
+#
+# Without this file, `core.autocrlf=true` on a Windows machine rewrites LF to
+# CRLF on checkout, and the working tree then differs from the index on every
+# text file. Two consequences, both real:
+#
+#   1. `git status` shows clean while the files on disk have different line
+#      endings from the ones committed, so a diff of a genuine one-line change
+#      arrives as a whole-file rewrite.
+#   2. Seed JSON and Markdown fixtures that are hashed or byte-compared --
+#      `knowledge_documents.content_hash` is a sha256 of the file -- hash
+#      differently depending on the platform that checked them out. The
+#      ingestion test would then pass on one machine and fail on another for a
+#      reason that has nothing to do with the content.
+
+# Default: normalise to LF on commit, check out LF everywhere. Most of this
+# repository is Python, Markdown and JSON, and every tool in the chain handles
+# LF on every platform.
+* text=auto eol=lf
+
+# Explicit, because the default above is a policy and these are the files whose
+# bytes are actually load-bearing.
+*.py      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.jsonl   text eol=lf
+*.toml    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.ini     text eol=lf
+*.mako    text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.css     text eol=lf
+
+# Shell scripts must keep LF: a CRLF shebang line fails with
+# "bad interpreter: No such file or directory", which is a confusing error for a
+# file that looks correct in an editor.
+*.sh      text eol=lf
+
+# Batch and PowerShell files are the exception -- Windows tooling expects CRLF.
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# Binary: never text-normalise, never diff.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif    binary
+*.ico     binary
+*.woff    binary
+*.woff2   binary
+*.pdf     binary
+*.db      binary
+*.sqlite  binary
+
+# Mark generated and vendored trees as such, so `git log -- <path>` and
+# `git blame` do not attribute them and diffs collapse by default.
+node_modules/  linguist-vendored
+.venv/         linguist-vendored
+migrations/versions/  linguist-generated
+package-lock.json     linguist-generated
