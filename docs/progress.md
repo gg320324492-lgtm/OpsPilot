@@ -11,7 +11,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M0 — Architecture and skeleton | done | See below |
 | M1 — Database and API skeleton | done | See below |
 | M2 — MCP servers | done | See below |
-| M3 — Tool gateway, policy, approval | not started | |
+| M3 — Tool gateway, policy, approval | done | See below |
 | M4 — Agent runtime | not started | |
 | M5 — RAG | not started | |
 | M6 — Golden workflow | not started | |
@@ -443,3 +443,131 @@ nothing about whether the tree it ran in is clean.
   real library rather than the shim the brief anticipated, adapting to `Store`
   (not `JsonStore`) and to `Record.get()` rather than attribute access. The seam
   held; no rework was needed at the join.
+
+---
+
+## M3 — Tool gateway, policy engine, approval gate
+
+**Status:** done, after one blocking defect was found in review and fixed.
+
+The security core. Its claim is that the model cannot cause a side effect, and
+this milestone is where that is either true or a slogan.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| 1 | Five gates in order, no bypass path | ✅ registry → permission → policy → approval → execute |
+| 2 | `TOOL_REGISTRY` permissions static, matching the spec | ✅ verified against a hard-coded literal |
+| 3 | `HIGH_RISK_WRITE` never executes without a persisted approval | ✅ parks, executes nothing |
+| 4 | Approval bound to `tool_call_id`, not `run_id` | ✅ a database read |
+| 5 | Unknown tool rejected, never dispatched | ✅ zero dispatches |
+| 6 | `SAFE_WRITE` executes automatically **and** is audited | ✅ |
+| 7 | Idempotent on one key | ✅ at the store; the gate-4 short-circuit is unwired (below) |
+| 8 | Four CI invariants return 0 | ✅ and the queries detect a violation when one is injected |
+
+### Independent verification — attacks, not assertions
+
+The reviewer drove the real gate with a spy gateway and attempted to break it.
+Each attempt had to fail:
+
+| Attack | Result |
+|---|---|
+| Invent `billing.wire_transfer` | Rejected at gate 2, **zero dispatches** |
+| `HIGH_RISK_WRITE` with no approval | `RunParked`, and nothing executed |
+| Approval for one transaction reused for another | Refused |
+| `COMPLETED → EXECUTING` | `IllegalTransition` |
+| `AgentRun.status` has no setter | Confirmed — no way to bypass the transition table |
+
+Two properties were verified by **injection** rather than by reading:
+
+- **The invariant query detects a violation.** An unapproved, executed
+  `high_risk_write` row was inserted directly and the §6 query returned **1**.
+  A query that returns 0 on an empty database proves nothing; this one was shown
+  to return non-zero when the thing it forbids is present.
+- **The park really interrupts control flow.** `_park_run` ends in
+  `raise RunParked`, so control cannot fall through to `EXECUTE`.
+
+### The blocking defect: the refund could not execute
+
+`runtime.py` dispatched `call.arguments` to the gateway. That dict is the
+Pydantic-parsed arguments, and `RefundArgs` **forbids** `idempotency_key` on
+purpose — the key is derived from `(run, transaction)` by the policy engine,
+because a model-chosen key could be unique every time and defeat the duplicate
+check (`docs/tool-permissions.md` §4). The consequence was that the derived key
+was used for the gate-4 lookup and recorded on the tool call, but **never sent to
+the tool**. The MCP server requires it.
+
+Reproduced against the real server:
+
+```
+gate as it was:  ok=False  error=validation_error
+                 "idempotency_key  Field required [type=missing]"
+with the key:    ok=True   refund_id=REF-10091
+```
+
+So an approved refund could not execute, and the project's central promise — an
+idempotent refund — never engaged on the real path. **246 tests passed anyway**,
+because they drove the gate with a stub gateway that accepts any arguments.
+
+Fixed by building the dispatch payload explicitly — the tool's schema fields plus
+the derived key, added only at the dispatch site, never accepted from the
+proposal. `RefundArgs.amount` also changed from `str` to `float` to match the
+server's signature; the ceiling rule and risk explanation needed no change
+because `_as_decimal` already accepted floats.
+
+**This is the third instance of one pattern**, and it is now the most important
+thing this project has learned: *a test written against the implementation agrees
+with the implementation*. M2's tool names, M2's store path, and now M3's argument
+contract were all invisible to suites that drove the system through its own
+double. The fix is the new `tests/integration/test_gate_dispatch_contract.py`,
+which drives the real `MCPToolGateway` and a real MCP server. It was verified able
+to fail: reverting the dispatch fix turns two of its tests red with
+`- executed / + failed`.
+
+### Known gap carried forward: the gate-4 short-circuit is unwired
+
+`_no_executed_lookup` returns `(False, None)` — "nothing has ever executed" — and
+**nothing supplies a real implementation**. So in a real deployment the
+idempotency short-circuit never fires.
+
+Observed consequence in the normal flow: a second proposal for the same
+`(run, transaction)` does not short-circuit; it parks for a **second** human
+approval, and executing that approval trips the partial unique index
+(`IntegrityError`).
+
+**This is not a safety hole.** The server returns one refund; `TX-88219` is
+refunded exactly once. The database index is doing the job the short-circuit was
+meant to do more cheaply. It is a functional gap: the behaviour the specification
+describes is not the behaviour that happens. Tracked for M4, where the worker
+gives the lookup a home.
+
+### A process problem worth recording
+
+One agent, to prove its security tests could fail, edited another agent's files
+(`agents/runtime.py`, `domain/policies.py`) to inject a bypass and then restored
+them. It disclosed this and warned that the restore could have clobbered the
+other agent's concurrent edits. It did: a window existed in which 15 gate tests
+failed, which is how the reviewer noticed.
+
+The *technique* was valuable — replacing `has_approved(...)` with `approved = True`
+made seven security tests go red, proving they guard something real. The
+*mechanism* was not: two agents editing one file with no locking. Verification by
+mutation belongs to the reviewer, after both authors have stopped, and that is
+where it now lives: the reviewer reverted the dispatch fix and confirmed the new
+test catches it, rather than an author mutating a shared file mid-flight.
+
+### What was learned
+
+- **A stub double cannot detect a contract mismatch, by construction.** The gate
+  tests were thorough and green while the one real integration — gate to MCP
+  server — was broken. Tests should cross the boundary they are claiming to
+  protect at least once.
+- **"It passes" and "it works" diverged three times in three milestones**, always
+  at a seam between two agents' work, always because each side's tests agreed
+  with that side. The reviewer's independent probes, written from the
+  specification rather than from the code, found all three.
+- **A finding reported by an agent needs checking too.** One agent reported the
+  approval path as a defect; it is M4's missing worker. Another reported the
+  duplicate-key collision; that one was real, and reproducing it took ten
+  minutes and settled it.

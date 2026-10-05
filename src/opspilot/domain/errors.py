@@ -101,3 +101,8 @@ class MaxStepsExceeded(DomainError):
 
     Maps to ``FAILED`` with ``failure_reason='max_steps_exceeded'``.
     """
+
+    def __init__(self, run_id: str, max_steps: int) -> None:
+        self.run_id = run_id
+        self.max_steps = max_steps
+        super().__init__(f"run {run_id} exceeded the {max_steps}-step budget")

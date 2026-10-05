@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     # -- Tool policy ---------------------------------------------------------
     # Comma-separated tool names to refuse. May only remove capability.
     opspilot_tool_denylist: str = Field(default="", alias="OPSPILOT_TOOL_DENYLIST")
+    # The largest refund the policy engine will let reach the approval gate,
+    # minor-unit free (it is compared as a Decimal against the call's ``amount``).
+    # Empty means "no ceiling": the approval gate is still the control that stops
+    # the money (``docs/risks.md`` R3) -- the ceiling exists to make an
+    # obviously-too-large number a *rejection* rather than something a tired
+    # approver has to catch. This removes capability only; it can never widen a
+    # permission, which is static code (ADR-0003).
+    refund_ceiling: str = Field(default="", alias="OPSPILOT_REFUND_CEILING")
 
     # -- Observability -------------------------------------------------------
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
