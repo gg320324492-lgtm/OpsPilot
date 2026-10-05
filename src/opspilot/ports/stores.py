@@ -217,3 +217,97 @@ class ApprovalStore(Protocol):
         tool call id so approving one refund cannot authorise another.
         """
         ...
+
+
+@dataclass(frozen=True)
+class CitationRecord:
+    """One persisted citation, as the run-detail router needs it.
+
+    The field names are the router's, not the table's: ``runs.py`` reads
+    ``.document``, ``.chunk``, ``.score`` and ``.rank`` off each row and renders
+    ``chunk`` as ``"{document}#{anchor}"`` (``docs/api-contract.md`` §3). The
+    store resolves the document slug and composes the chunk string, so the
+    router never joins tables itself.
+    """
+
+    document: str
+    chunk: str
+    score: float
+    rank: int
+
+
+@dataclass(frozen=True)
+class KnowledgeDocumentRecord:
+    """One indexed document, as the knowledge router needs it.
+
+    ``GET /api/knowledge`` reads ``.source``, ``.title``, ``.chunk_count``,
+    ``.indexed_at`` and ``.content_hash`` (``knowledge.py``). ``chunk_count`` is
+    a derived count -- the table has no such column -- which is why this is a
+    read model rather than the ORM row.
+    """
+
+    source: str
+    title: str
+    chunk_count: int
+    indexed_at: datetime
+    content_hash: str
+
+
+@runtime_checkable
+class CitationStore(Protocol):
+    """Reads and writes a run's citations.
+
+    A row per cited chunk (``docs/data-model.md`` §2): the UI's Sources panel is
+    a join and the eval's Recall@K metric is a query over ``rank``, both of
+    which a JSON blob on the run would force into application code.
+    """
+
+    async def create(
+        self, *, run_id: UUID, document_id: UUID, chunk_id: UUID, score: float, rank: int
+    ) -> None:
+        """Persist one citation for a run."""
+        ...
+
+    async def create_many(self, run_id: UUID, records: list[CitationRecord]) -> None:
+        """Persist a run's retrieval hits as citations.
+
+        Each ``CitationRecord`` carries its ``chunk`` as ``"{slug}#{anchor}"``;
+        the store resolves the ``document_id`` and ``chunk_id`` the ``citations``
+        table's foreign keys require. The chunk rows must already exist, which
+        they do because retrieval reads them -- see the store docstring.
+        """
+        ...
+
+    async def list_citations(self, run_id: UUID) -> list[CitationRecord]:
+        """Return a run's citations, best rank first."""
+        ...
+
+
+@runtime_checkable
+class KnowledgeDocumentStore(Protocol):
+    """Reads and writes ``knowledge_documents`` rows."""
+
+    async def upsert_document(
+        self,
+        *,
+        source: str,
+        title: str,
+        content: str,
+        metadata: dict[str, object],
+        content_hash: str,
+    ) -> UUID:
+        """Insert or update a document by ``source`` and return its id."""
+        ...
+
+    async def content_hash(self, source: str) -> str | None:
+        """Return the stored content hash for ``source``, or ``None``.
+
+        The ingestion path compares this before doing any work, so an unchanged
+        document is skipped and a reindex is idempotent (``docs/api-contract.md``
+        §9).
+        """
+        ...
+
+    async def list_documents(self) -> list[KnowledgeDocumentRecord]:
+        """Return every indexed document with its chunk count."""
+        ...

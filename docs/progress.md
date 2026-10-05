@@ -13,7 +13,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | done | See below |
 | M4 — Agent runtime | done | See below |
-| M5 — RAG | not started | |
+| M5 — RAG | in progress | M5a (chunking/embeddings/stores) done; M5b (ingest/search) separate; M5c-tool (`knowledge.search` callable) done |
 | M6 — Golden workflow | not started | |
 | M7 — Dashboard | not started | |
 | M8 — Evals and security | not started | |
@@ -683,3 +683,440 @@ still returns to the seed. All three were needed; the original blurred them.
   genuinely dynamic, and the comment explains why `Any` is the honest annotation
   rather than a fabricated Protocol. Noted because the boundary was crossed even
   though the result was right.
+
+---
+
+## M5a — RAG: chunking, embeddings, vector stores
+
+**Started:** 2026-10-05
+
+### Scope
+
+The retrieval primitives only: `chunking.py`, `embeddings.py`, `memory_store.py`,
+`pgvector_store.py`, and their tests. `ingest.py`, `search.py`, the agents, the
+API, the worker, `tests/integration/test_retrieval.py` and
+`tests/security/test_prompt_injection.py` are another agent's M5b and were not
+touched. This section covers M5a only.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `chunking.py` | `estimate_tokens`, `slugify_heading`, `split_document` implemented |
+| `embeddings.py` | `LocalDeterministicEmbedder.embed`, `ProviderEmbedder.embed`, `build_embedder` implemented |
+| `memory_store.py` | `upsert` / `search` implemented; `derive_chunk_id` added |
+| `pgvector_store.py` | `upsert` / `search` implemented against `knowledge_chunks` |
+| `tests/unit/test_chunking.py` | 24 tests |
+| `tests/unit/test_embeddings.py` | 15 tests |
+| `tests/unit/test_vector_stores.py` | 16 tests, 2 `postgres`-marked (skipped locally) |
+
+### The vector-dimension decision
+
+**The column stays `vector(1536)`; the dimension is *not* made freely
+configurable, and no migration was added.**
+
+`knowledge_chunks.embedding` is `vector(1536)`
+(`migrations/versions/0001_initial_schema.py`), and `settings.embedding_dim`
+defaults to `1536`. The two agree by default. If an operator sets
+`EMBEDDING_DIM` to anything else, the model's `TypeDecorator` would render a
+`vector(N)` for N≠1536 that no migration created, and `PgVectorStore` could
+never insert a row.
+
+Three options were considered:
+
+1. **Make it genuinely configurable** with a migration per value — rejected: a
+   migration cannot be written for "any N", so this is not a real option, and a
+   migration for a *specific* second value is untestable locally (no Postgres,
+   no Docker — ADR-0004).
+2. **Silently accept any dimension** on an untyped `vector` column — rejected:
+   drops the width constraint and pushes the failure into pgvector at insert
+   time.
+3. **Keep 1536, and reject any other value loudly at construction** — chosen.
+
+`PgVectorStore.__init__` raises `DimensionMismatch(ValueError)` when `dim` is
+not 1536, naming both numbers and the migration that would be required. This is
+the "acceptable answer" the brief allowed: a non-default dimension is a
+configuration error, not a supported mode, until an operator writes the
+migration. `EMBEDDING_DIM` remains a setting because the model reads it, but the
+production store refuses everything but the column's dimension.
+
+### Decisions a reviewer should check
+
+- **Where `document_slug` comes from.** `ChunkRecord` (in `ports/`) carries
+  `document_id`, not the slug, and `SearchHit` requires the slug because the
+  citation is `"{document_slug}#{anchor}"`. Both stores are constructed with a
+  `slug_lookup: Callable[[UUID], str]` and resolve the slug the same way. The
+  alternative — adding `document_slug` to `ChunkRecord` — would denormalise the
+  port and force every caller to supply a value the port's own docs say is
+  derived from the document row. The lookup keeps `ports/` describing what is
+  stored. `PgVectorStore` accepts the identical keyword, and a test asserts both
+  resolve through it.
+- **How `chunk_id` is derived.** `ChunkRecord` has no id, but `SearchHit` needs
+  one (the `citations.chunk_id` FK). It is derived deterministically via
+  `derive_chunk_id(document_id, ordinal) = uuid5(namespace, "{doc}:{ordinal}")`
+  — the same function in both stores. This is what makes upsert a true
+  replacement and what lets the differential test compare ids, not just scores.
+  A random id per call would give the same chunk a new id on every reindex.
+- **Anchor uniqueness** is GitHub-style: a repeated heading yields `notes`,
+  `notes-1`, `notes-2`. Content before the first heading uses the **empty-string
+  anchor**, so its citation is `"{slug}#"` and the reader greps the slug — there
+  is no rendered heading to grep for, and inventing one would produce a citation
+  that does not resolve.
+- **Overlap is real text.** `_split_body` splits on whitespace and repeats the
+  actual trailing words, so the tail of chunk N is byte-identical to the head of
+  chunk N+1. A test finds the longest common boundary and asserts it is
+  non-trivial — a token-count-only assertion would pass on a broken overlap.
+
+### Commands run (M5a)
+
+```
+pytest tests/unit -x -q                    199 passed, 3 skipped
+mypy --strict src/opspilot/adapters/retrieval   Success: no issues found in 7 source files
+ruff check src/opspilot/adapters/retrieval tests   All checks passed!
+ruff format  src/opspilot/adapters/retrieval tests  53 files left unchanged
+pytest tests -q                            371 passed, 8 skipped
+```
+
+No `type: ignore` was added to `src/opspilot/adapters/retrieval`.
+
+### Mutation verification
+
+Not "does the suite go red" — *which named test* catches each deliberate break.
+Each was applied, observed, and reverted:
+
+| Break applied | Test(s) that failed |
+|---|---|
+| Anchor dedup dropped (duplicate headings share an anchor) | `test_duplicate_headings_get_distinct_anchors`, `test_duplicate_headings_are_deduplicated_github_style` |
+| Overlap forced to zero words | `test_consecutive_chunks_share_identical_text`, `test_overlap_reduces_effective_step` |
+| Punctuation kept in slug | `test_slugify_removes_punctuation`, `test_slugify_matches_github_anchor_for_a_typical_heading` |
+| `estimate_tokens` → floor division, no floor | `test_estimate_tokens_never_zero_for_non_empty_text` |
+| Embedding not normalised | `test_local_embed_is_unit_norm`, `test_local_embed_handles_empty_string` |
+| Embedding made non-deterministic (`os.urandom`) | `test_local_embed_is_deterministic`, `test_local_embed_is_deterministic_across_instances` |
+| `build_embedder` silently falls back to local | `test_build_embedder_unknown_name_raises_and_names_accepted_values` |
+| `embed` returns one vector regardless of input | `test_local_embed_returns_one_vector_per_text`, `test_local_embed_differs_for_different_texts` |
+| Sort key loses score direction and tie-break | `test_memory_search_returns_top_k_best_first`, `test_memory_search_ties_break_deterministically`, `test_memory_store_satisfies_shared_contract` |
+| `upsert` appends instead of replacing | `test_memory_upsert_replaces_by_document_and_ordinal`, `test_memory_store_satisfies_shared_contract` |
+| `rank` starts at 0 | `test_memory_search_returns_top_k_best_first`, `test_memory_search_ranks_start_at_one_and_are_dense` |
+| `derive_chunk_id` returns a random uuid | `test_memory_search_hit_chunk_id_is_deterministic` |
+| `PgVectorStore` dimension guard removed | `test_pgvector_store_rejects_dim_mismatch_loudly` |
+| Memory store ignores `slug_lookup` | `test_memory_search_resolves_document_slug_via_lookup`, `test_memory_search_ties_break_deterministically` |
+
+**One mutation did not go red, and that is a finding.** Removing
+`slugify_heading`'s `lstrip("#")` left all tests green — the `_SLUG_DROP_RE`
+(`[^\w\s-]`) already strips `#` as punctuation, so the `lstrip` is redundant.
+It is kept as defence-in-depth but a reviewer should know no test covers it,
+because no test *can*: the code path is unreachable for any input.
+
+### Known gaps carried forward
+
+- **The pgvector store is not executed by the local suite.** No Postgres and no
+  Docker here (ADR-0004), so `PgVectorStore.upsert` and `search` — including the
+  `<=>` distance expression and the join to `knowledge_documents` — are
+  exercised only by the `postgres`-marked tests, which skip locally. They pass
+  as *skipped*, not as *passed*. The differential test against
+  `InMemoryVectorStore` is written and requires the CI `verify` job.
+- **The differential test cannot run here.** It is present in
+  `test_vector_stores.py` and skipped; per `docs/milestones.md` §M5 it is first
+  proven green in M9.
+- **`PgVectorStore` reads the column dimension from a class constant, not from
+  `settings.embedding_dim`.** The constant is `1536`, matching the migration.
+  If a future milestone adds a migration to change the column, the constant and
+  the migration must move together; there is no single source of truth for the
+  pair yet.
+
+
+---
+
+## M5c — `knowledge.search` as a callable `READ` tool
+
+**Started:** 2026-10-05
+
+### Scope
+
+One focused slice: make `knowledge.search` — already declared in
+`TOOL_REGISTRY` (`domain/tools.py:68`) as `permission=READ, server="internal"` —
+a real, callable tool reachable through the tool gateway. Previously no server
+implemented it and no gateway could dispatch it.
+
+Files owned by this slice: `mcp_servers/knowledge/server.py` (new),
+`src/opspilot/adapters/tools/mcp_gateway.py`, `tests/integration/test_mcp_knowledge.py`
+(new), and this section. The retrieval backend
+(`src/opspilot/adapters/retrieval/**`) and the agent/API/worker wiring are
+another agent's M5b and were not touched.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `mcp_servers/knowledge/server.py` | New in-process MCP server; one tool `knowledge.search`, `structured_output=True`, Pydantic `SearchResult` return model |
+| `src/opspilot/adapters/tools/mcp_gateway.py` | `_KNOWN_SERVERS` gains `knowledge`; `_SERVER_ALIASES` maps the registry's `internal` to the `knowledge` server; `build_in_process_servers` builds it, optionally with an injected retriever |
+| `tests/integration/test_mcp_knowledge.py` | 9 tests driving the real gateway in-process |
+
+### Decisions a reviewer should check
+
+- **One retrieval, not two.** The server delegates to the shared search through
+  an injected `retriever: (query, top_k) -> RetrievalOutcome` callable, so the
+  tool and the agent cannot disagree about what retrieval *is*
+  (`adapters/retrieval/search.py`). The callable is injected rather than
+  constructed here because the embedder and vector store are
+  deployment-specific; the server module therefore imports no database driver.
+- **The `internal` → `knowledge` alias lives in the gateway, not the registry.**
+  `knowledge.search`'s `ToolSpec.server` is `"internal"` (a
+  permission-bearing, spec-transcribed fact), while the MCP server's name is
+  `knowledge`. Translating at the dispatch site keeps the static registry
+  unchanged — it is not the place to accommodate a transport detail.
+- **`not_configured` is a refusal, not an empty success.** With no retriever
+  bound, the tool returns `code="not_configured"` rather than raising (which
+  would lose the code, `mcp-sdk-notes.md` §5) or returning zero hits with
+  `code=None` (which is indistinguishable from a configured index that found
+  nothing). `abstained=True` is the third case and is a *success*. A retriever
+  that raises becomes `code="retrieval_failed"`.
+- **No `mcp_servers/_store.py`.** The shared JSON store owns the three external
+  servers' seed data; the knowledge backend is a vector index owned by the
+  retrieval adapter. This server holds no state, so importing `_store` would be
+  a dependency with no use.
+
+### Test-name provenance
+
+The tool name is asserted against the **contract documents** —
+`docs/mcp-contracts.md` (§4) and `docs/tool-permissions.md` (§2) — parsed at test
+time, not hard-coded and not read back from the server, following
+`tests/integration/test_mcp_contract_names.py`. One test asserts the two
+documents agree on the name.
+
+### Mutation verification
+
+Each break was applied, the named test(s) confirmed red, then reverted (backups
+restored, suite re-run green).
+
+| Break applied | Test(s) that failed |
+|---|---|
+| `name="knowledge.search"` dropped from the decorator (bare function name) | `test_server_registers_the_tool_under_the_contracted_name` + 5 dispatch tests |
+| `not_configured` replaced with an empty success | `test_not_configured_is_a_refusal_with_a_code`, `test_gateway_reports_not_configured_as_ok_false` |
+| `abstained` hard-coded `False` | `test_abstention_is_a_successful_result_carrying_the_flag` |
+| retriever called with the default `top_k`, ignoring the argument | `test_gateway_dispatch_passes_query_and_top_k` |
+| `knowledge` removed from `_KNOWN_SERVERS` | 4 gateway dispatch tests |
+| `_SERVER_ALIASES` emptied (`internal` unresolved) | 4 gateway dispatch tests |
+
+### Commands run
+
+```
+pytest -q                   415 passed, 9 skipped
+mypy --strict               Success for this slice's files; 10 errors in tests/unit/test_search.py (M5b, in flight)
+ruff check . / format       Clean for this slice's files; errors in M5b's ingest/citations/search tests (in flight)
+```
+
+### Least-confident decision
+
+The `retriever` callable signature `(query, top_k) -> RetrievalOutcome` is
+invented by this slice. The runtime's own port is
+`RetrievalCallable = (query) -> list[SearchHit]` (no `top_k`, no
+`abstained`/`top_score`). A future wiring may want the server's callable to
+return the runtime's simpler shape, which would drop the `abstained` flag from
+the tool result — the flag this milestone specifically asked for. Recorded so the
+M5b/M6 wiring can reconcile the two rather than discover it at the seam.
+
+### Not done in M5c
+
+No production wiring of a real embedder/vector store into
+`build_in_process_servers`; the application supplies the retriever. The gateway
+default builds the knowledge server with no backend, answering
+`not_configured`, which is the honest default until the deployment wires one.
+
+---
+
+## M5b — Ingestion, retrieval search, citations, differential store test
+
+### Scope
+
+The half of M5 that turns a Markdown tree into a searchable corpus and a
+retrieval result into a persisted citation. Files owned and changed:
+
+- `src/opspilot/adapters/retrieval/ingest.py` — `parse_front_matter`,
+  `ingest_document`, `ingest_directory`.
+- `src/opspilot/adapters/retrieval/search.py` — `retrieve`.
+- `src/opspilot/adapters/persistence/repositories.py` — added
+  `SqlCitationStore` and `SqlKnowledgeDocumentStore` (existing classes
+  untouched).
+- `src/opspilot/ports/stores.py` — added `CitationStore`,
+  `KnowledgeDocumentStore`, `CitationRecord`, `KnowledgeDocumentRecord`.
+- `tests/unit/test_ingest.py`, `tests/unit/test_search.py`,
+  `tests/integration/test_citations.py` — new.
+
+M5a's interfaces were read and not changed.
+
+### What was built
+
+**`parse_front_matter(text) -> (dict, str)`.** A small hand-written parser for
+the corpus's exact subset: `key: value` scalars and `[a, b, c]` inline lists.
+No PyYAML dependency was added. A missing `---` block is an error
+(`FrontMatterError`), not a default. Nested maps, block lists, anchors and
+duplicate keys raise rather than being silently misread — a wrong value here
+becomes a wrong `doc_metadata` row that nothing downstream validates.
+
+**Ingestion.** `ingest_directory` globs `*.md`, skips `README.md` **by name**
+(the corpus README has no front-matter and is not a policy document), and
+processes files in sorted order. `ingest_document` hashes the whole file first
+and short-circuits on an unchanged hash, so re-indexing an unchanged tree
+reports `documents_indexed == 0` and writes no chunks —
+`docs/api-contract.md` §9. The document's `source` is the **filename**
+(`refund-policy.md`), matching `evals/datasets/retrieval.jsonl` and the
+citation string `"{document_slug}#{anchor}"`; the parsed front-matter is the
+`doc_metadata`. Blocking filesystem calls run through `asyncio.to_thread`
+(ASYNC240).
+
+**Retrieval.** `retrieve` embeds the query **once**, searches, and abstains when
+there are no hits or the best score is below `min_score` (default `0.35`).
+`top_score` is `None` only with no hits. A below-threshold result still carries
+its hits so the caller can see the weak evidence, but `abstained=True` so no
+answer is built from it — abstention is the escalation path
+(`docs/architecture.md` §9), not a failure.
+
+**Stores.** `SqlKnowledgeDocumentStore` upserts on the unique `source` and
+`list_documents` returns `(source, title, chunk_count, indexed_at,
+content_hash)` — exactly the fields `knowledge.py:47` reads.
+`SqlCitationStore.list_citations` returns rows with `.document`, `.chunk`
+(composed as `"{source}#{anchor}"`), `.score`, `.rank` — exactly the fields
+`runs.py:288` reads. `create_many` resolves `document_id` by `source` and
+`chunk_id` by `(document_id, anchor)`.
+
+Both new stores follow the house style: `_SessionBound`, `_scope`, never
+commit a caller's session.
+
+### The differential test
+
+`tests/integration/test_citations.py::test_pgvector_and_memory_stores_agree`
+carries `@pytest.mark.postgres` and does the real work: it creates the pgvector
+schema, upserts the same five chunks into a real `PgVectorStore` and an
+`InMemoryVectorStore`, queries **both with one explicitly-constructed vector**
+(no embedder in the comparison — it compares the *stores*), and asserts
+identical `chunk_id`s and scores to 4 decimal places. It skips where no Postgres
+is configured. It is not the `pytest.skip` stub that was left in
+`test_vector_stores.py`; per `docs/milestones.md` §M5 it is first proven green in
+the M9 CI `verify` job.
+
+### Commands run (full repo, from `G:/OpsPilot`)
+
+```
+.venv/Scripts/python.exe -m pytest -q
+    415 passed, 9 skipped in 8.43s
+
+.venv/Scripts/python.exe -m mypy --strict
+    Success: no issues found in 128 source files
+
+.venv/Scripts/python.exe -m ruff check . && ... ruff format --check .
+    All checks passed! / 151 files already formatted
+```
+
+The 9 skips are the M0/M2/M4/M6/M8 skeleton placeholders, the two pre-existing
+`postgres` stubs in `test_vector_stores.py`, and this milestone's differential
+test (no Docker — ADR-0004). None is an M5b code path other than the
+differential test, which cannot run here by design.
+
+### Foreign-key ordering
+
+`citations.chunk_id` → `knowledge_chunks.id` and `citations.document_id` →
+`knowledge_documents.id` (`docs/data-model.md` §2). A citation is therefore only
+writable after its chunk exists. Retrieval guarantees this: a hit comes from a
+`knowledge_chunks` row, so ingestion wrote it first. `create_many` re-resolves
+the chunk by `(document_id, anchor)` and **skips** a hit with no matching row
+rather than writing a dangling FK (which the constraint would reject anyway).
+The integration fixtures ingest the document before citing it, which is that
+same order.
+
+### Mutation verification
+
+Each break was applied, observed red, and reverted (files diffed back to
+identical). Which named test caught each:
+
+| Break applied | Test(s) that failed |
+|---|---|
+| `_EXCLUDED_FILENAMES` emptied (README indexed) | `test_ingest_directory_skips_readme` |
+| `content_hash` skip disabled (always reindex) | `test_reingesting_unchanged_document_indexes_nothing`, `test_ingest_directory_counts_unchanged_run_as_zero` |
+| `source` set to the title instead of the filename | `test_ingest_document_uses_filename_as_source` |
+| No front-matter returns `({}, text)` instead of raising | `test_parse_front_matter_missing_block_is_an_error` |
+| Inline list parsed as a scalar | `test_parse_front_matter_returns_keys_and_body` |
+| Indented (nested) line accepted | `test_parse_front_matter_rejects_nested_mapping` |
+| No-hit outcome sets `abstained=False` | `test_retrieve_abstains_when_no_hits` |
+| Threshold comparison inverted (`>`) | `test_retrieve_abstains_below_threshold`, `test_retrieve_default_min_score_is_0_35` |
+| Query embedded twice | `test_retrieve_embeds_the_query_exactly_once` |
+| Citation `chunk` string drops the anchor | `test_create_many_resolves_chunk_and_lists_back` |
+| `list_citations` ordered rank-descending | `test_list_citations_orders_by_rank` |
+| `list_citations` not scoped to the run | `test_citations_are_scoped_to_the_run` |
+| `list_documents` hardcodes `chunk_count=0` | `test_list_documents_exposes_the_router_fields` |
+| Store `content_hash` always returns `None` | `test_reingesting_unchanged_document_indexes_nothing`, `test_ingest_directory_counts_unchanged_run_as_zero` |
+
+### Least-confident decision
+
+`ingest_document` writes the `knowledge_documents` row through an **optional**
+`upsert_document` method it probes for on the store, falling back to a
+deterministic `document_id = uuid5(namespace, source)` when the store does not
+offer one. The fallback exists only so a bare `VectorStore` fixture is usable;
+in production the SQL store provides the method. A reviewer may consider that
+duck-typed probe too clever — the alternative would be widening the `VectorStore`
+port, which is M5a's frozen interface and out of scope. The fallback id is never
+used against a real database.
+
+### M5a interfaces
+
+Nothing in M5a's frozen interfaces was changed. One thing I checked rather than
+assumed: the two stores' tie-breaks sort on different columns —
+`InMemoryVectorStore` on `(-score, slug, anchor)`, `PgVectorStore` on
+`(distance, source, anchor)`. They agree for ranking because `score = 1 -
+distance`, and the tie-break is **total**: `split_document` deduplicates anchors
+within a document (`notes`, `notes-1`, …), so no two chunks share
+`(slug, anchor)`. The differential test's equality to 4 dp is therefore not at
+risk from an ordering ambiguity. No change requested.
+
+### Migration
+
+None needed. All three tables already exist in
+`migrations/versions/0001_initial_schema.py`; no column was added or altered.
+
+### Reconciliation with M5c
+
+M5c's progress note flags its `retriever` callable shape `(query, top_k) ->
+RetrievalOutcome` against the runtime's `RetrievalCallable = (query) ->
+list[SearchHit]`. M5b's `retrieve` has the four-argument signature
+`(query, *, embedder, store, top_k, min_score)`, so a thin adapter is still the
+seam for the M5c/M6 wiring — the two are reconcilable, and neither side here
+forced the other's shape.
+
+### M5b — the reviewer's ingest fix: a probe on the wrong store
+
+M5b's own report was accurate about what it built, and its three full-repo
+commands came back green when I re-ran them. The defect was in what it did *not*
+run: an ingest of the **real corpus**.
+
+`ingest_document` looked for `content_hash` on the object passed as `store` --
+the `VectorStore`. The hash lives on the *document* store
+(`knowledge_documents.content_hash`), a different table behind a different
+object. On the real wiring the probe found nothing, `existing_hash` was always
+`None`, and the content-hash skip never fired:
+
+    RUN 1  seen=17 indexed=17 chunks=98
+    RUN 2  seen=17 indexed=17 chunks=98   <-- api-contract.md §9 promises 0
+
+Re-indexing an unchanged tree re-embedded all 17 documents every time. The API
+contract calls reindex idempotent; it was not.
+
+**Why the tests agreed with it.** `test_ingest.py` handed ingest an
+`IngestionStore` facade that forwarded `content_hash` to the real document
+store. The code probed for an optional capability and the fixture supplied it;
+neither side was wrong about the other, and production supplies neither. This is
+the same shape as the M4 store bug -- a test fixture that is more capable than
+production, so the suite can pass where the code cannot.
+
+**The fix.** `documents: KnowledgeDocumentStore` is now a required, typed
+parameter of `ingest_document` and `ingest_directory`. A caller cannot omit the
+store the idempotency check depends on, and a test cannot supply a facade that
+answers for it: it must pass the same two objects production passes. The
+duck-typed `_upsert_document_row` probe and its `uuid5` fallback are deleted
+with it. Verified on the real corpus, and mutation-verified: disabling the skip
+turns `test_reingesting_unchanged_document_indexes_nothing` and
+`test_ingest_directory_counts_unchanged_run_as_zero` red.
+
+**The lesson, which is the same one five times over now.** A test written from
+the implementation agrees with the implementation. The only defence that has
+actually worked in this project is exercising the object the *production* code
+exercises, and asking the real corpus rather than a fixture.

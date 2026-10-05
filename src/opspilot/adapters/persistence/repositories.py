@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -41,7 +41,12 @@ from opspilot.domain.approvals import ApprovalStatus
 from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError
 from opspilot.domain.runs import CLAIMABLE, AgentRun, RunStatus
 from opspilot.domain.tools import ToolCallStatus
-from opspilot.ports.stores import PendingToolCall, TicketRecord
+from opspilot.ports.stores import (
+    CitationRecord,
+    KnowledgeDocumentRecord,
+    PendingToolCall,
+    TicketRecord,
+)
 
 # A repository is bound either to a live ``Session`` (so a caller can compose
 # several repository calls in one transaction -- the ticket+run creation the API
@@ -563,8 +568,212 @@ def new_approval_id() -> UUID:
     return uuid.uuid4()
 
 
+class SqlKnowledgeDocumentStore(_SessionBound):
+    """SQLAlchemy ``KnowledgeDocumentStore`` over ``knowledge_documents``.
+
+    ``upsert`` is keyed on ``source`` (the table's unique column) so re-ingesting
+    a document updates the row rather than creating a second one, and the id --
+    which the chunks' foreign key points at -- stays stable across a reindex.
+    """
+
+    async def upsert_document(
+        self,
+        *,
+        source: str,
+        title: str,
+        content: str,
+        metadata: dict[str, object],
+        content_hash: str,
+    ) -> UUID:
+        """Insert or update a document by ``source`` and return its id."""
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.KnowledgeDocument).where(
+                        models.KnowledgeDocument.source == source
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if row is None:
+                row = models.KnowledgeDocument(
+                    title=title,
+                    source=source,
+                    content=content,
+                    doc_metadata=dict(metadata),
+                    content_hash=content_hash,
+                    indexed_at=_now(),
+                )
+                session.add(row)
+            else:
+                row.title = title
+                row.content = content
+                row.doc_metadata = dict(metadata)
+                row.content_hash = content_hash
+                row.indexed_at = _now()
+            session.flush()
+            return row.id
+
+    async def content_hash(self, source: str) -> str | None:
+        """Return the stored content hash for ``source``, or ``None``."""
+        with self._scope() as session:
+            return session.execute(
+                select(models.KnowledgeDocument.content_hash).where(
+                    models.KnowledgeDocument.source == source
+                )
+            ).scalar()
+
+    async def list_documents(self) -> list[KnowledgeDocumentRecord]:
+        """Return every indexed document with its chunk count, newest first."""
+        with self._scope() as session:
+            chunk_count = func.count(models.KnowledgeChunk.id)
+            rows = session.execute(
+                select(models.KnowledgeDocument, chunk_count)
+                .outerjoin(
+                    models.KnowledgeChunk,
+                    models.KnowledgeChunk.document_id == models.KnowledgeDocument.id,
+                )
+                .group_by(models.KnowledgeDocument.id)
+                .order_by(models.KnowledgeDocument.source)
+            ).all()
+            return [
+                KnowledgeDocumentRecord(
+                    source=document.source,
+                    title=document.title,
+                    chunk_count=int(count),
+                    indexed_at=document.indexed_at,
+                    content_hash=document.content_hash,
+                )
+                for document, count in rows
+            ]
+
+
+def _split_citation_chunk(chunk: str) -> str:
+    """Extract the anchor from a ``"{document_slug}#{anchor}"`` citation string.
+
+    ``list_citations`` builds the string; ``create_many`` takes it apart. The
+    split is on the first ``#`` only, because the slug is a filename and cannot
+    contain one while the anchor could in principle.
+    """
+    _slug, separator, anchor = chunk.partition("#")
+    return anchor if separator else ""
+
+
+class SqlCitationStore(_SessionBound):
+    """SQLAlchemy ``CitationStore`` over ``citations``.
+
+    **Foreign-key ordering.** ``citations.chunk_id`` references
+    ``knowledge_chunks.id`` and ``citations.document_id`` references
+    ``knowledge_documents.id`` (``docs/data-model.md`` §2), so a citation can
+    only be written after the chunk it names exists. Retrieval guarantees this:
+    a hit comes from a row in ``knowledge_chunks``, which means ingestion wrote
+    it first. ``create_many`` resolves the ``chunk_id`` by the same
+    ``(document_id, ordinal)`` derivative the vector stores use, so the id it
+    writes is the id of the row retrieval read -- not a second, orphan row.
+    """
+
+    async def create(
+        self, *, run_id: UUID, document_id: UUID, chunk_id: UUID, score: float, rank: int
+    ) -> None:
+        """Persist one citation for a run."""
+        with self._scope() as session:
+            session.add(
+                models.Citation(
+                    run_id=run_id,
+                    document_id=document_id,
+                    chunk_id=chunk_id,
+                    score=score,
+                    rank=rank,
+                )
+            )
+            session.flush()
+
+    async def create_many(self, run_id: UUID, records: list[CitationRecord]) -> None:
+        """Persist a run's retrieval hits as citations.
+
+        Each record's ``chunk`` is ``"{document_slug}#{anchor}"``. The document is
+        resolved by ``source`` and the chunk by ``(document_id, ordinal)`` -- the
+        ``citations`` table has no ``ordinal`` column, and the anchor is not
+        guaranteed unique, so the ordinal is recovered from the label on the way
+        in. A hit whose document or chunk row is absent is skipped rather than
+        written as a dangling reference: the foreign keys would reject it anyway,
+        and skipping keeps a partially-indexed run's citations honest.
+        """
+        with self._scope() as session:
+            for record in records:
+                document_id = session.execute(
+                    select(models.KnowledgeDocument.id).where(
+                        models.KnowledgeDocument.source == record.document
+                    )
+                ).scalar()
+                if document_id is None:
+                    continue
+                anchor = _split_citation_chunk(record.chunk)
+                chunk_id = (
+                    session.execute(
+                        select(models.KnowledgeChunk.id).where(
+                            models.KnowledgeChunk.document_id == document_id,
+                            models.KnowledgeChunk.anchor == anchor,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if chunk_id is None:
+                    continue
+                session.add(
+                    models.Citation(
+                        run_id=run_id,
+                        document_id=document_id,
+                        chunk_id=chunk_id,
+                        score=record.score,
+                        rank=record.rank,
+                    )
+                )
+            session.flush()
+
+    async def list_citations(self, run_id: UUID) -> list[CitationRecord]:
+        """Return a run's citations, best rank first.
+
+        Joins ``knowledge_documents`` for the slug; the anchor is already on the
+        chunk row, so ``chunk`` is composed as ``"{source}#{anchor}"`` here
+        rather than in the router.
+        """
+        with self._scope() as session:
+            rows = session.execute(
+                select(
+                    models.KnowledgeDocument.source,
+                    models.KnowledgeChunk.anchor,
+                    models.Citation.score,
+                    models.Citation.rank,
+                )
+                .join(
+                    models.KnowledgeDocument,
+                    models.KnowledgeDocument.id == models.Citation.document_id,
+                )
+                .join(
+                    models.KnowledgeChunk,
+                    models.KnowledgeChunk.id == models.Citation.chunk_id,
+                )
+                .where(models.Citation.run_id == run_id)
+                .order_by(models.Citation.rank)
+            ).all()
+            return [
+                CitationRecord(
+                    document=source,
+                    chunk=f"{source}#{anchor}",
+                    score=float(score),
+                    rank=int(rank),
+                )
+                for source, anchor, score, rank in rows
+            ]
+
+
 __all__ = [
     "SqlApprovalStore",
+    "SqlCitationStore",
+    "SqlKnowledgeDocumentStore",
     "SqlRunStore",
     "SqlTicketStore",
     "SqlToolCallStore",

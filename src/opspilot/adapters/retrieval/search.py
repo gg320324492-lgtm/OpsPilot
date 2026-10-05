@@ -40,5 +40,39 @@ async def retrieve(
     top_k: int = 5,
     min_score: float = 0.35,
 ) -> RetrievalOutcome:
-    """Embed ``query`` and return the top-k hits, or abstain. M0 stub."""
-    raise NotImplementedError
+    """Embed ``query`` and return the top-k hits, or abstain.
+
+    The query is embedded **once** and that one vector drives the search: the
+    score the threshold is applied to is the score of the same vector that
+    produced the ranking, so "best hit" and "the score we compare to
+    ``min_score``" can never disagree.
+
+    Args:
+        query: The text to retrieve for.
+        embedder: Turns the query into a vector.
+        store: The ``VectorStore`` holding the corpus.
+        top_k: How many hits to ask the store for.
+        min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``).
+
+    Returns:
+        A ``RetrievalOutcome``. ``abstained`` is ``True`` when the store returns
+        no hits **or** the best score is below ``min_score``; ``top_score`` is
+        ``None`` only when there are no hits. The hits are still returned on a
+        below-threshold result -- the caller has the evidence and the decision,
+        and ``docs/milestones.md`` §M5 makes escalation (not a guess) the
+        response.
+    """
+    vectors = await embedder.embed([query])
+    if not vectors:  # pragma: no cover - an embedder returning nothing is broken
+        return RetrievalOutcome(hits=[], abstained=True, top_score=None)
+
+    hits = await store.search(vectors[0], top_k=top_k)
+    if not hits:
+        return RetrievalOutcome(hits=[], abstained=True, top_score=None)
+
+    top_score = hits[0].score
+    return RetrievalOutcome(
+        hits=hits,
+        abstained=top_score < min_score,
+        top_score=top_score,
+    )
