@@ -8,8 +8,8 @@ Status: `not started` · `in progress` · `done` · `blocked`
 
 | Milestone | Status | Notes |
 |---|---|---|
-| M0 — Architecture and skeleton | in progress | See below |
-| M1 — Database and API skeleton | not started | |
+| M0 — Architecture and skeleton | done | See below |
+| M1 — Database and API skeleton | done | See below |
 | M2 — MCP servers | not started | |
 | M3 — Tool gateway, policy, approval | not started | |
 | M4 — Agent runtime | not started | |
@@ -174,3 +174,128 @@ these was caught by *re-checking an agent's own report*, not by the report itsel
   the other was also editing. The re-check is not ceremony — a per-slice check
   cannot see cross-slice breakage, and the layering guard is exactly the kind of
   cross-cutting property that no single slice owns.
+
+---
+
+## M1 — Database and API skeleton
+
+**Status:** done.
+
+### Deliverable
+
+Nine tables, one Alembic migration, dialect-aware engine/session handling, four
+repositories implementing the ports, fourteen API endpoints, and tests for both
+halves — built in parallel by two agents against `ports/stores.py` as the seam,
+so the API half could be developed and tested before the persistence half existed.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| 1 | All eight tables as SQLAlchemy models | ✅ 9 tables (`knowledge_chunks` is the ninth) |
+| 2 | One migration with pgvector extension, both partial indexes | ✅ `0001_initial_schema.py` |
+| 3 | `alembic upgrade head` works | ✅ **after a real fix** — see below |
+| 4 | `POST /api/tickets` writes ticket + run in one transaction, starts no work | ✅ asserted with spies (`worker_spy == 0`, `tool_spy == 0`) |
+| 5 | All contract endpoints exist | ✅ 14/14, none stubbed |
+| 6 | Single error envelope | ✅ including `RequestValidationError` re-shaping |
+| 7 | Auth rejects missing/wrong token; refuses to start with no token | ✅ `MissingOperatorToken` raised from `create_app` |
+| 8 | Repositories with no business logic | ✅ |
+| 9 | Tests for both halves | ✅ 81 passing, 0 skips in the new tests |
+
+### Independent verification performed
+
+Beyond the agents' own suites, a reviewer-written script
+(`.scratch/verify_m1.py`, gitignored) checked the milestone's *properties* rather
+than re-running the authors' tests — 14/14 passed:
+
+- The claim predicate excludes `WAITING_APPROVAL` (the property that makes the
+  approval gate stop work rather than loop on it) and excludes terminal states.
+- Migration round-trip: `upgrade head` → `downgrade base` → `upgrade head`,
+  invoked as the README says (bare `alembic` from the repository root), then the
+  resulting SQLite file inspected for the tables.
+- Repository behaviour against SQLite: a `RECEIVED` run is claimable; a
+  `WAITING_APPROVAL` run is **not**; a `COMPLETED` run is **not**.
+
+Three safety properties were then tested directly, because a schema assertion
+that an index *exists* is not the same as the index *rejecting* a write:
+
+| Property | Result |
+|---|---|
+| A second `executed` tool call with the same `idempotency_key` is rejected by the database (`IntegrityError`) | ✅ |
+| A second `decide()` on an already-decided approval does not change the status or the decider | ✅ |
+| `has_approved(TX-88219's call)` does not authorise a call for a different transaction | ✅ |
+
+### Defects found and fixed
+
+Four, and the pattern is worth recording: **three of the four were invisible in
+the development environment by construction.**
+
+1. **`pgvector` was imported but not declared in `pyproject.toml`.** It had been
+   installed into the venv by hand, so every test passed locally — and a fresh
+   `pip install -e .` would have produced a package that could not import its own
+   persistence layer. This is the "works on my machine" failure in its purest
+   form: a dependency only the author's machine happens to have is a dependency
+   the package does not really have.
+
+2. **`models.py` guarded the pgvector import with `try/except`, falling back to a
+   JSON column.** Worse than the missing declaration, because it was *silent*: a
+   Postgres deployment without pgvector would have created `embedding` as JSON
+   and lost vector search entirely, with no error. Now imported directly, so a
+   broken install fails at import.
+
+3. **`starlette` was imported directly but not declared**, relying on FastAPI's
+   transitive pin. Found by the new dependency guard within seconds of it being
+   written — which is the argument for writing the guard rather than noting the
+   problem.
+
+4. **`alembic.ini` existed only in `migrations/`.** The README, `docs/milestones.md`
+   and the CI workflow all say `alembic upgrade head` from the repository root,
+   and that command failed with `No 'script_location' key found in configuration`
+   because bare `alembic` looks in the *current* directory. The migration itself
+   was correct; the documented way to run it was broken. Fixed by adding a root
+   `alembic.ini` that points at the same `script_location`, with a test asserting
+   the two files cannot drift.
+
+### Guards added
+
+Two tests, each verified able to fail by injecting the defect it prevents:
+
+- `tests/unit/test_alembic_config.py` — both configs declare the same
+  `script_location`, so one migration history exists; and neither hardcodes a
+  database URL, because that is the file most likely to be committed with a real
+  password in it.
+- `tests/unit/test_dependency_declarations.py` — every third-party import in
+  `src/` and `mcp_servers/` is declared in `pyproject.toml`. It includes a test
+  that the scan is not vacuous, so a pass means something was inspected.
+
+### What was learned
+
+- **The parallel split worked, and it cost one integration bug.** The two agents
+  met at `ports/stores.py`, which let the API half be built and tested while the
+  persistence half was still being written. The cost was that the persistence
+  agent had to accept `Session | sessionmaker` because the API agent's
+  `create_app` passes a session factory while the tests pass a session. That is a
+  slightly wider signature than the port asked for, and it is recorded here
+  rather than tidied away, because it is the ordinary price of a seam between two
+  authors.
+
+- **A verifier needs verifying.** My first verification run reported four
+  failures; two were my script's wrong assumptions about the API (`create_all`,
+  and invoking alembic without `-c`), and two were real. Separating those took
+  longer than writing the checks. The discipline that paid off was printing the
+  actual command output rather than a summary — the `No 'script_location' key`
+  message was what distinguished a real defect from my own mistake.
+
+- **The dependency guard found a bug the same minute it was written.** Two
+  hand-installed or transitive-only dependencies existed in a codebase two
+  milestones old, written by two agents who both ran `pip install` locally. This
+  is the strongest argument in the project so far for writing the guard rather
+  than the review comment.
+
+### Known gap carried forward
+
+`TicketStore.create` returns only a UUID, so `POST /api/tickets` fills the
+response's `ticket.created_at` from the run's timestamp rather than reading the
+persisted ticket back. The two are equal in practice (same transaction) but the
+field is not read from the row it names. Tracked for M5, when the knowledge and
+retrieval wiring touches these same schemas.

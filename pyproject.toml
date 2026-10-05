@@ -39,12 +39,30 @@ classifiers = [
 
 dependencies = [
   "fastapi>=0.115",
+  # Declared directly because `api/errors.py` imports `starlette.exceptions`
+  # by name. Starlette arrives transitively via FastAPI, so this is not needed
+  # to *run* today -- but relying on another package's dependency is how a
+  # project breaks when FastAPI changes what it pins, and a direct import with
+  # no declaration is the signature of that mistake. Found by
+  # tests/unit/test_dependency_declarations.py, which is why that test exists.
+  "starlette>=0.40",
   "uvicorn[standard]>=0.32",
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "sqlalchemy>=2.0.36",
   "alembic>=1.14",
   "psycopg[binary]>=3.2",
+  # pgvector supplies the SQLAlchemy `Vector` type that `knowledge_chunks.embedding`
+  # is declared with. It is a *core* dependency, not an optional extra, even
+  # though the SQLite test path never uses it: `models.py` imports it at module
+  # scope, and a package that is missing it fails to describe its own schema.
+  #
+  # This was briefly wrong -- it was installed into the development venv by hand
+  # while absent from this list, so the suite passed locally and a fresh
+  # `pip install -e .` would have produced a package that could not declare the
+  # vector column. A dependency that only the author's machine happens to have is
+  # a dependency the package does not really have.
+  "pgvector>=0.3",
   "mcp>=1.2",
   "httpx>=0.28",
   "python-multipart>=0.0.20",
