@@ -10,7 +10,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 |---|---|---|
 | M0 — Architecture and skeleton | done | See below |
 | M1 — Database and API skeleton | done | See below |
-| M2 — MCP servers | not started | |
+| M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | not started | |
 | M4 — Agent runtime | not started | |
 | M5 — RAG | not started | |
@@ -299,3 +299,147 @@ response's `ticket.created_at` from the run's timestamp rather than reading the
 persisted ticket back. The two are equal in practice (same transaction) but the
 field is not read from the row it names. Tracked for M5, when the knowledge and
 retrieval wiring touches these same schemas.
+
+---
+
+## M2 — MCP servers
+
+**Status:** done.
+
+Three real MCP servers over stdio, backed by a shared JSON store, each owning its
+own data file. The Billing server mutates state and is the one where correctness
+matters.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| 1 | Three servers run as real MCP servers over stdio | ✅ SDK 2.x, `MCPServer`; each has a subprocess `tools/list` test |
+| 2 | Every tool in the contract exists with its declared schema | ✅ 8 tools, **after the naming fix below** |
+| 3 | Seed data committed as JSON; reset and fixture support | ✅ `mcp_servers/_store.py`, atomic `save()` |
+| 4 | `issue_refund` mutates state and is idempotent on the key | ✅ verified independently, in memory and on disk |
+| 5 | Same key twice → same `refund_id`, `replayed: true`, one refund row | ✅ `REF-10091` both times; **1 row persisted** |
+| 6 | Every refusal returns its documented error code | ✅ `not_found`, `invalid_state`, `amount_exceeds_transaction`, `validation_error` |
+| 7 | `crm.get_customer` with neither identifier → `validation_error` | ✅ |
+| 8 | Contract tests with no agent and no LLM | ✅ 45 tests, in-process dispatch |
+
+### The defect this milestone is worth remembering for
+
+**All three servers registered their tools under bare function names.**
+
+```
+contract (docs/mcp-contracts.md)   registered
+billing.get_invoice                get_invoice
+crm.get_customer                   get_customer
+issues.create                      create
+```
+
+The cause is that `@server.tool()` defaults the registered name to the function
+name; a prefix requires `name="billing.get_invoice"` explicitly. This was not
+documented anywhere, and I had not put it in the M2 brief — the contract document
+specified the names, and the brief did not repeat them.
+
+**Why it is serious.** `TOOL_REGISTRY` is keyed on the contracted names and gate 2
+of the permission model is a registry lookup. A model proposing
+`billing.issue_refund` would not have resolved against a server that only knew
+`issue_refund`; every high-risk call would have been rejected for a reason the
+agent could not see. M3 would have been blocked on it.
+
+**Why two passing test suites did not catch it.** The tests called the servers
+using the same bare names the servers had registered, so the tests agreed with the
+implementation and both disagreed with the specification. A suite written from the
+implementation cannot detect a divergence between the implementation and the
+contract — it can only detect that the implementation is self-consistent.
+
+The reviewer's independent script found it, because it read the *contract* and
+asked the servers what they exposed. The same principle is now a test:
+`tests/integration/test_mcp_contract_names.py` parses the contract document and
+compares the registered names against it, plus checks that every exposed tool has
+a `TOOL_REGISTRY` entry and that no name is issued by two servers.
+
+### Independent verification performed
+
+`.scratch/verify_m2.py` — 24 checks, all passing. The ones that matter:
+
+- Same idempotency key twice → same `refund_id`, `replayed` false → true, and
+  **exactly one refund row in memory and on disk.** Asserting only the response
+  would pass for an implementation that reported `replayed: true` while writing a
+  second row; the count is what makes it real.
+- `list_transactions` returns both charged rows **and contains no field judging
+  which is a duplicate.** The server reports; the agent decides. Asserted as an
+  absence, because it is a design property rather than an oversight.
+- All four refusal paths return a structured `code` rather than raising. A raised
+  exception surfaces as an opaque `UnexpectedToolError` with the message lost
+  (`docs/mcp-sdk-notes.md` §5), which would make the "already refunded → do not
+  refund again" scenario indistinguishable from a crash.
+- `issues.create` twice allocates two distinct keys — it is deliberately not
+  idempotent, and the test states that as the contract.
+- The committed seed files are unmutated after the whole run, in-memory `refunds`
+  still `[]` and `TX-88219` still `charged`. The demo's reproducibility depends on
+  the committed JSON being the database.
+
+### Guards added
+
+- `tests/integration/test_mcp_contract_names.py` — registered names vs. the
+  contract document; every tool has a permission entry; no duplicate names across
+  servers. **Verified able to fail** by removing one `name=` and confirming it
+  reports the bare name as missing from `TOOL_REGISTRY`.
+
+  The first attempt to verify this guard was itself wrong: the injection used a
+  single-line `sed` pattern that no longer matched after `ruff format` reflowed
+  the decorator, so the guard "passed" while nothing had been injected. A guard
+  verified by an injection that did not apply is not verified. Redone with an
+  assertion that the injection actually changed the file.
+
+### A second defect found while staging the commit
+
+Two files appeared in `git status` that had no business existing:
+`mcp_servers/billing/billing.json` (holding one refund) and
+`mcp_servers/issues/issues.json` (holding two created issues).
+
+They were a live copy of the database, written into the source tree by the store's
+default data directory, which fell back to *the seed file's own directory*. Any
+call that did not pass `data_dir` wrote there -- which means a test that forgot to
+isolate itself would have left state behind for the next one, and the committed
+seed file (the demo's database, per `docs/architecture.md` §8) would have sat
+beside a mutable twin.
+
+Fixed: the fallback is now `<cwd>/.opspilot-data/<server>/`, outside the package,
+gitignored, and named after the seed's parent so two servers never collide. The
+test that asserted the old behaviour was rewritten to assert the property that
+matters -- *not inside the seed's directory* -- rather than an exact path.
+
+This one is worth noting for where it was found. It surfaced in `git status` while
+staging, not in any test: 140 tests passed with a polluted working tree, because
+the pollution was in the *repository*, not in any assertion. A green suite says
+nothing about whether the tree it ran in is clean.
+
+### What was learned
+
+- **The MCP SDK is 2.x and the ecosystem's examples are 1.x.** `FastMCP` no
+  longer exists (importing it raises); attributes are snake_case (`is_error`,
+  `structured_content`, `input_schema`); `structured_output=True` requires a
+  Pydantic return type and rejects a bare `dict` at registration. Six such facts
+  were established by running the SDK before writing any code and recorded in
+  `docs/mcp-sdk-notes.md`, which both agents were required to read. That document
+  is why the two halves were written against the same API.
+
+- **The SDK enforces one of the five gates for free.** A parameter with no
+  default is marked `required` in the generated JSON Schema, so
+  `issue_refund`'s mandatory `idempotency_key` is rejected at the protocol layer
+  before any of our code runs. Gate 1 of `docs/tool-permissions.md` §3 is
+  therefore partly satisfied by the transport — a better place for it than a
+  hand-written check.
+
+- **A test that asserts "some exception was raised" cannot tell two failures
+  apart.** The original `test_issue_refund_without_key_is_rejected_at_protocol_layer`
+  used `pytest.raises(Exception)`, which passes equally when the argument is
+  missing and when the *tool name is wrong* — the unknown-tool path raises the
+  same `ToolError`. It was tightened to match the argument name in the message.
+  The loose version would have kept passing through the whole naming defect.
+
+- **The two agents adapted to each other through the store interface without
+  coordinating.** The billing author discovered `_store.py` mid-task and used the
+  real library rather than the shim the brief anticipated, adapting to `Store`
+  (not `JsonStore`) and to `Record.get()` rather than attribute access. The seam
+  held; no rework was needed at the join.

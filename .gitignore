@@ -67,3 +67,8 @@ evals/results/*
 
 # ---- Alembic ----
 # No local override; migrations are the artifact.
+
+# MCP servers write their working copy of the seed database here when no
+# OPSPILOT_MCP_DATA_DIR is set. The committed seed JSON is the source of truth;
+# this directory is a runtime artefact and must never be committed.
+.opspilot-data/
