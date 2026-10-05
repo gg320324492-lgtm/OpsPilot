@@ -13,7 +13,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | done | See below |
 | M4 — Agent runtime | done | See below |
-| M5 — RAG | in progress | M5a (chunking/embeddings/stores) done; M5b (ingest/search) separate; M5c done — in-process `knowledge.search`, citations persisted, API/worker wired (the fourth MCP server was built then deleted; see M5c correction) |
+| M5 — RAG | done | See below. Four defects found in review, three fixed; three findings carried into M6 |
 | M6 — Golden workflow | not started | |
 | M7 — Dashboard | not started | |
 | M8 — Evals and security | not started | |
