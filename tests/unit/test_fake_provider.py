@@ -132,14 +132,41 @@ async def test_scenario_interface_returns_the_expected_sequence() -> None:
 
 
 async def test_already_refunded_scenario_proposes_no_further_write() -> None:
-    """The already-refunded scenario ends with a done proposal and no refund."""
+    """The already-refunded scenario ends with a done proposal and no refund.
+
+    The script is consumed until it says it is done, rather than indexed by
+    position: the scenario follows the SOP's verification steps (customer, then
+    invoice, then transactions), and pinning call *n* to a tool name breaks
+    whenever the script legitimately grows a step. What this scenario must
+    guarantee is the property, not the order: it investigates, observes the
+    refund already recorded, and stops without proposing a write.
+    """
     provider = FakeModelProvider(FIXTURES_DIR, scenario="already_refunded")
     await provider.generate_structured(system="s", prompt="p", schema=TicketClassification)
-    tool = await provider.choose_tool(system="s", prompt="p", available_tools=[])
-    assert tool["tool_name"] == "billing.list_transactions"
-    final = await provider.choose_tool(system="s", prompt="p", available_tools=[])
-    assert final["done"] is True
+
+    proposed: list[str] = []
+    final: dict[str, object] = {}
+    # Bounded so a fixture that never terminates fails as a test failure rather
+    # than hanging: the scenario is a short script, not an unbounded loop.
+    for _ in range(20):
+        tool = await provider.choose_tool(system="s", prompt="p", available_tools=[])
+        if tool.get("done") is True:
+            final = tool
+            break
+        name = tool.get("tool_name")
+        assert isinstance(name, str), f"a non-done proposal must name a tool: {tool}"
+        proposed.append(name)
+
+    assert final, "the already-refunded scenario never proposed completion"
     assert final["tool_name"] is None
+    assert "billing.list_transactions" in proposed, (
+        "the scenario must examine the transactions to see the refund already "
+        f"recorded, but it proposed only {proposed}"
+    )
+    assert "billing.issue_refund" not in proposed, (
+        "the duplicate is already refunded; proposing another refund is the "
+        "double-refund this scenario exists to rule out"
+    )
 
 
 async def test_scenario_cursor_exhaustion_raises(tmp_path: Path) -> None:

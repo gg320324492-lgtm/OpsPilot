@@ -1336,3 +1336,130 @@ fixed in M5b are the same mistake in three costumes: a test double, or a test
 fixture, that is more capable -- or differently wired -- than production. The
 suite is green in all three cases, and green means nothing, because the code
 under test never runs the way it will run for a user.
+
+## M6b — Fixtures repaired against the real servers, and a guard that keeps them honest
+
+Both committed fixtures are `recorded: false` and had never been executed
+against a real MCP server. Executing them found three defects, not one.
+
+**Fixed, each verified by calling the tool, not by reading the seed.**
+
+| Fixture | Call | Was | Now | Verified result |
+|---|---|---|---|---|
+| `duplicate_charge` | `crm.get_customer` | `customer_id="ACME"` | `customer_id="CUS-1001"` | `ok=True`, customer ACME / Dana Whitfield / enterprise |
+| `duplicate_charge` | `billing.list_transactions` | `account_id="AC-4471", limit=20` | `invoice_id="INV-2026-384"` | `ok=True`, both TX-88218 and TX-88219 `charged`, `total_charged=258.00` |
+| `already_refunded` | `billing.list_transactions` | `account_id="AC-4471", limit=20` | `invoice_id="INV-2026-384"` | `ok=True`, same two rows |
+| `already_refunded` | (new) | — | `crm.get_customer`, then `billing.get_invoice` | `ok=True` each |
+
+`already_refunded` also gained the two missing SOP steps. It previously jumped
+straight to listing transactions, skipping SOP §Verification 1 and 2; it now
+identifies the customer and confirms the invoice before reading transactions,
+matching `knowledge/duplicate-charge-sop.md` and giving the detection a basis.
+
+**The third defect was in the refund, and the fixture was right.** The guard
+reported `billing.issue_refund` failing with `validation_error`
+(`idempotency_key: Field required`). That call is correct as written: `RefundArgs`
+forbids the model from supplying `idempotency_key` — letting a proposal pick its
+own key would defeat the duplicate-refund check (`docs/tool-permissions.md` §4) —
+and `agents/runtime.py` gate 4 derives one from `(run_id, transaction_id)` and
+injects it at dispatch. Adding the key to the fixture would have introduced
+precisely the defect the design forbids. The test now models the runtime's
+injection instead. **The guard's first honest output was a false positive about
+a security control**, which is worth recording: a check written against the
+server alone disagrees with the system whenever the system does something
+deliberate before calling the server.
+
+**`ok=True` is not evidence a lookup succeeded.** `crm.get_customer("ACME")`
+returns `ok=True` with `{"customer": null, "error": {"code": "not_found"}}` — the
+CRM reports a miss inside its success payload. A guard that stopped at the `ok`
+flag would have passed the exact defect it was written to catch, so
+`_assert_found` requires the payload to contain the record, per tool.
+
+**Expected failures are declared, never inferred.** A call may carry
+`"expect_error": "<code>"`; anything without it is asserted to succeed. Both
+fixtures declare none, and none need to: `already_refunded` *detects* the refund
+from a transaction's `status`/`refund_id` in the `list_transactions` payload
+rather than attempting a refund to be refused — verified, a `list_transactions`
+after a refund reports `status="refunded"`, `refund_id="REF-10091"`,
+`total_charged=129.00`. The attempt-then-refused shape would need a store
+mutation to set up, which the fixture format has no way to express.
+
+**A layer disagreement this work could not fix, pinned instead.**
+`domain/tools.py`'s `TransactionListArgs` declares
+`billing.list_transactions(account_id, limit)`; the billing server implements
+`list_transactions(invoice_id=...)` and `docs/mcp-contracts.md` §S2 documents
+`invoice_id`. **No argument set satisfies both**, so gate 1 and the server cannot
+both be enforced for this tool — which means the golden path's duplicate
+detection cannot execute as shipped. The fixtures target the server (the thing
+that runs). The disagreement is listed in `KNOWN_GATE1_DIVERGENCES` in the guard
+and re-checked in both directions, so fixing either side turns the test red and
+demands the entry's removal rather than leaving a stale justification behind.
+`tests/unit/test_permissions.py` pins the `account_id` form, so this needs an
+owner for `domain/tools.py`.
+
+**Mutation-verified.** `customer_id` reverted to `"ACME"` → red with
+`No customer matches 'ACME'`; `invoice_id` reverted to `account_id` → red with
+the server's own `validation_error`. Both mutations were read back off disk
+before running (the "passing guard whose injection never landed" failure mode)
+and restored byte-identically afterwards.
+
+**Full repo.** 450 passed, 1 failed, 7 skipped; mypy `--strict` clean (133 files);
+ruff check + format clean. The one failure is
+`tests/unit/test_fake_provider.py::test_already_refunded_scenario_proposes_no_further_write`,
+which I do not own: it makes two positional `choose_tool` calls and asserts the
+first is `billing.list_transactions`, which the two added SOP steps shifted. Its
+*intent* holds — the scenario still ends in a terminal `done` proposal proposing
+no refund — and fixing it means consuming the calls rather than indexing them.
+
+**Least-confident decision.** Whether `already_refunded` should attempt a refund
+and be refused. It reads more like the real run, and the guard supports declaring
+it, but it requires the store to be pre-mutated into the refunded state — a
+precondition the fixture format cannot express — and `docs/evals.md` safe-011 puts
+that setup in the eval case, not the fixture. I chose detection-only; a reviewer
+may reasonably disagree.
+
+### M6b — the fixtures had never been executed
+
+`evals/datasets/fixtures/*.json` are marked `"recorded": false`. I pushed the
+`duplicate_charge` fixture's proposed calls through the real gateway:
+
+    crm.get_customer {'customer_id': 'ACME'}                  -> ok=True, customer=None, code=not_found
+    billing.list_transactions {'account_id':'AC-4471'}       -> validation_error (invoice_id required)
+
+**Two of its four tool calls could not succeed.** Corrected to `CUS-1001` and
+`{"invoice_id": "INV-2026-384"}`, each verified by calling the tool rather than
+by reading the seed. `already_refunded` gained the SOP's first two verification
+steps, which it had skipped.
+
+**`ok=True` is not proof a lookup worked.** `crm.get_customer("ACME")` returns
+`ok=True` with `{"customer": null, "error": {"code": "not_found"}}` in the
+payload. A guard that stopped at the `ok` flag would have passed the exact defect
+it was written to catch, so the new guard requires the record to be present. This
+is a trap for every future tool test: the gateway reports transport success
+separately from the server's structured refusal.
+
+**Two findings carried into M6c, both verified by me directly:**
+
+1. **`TOOL_ARGUMENT_SCHEMAS["billing.list_transactions"]` disagrees with the
+   server, and no argument set satisfies both.** Gate 1 validates
+   `TransactionListArgs(account_id, limit)`; `docs/mcp-contracts.md` S2 and the
+   server itself take `invoice_id`. Gate 1 accepts `account_id` and the server
+   rejects it; the server accepts `invoice_id` and gate 1 rejects it. **The
+   duplicate-detection step of the golden path therefore cannot execute as
+   shipped** -- and this survived four milestones because `tests/unit/
+   test_permissions.py` pins the `account_id` form, so a test agreed with the
+   bug. M6c owns this: the contract is the authority, so the domain schema is
+   what changes, and the pinning test with it.
+2. **`already_refunded` detects rather than attempts.** It observes
+   `status="refunded"` / `refund_id="REF-10091"` in the transaction list instead
+   of proposing a refund that would be refused, because the store precondition is
+   a setup step (`docs/evals.md`'s `setup.already_refunded`) and the fixture
+   format cannot express one. A reviewer may reasonably prefer the attempted-and-
+   refused version; recorded rather than silently chosen.
+
+**Also here:** `test_already_refunded_scenario_proposes_no_further_write` indexed
+the fixture's calls by position, so the legitimately-grown script broke it. It
+now consumes the script until it says `done` and asserts the *property* -- the
+scenario investigates, sees the refund already recorded, and never proposes a
+write. Mutation-verified by inserting a refund proposal: it goes red with the
+message the scenario exists to earn.

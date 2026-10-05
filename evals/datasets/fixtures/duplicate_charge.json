@@ -1,7 +1,7 @@
 {
   "scenario": "duplicate_charge",
   "recorded": false,
-  "note": "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with record_fixture() against a real provider (see opspilot.adapters.models.fake). Request hashes are absent because the prompts are assembled at runtime; the scenario interface returns these calls in order.",
+  "note": "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with record_fixture() against a real provider (see opspilot.adapters.models.fake). Request hashes are absent because the prompts are assembled at runtime; the scenario interface returns these calls in order. Every tool call's arguments are verified against the real MCP servers by tests/evals/test_fixture_arguments.py.",
   "calls": [
     {
       "method": "generate_structured",
@@ -36,7 +36,7 @@
       "response": {
         "value": {
           "tool_name": "crm.get_customer",
-          "arguments": {"customer_id": "ACME"},
+          "arguments": {"customer_id": "CUS-1001"},
           "reason": "Identify the customer before examining billing.",
           "done": false
         },
@@ -70,7 +70,7 @@
       "response": {
         "value": {
           "tool_name": "billing.list_transactions",
-          "arguments": {"account_id": "AC-4471", "limit": 20},
+          "arguments": {"invoice_id": "INV-2026-384"},
           "reason": "List the transactions to find the duplicate pair.",
           "done": false
         },
