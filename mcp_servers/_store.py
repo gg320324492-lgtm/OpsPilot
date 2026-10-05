@@ -186,21 +186,33 @@ class Store:
         filename: str | None = None,
         data_dir: Path | None = None,
     ) -> None:
-        """Load ``seed_path`` into memory.
+        """Load the live store into memory, falling back to the seed on first run.
+
+        The live file wins when it exists, because that is what "persistence"
+        means: a store that writes a mutation and then, on the next construction,
+        reads the pristine seed has not persisted anything. It reads the *seed*
+        only when there is no live file yet -- the first run -- and it is exactly
+        the seed that :meth:`reset` restores from.
+
+        This was previously backwards: every construction read the seed, so a
+        refund written by one server instance was invisible to the next one. A
+        worker restarted after a refund would have seen the transaction as
+        ``charged`` again, which is precisely the state the duplicate-refund
+        defence consults.
 
         Args:
-            seed_path: Path to the committed ``seed.json``. It is read on every
-                construction and again by every :meth:`reset`.
+            seed_path: Path to the committed ``seed.json``. Read when there is no
+                live file, and again by every :meth:`reset`.
             filename: Name of the persisted store file. Defaults to the seed
                 file's name; servers pass e.g. ``"crm.json"`` so the live store
                 and the seed are distinct and :meth:`reset` is meaningful.
             data_dir: Directory holding the store file. Defaults to
                 :func:`default_data_dir`, which honours
-                ``OPSPILOT_MCP_DATA_DIR`` and otherwise uses the seed's
-                directory.
+                ``OPSPILOT_MCP_DATA_DIR`` and otherwise writes outside the
+                source tree.
 
         Raises:
-            StoreError: If the seed file is missing, unreadable, or malformed.
+            StoreError: If neither file is usable, or the live file is malformed.
         """
         self._seed_path = Path(seed_path)
         if filename is None:
@@ -208,7 +220,7 @@ class Store:
         self._path = (
             data_dir if data_dir is not None else default_data_dir(self._seed_path)
         ) / filename
-        self.data: dict[str, Any] = self._read_seed()
+        self.data: dict[str, Any] = self._read_live_or_seed()
 
     # -- paths -----------------------------------------------------------
 
@@ -323,19 +335,37 @@ class Store:
 
     # -- internals -------------------------------------------------------
 
+    def _read_live_or_seed(self) -> dict[str, Any]:
+        """The live file if it exists, otherwise the seed.
+
+        Kept separate from :meth:`_read_seed` so ``reset`` has an unambiguous
+        meaning: it restores the seed *regardless* of what the live file holds.
+        """
+        if self._path.exists():
+            return self._read_document(self._path)
+        return self._read_seed()
+
     def _read_seed(self) -> dict[str, Any]:
+        return self._read_document(self._seed_path)
+
+    def _read_document(self, path: Path) -> dict[str, Any]:
+        """Read and validate one JSON object document.
+
+        The error constructors name ``path`` in every message, so a malformed
+        live file says so rather than reporting the seed as broken.
+        """
         try:
-            text = self._seed_path.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
-            raise StoreError.missing_seed(self._seed_path) from exc
+            raise StoreError.missing_seed(path) from exc
         except OSError as exc:
-            raise StoreError.unreadable_seed(self._seed_path, exc) from exc
+            raise StoreError.unreadable_seed(path, exc) from exc
         try:
             document = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise StoreError.malformed_seed(self._seed_path, exc) from exc
+            raise StoreError.malformed_seed(path, exc) from exc
         if not isinstance(document, dict):
-            raise StoreError.not_an_object(self._seed_path)
+            raise StoreError.not_an_object(path)
         return document
 
 

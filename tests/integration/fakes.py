@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
+from opspilot.ports.stores import TicketRecord
 
 
 class SimulatedRunInsertFailure(RuntimeError):
@@ -108,9 +109,19 @@ class FakeTicketStore:
         """Discard a ticket -- the fake's stand-in for a transaction rollback."""
         self.rows.pop(ticket_id, None)
 
-    async def get(self, ticket_id: UUID) -> TicketRow | None:
-        """Fetch a ticket by id."""
-        return self.rows.get(ticket_id)
+    async def get(self, ticket_id: UUID) -> TicketRecord | None:
+        """Fetch a ticket by id, as the worker's ``RunContext`` needs it."""
+        row = self.rows.get(ticket_id)
+        if row is None:
+            return None
+        return TicketRecord(
+            id=row.id,
+            subject=row.subject,
+            body=row.body,
+            customer_email=row.customer_email,
+            external_id=row.external_id,
+            created_at=row.created_at,
+        )
 
     async def list(self, *, limit: int = 50, offset: int = 0) -> Sequence[TicketRow]:
         """List tickets, newest first."""
@@ -232,6 +243,13 @@ class FakeApprovalStore:
             if row.tool_call_id == tool_call_id:
                 return row
         return None
+
+    async def get_for_run(self, run_id: UUID) -> ApprovalRequest | None:
+        """Fetch the run's most recent approval."""
+        rows = [row for row in self.rows.values() if row.run_id == run_id]
+        if not rows:
+            return None
+        return max(rows, key=lambda row: row.created_at)
 
     async def get(self, approval_id: UUID) -> ApprovalRequest | None:
         """Fetch an approval by id."""

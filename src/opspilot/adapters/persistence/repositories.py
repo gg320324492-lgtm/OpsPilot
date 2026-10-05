@@ -41,6 +41,7 @@ from opspilot.domain.approvals import ApprovalStatus
 from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError
 from opspilot.domain.runs import CLAIMABLE, AgentRun, RunStatus
 from opspilot.domain.tools import ToolCallStatus
+from opspilot.ports.stores import PendingToolCall, TicketRecord
 
 # A repository is bound either to a live ``Session`` (so a caller can compose
 # several repository calls in one transaction -- the ticket+run creation the API
@@ -144,6 +145,17 @@ def _to_approval(row: models.ApprovalRequest) -> ApprovalRequestDomain:
     )
 
 
+def _to_pending_tool_call(row: models.ToolCall) -> PendingToolCall:
+    """Map a ``tool_calls`` row to the ``PendingToolCall`` read model."""
+    return PendingToolCall(
+        tool_call_id=row.id,
+        run_id=row.run_id,
+        tool_name=row.tool_name,
+        arguments=dict(row.arguments),
+        status=ToolCallStatus(row.status),
+    )
+
+
 class SqlTicketStore(_SessionBound):
     """SQLAlchemy ``TicketStore``."""
 
@@ -161,6 +173,21 @@ class SqlTicketStore(_SessionBound):
             session.add(ticket)
             session.flush()
             return ticket.id
+
+    async def get(self, ticket_id: UUID) -> TicketRecord | None:
+        """Fetch a ticket by id as the worker's ``RunContext`` needs it."""
+        with self._scope() as session:
+            row = session.get(models.Ticket, ticket_id)
+            if row is None:
+                return None
+            return TicketRecord(
+                id=row.id,
+                subject=row.subject,
+                body=row.body,
+                customer_email=row.customer_email,
+                external_id=row.external_id,
+                created_at=row.created_at,
+            )
 
 
 class SqlRunStore(_SessionBound):
@@ -330,6 +357,78 @@ class SqlToolCallStore(_SessionBound):
                 row.completed_at = _now()
             session.flush()
 
+    async def get(self, tool_call_id: UUID) -> PendingToolCall | None:
+        """Fetch one tool call by id."""
+        with self._scope() as session:
+            row = session.get(models.ToolCall, tool_call_id)
+            return _to_pending_tool_call(row) if row is not None else None
+
+    async def find_awaiting_approval(self, run_id: UUID) -> PendingToolCall | None:
+        """Find the run's ``awaiting_approval`` call, oldest first.
+
+        This is the resume-pass discovery query (Gap B): after an approval the run
+        is re-queued in ``EXECUTING`` with exactly one call parked at gate 5, and
+        the worker needs that call's id so the runtime re-enters the gates for the
+        call the human actually decided -- never for a fresh proposal, which would
+        carry a new id and park again.
+        """
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.ToolCall)
+                    .where(
+                        models.ToolCall.run_id == run_id,
+                        models.ToolCall.status == ToolCallStatus.AWAITING_APPROVAL.value,
+                    )
+                    .order_by(models.ToolCall.created_at)
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            return _to_pending_tool_call(row) if row is not None else None
+
+    async def find_executed(
+        self, *, run_id: UUID, idempotency_key: str
+    ) -> dict[str, object] | None:
+        """Return the result of an ``executed`` call with this key, or ``None``.
+
+        Gate 4's idempotency lookup (Gap A): the policy engine cannot read the
+        database, so the runtime performs this read and hands the ``(found,
+        result)`` tuple to the pure decision function. The partial unique index
+        makes ``(run_id, idempotency_key)`` at most one executed row.
+        """
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.ToolCall)
+                    .where(
+                        models.ToolCall.run_id == run_id,
+                        models.ToolCall.idempotency_key == idempotency_key,
+                        models.ToolCall.status == ToolCallStatus.EXECUTED.value,
+                    )
+                    .order_by(models.ToolCall.created_at)
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if row is None or row.result is None:
+                return None
+            return dict(row.result)
+
+    async def find_executed_call_id(self, *, run_id: UUID, idempotency_key: str) -> UUID | None:
+        """Return the id of the ``executed`` call holding this key, or ``None``."""
+        with self._scope() as session:
+            found = session.execute(
+                select(models.ToolCall.id).where(
+                    models.ToolCall.run_id == run_id,
+                    models.ToolCall.idempotency_key == idempotency_key,
+                    models.ToolCall.status == ToolCallStatus.EXECUTED.value,
+                )
+            ).first()
+            return found[0] if found is not None else None
+
 
 class SqlApprovalStore(_SessionBound):
     """SQLAlchemy ``ApprovalStore``."""
@@ -367,6 +466,21 @@ class SqlApprovalStore(_SessionBound):
             )
             return _to_approval(row) if row is not None else None
 
+    async def get_for_run(self, run_id: UUID) -> ApprovalRequestDomain | None:
+        """Fetch the run's most recent approval, or ``None``."""
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.ApprovalRequest)
+                    .where(models.ApprovalRequest.run_id == run_id)
+                    .order_by(models.ApprovalRequest.created_at.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            return _to_approval(row) if row is not None else None
+
     async def decide(
         self,
         approval_id: UUID,
@@ -376,15 +490,22 @@ class SqlApprovalStore(_SessionBound):
         note: str | None = None,  # noqa: ARG002 -- part of the port signature; no column
         decided_at: datetime,
     ) -> ApprovalRequestDomain:
-        """Record a human decision on a *pending* approval.
+        """Record a human decision on a *pending* approval and re-queue the run.
 
-        The transition is a conditional ``UPDATE ... WHERE id = ? AND status =
+        The decision is a conditional ``UPDATE ... WHERE id = ? AND status =
         'pending'``: a second approve affects zero rows and does **not** grant
         again, which is what lets the API return 409 for an already-decided
-        request rather than silently double-approving. The updated row is
-        re-read and returned; ``note`` is not persisted (the spec's
-        ``approval_requests`` table has no column for it) and is accepted only
-        for port compatibility.
+        request rather than silently double-approving. ``note`` is not persisted
+        (the spec's ``approval_requests`` table has no column for it).
+
+        On a *fresh* decision the run is moved in the same transaction -- to
+        ``EXECUTING`` on approve (the worker will re-enter the gates for this
+        call) or ``RESPONDING`` on reject (the worker will compose an escalation
+        reply). This is not the owner of the run's status: it is the write that
+        makes approval an *edge-triggered* event, so a worker polling the run
+        table sees the run become claimable. The state-change ``AgentStep`` is
+        written by the same ``SqlRunStore.set_status`` call, so the transition
+        and its trace are one unit (``docs/agent-state-machine.md`` §4).
         """
         with self._scope() as session:
             new_status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
@@ -407,14 +528,17 @@ class SqlApprovalStore(_SessionBound):
                 existing = session.get(models.ApprovalRequest, approval_id)
                 if existing is None:
                     raise _MissingApproval(approval_id)
-                # Already decided: return the current state unchanged. The caller
-                # distinguishes this from a fresh grant by status/decided_at.
+                # Already decided: return the current state unchanged and leave
+                # the run alone -- the first decision already moved it. The
+                # caller distinguishes this from a fresh grant by status.
                 return _to_approval(existing)
 
             session.flush()
             row = session.get(models.ApprovalRequest, approval_id)
             if row is None:  # pragma: no cover - defensive, cannot happen post-update
                 raise _MissingApproval(approval_id)
+            target = RunStatus.EXECUTING if approved else RunStatus.RESPONDING
+            await SqlRunStore(session).set_status(row.run_id, target)
             return _to_approval(row)
 
     async def has_approved(self, tool_call_id: UUID) -> bool:

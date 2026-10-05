@@ -238,20 +238,29 @@ async def test_issues_create_executes_through_the_gateway(gateway: MCPToolGatewa
 # ---------------------------------------------------------------------------
 
 
-async def test_fixture_store_is_isolated_from_the_committed_seed(tmp_path: Path) -> None:
-    """Each gateway build starts from the committed seed, not from prior writes.
+def _transactions(result: dict[str, object] | None) -> list[dict[str, object]]:
+    """The ``transactions`` list from a ``billing.list_transactions`` payload.
 
-    Guards the fixture itself: ``build_in_process_servers`` constructs a fresh
-    ``Store`` per server from the committed ``seed.json``, so a refund written
-    through one gateway is not visible to the next -- every count assertion
-    elsewhere is order-independent, and no test can see another's mutation even
-    when they share a directory.
-
-    The store *does* persist: the refund is written to ``billing.json`` in the
-    directory, and a second refund inside the same gateway build is a replay
-    (asserted below). What is isolated is the *build*: constructing anew re-seeds.
+    ``ToolResult.result`` is a ``dict[str, object]``, so the nested list needs
+    narrowing before it can be iterated. Done here once rather than at each call
+    site, and it asserts the shape rather than casting blindly -- a payload that
+    stopped carrying transactions should fail loudly, not iterate to nothing.
     """
-    first = MCPToolGateway(servers=build_in_process_servers(tmp_path))
+    assert result is not None, "the tool returned no result"
+    value = result["transactions"]
+    assert isinstance(value, list), f"transactions is {type(value).__name__}, not a list"
+    return [row for row in value if isinstance(row, dict)]
+
+
+async def test_separate_data_directories_are_isolated(tmp_path: Path) -> None:
+    """Two stores in different directories cannot see each other's writes.
+
+    This is the property the fixture actually needs: ``build_in_process_servers``
+    is handed a per-test ``tmp_path``, so one test's refund is invisible to the
+    next. Isolation comes from the *directory*, which is why every test passes its
+    own.
+    """
+    first = MCPToolGateway(servers=build_in_process_servers(tmp_path / "a"))
     first_result = await first.call_tool(
         "billing.issue_refund",
         {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": "iso-1"},
@@ -260,17 +269,89 @@ async def test_fixture_store_is_isolated_from_the_committed_seed(tmp_path: Path)
     assert first_result.result is not None
     assert first_result.result["replayed"] is False
 
-    # The write persisted to the per-directory store file...
-    store_file = tmp_path / "billing.json"
-    assert store_file.exists()
-    assert len(json.loads(store_file.read_text(encoding="utf-8"))["refunds"]) == 1
-
-    # ...but a fresh build re-seeds from the committed seed, so no prior refund.
-    rebuilt = MCPToolGateway(servers=build_in_process_servers(tmp_path))
-    rebuilt_result = await rebuilt.call_tool(
+    # A different directory is a different store: the seed, untouched.
+    other = MCPToolGateway(servers=build_in_process_servers(tmp_path / "b"))
+    other_result = await other.call_tool(
         "billing.issue_refund",
         {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": "iso-2"},
     )
-    assert rebuilt_result.ok is True
-    assert rebuilt_result.result is not None
-    assert rebuilt_result.result["replayed"] is False
+    assert other_result.ok is True
+    assert other_result.result is not None
+    assert other_result.result["replayed"] is False
+
+
+async def test_a_write_survives_reconstruction_of_the_store(tmp_path: Path) -> None:
+    """A store rebuilt on the same directory sees what the previous one wrote.
+
+    This is what "persistence" means, and it did not hold: ``Store.__init__`` read
+    the *seed* rather than the live file, so a refund written by one server
+    instance was invisible to the next. A worker restarted after a refund would
+    have seen ``TX-88219`` as ``charged`` again -- precisely the state the
+    duplicate-refund defence consults before letting a second refund through.
+
+    The previous version of this file asserted the opposite ("a fresh build
+    re-seeds from the committed seed"), which pinned the defect in place: a test
+    written from the implementation agreed with the implementation. The isolation
+    it was trying to protect is a property of the *directory*, and is asserted
+    separately above.
+    """
+    first = MCPToolGateway(servers=build_in_process_servers(tmp_path))
+    first_result = await first.call_tool(
+        "billing.issue_refund",
+        {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": "iso-1"},
+    )
+    assert first_result.ok is True
+    assert first_result.result is not None
+    refund_id = first_result.result["refund_id"]
+    assert first_result.result["replayed"] is False
+
+    # The write reached the live store file...
+    store_file = tmp_path / "billing.json"
+    assert store_file.exists()
+    persisted = json.loads(store_file.read_text(encoding="utf-8"))
+    assert len(persisted["refunds"]) == 1
+
+    # ...and a rebuild on the same directory loads it, rather than the seed.
+    rebuilt = MCPToolGateway(servers=build_in_process_servers(tmp_path))
+    invoice = await rebuilt.call_tool("billing.list_transactions", {"invoice_id": "INV-2026-384"})
+    assert invoice.result is not None
+    refunded = [t for t in _transactions(invoice.result) if t["status"] == "refunded"]
+    assert [t["transaction_id"] for t in refunded] == ["TX-88219"], (
+        "a rebuilt store reported TX-88219 as charged, so the refund did not "
+        "survive reconstruction -- which is the state a restarted worker would "
+        "read before deciding whether to refund again"
+    )
+
+    # The idempotency guarantee must survive too: the same key replays rather
+    # than producing a second refund.
+    replay = await rebuilt.call_tool(
+        "billing.issue_refund",
+        {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": "iso-1"},
+    )
+    assert replay.ok is True
+    assert replay.result is not None
+    assert replay.result["refund_id"] == refund_id
+    assert replay.result["replayed"] is True
+
+
+async def test_reset_returns_a_store_to_the_seed(tmp_path: Path) -> None:
+    """``reset`` restores the seed regardless of what the live file holds.
+
+    The counterpart to the test above: loading the live file must not have made
+    ``reset`` meaningless, which is the property the old behaviour was defending
+    (badly -- by never loading the live file at all).
+    """
+    store_dir = tmp_path / "reset"
+    gateway = MCPToolGateway(servers=build_in_process_servers(store_dir))
+    result = await gateway.call_tool(
+        "billing.issue_refund",
+        {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": "reset-1"},
+    )
+    assert result.ok is True
+
+    # Drop the live file the way `reset` would, and rebuild.
+    (store_dir / "billing.json").unlink()
+    fresh = MCPToolGateway(servers=build_in_process_servers(store_dir))
+    invoice = await fresh.call_tool("billing.list_transactions", {"invoice_id": "INV-2026-384"})
+    assert invoice.result is not None
+    assert [t for t in _transactions(invoice.result) if t["status"] == "refunded"] == []

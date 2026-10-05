@@ -193,6 +193,16 @@ ignore = [
 "src/opspilot/**/__main__.py" = ["T20"]
 "src/opspilot/mcp_servers/seed.py" = ["T20"]
 "src/opspilot/evals/*.py" = ["T20"]
+# The provider adapters hold an SDK client typed by the SDK itself, which is
+# imported inside the method (never at module scope, so the package imports
+# without the extra). Its type is therefore genuinely dynamic at the annotation
+# site, and `Any` is the honest annotation rather than a fabricated Protocol the
+# SDK does not implement. Narrowed to the three files that touch an SDK client.
+"src/opspilot/adapters/models/openai_provider.py" = ["ANN401"]
+"src/opspilot/adapters/models/anthropic_provider.py" = ["ANN401"]
+# The fake's recording helper takes a *real* provider it must not import (the
+# fake has no provider dependency), so its parameter is dynamic by design.
+"src/opspilot/adapters/models/fake.py" = ["ANN401"]
 # Alembic's generated migration files are not ours to style.
 "migrations/**" = ["ALL"]
 

@@ -8,10 +8,13 @@ in an orchestration adapter cannot silently widen them
 Layer: ``domain``. Imports only ``__future__``, the standard library
 (``datetime``, ``enum``, ``uuid``) and Pydantic.
 
-M0 note: ``RunStatus`` and ``ALLOWED_TRANSITIONS`` are transcribed literally
-from the specification (``docs/agent-state-machine.md`` §2) because that table
-*is* the spec and is safe to freeze now. ``AgentRun.transition_to`` is a stub;
-the transition logic lands in M1.
+``RunStatus`` and ``ALLOWED_TRANSITIONS`` are transcribed literally from the
+specification (``docs/agent-state-machine.md`` §2) because that table *is* the
+spec. ``AgentRun.transition_to`` is the single implementation of the rule: it
+looks the current status up in the table, raises ``IllegalTransition`` when the
+edge is absent, and otherwise sets the status and returns the run. There is no
+setter, and nothing else in the package re-implements the check -- two
+implementations of a security-relevant rule is one implementation too many.
 """
 
 from __future__ import annotations
@@ -110,9 +113,21 @@ class AgentRun(BaseModel):
     def transition_to(self, target: RunStatus) -> AgentRun:
         """Move the run to ``target``, or raise ``IllegalTransition``.
 
-        The only way to change status; there is no setter. Raises
-        ``IllegalTransition`` when the edge is not in ``ALLOWED_TRANSITIONS``.
+        The only way to change status; there is no setter. ``ALLOWED_TRANSITIONS``
+        is the specification (``docs/agent-state-machine.md`` §2), so this method
+        is a table lookup, not a rule of its own: it raises
+        ``IllegalTransition(current, requested)`` when the edge is absent and
+        otherwise sets ``status`` and returns ``self`` so a caller can chain.
 
-        M0 stub -- implementation lands in M1.
+        ``runtime.transition_or_raise`` delegates here rather than duplicating
+        the check -- the rule lives in exactly one place.
         """
-        raise NotImplementedError
+        if target not in ALLOWED_TRANSITIONS[self.status]:
+            # Imported lazily because ``errors`` imports ``RunStatus`` from this
+            # module under ``TYPE_CHECKING``; that keeps the import graph acyclic
+            # at runtime while this stays the one implementation of the check.
+            from opspilot.domain.errors import IllegalTransition
+
+            raise IllegalTransition(self.status, target)
+        self.status = target
+        return self

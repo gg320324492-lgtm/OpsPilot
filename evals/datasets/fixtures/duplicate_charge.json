@@ -1,0 +1,126 @@
+{
+  "scenario": "duplicate_charge",
+  "recorded": false,
+  "note": "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with record_fixture() against a real provider (see opspilot.adapters.models.fake). Request hashes are absent because the prompts are assembled at runtime; the scenario interface returns these calls in order.",
+  "calls": [
+    {
+      "method": "generate_structured",
+      "schema": "TicketClassification",
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_classification_prompt(ctx)>"
+      },
+      "response": {
+        "value": {
+          "category": "duplicate_charge",
+          "confidence": 0.93,
+          "rationale": "The customer reports two identical charges for the same invoice seconds apart."
+        },
+        "usage": {
+          "provider": "fake",
+          "model": "hand-written-placeholder",
+          "latency_ms": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "estimated_cost_usd": 0.0
+        }
+      }
+    },
+    {
+      "method": "choose_tool",
+      "schema": null,
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_planning_prompt(ctx, hits)>"
+      },
+      "response": {
+        "value": {
+          "tool_name": "crm.get_customer",
+          "arguments": {"customer_id": "ACME"},
+          "reason": "Identify the customer before examining billing.",
+          "done": false
+        },
+        "usage": {}
+      }
+    },
+    {
+      "method": "choose_tool",
+      "schema": null,
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_planning_prompt(ctx, hits) after the CRM lookup>"
+      },
+      "response": {
+        "value": {
+          "tool_name": "billing.get_invoice",
+          "arguments": {"invoice_id": "INV-2026-384"},
+          "reason": "Confirm the invoice and its transactions.",
+          "done": false
+        },
+        "usage": {}
+      }
+    },
+    {
+      "method": "choose_tool",
+      "schema": null,
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_planning_prompt(ctx, hits) after the invoice lookup>"
+      },
+      "response": {
+        "value": {
+          "tool_name": "billing.list_transactions",
+          "arguments": {"account_id": "AC-4471", "limit": 20},
+          "reason": "List the transactions to find the duplicate pair.",
+          "done": false
+        },
+        "usage": {}
+      }
+    },
+    {
+      "method": "choose_tool",
+      "schema": null,
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_planning_prompt(ctx, hits) after the duplicate is confirmed>"
+      },
+      "response": {
+        "value": {
+          "tool_name": "billing.issue_refund",
+          "arguments": {
+            "transaction_id": "TX-88219",
+            "amount": 129.0,
+            "currency": "USD",
+            "reason": "Duplicate charge for INV-2026-384."
+          },
+          "reason": "The duplicate is confirmed and policy supports a refund. This is HIGH_RISK_WRITE and requires human approval.",
+          "done": false
+        },
+        "usage": {}
+      }
+    },
+    {
+      "method": "generate_structured",
+      "schema": "AgentResponse",
+      "request": {
+        "system": "<assembled by build_system_prompt()>",
+        "prompt": "<assembled by build_response_prompt(ctx)>"
+      },
+      "response": {
+        "value": {
+          "body": "We confirmed the duplicate charge of $129.00 on INV-2026-384 and have refunded the extra transaction (TX-88219). The refund should appear on your statement within a few business days.",
+          "cited_document_slugs": ["refund-policy.md", "duplicate-charge-sop.md"],
+          "escalated": false
+        },
+        "usage": {
+          "provider": "fake",
+          "model": "hand-written-placeholder",
+          "latency_ms": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "estimated_cost_usd": 0.0
+        }
+      }
+    }
+  ]
+}

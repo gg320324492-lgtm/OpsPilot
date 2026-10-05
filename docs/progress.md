@@ -12,7 +12,7 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M1 — Database and API skeleton | done | See below |
 | M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | done | See below |
-| M4 — Agent runtime | not started | |
+| M4 — Agent runtime | done | See below |
 | M5 — RAG | not started | |
 | M6 — Golden workflow | not started | |
 | M7 — Dashboard | not started | |
@@ -571,3 +571,115 @@ test catches it, rather than an author mutating a shared file mid-flight.
   approval path as a defect; it is M4's missing worker. Another reported the
   duplicate-key collision; that one was real, and reproducing it took ten
   minutes and settled it.
+
+---
+
+## M4 — Agent runtime
+
+**Status:** done. **The golden path is executable end to end for the first time.**
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| 1 | `transition_to` real, one implementation | ✅ `IllegalTransition` raised in exactly one place in `src/` |
+| 2 | `FakeModelProvider` replays recorded responses; a miss raises | ✅ `UnmatchedFixtureError` names the request hash — no default |
+| 3 | Anthropic + OpenAI adapters sharing one path | ✅ `_shared.py`; SDKs imported inside methods |
+| 4 | Prompt assembly labels retrieved text untrusted | ✅ verified by injecting an instruction string |
+| 5 | Worker claims and drives; parks on approval | ✅ |
+| 6 | **Gap A**: gate-4 idempotency lookup wired | ✅ `find_executed_call_id` |
+| 7 | **Gap B**: an approved refund actually executes | ✅ `_resolve_resume` finds the parked call |
+| 8 | Rejection completes with escalation, no refund | ✅ |
+
+### Independent verification — the golden path, driven by the worker
+
+`.scratch/verify_m4.py` creates a ticket, **drains the worker** (no hand-pushed
+proposals), approves the way the API does, drains again, and then asks the MCP
+server whether the money moved. 12/12:
+
+```
+drain1 → waiting_approval        parked: billing.issue_refund, high_risk_write, keyed
+approval: pending, "This moves $129.00 USD out of the account…"
+admin approves → drain2 → completed
+THE SERVER SAYS: TX-88219 refunded, TX-88218 still charged
+after a second drain: still exactly one refund; the drain had nothing to do
+reject path: completed, and the server holds no refund
+```
+
+The last checks are the ones worth having: the system's own status is a
+self-consistent claim, while the server's transaction row is what happened.
+
+### The defect this milestone was worth running for
+
+**`Store.__init__` read the seed, never the live file.**
+
+`save()` wrote `billing.json` correctly — the file on disk showed `refunds: 1`
+and `TX-88219: refunded`. But every newly constructed `Store` called
+`_read_seed()`, which reads `self._seed_path`, and `self._path` was never read.
+So a second `MCPToolGateway()` on the same directory reported `TX-88219` as
+`charged` with no refunds.
+
+Reproduced directly:
+
+```
+gateway A: refund ok, REF-10091        billing.json: refunds=1
+gateway B: sees refunded []            <-- same directory
+```
+
+The consequences are the interesting part:
+
+- A **worker restarted after a refund** would read `TX-88219` as `charged` again
+  — exactly the state the duplicate-refund defence consults. The Postgres
+  `tool_calls` partial unique index would still have caught a second refund, so
+  this was not an open money hole, but the store's own guard was inert.
+- The `refunds` idempotency list reset on every construction, so the MCP server's
+  replay behaviour only held within a single process lifetime.
+- Any code path that rebuilt a gateway mid-run diverged from the one that
+  performed the write.
+
+Fixed by loading `self._path` when it exists and falling back to the seed on
+first run — the standard seed-then-live-file arrangement, and the one the class
+docstring already described ("the live store and the seed are distinct and
+`reset` is meaningful"). `_read_document` now takes a path so a malformed *live*
+file names itself rather than reporting the seed as broken, and `reset()` keeps
+its meaning.
+
+**A test was pinning the defect in place.** `test_fixture_store_is_isolated_from_the_committed_seed`
+asserted *"a fresh build re-seeds from the committed seed, so no prior refund"* —
+it was written from the implementation and it agreed with the implementation. Its
+real intent was store isolation between tests, which is a property of the
+*data directory*. That is now two tests: one asserting two directories are
+isolated, one asserting a write survives reconstruction, one asserting `reset`
+still returns to the seed. All three were needed; the original blurred them.
+
+### Known gaps carried forward
+
+- **`find_executed_call_id`** (agent B flagged this itself): the replay branch's
+  final status depends on a second store read rather than purely on
+  `evaluate_policy`'s verdict. It exists so a stub lookup claiming a prior
+  execution with no backing row still resolves; a reviewer should decide whether
+  `evaluate_policy` should own that decision outright.
+- **`TicketStore.create` returns only a UUID** (from M1), so `POST /api/tickets`
+  fills the response's `ticket.created_at` from the run's timestamp rather than
+  reading the ticket back. Tracked since M1.
+- **Retrieval is a stub in the pump** — the `RETRIEVING` state runs and records no
+  hits. M5 fills it. No citations are fabricated in the meantime.
+
+### What was learned
+
+- **The end-to-end probe caught what 316 passing tests did not**, and it caught a
+  different thing from the last two: not a contract mismatch but a persistence
+  semantic. Driving the whole system and then asking an external party (the MCP
+  server) for the outcome is what made it visible.
+- **Three defects in four milestones have been a test agreeing with the
+  implementation.** This one was the clearest: the test's own docstring described
+  the bug as the design.
+- **An agent's self-reported uncertainty was accurate.** Agent B flagged its
+  `find_executed_call_id` discriminator as the thing it was least sure about, and
+  that is genuinely the weakest part of the change. Asking for that explicitly in
+  the brief is worth the sentence.
+- **Agent A modified `pyproject.toml` beyond its brief** (three narrow per-file
+  `ANN401` ignores). Kept: each is scoped to one file, the SDK client types are
+  genuinely dynamic, and the comment explains why `Any` is the honest annotation
+  rather than a fabricated Protocol. Noted because the boundary was crossed even
+  though the result was right.
