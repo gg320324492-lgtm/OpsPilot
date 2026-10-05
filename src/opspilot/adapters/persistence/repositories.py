@@ -40,12 +40,15 @@ from opspilot.domain.approvals import ApprovalRequest as ApprovalRequestDomain
 from opspilot.domain.approvals import ApprovalStatus
 from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError
 from opspilot.domain.runs import CLAIMABLE, AgentRun, RunStatus
-from opspilot.domain.tools import ToolCallStatus
+from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import (
     CitationRecord,
+    CitationRow,
     KnowledgeDocumentRecord,
     PendingToolCall,
+    StepRow,
     TicketRecord,
+    ToolCallRow,
 )
 
 # A repository is bound either to a live ``Session`` (so a caller can compose
@@ -299,6 +302,99 @@ class SqlRunStore(_SessionBound):
             .limit(1)
         ).scalar()
         return (highest or 0) + 1
+
+    # -- reads the dashboard needs ---------------------------------------
+    #
+    # The router loads a run's steps, tool calls and citations through optional
+    # methods, and it is bound to the *run* store. Those three reads therefore
+    # have to live here, on the object the router actually holds.
+    #
+    # They were absent, and the consequence was invisible to the suite: the
+    # router's `_optional_method` probe found nothing and returned an empty list,
+    # so a real deployment rendered a run detail with no timeline, no tool calls
+    # and no citations -- three of the panels the dashboard exists to show. The
+    # tests passed because `tests/integration/fakes.py`'s FakeRunStore implements
+    # all three. A fake more capable than production is the one kind of test
+    # double that cannot fail, which is why this went unnoticed through M1-M5.
+
+    async def list_steps(self, run_id: UUID) -> list[StepRow]:
+        """Return a run's steps in sequence order."""
+        with self._scope() as session:
+            rows = session.execute(
+                select(models.AgentStep)
+                .where(models.AgentStep.run_id == run_id)
+                .order_by(models.AgentStep.sequence)
+            ).scalars()
+            return [
+                StepRow(
+                    sequence=row.sequence,
+                    step_type=row.step_type,
+                    output=row.output,
+                    latency_ms=row.latency_ms,
+                    started_at=row.started_at,
+                )
+                for row in rows
+            ]
+
+    async def list_tool_calls(self, run_id: UUID) -> list[ToolCallRow]:
+        """Return a run's tool calls in the order they were proposed."""
+        with self._scope() as session:
+            rows = session.execute(
+                select(models.ToolCall)
+                .where(models.ToolCall.run_id == run_id)
+                .order_by(models.ToolCall.created_at)
+            ).scalars()
+            return [
+                ToolCallRow(
+                    id=row.id,
+                    tool_name=row.tool_name,
+                    arguments=row.arguments,
+                    permission=Permission(row.permission),
+                    status=ToolCallStatus(row.status),
+                    result=row.result,
+                    latency_ms=row.latency_ms,
+                    idempotency_key=row.idempotency_key,
+                    error=row.error,
+                )
+                for row in rows
+            ]
+
+    async def list_citations(self, run_id: UUID) -> list[CitationRow]:
+        """Return a run's citations, best rank first.
+
+        Composes ``chunk`` as ``"{source}#{anchor}"`` -- the stable string
+        ``docs/api-contract.md`` §3 says a reader can grep for in ``knowledge/``
+        -- so the router renders a link without deciding how a citation is
+        spelled.
+        """
+        with self._scope() as session:
+            rows = session.execute(
+                select(
+                    models.KnowledgeDocument.source,
+                    models.KnowledgeChunk.anchor,
+                    models.Citation.score,
+                    models.Citation.rank,
+                )
+                .join(
+                    models.KnowledgeDocument,
+                    models.KnowledgeDocument.id == models.Citation.document_id,
+                )
+                .join(
+                    models.KnowledgeChunk,
+                    models.KnowledgeChunk.id == models.Citation.chunk_id,
+                )
+                .where(models.Citation.run_id == run_id)
+                .order_by(models.Citation.rank)
+            ).all()
+            return [
+                CitationRow(
+                    document=source,
+                    chunk=f"{source}#{anchor}",
+                    score=float(score),
+                    rank=int(rank),
+                )
+                for source, anchor, score, rank in rows
+            ]
 
 
 class SqlToolCallStore(_SessionBound):

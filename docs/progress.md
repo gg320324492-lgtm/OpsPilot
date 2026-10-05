@@ -1276,3 +1276,63 @@ without confronting them:
 - The abstention test needs a second assertion it can fail: that an *answerable*
   question does **not** abstain at the configured threshold. Without it, the
   suite cannot tell "retrieval works" from "retrieval always abstains".
+
+### M5e — the reviewer's verification, and what it falsified
+
+Three falsified, everything else held. The verifier's probes are in
+`.scratch/` (uncommitted); full repo stayed green throughout.
+
+**F1 (fixed). Three run-detail panels were empty in every real deployment.**
+`GET /api/runs/{id}` loads steps, tool calls and citations through
+`_optional_method(store, ...)` on the object bound as `RunStoreDep`. That object
+is `SqlRunStore`, which had only `create/get/claim_next/set_status`. The three
+methods existed on other stores -- `list_citations` on `SqlCitationStore` -- but
+not on the one the router holds. The probe therefore found nothing and every list
+came back empty: a run detail with no timeline, no tool calls, no citations. The
+dashboard's three panels, absent in production since M1.
+
+The suite could not see it, and the reason is the shape of a mistake this project
+now keeps making: `tests/integration/fakes.py`'s `FakeRunStore` implements all
+three methods, so every run-detail test passed against a double more capable than
+the thing it replaced. **A fake that answers every probe means the code never
+takes its production branch.** The three methods are now on `SqlRunStore`,
+converting stored strings to the domain enums the contract types, and
+`tests/integration/test_run_detail_against_the_real_store.py` drives the real
+store so the probe's answer is a deployment's answer. Mutation-verified: removing
+the three methods reddens all five tests.
+
+**F2 (open, assigned to M6). Citations cannot be written on the shipped SQLite
+path, independent of abstention.** `InMemoryVectorStore.upsert` keeps chunks in
+process memory and never inserts `knowledge_chunks` rows, while
+`SqlCitationStore.create_many` skips a hit whose chunk row is missing (correctly
+-- the FK would reject it). Ingesting the real corpus under SQLite yields 17
+`knowledge_documents` rows and **0** `knowledge_chunks` rows, so a citation write
+has nothing to point at. `wiring.py`'s docstring claims "the citation rows ...
+work under SQLite"; that is false. The golden path's 0 citations has *two* causes
+-- abstention and this -- and fixing only the threshold would leave the citation
+panel empty.
+
+**F3 (open, assigned to M6). The injection document is not retrievable in the
+shipped configuration.** With the real stack over the real corpus,
+`ignore-instructions.md` ranks 9th at 0.0368 for the golden-path query -- outside
+top-5 and far below 0.35 -- and does not appear in any top-10 for
+injection-flavoured queries. So `docs/milestones.md` §M5's "at least one
+knowledge document carries a prompt injection" is satisfied only *synthetically*:
+the test injects a fabricated `SearchHit` with `score=0.99`. The test does prove
+something real and worth having -- the gate stops a *complying* model, which is
+the property §M5 names as the right thing to assert -- but the "retrieved
+injection" premise never occurs in the running system.
+
+**Held, and verified rather than assumed.** All four CI invariants
+(`docs/tool-permissions.md` §6) are non-vacuous: each was reddened by injecting a
+genuine counterexample row, and invariant 4 is additionally backed by the real
+partial unique index. The abstention path takes only legal edges -- instrumented,
+not read from the docstring: `received→classifying→retrieving→planning→responding
+→completed`, with `RETRIEVING→RESPONDING` never taken. The fourth-server guard
+goes red on both the server set and the alias when each is reintroduced.
+
+**The pattern, for the third time in M5 alone.** F1, F2 and the ingest defect
+fixed in M5b are the same mistake in three costumes: a test double, or a test
+fixture, that is more capable -- or differently wired -- than production. The
+suite is green in all three cases, and green means nothing, because the code
+under test never runs the way it will run for a user.

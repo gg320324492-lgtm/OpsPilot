@@ -22,7 +22,7 @@ from uuid import UUID
 
 from opspilot.domain.approvals import ApprovalRequest
 from opspilot.domain.runs import AgentRun, RunStatus
-from opspilot.domain.tools import ToolCallStatus
+from opspilot.domain.tools import Permission, ToolCallStatus
 
 
 @dataclass(frozen=True)
@@ -228,6 +228,57 @@ class CitationRecord:
     ``chunk`` as ``"{document}#{anchor}"`` (``docs/api-contract.md`` §3). The
     store resolves the document slug and composes the chunk string, so the
     router never joins tables itself.
+    """
+
+    document: str
+    chunk: str
+    score: float
+    rank: int
+
+
+@dataclass(frozen=True)
+class StepRow:
+    """One ``agent_steps`` row, as the trace endpoints read it.
+
+    The field names are the router's (``runs.py``'s ``StepRow`` Protocol), so the
+    run store satisfies that Protocol without the router importing the adapter.
+    """
+
+    sequence: int
+    step_type: str
+    output: dict[str, object] | None
+    latency_ms: int | None
+    started_at: datetime
+
+
+@dataclass(frozen=True)
+class ToolCallRow:
+    """One ``tool_calls`` row, as the run-detail router reads it.
+
+    ``permission`` and ``status`` are the domain enums, not the stored strings:
+    the router's Protocol is typed with the enums (``docs/api-contract.md`` §3),
+    so the conversion happens here, once, at the storage boundary.
+    """
+
+    id: UUID
+    tool_name: str
+    arguments: dict[str, object]
+    permission: Permission
+    status: ToolCallStatus
+    result: dict[str, object] | None
+    latency_ms: int | None
+    idempotency_key: str | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class CitationRow:
+    """One ``citations`` join row, as the run-detail router reads it.
+
+    Distinct from :class:`CitationRecord`, which is the *write* shape a caller
+    hands to ``create_many``. This is the read shape, and the split is
+    deliberate: a writer supplies a document slug and an anchor, while a reader
+    gets the composed ``"{slug}#{anchor}"`` string the UI links.
     """
 
     document: str
