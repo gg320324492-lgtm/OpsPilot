@@ -1067,7 +1067,15 @@ async def _respond(
     ctx.response_body = body
     await recorder.record_step(
         step_type="response",
-        output_payload={"escalated": ctx.escalated, "chars": len(body)},
+        # The body is recorded here, not just its length, because
+        # `RunDetail.customer_reply` (contract §3) is read back from this step:
+        # the trace is the only place the reply is persisted, so storing `chars`
+        # alone left every completed run's reply unreachable and the dashboard's
+        # Customer reply panel permanently empty. `docs/limitations.md` already
+        # lists unredacted prompt storage as a known limitation, so storing the
+        # composed reply is consistent with the phase's posture -- but storing
+        # *nothing* is not a choice about disclosure, it is a missing feature.
+        output_payload={"escalated": ctx.escalated, "chars": len(body), "body": body},
         latency_ms=response_ms,
     )
     await _transition(ctx, run_store, RunStatus.COMPLETED)

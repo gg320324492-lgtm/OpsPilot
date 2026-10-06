@@ -129,9 +129,17 @@ class PendingApproval(BaseModel):
 
 
 class CustomerReply(BaseModel):
-    """The customer-visible reply, set only at ``COMPLETED`` (contract §3)."""
+    """The customer-visible reply, set only at ``COMPLETED`` (contract §3).
+
+    ``escalated`` is declared rather than smuggled through ``extra="allow"``:
+    it is the field that distinguishes "we could not complete this and a human
+    is on it" from "here is your refund", and a declared field is one the
+    OpenAPI document publishes and the dashboard's generated types carry. A
+    field that only exists at runtime is a field a client cannot render.
+    """
 
     body: str
+    escalated: bool = False
     model_config = ConfigDict(extra="allow")
 
 

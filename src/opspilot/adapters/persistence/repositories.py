@@ -44,7 +44,9 @@ from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import (
     CitationRecord,
     CitationRow,
+    CustomerReplyRow,
     KnowledgeDocumentRecord,
+    PendingApprovalRow,
     PendingToolCall,
     StepRow,
     TicketRecord,
@@ -197,6 +199,39 @@ class SqlTicketStore(_SessionBound):
                 created_at=row.created_at,
             )
 
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[TicketRecord]:
+        """List tickets, newest first (contract §10).
+
+        Not on the ``TicketStore`` port: the port names what the *worker* needs,
+        and listing is a dashboard read that ``GET /api/tickets`` probes for
+        rather than requiring. Without it the endpoint's documented degradation
+        is an empty page, so a deployment would report "no tickets" for a system
+        that has them -- the same empty-list-is-a-plausible-lie failure the
+        connection banner exists to prevent, one layer down.
+        """
+        with self._scope() as session:
+            rows = (
+                session.execute(
+                    select(models.Ticket)
+                    .order_by(models.Ticket.created_at.desc(), models.Ticket.id)
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .scalars()
+                .all()
+            )
+            return [
+                TicketRecord(
+                    id=row.id,
+                    subject=row.subject,
+                    body=row.body,
+                    customer_email=row.customer_email,
+                    external_id=row.external_id,
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]
+
 
 class SqlRunStore(_SessionBound):
     """SQLAlchemy ``RunStore``, including the worker's claim query."""
@@ -219,6 +254,76 @@ class SqlRunStore(_SessionBound):
         with self._scope() as session:
             row = session.get(models.AgentRun, run_id)
             return _to_agent_run(row) if row is not None else None
+
+    async def get_pending_approval(self, run_id: UUID) -> PendingApprovalRow | None:
+        """The run's pending approval, or ``None`` (run detail's approver card).
+
+        A **second** pending approval for the same run is possible and is the
+        one the M7 dashboard has to be able to show: ``EXECUTING`` survives a
+        restart, so a run killed between committing ``EXECUTING`` and committing
+        the tool call's terminal status resumes, re-proposes the same refund
+        under a **new** ``tool_call_id``, and parks again. The idempotency key
+        stops the money moving twice; it does not stop two approval rows existing.
+
+        So this returns the *earliest* pending row -- the one an operator should
+        act on -- and the dashboard groups on ``run_id`` to show the rest. The
+        alternative, returning the newest and hiding the other, would make the
+        approvals inbox look like two unrelated refunds.
+        """
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.ApprovalRequest)
+                    .where(
+                        models.ApprovalRequest.run_id == run_id,
+                        models.ApprovalRequest.status == ApprovalStatus.PENDING.value,
+                    )
+                    .order_by(models.ApprovalRequest.created_at)
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if row is None:
+                return None
+            return PendingApprovalRow(
+                id=row.id,
+                tool_call_id=row.tool_call_id,
+                status=ApprovalStatus(row.status),
+                reason=row.reason,
+                risk_explanation=row.risk_explanation,
+                arguments_snapshot=dict(row.arguments_snapshot),
+                created_at=row.created_at,
+            )
+
+    async def get_customer_reply(self, run_id: UUID) -> CustomerReplyRow | None:
+        """The completed run's customer-visible reply, or ``None``.
+
+        Read from the ``response`` step's recorded output rather than from a
+        reply column, because ``response`` is the step that produces it: the
+        body and the escalation flag are both already persisted there.
+        """
+        with self._scope() as session:
+            row = (
+                session.execute(
+                    select(models.AgentStep)
+                    .where(
+                        models.AgentStep.run_id == run_id,
+                        models.AgentStep.step_type == "response",
+                    )
+                    .order_by(models.AgentStep.sequence.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if row is None:
+                return None
+            output = row.output or {}
+            body = output.get("body") or output.get("reply") or ""
+            if not isinstance(body, str) or not body:
+                return None
+            return CustomerReplyRow(body=body, escalated=bool(output.get("escalated")))
 
     async def claim_next(self, *, worker_id: str) -> AgentRun | None:  # noqa: ARG002
         """Claim the oldest claimable run, or return ``None``.
@@ -396,6 +501,46 @@ class SqlRunStore(_SessionBound):
                 for source, anchor, score, rank in rows
             ]
 
+    # `list` is defined last in this class on purpose. Naming a method `list`
+    # shadows the builtin *inside the class body*, so every `-> list[X]`
+    # annotation written after it resolves `list` to the method and mypy
+    # rejects it. Python does not care at runtime; a type checker does, and a
+    # `--strict` codebase that cannot typecheck is not one. The name is not
+    # negotiable -- the routers probe for exactly `list` -- so the fix is
+    # ordering, not a rename. See the identical placement in
+    # `SqlApprovalStore` and `SqlTicketStore`.
+    async def list(
+        self, *, status: RunStatus | None = None, limit: int = 50, offset: int = 0
+    ) -> list[AgentRun]:
+        """List runs newest first, optionally filtered by status (contract §1).
+
+        Not on the ``RunStore`` port, for the same reason as
+        ``SqlTicketStore.list``: the port names the worker's queue primitive,
+        and ``GET /api/runs`` probes for the read. Without it that endpoint
+        returns its documented empty page, so the Runs screen would show
+        nothing for a system that has runs.
+
+        The secondary sort on ``id`` is not decoration. ``POST /api/tickets``
+        writes a ticket and its run in one transaction and both rows get the
+        same default ``created_at``, so without a total order the offset paging
+        the contract §10 specifies could show a run twice across two pages or
+        skip one entirely -- neither of which is visible in any single response.
+        """
+        with self._scope() as session:
+            statement = select(models.AgentRun)
+            if status is not None:
+                statement = statement.where(models.AgentRun.status == status.value)
+            rows = (
+                session.execute(
+                    statement.order_by(models.AgentRun.created_at.desc(), models.AgentRun.id)
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .scalars()
+                .all()
+            )
+            return [_to_agent_run(row) for row in rows]
+
 
 class SqlToolCallStore(_SessionBound):
     """SQLAlchemy ``ToolCallStore``."""
@@ -561,6 +706,21 @@ class SqlApprovalStore(_SessionBound):
             session.flush()
             return _to_approval(row)
 
+    async def get(self, approval_id: UUID) -> ApprovalRequestDomain | None:
+        """Fetch one approval by its own id, as the approvals API needs it.
+
+        Not on the ``ApprovalStore`` port: the port names what the *worker*
+        needs (by tool call, by run), while ``GET /api/approvals/{id}`` and the
+        409's read-back both key on the approval id. Without it the router's
+        ``getattr(approvals, "get", None)`` probe finds nothing, and the route
+        answers 404 for every approval that exists -- including the one an
+        operator is looking at, and the one whose second click should have
+        produced a 409.
+        """
+        with self._scope() as session:
+            row = session.get(models.ApprovalRequest, approval_id)
+            return _to_approval(row) if row is not None else None
+
     async def get_for_tool_call(self, tool_call_id: UUID) -> ApprovalRequestDomain | None:
         """Fetch the (unique) approval bound to a tool call."""
         with self._scope() as session:
@@ -665,6 +825,46 @@ class SqlApprovalStore(_SessionBound):
                 )
             ).first()
             return found is not None
+
+    # Defined last for the same reason as `SqlRunStore.list`: naming a method
+    # `list` shadows the builtin for every annotation written after it in the
+    # class body. See that comment in full; the routers probe for this exact
+    # name, so ordering is the fix and a rename is not available.
+    async def list(
+        self, *, status: ApprovalStatus | None = None, limit: int = 50, offset: int = 0
+    ) -> list[ApprovalRequestDomain]:
+        """List approvals, optionally filtered by status (contract §5).
+
+        Not on the ``ApprovalStore`` port, for the same reason as ``get``: the
+        inbox is an operator read that the router probes for. Without it,
+        ``GET /api/approvals`` returns an empty page -- the one screen the
+        project's whole thesis depends on, reporting "nothing is waiting for a
+        human" while a refund sits parked.
+
+        Newest first, with ``id`` as the tie-break. The tie-break is not
+        cosmetic: a run resumed from ``EXECUTING`` re-proposes the same refund
+        under a **new** ``tool_call_id`` and parks again, so two pending rows for
+        one run can carry the same ``created_at``. Without a total order the
+        dashboard's "two cards for one refund" grouping would be stable by luck
+        rather than by rule. ``id`` is a UUID, so it carries no meaning -- the
+        claim is only that it does not change between two reads of one database.
+        """
+        with self._scope() as session:
+            statement = select(models.ApprovalRequest)
+            if status is not None:
+                statement = statement.where(models.ApprovalRequest.status == status.value)
+            rows = (
+                session.execute(
+                    statement.order_by(
+                        models.ApprovalRequest.created_at.desc(), models.ApprovalRequest.id
+                    )
+                    .limit(limit)
+                    .offset(offset)
+                )
+                .scalars()
+                .all()
+            )
+            return [_to_approval(row) for row in rows]
 
 
 def new_approval_id() -> UUID:

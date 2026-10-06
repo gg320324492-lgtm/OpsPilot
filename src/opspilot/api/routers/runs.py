@@ -45,6 +45,7 @@ from opspilot.api.schemas import (
 )
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
+from opspilot.ports.stores import CustomerReplyRow, PendingApprovalRow
 from opspilot.settings import Settings, get_settings
 
 router = APIRouter(prefix="/api", tags=["runs"], dependencies=[Depends(require_operator)])
@@ -303,25 +304,59 @@ async def _load_citations(store: object, run_id: UUID) -> list[CitationDetail]:
 
 
 async def _load_pending_approval(store: object, run: AgentRun) -> PendingApproval | None:
-    """Load the nested pending-approval payload when, and only when, parked."""
+    """Load the nested pending-approval payload when, and only when, parked.
+
+    The store returns its own read model, not this module's schema, so the
+    projection happens here. The two are separate types on purpose: the store
+    row is a storage-boundary read model and the schema is the wire contract,
+    and a run detail page whose approver card is `null` because the two happened
+    to have different class names is exactly the kind of empty panel this
+    milestone exists to remove.
+
+    Only *one* approval is nested, even when a resumed run has re-proposed and
+    re-parked. That is a deliberate limit of contract §3, not an oversight: the
+    Approvals screen is where the duplicate is shown, with both cards, because
+    hiding the second here would leave an operator deciding on one while the
+    other stays pending.
+    """
     if run.status is not RunStatus.WAITING_APPROVAL:
         return None
     loader = _optional_method(store, "get_pending_approval")
     if loader is None:
         return None
-    result: PendingApproval | None = await loader(run.id)
-    return result
+    row: PendingApprovalRow | None = await loader(run.id)
+    if row is None:
+        return None
+    return PendingApproval(
+        id=row.id,
+        tool_call_id=row.tool_call_id,
+        status=row.status,
+        reason=row.reason,
+        risk_explanation=row.risk_explanation,
+        arguments_snapshot=row.arguments_snapshot,
+        created_at=row.created_at,
+    )
 
 
 async def _load_customer_reply(store: object, run: AgentRun) -> CustomerReply | None:
-    """Load the customer reply, which is set only at ``COMPLETED``."""
+    """Load the customer reply, which is set only at ``COMPLETED``.
+
+    The store's row carries ``escalated`` alongside the body, and the model is
+    declared ``extra="allow"``, so the flag reaches the client rather than being
+    dropped at this boundary. It matters to a reader: "we could not complete
+    your request, a human is on it" and "here is your refund" are the same
+    sentence shape with completely different meanings, and the flag is the only
+    thing on screen that tells them apart.
+    """
     if run.status is not RunStatus.COMPLETED:
         return None
     loader = _optional_method(store, "get_customer_reply")
     if loader is None:
         return None
-    result: CustomerReply | None = await loader(run.id)
-    return result
+    row: CustomerReplyRow | None = await loader(run.id)
+    if row is None:
+        return None
+    return CustomerReply(body=row.body, escalated=row.escalated)
 
 
 def _run_not_found(run_id: UUID) -> ApiError:

@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from opspilot.domain.approvals import ApprovalRequest
+from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 
@@ -293,6 +293,42 @@ class CitationRow:
     chunk: str
     score: float
     rank: int
+
+
+@dataclass(frozen=True)
+class PendingApprovalRow:
+    """One pending approval, as run detail's approver card reads it.
+
+    The approver-visible projection of :class:`ApprovalRequest`: the same
+    fields minus the run id (the caller already has it) and the decision
+    columns (a pending row has none). Named separately because
+    ``RunDetail.pending_approval`` is a nested object rather than a bare id,
+    and the run store -- not the approval store -- is what the router probes
+    for it, since the router holds only a ``RunStore``.
+    """
+
+    id: UUID
+    tool_call_id: UUID
+    status: ApprovalStatus
+    reason: str
+    risk_explanation: str
+    arguments_snapshot: dict[str, object]
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class CustomerReplyRow:
+    """A completed run's customer-visible reply.
+
+    A read model because there is no ``customer_replies`` table: the reply is
+    the model output recorded on the run's ``response`` step, and reading it back
+    means projecting that step rather than selecting a row. The escalation flag
+    travels with it because "this was an escalation" changes how an operator
+    reads the body, and the flag is only recorded there too.
+    """
+
+    body: str
+    escalated: bool
 
 
 @dataclass(frozen=True)

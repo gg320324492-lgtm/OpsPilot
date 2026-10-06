@@ -3,9 +3,10 @@ import Link from "next/link";
 /**
  * The dashboard's navigation shell.
  *
- * The six screens land in these routes; for now each is a stub, because the
- * screens are a separate piece of work and a stub that renders its own name is
- * more honest than a placeholder that renders nothing and looks broken.
+ * The five top-level screens land in these routes; Run Detail is reached from a
+ * run id rather than from here. Every route is reachable from any other, which
+ * matters for the two things an operator has to be able to do without hunting:
+ * see whether anything is parked, and see whether the knowledge index is empty.
  */
 const ROUTES = [
   { href: "/", label: "Dashboard" },
