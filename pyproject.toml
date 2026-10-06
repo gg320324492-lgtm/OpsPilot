@@ -190,7 +190,14 @@ ignore = [
 "mcp_servers/**/__main__.py" = ["T20"]
 "mcp_servers/**/server.py" = ["T20"]
 # Seed and CLI entry points.
-"src/opspilot/**/__main__.py" = ["T20"]
+#
+# TRY003 asks for long exception messages to live on the exception class rather
+# than at the raise site. `WorkerConfigError` takes a `how_to_fix` argument
+# precisely so the two halves of a startup failure -- what is wrong, and what to
+# set -- are composed at the point the fault is known, where the detail is. The
+# alternative is a class per failure mode, and the failure modes here are
+# configuration values an operator changes, not conditions the code branches on.
+"src/opspilot/**/__main__.py" = ["T20", "TRY003"]
 "src/opspilot/mcp_servers/seed.py" = ["T20"]
 "src/opspilot/evals/*.py" = ["T20"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is

@@ -2430,3 +2430,64 @@ both writers emit `to_status` — and an `or` fallback meant the timeline showed
 dead branch is only half the fix; the guard now reads the row the writer produced
 and requires the reader to find a real `RunStatus` in it, so renaming the key on
 either side alone turns the test red instead of turning the timeline to `to None`.
+
+### M7d — the entry point did not exist, and the default provider cannot run
+
+Two defects found by trying to do the last acceptance criterion honestly.
+
+**1. `opspilot-worker` could not start at all.** `pyproject.toml` declares
+`opspilot-worker = "opspilot.worker.__main__:main"`, and that `main()` was an M0
+stub ending in `raise NotImplementedError` with a docstring saying the wiring
+"is completed in M6". M6 shipped; nobody came back. **The shipped entry point
+raised on every invocation.**
+
+Nothing noticed, because every claim about the golden path is proven by
+`tests/agent/_golden_harness.py`, which assembles the adapters itself and never
+touches the console script. The harness is not the product.
+
+The first attempt at filling it in called `repositories.build_stores(...)` — a
+function that does not exist — inside a broad `except Exception` that relabelled
+the resulting `AttributeError` as:
+
+> the worker could not build its stores from DATABASE_URL
+> (sqlite+pysqlite:///./opspilot.db). set DATABASE_URL to a reachable database
+> and run 'alembic upgrade head'
+
+Pointed at a database that was present, migrated, and correct. **The second
+defect is the worse one.** A crash is a signal; a confident wrong diagnosis is a
+detour someone spends an afternoon on. The exception is now narrowed to the
+errors a database actually raises, and
+`tests/integration/test_worker_entry_point.py` asserts both directions: a working
+database never produces the database message, and a real database fault still
+does.
+
+The worker now boots, accepts SIGINT/SIGTERM and stops cleanly. Verified by
+running it, not by reading it:
+
+```
+opspilot-worker[worker-12860]: booted; marked 0 interrupted run(s) failed; polling every 0.3s
+```
+
+**2. `MODEL_PROVIDER=fake` cannot complete a run outside the test suite.**
+`.env.example` line 5 says `fake` "is the default so that a fresh clone and the
+CI suite work". A fresh clone cannot use it.
+
+`FakeModelProvider` answers a call one of two ways: by `scenario` name, or by
+matching `request_hash` against a recorded `request_hash` in the fixture. Every
+`request_hash` in every fixture is **`null`**, so the hash path can never match —
+and **no production code anywhere passes `scenario`**; only the test harness
+does. So the one working path is unreachable from a real process, and the other
+path has no data.
+
+Reproduced end-to-end: the worker boots, claims a run, and the run dies at
+`classifying` with `UnmatchedFixtureError`. Every run. The `fake` provider is
+usable only from inside `tests/`.
+
+This is a genuine gap between what the documentation promises and what ships, and
+it is the last thing standing between M7 and "the golden path is walkable in a
+browser". It is **not fixed here**: the options are to thread a scenario setting
+through the runtime (a runtime change with a real design question — which ticket
+selects which scenario?), or to record real request hashes into the fixtures
+(a recording tool that does not exist yet), or to change `.env.example` to stop
+promising what `fake` cannot do. Each is a decision about what the project is
+offering, not a bug fix, and it needs a human's call rather than mine.
