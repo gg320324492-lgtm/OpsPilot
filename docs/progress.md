@@ -1991,3 +1991,261 @@ run whose approval is still *pending*; `_resolve_resume` needs an approved one,
 so the run is re-planned and produces a **second pending approval for the same
 refund**. Money still moves once — the replayed key blocks it — but M7's
 approvals list will show two cards for one refund.
+
+---
+
+## M6e — the category vocabulary, and the guard that should have caught it
+
+**Date:** 2026-10-06. Closes M6d finding 1.
+
+### The decision, taken rather than deferred
+
+M6d left the repair open as a choice: *either* the enum grows the three missing
+categories, *or* the dataset and the four documents adopt the five that exist.
+**The enum grew.** `TicketCategory` gains `BILLING_DISPUTE`, `ACCOUNT_ACCESS`
+and `TECHNICAL_ISSUE`; `duplicate_charge`, `billing_other`, `technical`,
+`account`, `other` all stay.
+
+The reason is which side is load-bearing. The four documents are a
+specification and twenty dataset cases are the metric's only input; both were
+written in M0 and both describe the same world. The enum is a five-line enum
+that nothing in `src/` branches on — verified by AST scan, not by reading: an
+`If`/`Match`/`Compare`/`dict`-key over a category is nowhere in the tree, and
+the only two uses render `.value` into a step's `output_payload` and into the
+planning prompt. Widening it costs one enum; narrowing the data would rewrite
+the demo's own success cases and leave four documents disagreeing with each
+other. The choice was asymmetric and the cheap side was the correct one.
+
+### Justifying each new member, and what survived
+
+Each docstring states what the member separates from its neighbour, because a
+distinction nobody can apply is worse than a missing category — it converts one
+confident answer into two coin flips. Measured against the dataset:
+
+| Member | Separated from | Decidable from the ticket alone? |
+|---|---|---|
+| `BILLING_DISPUTE` | `BILLING_OTHER` | **Yes.** A dispute contests a specific amount (overcharge, wrong plan price, seats vs contract, waive the invoice). The dataset leans on it: 8 of the 8 `billing_dispute` cases demand money back or a correction; `billing_other` is the case where nothing is contested. |
+| `TECHNICAL_ISSUE` | `BILLING_DISPUTE` | **Yes, and the documents say so.** `docs/evals.md` §1 gives the near-miss explicitly: "a billing dispute that mentions an API outage is still `billing_dispute`, not `technical_issue`". That is the boundary stated as a rule, which is what makes it decidable — the ticket's *request* (make it work vs give me the money back), not its topic. |
+| `ACCOUNT_ACCESS` | `BILLING_DISPUTE` | **Yes, but weakly.** All 5 of the 5 cases name a login, an SSO tenant, an MFA device or a seat — never the account as a billing entity. The boundary is "a person cannot get in, or in as the right user" vs "the money is wrong". |
+
+**`BILLING_DISPUTE` vs `DUPLICATE_CHARGE` did not survive, and that is the
+finding.** My first draft of this log claimed the pair was cleanly separable
+("charged twice is a duplicate, charged wrongly is a dispute"). Measuring the
+dataset says otherwise:
+
+- **`classification.jsonl` contains no case labelled `duplicate_charge`.** Its
+  twenty cases use exactly four labels: `billing_dispute` (8), `account_access`
+  (5), `technical_issue` (4), `other` (3).
+- **Three of the eight `billing_dispute` cases are explicitly about a duplicate
+  charge**: `cls-001` ("charged twice �� the same $129.00 … 2 seconds apart"),
+  `cls-009` ("double-charged again"), `cls-017` ("our duplicate charge"). Under
+  my own proposed rule — twice ⇒ duplicate, wrongly ⇒ dispute — all three
+  should have been `duplicate_charge`.
+- **`cls-001` is the README's own golden-path ticket** (`README.md:55`), and the
+  replay fixtures classify that scenario as **`duplicate_charge`**, not
+  `billing_dispute`. So the dataset and the fixtures disagree about the same
+  ticket, and only the fixtures' label has any use anywhere.
+
+So the dataset does not merely omit `duplicate_charge`; it actively **swallows**
+it. The four documents describe a vocabulary in which `billing_dispute` is a
+billing objection and `duplicate_charge` is the sharp, well-specified case of
+it — and the metric, taken alone, cannot tell the two apart, because the one
+member with a crisp definition is the one the metric never asks for.
+
+**This does not change the enum.** The decision was to widen, the documents are
+mutually consistent, and `duplicate_charge` must remain a member: the fixtures
+emit it, the golden path's own classification is it, and the refusal workflow
+exists for it. What it does mean is that **the classification metric, as
+written, does not measure the distinction it appears to** — and the honest
+fix is in `evals/datasets/**` (either add `duplicate_charge` cases, or
+re-label `cls-001`/`cls-009`/`cls-017`), which is not this slice's file. The
+guard does not and cannot catch this: both labels are members, so every label in
+the dataset resolves. **A vocabulary can be internally consistent and still
+wrong about the world**, and a guard that only checks membership cannot see it.
+
+`TECHNICAL` vs `TECHNICAL_ISSUE` and `ACCOUNT` vs `ACCOUNT_ACCESS` are the same
+concept under two names, and are named by no document, no fixture and no test.
+They were **kept** rather than removed, because `classification` is persisted
+into the step's `output_payload` and a row written before M6e would fail to
+deserialise if the member vanished; that is a real reason, recorded here so the
+removal is a decision with an owner rather than an oversight. The guard pins
+both by name, so they cannot be forgotten and a *new* unused member still
+fails.
+
+### The guard — written first, and watched fail
+
+`tests/unit/test_dataset_vocabulary.py`. Against the un-widened enum it failed
+**2 tests, naming all 17 cases and all 6 documents**:
+
+```
+classification.jsonl expects categories that TicketCategory cannot emit:
+  ["cls-001='billing_dispute'", "cls-002='account_access'",
+   "cls-003='technical_issue'", ... ]                    (17 entries)
+
+these documents name categories the model cannot emit:
+  {'README.md': ['billing_dispute'], 'docs/milestones.md M6': [...],
+   'docs/api-contract.md': [...], 'docs/evals.md s1': [...],
+   'docs/limitations.md s4': [...], 'evals/README.md': [...]}
+```
+
+Every category is **read out of the documents by position** — the README's
+`Classify` row, the M6 sequence's first token, the API contract's JSON value,
+`docs/evals.md`'s JSON and its near-miss prose, `docs/limitations.md` §4's
+"Other categories" parenthetical, `evals/README.md`'s metric row. A free scan
+for snake_case tokens returns `expected_category`, `must_not_propose` and
+`retrieve`, and would have made the agreement test meaningless. Nothing is
+hard-coded, so the guard is a *relationship*; a snapshot would have passed
+forever after the one edit that mattered.
+
+**The same class of problem in the other three datasets.** Every field that must
+resolve against code is now checked, all currently clean:
+
+| Dataset | Field | Resolves against |
+|---|---|---|
+| `tool_selection.jsonl`, `safety.jsonl` | `expected_tools`, `must_not_propose`, `expected_write` | `TOOL_REGISTRY` — all 9 registered |
+| `safety.jsonl` | `expected_terminal` | `RunStatus` — all 9 values |
+| `retrieval.jsonl` | `expected_documents` | `knowledge/*.md` — 18 files |
+| `safety.jsonl` | `knowledge_injection` | `knowledge/*.md` — **was uncovered** |
+| `safety.jsonl` | `setup` keys | fixture scenario names |
+
+Two of these were genuinely unguarded rather than incidentally covered.
+`retrieval.jsonl`'s slugs only failed by luck (Recall@K cannot retrieve a file
+that is not there, so the integration test went red anyway). The
+`knowledge_injection` slugs in `safe-007`/`safe-008` were covered by **nothing**
+— the injection tests synthesise their own `SearchHit`, which is M5e's F3
+("the retrieved injection premise never occurs"). `setup.already_refunded` was
+likewise unchecked, and a key nothing honours makes the case a silent no-op.
+
+### Mutation verification
+
+Each break applied, the file **read back off disk to confirm the mutation
+landed**, the named tests confirmed red, then restored byte-identically.
+
+On the enum:
+
+| Break applied | Test(s) confirmed red |
+|---|---|
+| `BILLING_DISPUTE` value → `billing_dispute_typo` | `test_every_dataset_category_is_a_member_of_the_enum`, `test_every_category_the_specification_names_is_emittable`, `test_no_category_is_unreferenced` |
+| `ACCOUNT_ACCESS` value → `account_access_typo` | same three |
+| `TECHNICAL_ISSUE` value → `technical_issue_typo` | same three |
+| `OTHER` member removed outright | `test_every_dataset_category_is_a_member_of_the_enum`, `test_every_category_the_specification_names_is_emittable` |
+| New `UNNAMED_CATEGORY` member added | `test_no_category_is_unreferenced` |
+
+On the other three datasets — the same "renamed, not deleted" mistake applies
+here and each was therefore mutated in a *dataset*, not in the code:
+
+| Break applied | Test confirmed red |
+|---|---|
+| `refund-policy.md` → `refund-policyX.md` | `test_every_document_slug_named_in_a_dataset_exists[retrieval.jsonl-expected_documents]` |
+| `ignore-instructions.md` → `ignore-instructionz.md` | `…[safety.jsonl-knowledge_injection]` |
+| `expected_terminal: "completed"` → `"complete"` | `test_every_expected_terminal_status_is_a_real_run_status` |
+| `crm.get_customer` → `crm.get_contacts` | `test_every_tool_named_in_a_dataset_is_in_the_tool_registry` |
+| `setup.already_refunded` → `already_refundedd` | `test_the_safety_dataset_setup_keys_name_real_scenarios` |
+
+**One mutation did not go red, and it was mine.** A first attempt at "remove
+`OTHER`" renamed the member instead of deleting it, so the enum still had eight
+members and the guard correctly stayed green. A guard that reports the truth is
+not a failed guard — the mutation was simply not the one described. Redone as a
+genuine removal, and the dataset table above written the same way, mutating the
+data rather than the checker.
+
+**Two of my own assertions were wrong before they were right, and both are
+recorded because the project has been bitten by each.** The reverse check
+initially scanned `tests/` for bare string literals, which reported
+`billing_other` as unreferenced when `test_prompt_injection.py` uses it as
+`TicketCategory.BILLING_OTHER` (the "fix" would have been to delete a member
+that is in use), and simultaneously reported `technical`/`account` as
+referenced because the English word "technical" appears in test docstrings.
+Prose is not vocabulary. It now matches enum-member accesses only. Separately,
+an early draft of the document-slug test passed vacuously — an assertion that
+looked like a guard and inspected nothing — so
+`test_the_specification_guards_are_reading_something` now fails if any
+extractor returns empty, and `_dataset_cases` asserts a non-zero case count.
+This is the project's recurring "guard that inspects nothing" failure stated as
+a test rather than remembered as a lesson.
+
+### Full repo
+
+```
+pytest -q           493 passed, 6 skipped   (baseline 483 + 10 new)
+mypy --strict       Success: no issues found in 139 source files
+ruff check / format All checks passed / 162 files already formatted
+```
+
+### Least-confident decision
+
+**`duplicate_charge` versus `billing_dispute`, and it is not a close call.**
+The measurement above is unambiguous: three of eight `billing_dispute` cases
+describe duplicate charges, no case in the dataset is labelled
+`duplicate_charge`, and `cls-001` — the README's golden-path ticket — is
+classified `duplicate_charge` by the replay fixtures that actually drive the
+demo. My least-confident decision is therefore **not** whether to widen the
+enum, which was made and is right, but whether keeping `duplicate_charge` as a
+separate member is defensible given that nothing scores against it. I kept it
+because the fixtures emit it and the refusal workflow keys off it, and because
+removing a label the running system produces would be worse than a metric that
+does not exercise it. But a reviewer could reasonably argue the cleaner repair
+is to drop the distinction entirely and let `billing_dispute` absorb it — in
+which case `DUPLICATE_CHARGE`'s docstring, which currently claims to separate
+the two, is describing a boundary that does not exist. **That is the one thing
+in this milestone I would want a second opinion on, and it is in the dataset,
+not the enum.**
+
+Second, and much weaker: `ACCOUNT_ACCESS` on **cls-004** ("our invoice is wrong
+because your API was down for six hours"). Labelled `billing_dispute`, which is
+defensible (the ask is the overcharge reversed), but it also contains an outage,
+and `docs/evals.md`'s stated rule — intent, not topic — resolves it only if one
+accepts that rule as binding on the dataset.
+
+### M6e — the vocabulary was consistent and still wrong about the world
+
+`TicketCategory` gained `BILLING_DISPUTE`, `ACCOUNT_ACCESS` and
+`TECHNICAL_ISSUE` (5 → 8), each with a docstring saying what it separates from
+its neighbour. Widening was verified safe by an AST scan of `src/`: exactly one
+consumer touches a category and it only renders `.value`.
+
+The deliverable is the guard, not the enum.
+`tests/unit/test_dataset_vocabulary.py` reads the categories **out of the six
+documents** that name them — README's classify row, §M6's first token, the API
+contract's JSON value, and so on — so it asserts a relationship rather than
+snapshotting a list, and it fails if any extractor returns nothing. It was
+written first and watched fail against the un-widened enum, naming all 17 cases
+and all 6 documents. Extended to tool names vs `TOOL_REGISTRY`, `expected_terminal`
+vs `RunStatus`, and `setup` keys vs fixture scenarios.
+
+**What the enum fix did not solve, and what the agent found instead.**
+
+Fixing the vocabulary made the metric *measurable*. It did not make it *right*.
+Not one of the twenty cases used `duplicate_charge` — the category the golden
+path actually runs on — and three of the eight `billing_dispute` cases are
+textually explicit duplicates: "charged twice", "double-charged again", "our
+duplicate charge". `cls-001` **is** the README's golden-path ticket, and the
+replay fixture classifies that same scenario as `duplicate_charge`.
+
+So the dataset and the fixture disagreed about one ticket, and **no vocabulary
+guard could see it, because both labels were members.** That is the difference
+between this defect and the one before it, and it is worth stating plainly: a
+dataset can pass every check that its vocabulary is well-formed and still
+describe the world wrongly.
+
+`cls-001`, `cls-009` and `cls-017` are relabelled `duplicate_charge`; the other
+five `billing_dispute` cases are genuine general billing questions and keep the
+label. `tests/evals/test_golden_ticket_agreement.py` now asserts the two
+artifacts give the same category to the same ticket, that the golden ticket is
+actually present (so the agreement test cannot pass vacuously), and that
+`duplicate_charge` is exercised at all. Mutation-verified by putting
+`billing_dispute` back on `cls-001`: it goes red.
+
+The guard's first version compared raw markers against lower-cased text, so the
+mixed-case marker never matched and it reported "no such case" for the one
+ticket it exists to check. A guard that fails for the wrong reason is still a
+guard that lies; the comparison lower-cases both sides now, and the mistake is
+recorded in the module so it is not repeated.
+
+**Still open from M6d, not fixed here:** the README's trace claims three things
+that do not happen — `issues.create` is never called, and "every step carries a
+latency" is one step in twenty-one (`tool_calls.latency_ms` is null on all four
+calls, and the scenario test asserts four *audit-event* latencies instead, so
+§M6's criterion is untested as written). Both are documentation-vs-behaviour
+gaps rather than broken behaviour, and both need a decision about which side
+moves.
