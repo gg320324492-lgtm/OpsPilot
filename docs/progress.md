@@ -1936,3 +1936,58 @@ the classification step passes one. The test asserts the part that is true and
 the gap is recorded here rather than papered over: fixing it means touching the
 recorder and every step site, which belongs with M7 when the dashboard first
 displays the column.
+
+### M6d — verification: the classification dataset scores against a category that does not exist
+
+The verifier drove the README ticket with shipped defaults. The money side
+holds — the server reports exactly `TX-88219` refunded, one refund row of
+$129.00, a third drain is a no-op, and the five scenarios were each confirmed
+able to fail. But three claims did not survive.
+
+**1. `billing_dispute` is not a category. It is named in four specification
+documents and twenty eval cases, and it cannot be produced.**
+
+    TicketCategory = duplicate_charge | billing_other | technical | account | other
+
+`README.md:59`, `docs/milestones.md` §M6, `docs/evals.md` §1 and
+`docs/api-contract.md` §3 all name `billing_dispute`. Measured against the enum,
+**17 of the 20 cases in `evals/datasets/classification.jsonl` expect a value the
+model is structurally incapable of emitting** — `billing_dispute` (8),
+`account_access` (5), `technical_issue` (4). The classification metric cannot
+score above 15% on a correct implementation.
+
+No test reads that dataset, which is how it survived from M0. This is the
+M5d pattern one level up: M5d found a dataset whose *document slugs* did not
+exist; this is a dataset whose *label vocabulary* does not exist. A guard that
+checks a dataset against the thing it describes is the only defence, and there
+was none.
+
+The repair is a decision, not a rename: either the enum grows the three missing
+categories, or the dataset and the four documents adopt the five that exist.
+Widening the enum changes the classification contract; narrowing the data
+changes the demo's own success cases. **The next milestone must choose, state
+which, and record it.**
+
+**2. The README's trace is wrong in three places, not two.**
+- `issues.create` is never called. The fixture has no such step and the tool
+  order goes straight from `billing.issue_refund` to the reply. README §"The
+  golden path" and §M6's "issue created" are unimplemented.
+- The classification is `duplicate_charge`, as above.
+- **"Every step carries a latency" is 1 step in 21.** `tool_calls.latency_ms`
+  is null on all four calls; only `classification` passes one. The scenario test
+  asserts four *audit-event* latencies instead, so the §M6 criterion as written
+  is not tested at all.
+
+**3. A second "absence of an answer" token escapes the gate.** The gateway can
+return `server_unavailable` (`mcp_gateway.py:205`) as well as
+`mcp_unavailable` (`:233`); the runtime special-cases only the second. Reached
+through a factory the default wiring does not use, so severity is low, but it is
+the same defect class the M6 commit claims to have fixed, on an untested path.
+
+**Also surfaced, and not yet a decision: the `EXECUTING` preservation has a
+narrow window.** `_park_run` commits the approval and the `WAITING_APPROVAL`
+transition separately, so a death between them leaves a preserved `EXECUTING`
+run whose approval is still *pending*; `_resolve_resume` needs an approved one,
+so the run is re-planned and produces a **second pending approval for the same
+refund**. Money still moves once — the replayed key blocks it — but M7's
+approvals list will show two cards for one refund.
