@@ -243,7 +243,21 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
     if name == "fake":
         from opspilot.adapters.models.fake import FakeModelProvider
 
-        return FakeModelProvider(provider_name="fake")
+        # The scenario is what makes this provider usable from a real process.
+        # It has two answering paths -- a named scenario's script, or matching a
+        # request hash against a fixture -- and every shipped fixture records
+        # `request_hash: null`, so only the scenario path has data. Until this
+        # setting existed, nothing outside the test harness passed one, and a
+        # worker built from the defaults claimed a run and watched it die at
+        # `classifying` with UnmatchedFixtureError.
+        #
+        # `or None`, not `or "duplicate_charge"`: an unconfigured deployment must
+        # fail loudly on an unmatched request rather than silently replay the
+        # refund script against whatever ticket it was given.
+        return FakeModelProvider(
+            provider_name="fake",
+            scenario=resolved.fake_scenario or None,
+        )
 
     if name == "anthropic":
         from opspilot.adapters.models.anthropic_provider import AnthropicModelProvider

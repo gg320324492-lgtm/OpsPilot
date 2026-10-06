@@ -102,6 +102,32 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     model_timeout_seconds: float = Field(default=60.0, alias="MODEL_TIMEOUT_SECONDS")
 
+    # Which recorded fixture the ``fake`` provider replays, by scenario name.
+    #
+    # The ``fake`` provider answers a call one of two ways: from a named
+    # scenario's script, or by matching the request hash against a fixture's
+    # recorded hash. Every ``request_hash`` in every shipped fixture is null, so
+    # the hash path has no data to match -- and the scenario path had no caller,
+    # because only the test harness passes ``scenario``. The result was that
+    # ``MODEL_PROVIDER=fake``, which ``.env.example`` describes as the mode a
+    # fresh clone runs in, could not complete a single model call from a real
+    # process: a run died at ``classifying`` with ``UnmatchedFixtureError``.
+    #
+    # This setting is what connects the two. It is the *whole* difference
+    # between "the demo works" and "the demo works only inside pytest".
+    #
+    # Empty means no scenario, which leaves the hash path in charge -- correct
+    # for a fixture that recorded real hashes, and the honest default for one
+    # that did not, because the run then fails with a message naming the request
+    # hash rather than silently replaying an unrelated script.
+    #
+    # Known limitation, stated rather than discovered later: one process replays
+    # one scenario. Every ticket a worker handles is answered from the same
+    # script, so a demo that submits a duplicate-charge ticket and then an
+    # already-refunded one cannot serve both from one worker. See
+    # ``docs/limitations.md``.
+    fake_scenario: str = Field(default="", alias="OPSPILOT_FAKE_SCENARIO")
+
     # -- Embeddings ----------------------------------------------------------
     embedding_provider: EmbeddingProviderName = Field(default="local", alias="EMBEDDING_PROVIDER")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")

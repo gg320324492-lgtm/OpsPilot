@@ -366,3 +366,83 @@ def test_importing_the_entry_point_does_not_require_a_database() -> None:
         "importing the worker entry point failed with an empty DATABASE_URL:\n"
         f"{result.stderr}"
     )
+
+
+# -- the fake provider's scenario -------------------------------------------
+
+
+def test_the_fake_provider_replays_the_scenario_that_was_configured(
+    migrated_db: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``OPSPILOT_FAKE_SCENARIO`` reaches the provider, so a real run works.
+
+    This is the difference between a demo that works and one that works only
+    inside pytest. Every fixture's ``request_hash`` is null, so the hash-matching
+    path has no data -- the scenario path is the only one that can answer a call
+    from a real process, and before this setting nothing outside the test harness
+    passed a scenario name. A worker built from the shipped defaults claimed a
+    run and watched it die at ``classifying``.
+    """
+    from opspilot.settings import get_settings
+
+    monkeypatch.setenv("OPSPILOT_FAKE_SCENARIO", "duplicate_charge")
+    get_settings.cache_clear()
+
+    provider = build_worker_provider()
+    assert getattr(provider, "_scenario", None) == "duplicate_charge", (
+        "the configured scenario did not reach the provider; a real process "
+        "cannot answer any model call without it, because no fixture records a "
+        "request_hash to match"
+    )
+
+
+def test_an_unset_scenario_leaves_the_hash_path_in_charge(
+    migrated_db: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No scenario configured means no scenario passed, not a default one.
+
+    Defaulting to ``duplicate_charge`` would make every unconfigured deployment
+    replay the refund script against whatever ticket it was given. Silent
+    mis-replay is worse than the loud ``UnmatchedFixtureError`` an unmatched
+    request produces -- the error names the request hash, which is how a real
+    fixture gets recorded.
+    """
+    from opspilot.settings import get_settings
+
+    monkeypatch.setenv("OPSPILOT_FAKE_SCENARIO", "")
+    get_settings.cache_clear()
+
+    provider = build_worker_provider()
+    assert getattr(provider, "_scenario", None) is None, (
+        "an unset scenario must not become a default; a worker would then replay "
+        "a script the operator never asked for"
+    )
+
+
+def test_the_configured_scenario_actually_completes_a_classification(
+    migrated_db: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The scenario answers a real call -- not merely reaches the constructor.
+
+    Asserted by calling the provider, because storing the name and using it are
+    different claims. The first test above would pass against an implementation
+    that set ``_scenario`` and never consulted it.
+    """
+    import asyncio
+
+    from opspilot.agents.schemas import TicketClassification
+    from opspilot.settings import get_settings
+
+    monkeypatch.setenv("OPSPILOT_FAKE_SCENARIO", "duplicate_charge")
+    get_settings.cache_clear()
+
+    provider = build_worker_provider()
+    response = asyncio.run(
+        provider.generate_structured(
+            system="classify the ticket",
+            prompt="We were charged twice for invoice INV-2026-384.",
+            schema=TicketClassification,
+        )
+    )
+    assert response.value is not None, "the scenario returned nothing"
+    assert response.usage.latency_ms >= 0

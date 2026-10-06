@@ -2491,3 +2491,62 @@ selects which scenario?), or to record real request hashes into the fixtures
 (a recording tool that does not exist yet), or to change `.env.example` to stop
 promising what `fake` cannot do. Each is a decision about what the project is
 offering, not a bug fix, and it needs a human's call rather than mine.
+
+### The worker runs, and can never retrieve anything on SQLite
+
+Fixed the entry point and then did the thing the milestone actually asks for:
+ran it. `OPSPILOT_FAKE_SCENARIO` now connects the fake provider's scenario path
+to a real process, and the worker boots, claims a run, and completes it.
+
+**It completes the wrong run.** Measured, on a real worker and a real API, with
+the corpus indexed and 98 chunks in the database:
+
+```
+STATUS: completed
+STEPS: 8
+   2 classification   0     {'category': 'duplicate_charge', 'confidence': 0.93}
+   4 retrieval        0     {'count': 0, 'document_slugs': []}
+   7 response         0     {'escalated': True, 'chars': 183,
+                             'body': 'We confirmed the duplicate charge of
+                             $129.00 on INV-2026-384 and have refunded the extra
+                             transaction (TX-88219)...'}
+TOOL CALLS: (none)
+CITATIONS:  []
+```
+
+The classification is right. Retrieval returns **nothing** from a corpus that is
+present and indexed. No tool was called, no refund was proposed, no approval was
+requested — so the run takes the abstention path to `RESPONDING`, sets
+`escalated: True`, and the model's escalation reply says **"we have refunded the
+extra transaction"**.
+
+A reply that claims a refund happened, on a run that never proposed one, marked
+as escalated, with zero evidence retrieved. Every gate held. The workflow did
+not.
+
+**Cause.** `adapters/wiring.build_vector_store` returns `InMemoryVectorStore`
+whenever the database is SQLite. That store keeps embeddings in
+`self._embeddings` — **process memory** — and writes the `knowledge_chunks` rows
+with `embedding` NULL. Its own comment explains why it writes the rows (so
+`citations.chunk_id` has something to reference), and that reasoning is correct
+*for one process*. But a deployment runs **two**: the API serves
+`POST /api/knowledge/reindex` and the worker searches. The API's reindex loads
+the vectors into the API's memory. The worker's memory is empty. Retrieval
+returns zero hits, every time, on every SQLite deployment.
+
+The tests could not see it because `tests/agent/_golden_harness.py` builds the
+API and the worker **in one process**, so the harness shares the store that a
+deployment does not. This is the same shape as the M5b ingest facade and the M5e
+`FakeRunStore`: a test double more capable than production, hiding the gap
+between them.
+
+**Not fixed here.** SQLite has no vector type, so the honest fixes are to run
+Postgres with pgvector (ADR-0004 already says production uses it) or to give the
+SQLite path a real persisted representation. Both are decisions about what the
+project supports, not bug fixes, and this is the third such decision in M7.
+
+**What this says about the milestone.** M6's acceptance criteria were verified
+through the harness, and the harness is what hid this. "The golden path works"
+was true of the test double and false of the deployment, and the difference was
+invisible until someone ran the real entry point — which is why the entry point
+being unimplemented mattered more than it looked.
