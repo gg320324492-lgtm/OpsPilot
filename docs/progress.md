@@ -14,8 +14,8 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M3 — Tool gateway, policy, approval | done | See below |
 | M4 — Agent runtime | done | See below |
 | M5 — RAG | done | See below. Four defects found in review, three fixed; three findings carried into M6, all three closed in "M5e fixes" below |
-| M6 — Golden workflow | not started | |
-| M7 — Dashboard | not started | |
+| M6 — Golden workflow | done | See below. Two documentation-vs-behaviour gaps left open and carried into M7 |
+| M7 — Dashboard | in progress | See below |
 | M8 — Evals and security | not started | |
 | M9 — CI and documentation | not started | |
 
@@ -2249,3 +2249,184 @@ calls, and the scenario test asserts four *audit-event* latencies instead, so
 §M6's criterion is untested as written). Both are documentation-vs-behaviour
 gaps rather than broken behaviour, and both need a decision about which side
 moves.
+
+---
+
+## M7 — Dashboard
+
+**Started:** 2026-10-06
+
+### Acceptance criteria
+
+Written before the code, per the method at the top of this file. Each one is
+checkable by looking at the running system, not at a test that asserts the
+implementation.
+
+- [ ] `web/` is a Next.js app that starts and serves all six screens:
+      Dashboard, Tickets, Runs, Run Detail, Approvals, Knowledge.
+- [ ] The API is reachable from the browser. **Today it is not**: `src/opspilot`
+      contains no `add_middleware`, no `allow_origins`, no CORS configuration of
+      any kind, so a dashboard on `:3000` talking to an API on `:8000` is blocked
+      by the browser before a single line of the app runs. The dashboard decides
+      whether that is fixed by a CORS policy or by a Next.js rewrite proxy, and
+      whichever it picks is documented — a browser-reachable API is an
+      acceptance criterion, not a convenience.
+- [ ] Run Detail renders the timeline from `GET /api/runs/{id}/trace`, ordered
+      by `sequence` **as the server sent it**. The client does not re-sort, and
+      does not re-derive `label` or `detail`.
+- [ ] The Sources panel renders the run's `Citation` rows, showing `document`,
+      `chunk`, `score` and `rank`.
+- [ ] The approval card shows tool, arguments, risk level, the model's `reason`
+      and the deterministic `risk_explanation`, and the two are **visually
+      distinguishable** — an operator must be able to tell at a glance which text
+      is untrusted model output and which is deterministic code.
+- [ ] Approve and Reject work, and a **second click on an already-decided
+      approval surfaces the 409**, not a silent success. A dashboard that hides
+      the 409 hides the double-grant that the 409 exists to prevent.
+- [ ] `tsc --noEmit` and `eslint` are clean.
+- [ ] The golden path is walkable in a browser, start to finish.
+
+### Carried in from M6, and what M7 makes visible
+
+Two documentation-vs-behaviour gaps were left open at M6. M7 is the first
+milestone where both become visible on screen, so they are resolved here rather
+than carried again:
+
+- **Latency is missing where the dashboard will show it.** `docs/milestones.md`
+  §M6 says "the trace shows every step with latency". Measured: exactly **one step
+  in twenty-one** carries a `latency_ms` — the `classification` step. The
+  `tool_call` steps and the `retrieval` step pass none, so `tool_calls.latency_ms`
+  is `null` on all four calls in the golden path. The data exists and is
+  discarded: `ToolResult.latency_ms` is measured in `mcp_gateway.py` and
+  `ModelResponse.usage.latency_ms` is measured in the providers, but only
+  `classification` forwards it to `record_step`. The dashboard's latency column
+  would render `—` for four of five steps and teach a reader that the column is
+  decoration.
+- **`issues.create` is never called**, though the README's golden-path trace and
+  §M6 both promise it. M6 chose not to add the step, because adding a tool call
+  to make a diagram true is writing the test to pass. M7 cannot fix that either;
+  the honest resolution is for the trace to show what actually runs.
+
+### The `EXECUTING` double-approval window
+
+Preserving `EXECUTING` across a restart (the user's M6 decision) means a run
+killed between committing `EXECUTING` and committing the tool call's terminal
+status resumes and re-proposes the refund. The money still moves **once** — the
+deterministic idempotency key `refund:{run_id}:{transaction_id}` blocks the
+replay — but `_park_run` creates one approval per *tool call*, and a re-proposal
+allocates a **new** `tool_call_id`. So the approvals list can show two pending
+cards for one refund.
+
+This is inherent to the design the user chose, not a bug to fix inside M7. It is
+listed in `docs/limitations.md` and the dashboard must not hide it: the
+Approvals screen is where an operator would otherwise approve the same refund
+twice, believing they were looking at two real proposals.
+
+### M7a/b/c — the browser could not reach the API, and the contract was not readable
+
+Three findings, in the order they were found.
+
+**1. The dashboard could not make a single API call.** `src/opspilot` contained no
+CORS configuration of any kind — no `add_middleware`, no `allow_origins`, no
+match for any of them across all of `src/`. The dashboard on `:3000` and the API
+on `:8000` are different origins, so the browser would have blocked every
+response before any application code ran.
+
+CORS is now `OPSPILOT_CORS_ORIGINS` (comma-separated, default
+`http://localhost:3000`), installed in `create_app`. **A `*` is refused at
+construction, not warned about**, including the realistic version of the mistake
+(`http://localhost:3000,*`), because Starlette refuses to attach
+`Access-Control-Allow-Credentials` to a wildcard anyway — it would have meant a
+broken dashboard sitting next to an unbounded read path.
+
+Verified by direct probe rather than by reading the middleware's options:
+
+```
+dashboard origin  -> 200 | ACAO: http://localhost:3000
+foreign origin    -> 200 | ACAO: None
+no token          -> 401
+```
+
+The second line is the one worth keeping: **the foreign origin still gets a 200.
+The server processes it; the browser refuses to hand the response to the page.**
+CORS answers one narrow question — may this page *read* the response — and is
+not an authorisation mechanism. `curl` has no CORS at all. The bearer token
+remains the only thing that authorises a call, and the most natural misreading of
+"we added CORS" is "the API is protected now". That sentence is in the contract
+next to the configuration for exactly that reason.
+
+**2. Nine steps in twenty-one had no latency, and the dashboard's column would
+have been decoration.** `docs/milestones.md` §M6 requires every step to carry
+one. Measured before the fix, exactly one did: `classification`. The value was
+measured and then dropped — `ToolResult.latency_ms` in `mcp_gateway.py`,
+`usage.latency_ms` in the providers — and only the classification step forwarded
+it.
+
+Measured after, on the real golden path, reading `agent_steps` back from the
+database rather than trusting a test's assertion:
+
+```
+STEPS: 7 of 21 carry latency_ms
+  with latency: {classification: 1, retrieval: 1, planning: 4, response: 1}
+  NULL        : {state_change: 14}
+TOOL CALLS: 4 of 4 carry latency_ms
+```
+
+The 14 NULLs are `state_change` and are deliberate: between two run statuses
+there is no external work, so timing one measures the speed of a database
+UPDATE rather than of the agent. `tests/agent/test_step_latency.py` guards that
+exclusion, so a new step type cannot be silently added to it.
+
+`planning` was timed at the call site rather than by changing
+`ModelProvider.choose_tool` to return a `ModelResponse` — a four-provider port
+change, for a value the trace does not want. The wall time measured where the
+call is made is what "how long did this step take the run" means, and for a live
+provider it includes the network.
+
+On an idempotent replay the latency is left NULL. Control short-circuits
+*before* the dispatch, so there is no duration; `0` would assert an instantaneous
+call and be indistinguishable from a real sub-millisecond one, and copying the
+prior row's value would attribute another row's dispatch to a row that made none.
+The earlier measurement stays on the earlier row, where it is true.
+
+**3. The error contract was invisible to every code generator.**
+`docs/api-contract.md` §6 promises one error shape everywhere, and
+`api/errors.py` builds every failure through the `ErrorResponse` model — with a
+comment claiming this is "so the OpenAPI schema and the runtime body cannot
+drift."
+
+**Neither model was in the schema.** They were defined in `api/schemas.py` and
+declared by no route, so FastAPI never added them to `components.schemas`. A
+comment asserting an invariant is not the invariant.
+
+It was found by the frontend agent, which could not type a single failure
+response and hand-wrote one — reintroducing, in TypeScript, exactly the copy the
+generator was supposed to prevent. Every guarded router now declares
+`ERROR_RESPONSES`, and `tests/integration/test_error_envelope_is_in_the_openapi_document.py`
+asks the schema rather than the comment. The hand-written
+`web/src/lib/api/error-envelope.ts` is deleted, not kept in sync; the guard that
+replaced it asserts the *absence* of hand-written API types, so the next one is
+caught when it appears rather than when someone remembers to add a guard.
+
+### A guard that fails for the wrong reason is still a guard that lies
+
+Two this milestone, both caught rather than shipped.
+
+The frontend's drift guard ran the generator, compared, printed "does not match"
+— **and exited 0**. It was reporting a failure the way a log line does, not the
+way a CI step does. Fixed before it was ever merged.
+
+Mine came from the same failure mode as M6's classification guard: it asserted a
+real step type renders a real detail, and reported `a response step rendered an
+empty detail`. Not a false alarm this time — a second gap nobody had looked for.
+`response` and `planning` both had no renderer, so two rows of every timeline
+would have read "Next action proposed" with nothing after it. The guard was
+written against real recorded steps, which is the only reason it could see that;
+a unit test calling `_detail_for` with a hand-made dict would have passed.
+
+The `state_change` key was wrong in the same file — the reader looked for `to`,
+both writers emit `to_status` — and an `or` fallback meant the timeline showed
+`to executing` **by accident**, with the correct key never needed. Deleting the
+dead branch is only half the fix; the guard now reads the row the writer produced
+and requires the reader to find a real `RunStatus` in it, so renaming the key on
+either side alone turns the test red instead of turning the timeline to `to None`.

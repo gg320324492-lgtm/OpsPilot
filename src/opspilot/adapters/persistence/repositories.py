@@ -425,6 +425,7 @@ class SqlToolCallStore(_SessionBound):
         error: str | None = None,
         rejection_reason: str | None = None,
         idempotency_key: str | None = None,
+        latency_ms: int | None = None,
     ) -> None:
         """Move a tool call to a new status and record its outcome.
 
@@ -432,6 +433,11 @@ class SqlToolCallStore(_SessionBound):
         call: this method never writes them, so an approved call's recorded
         arguments cannot drift from what the human approved. An executed call is
         finished and a further terminal transition is refused.
+
+        ``latency_ms`` is written only when supplied, and a supplied ``0`` is
+        written -- ``is not None``, not truthiness -- because a sub-millisecond
+        in-process dispatch legitimately measures 0ms and a real 0 must not be
+        conflated with "never measured".
         """
         with self._scope() as session:
             row = session.get(models.ToolCall, tool_call_id)
@@ -450,6 +456,8 @@ class SqlToolCallStore(_SessionBound):
                 row.rejection_reason = rejection_reason
             if idempotency_key is not None:
                 row.idempotency_key = idempotency_key
+            if latency_ms is not None:
+                row.latency_ms = latency_ms
             if status in {
                 ToolCallStatus.EXECUTED,
                 ToolCallStatus.FAILED,

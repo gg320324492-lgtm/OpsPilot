@@ -129,8 +129,16 @@ class ToolCallStore(Protocol):
         error: str | None = None,
         rejection_reason: str | None = None,
         idempotency_key: str | None = None,
+        latency_ms: int | None = None,
     ) -> None:
-        """Move a tool call to a new status and record its outcome."""
+        """Move a tool call to a new status and record its outcome.
+
+        ``latency_ms`` is the dispatch duration the gateway measured, for the
+        transitions where one exists (``executed``/``failed`` after a real
+        dispatch). It is keyword-only and defaults to ``None``, which means
+        "this transition measured nothing" and leaves the column NULL --
+        additive, so every existing caller is unaffected.
+        """
         ...
 
     async def get(self, tool_call_id: UUID) -> PendingToolCall | None:

@@ -38,6 +38,31 @@ from opspilot.domain.errors import (
 
 _logger = logging.getLogger("opspilot.api")
 
+
+def _envelope(description: str) -> dict[str, object]:
+    """One status's ``responses`` entry, naming the canonical envelope.
+
+    Declaring this is not documentation. ``docs/api-contract.md`` §6 promises
+    every endpoint returns one shape, but a promise a generated client cannot
+    read is a promise only the humans are bound by: without it the envelope
+    models never reach ``components.schemas`` and every consumer has to
+    hand-write the type the contract says is fixed.
+    """
+    return {"description": description, "model": ErrorResponse}
+
+
+#: The error statuses ``docs/api-contract.md`` §6 defines, attached to every
+#: guarded route so a client can type each failure it is told to handle. The
+#: descriptions name the *code* a client branches on, never the message, which
+#: the contract explicitly frees to change.
+ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    400: _envelope("Bad request (``validation_error``)"),
+    401: _envelope("Missing or invalid bearer token (``unauthorized``)"),
+    404: _envelope("No such resource (entity-specific code)"),
+    409: _envelope("Conflicting state (``*_already_decided`` and friends)"),
+    422: _envelope("Schema validation failed (``validation_error``)"),
+}
+
 # The stable machine identifier -> HTTP status mapping from contract §6. The
 # codes are the contract; the numbers are how the contract is served. Keeping
 # the pair in one table means a new code cannot be added with a made-up status.

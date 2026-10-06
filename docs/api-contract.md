@@ -268,6 +268,42 @@ The token is compared with `secrets.compare_digest`. If
 rather than defaulting to open — a default-open auth is worse than no auth,
 because it looks like auth.
 
+### 8.1 Browser access (CORS)
+
+The API sends `Access-Control-Allow-Origin` to the origins named in
+`OPSPILOT_CORS_ORIGINS` (comma-separated, default `http://localhost:3000`, the
+dashboard). Credentials are allowed, `Authorization` is in
+`Access-Control-Allow-Headers`, and the allowed methods are the contract's own:
+`GET`, `POST`, `OPTIONS`.
+
+**CORS is a browser policy, not an authorisation mechanism.** It answers one
+question — *may this page read the response* — and it answers it only inside a
+browser. Anything else that can reach port 8000 (`curl`, a server, another
+container, a compromised process) is entirely unaffected by it, and a token sent
+from a non-allowed origin authenticates exactly as it does from an allowed one.
+The bearer token above remains the only thing that authorises a request. Do not
+read a correct CORS configuration as evidence that the API is protected; it
+means the dashboard works.
+
+Two consequences worth stating plainly, because both are easy to get backwards:
+
+- A Next.js rewrite proxy would achieve the same working dashboard without a
+  CORS policy, since the browser would only ever see same-origin requests. It
+  was not chosen because it lives in a config file outside this test suite: a
+  proxy that silently fails returns "no data" rather than a startup failure. The
+  policy is here, and it is tested.
+- `*` is refused. The settings model rejects it, `create_app` re-checks it, and
+  `tests/integration/test_api_cors.py` fails if it ever appears. A wildcard would
+  let any page the operator visits while the API runs read every response from an
+  API whose endpoints can issue refunds. Setting `OPSPILOT_CORS_ORIGINS` empty is
+  supported and means *no* cross-origin reader — which is not the same as every
+  origin.
+
+`/health` and `/ready` are token-exempt (§7) and remain so. CORS changes nothing
+about them: they are still reachable by any origin that asks, and they still
+return only a version string and named readiness checks. Nothing new is exposed
+through them.
+
 ## 9. Idempotency and concurrency on the write endpoints
 
 | Endpoint | Behaviour on repeat |

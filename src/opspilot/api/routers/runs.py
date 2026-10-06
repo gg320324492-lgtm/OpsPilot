@@ -353,10 +353,7 @@ _LABELS: dict[str, str] = {
     "classification": "Ticket classified",
     "retrieval": "Policy retrieved",
     "planning": "Next action proposed",
-    "tool_call": "Tool call",
-    "approval": "Awaiting human approval",
     "response": "Reply composed",
-    "audit": "Audit recorded",
 }
 
 
@@ -366,18 +363,39 @@ def _label_for(step_type: str) -> str:
 
 
 def _detail_for(step_type: str, output: object) -> str:
-    """A short summary string for a step, derived from its output."""
+    """A short summary string for a step, derived from its output.
+
+    Every key read here is asserted against a real recorded step by
+    ``tests/integration/test_run_detail_against_the_real_store.py``. Both of the
+    keys this used to read -- ``"to"`` for a state change, and a whole
+    ``tool_call`` branch -- were wrong: every writer emits ``to_status``, and no
+    code path in ``src/`` records a ``tool_call`` step at all. Dead branches are
+    worse than missing ones, because a missing branch fails loudly when the
+    event finally arrives and a dead one silently renders ``to None``.
+    """
     if not isinstance(output, dict):
         return output if isinstance(output, str) else ""
     if step_type == "state_change":
-        to = output.get("to") or output.get("to_status")
+        to = output.get("to_status")
         return f"to {to}" if to else ""
     if step_type == "classification":
         category = output.get("category", "")
         confidence = output.get("confidence")
         return f"{category} ({confidence})" if confidence is not None else str(category)
-    if step_type == "tool_call":
-        return str(output.get("tool_name", ""))
+    if step_type == "planning":
+        # The proposal the model made, which is the step a reader most wants to
+        # see: it names the action before the trace records whether it worked.
+        tool = str(output.get("tool_name", "") or "")
+        if output.get("done"):
+            return "no further action needed" if not tool else f"{tool} (done)"
+        return tool
     if step_type == "retrieval":
         return f"{output.get('count', '')} chunks".strip()
+    if step_type == "response":
+        chars = output.get("chars")
+        escalated = bool(output.get("escalated"))
+        length = f"{chars} chars" if isinstance(chars, int) else ""
+        if escalated:
+            return "escalated reply, " + length if length else "escalated reply"
+        return length
     return ""

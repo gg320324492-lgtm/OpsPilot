@@ -27,6 +27,27 @@ ModelProviderName = Literal["fake", "anthropic", "openai"]
 EmbeddingProviderName = Literal["local", "openai"]
 
 
+class WildcardCorsOrigin(ValueError):
+    """Raised when ``OPSPILOT_CORS_ORIGINS`` contains a ``*``.
+
+    A ``ValueError`` because that is what pydantic wraps a ``field_validator``
+    exception in anyway; naming it keeps the ``try``/``except`` in an operator's
+    face readable. The message lives on the class for the same reason
+    ``MissingOperatorToken``'s does: it should read as part of the failure a
+    deployment prints, and it must say what to do instead rather than only what
+    went wrong.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "OPSPILOT_CORS_ORIGINS cannot contain '*'. Name the origins explicitly "
+            "(e.g. http://localhost:3000); a wildcard lets any page the operator "
+            "visits read every API response, and this API can move money. To "
+            "disable cross-origin browser access entirely, set it empty -- which is "
+            "not the same as allowing everything."
+        )
+
+
 class Settings(BaseSettings):
     """Typed view over the environment.
 
@@ -54,6 +75,25 @@ class Settings(BaseSettings):
     # open, because a default-open auth is worse than no auth -- it looks like
     # auth.
     opspilot_operator_token: str = Field(default="", alias="OPSPILOT_OPERATOR_TOKEN")
+
+    # -- Browser access (CORS) -----------------------------------------------
+    # Comma-separated origins permitted to *read* API responses from a browser.
+    # The only origin named by default is the M7 dashboard in local dev, which
+    # is the one cross-origin caller this project has.
+    #
+    # This setting names WHO MAY READ, never who may call: an origin absent
+    # from this list can still *send* a request to a reachable port 8000, and
+    # CORS is a browser policy with no effect on curl. The bearer token is what
+    # authorises anything; this is the narrower question of which pages the
+    # browser will hand a response to. See the validator for the one value
+    # refused outright, and ``docs/api-contract.md`` §8 for the whole argument.
+    #
+    # Empty means "no cross-origin browser access at all" -- the app still
+    # builds, the middleware installs with an empty allowlist, and no page on
+    # another origin can read anything. It does NOT mean "allow everything".
+    opspilot_cors_origins: str = Field(
+        default="http://localhost:3000", alias="OPSPILOT_CORS_ORIGINS"
+    )
 
     # -- Model provider ------------------------------------------------------
     model_provider: ModelProviderName = Field(default="fake", alias="MODEL_PROVIDER")
@@ -130,6 +170,35 @@ class Settings(BaseSettings):
         """Normalise the log level so ``log_level=debug`` behaves as ``DEBUG``."""
         return value.upper()
 
+    @field_validator("opspilot_cors_origins")
+    @classmethod
+    def _refuse_wildcard_cors_origin(cls, value: str) -> str:
+        """Refuse to parse a wildcarded ``OPSPILOT_CORS_ORIGINS``.
+
+        Enforced in configuration rather than only in the middleware, so the
+        wildcard cannot reach the app even if a later edit builds
+        ``allow_origins`` by a different route than the one this repo has today.
+        Two notes on why this is fatal and not merely warned about:
+
+        - ``["*"]`` on this API means *any* page the operator visits while the
+          API is running may read every response, including the approval queue
+          and the run timeline. The endpoints can move money (§5), so a wildcard
+          is not a lax default, it is the whole surface.
+        - ``allow_credentials=True`` with ``["*"]`` is additionally rejected by
+          Starlette, so the wildcard would in practice mean silently losing the
+          credentials header -- a broken dashboard plus a wide-open read path.
+
+        Refusing to construct the settings is the honest response: an operator
+        who typed ``*`` meant "let anything in", and silently widening the API to
+        that is worse than a startup error that names the fix. This is the same
+        rule as the operator token -- config may remove capability, never grant
+        it.
+        """
+        entries = [item.strip() for item in value.split(",") if item.strip()]
+        if "*" in entries:
+            raise WildcardCorsOrigin
+        return value
+
     @property
     def tool_denylist(self) -> frozenset[str]:
         """Parse ``OPSPILOT_TOOL_DENYLIST`` into a set of tool names.
@@ -139,6 +208,25 @@ class Settings(BaseSettings):
         """
         return frozenset(
             name.strip() for name in self.opspilot_tool_denylist.split(",") if name.strip()
+        )
+
+    @property
+    def cors_origins(self) -> tuple[str, ...]:
+        """Parse ``OPSPILOT_CORS_ORIGINS`` into the exact origins to allow.
+
+        Whitespace and empty entries are dropped, and the result is a tuple in
+        the operator's declared order so the effective policy reads back the way
+        it was written. A bare ``*`` cannot appear here: the field validator
+        above refuses to construct settings containing one, so a wildcard is not
+        reachable from this accessor even by a caller that ignores the raw field.
+
+        An empty tuple is a meaningful value, not a failure: it means no
+        cross-origin page may read any response, which is the correct posture for
+        a deployment where the dashboard is served from the same origin as the
+        API or is not used at all.
+        """
+        return tuple(
+            origin.strip() for origin in self.opspilot_cors_origins.split(",") if origin.strip()
         )
 
     @property

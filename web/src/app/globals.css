@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* System stacks rather than a downloaded webfont. The create-next-app default
+     fetches Geist from Google at build time, which makes `next build` fail on
+     any machine that cannot reach fonts.googleapis.com -- and fail with a font
+     error that does not mention the network. These variables are the single
+     place to change if the dashboard later self-hosts a typeface. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* `font-sans` resolves through the @theme block above, so the stack is not
+     duplicated here -- one definition, one place to change it. */
+  font-family: var(--font-sans);
+}

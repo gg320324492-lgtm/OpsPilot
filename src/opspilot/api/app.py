@@ -11,6 +11,14 @@ Startup behaviour: the app refuses to start when ``OPSPILOT_OPERATOR_TOKEN`` is
 unset, rather than defaulting to open. A default-open auth is worse than no auth
 because it looks like auth.
 
+Browser access: the app installs a ``CORSMiddleware`` whose allowed origins come
+from ``OPSPILOT_CORS_ORIGINS`` and are never wildcarded, because the M7 dashboard
+runs on a different port from the API and a browser blocks the response without
+it. CORS decides which pages the browser will *hand a response to*; it is not an
+authorisation mechanism and does not replace the bearer token. See
+``_cors_options`` for why each middleware flag is set the way it is and
+``docs/api-contract.md`` §8 for the deployment-facing statement.
+
 Adapters are injected, not imported. The routers depend on the ``RunStore`` /
 ``TicketStore`` / ``ApprovalStore`` *ports*; the concrete SQL implementations are
 attached to ``app.state`` here, and an in-memory fake replaces them in tests by
@@ -20,14 +28,15 @@ the API testable before -- and independently of -- the persistence layer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, TypedDict, cast
 
 from fastapi import Depends, FastAPI
+from starlette.middleware.cors import CORSMiddleware
 
 from opspilot.api.auth import ensure_operator_token_configured
-from opspilot.api.errors import register_exception_handlers
+from opspilot.api.errors import ERROR_RESPONSES, register_exception_handlers
 from opspilot.api.routers import approvals, health, knowledge, runs, tickets
-from opspilot.settings import get_settings
+from opspilot.settings import Settings, WildcardCorsOrigin, get_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -35,6 +44,24 @@ if TYPE_CHECKING:
 
     from opspilot.adapters.wiring import RetrievalStack
     from opspilot.ports.stores import ApprovalStore, RunStore, TicketStore
+
+
+class _CorsOptions(TypedDict):
+    """The ``CORSMiddleware`` keyword arguments this app installs.
+
+    A ``TypedDict`` rather than a plain ``dict[str, object]`` so the values stay
+    typed through ``add_middleware(**options)``: under ``--strict`` a bare dict
+    degrades every keyword to ``object`` and the call no longer type-checks. The
+    middleware's signature is the schema this has to keep matching, so a new field
+    added there surfaces here as a type error rather than as a silently dropped
+    argument.
+    """
+
+    allow_origins: list[str]
+    allow_credentials: bool
+    allow_methods: list[str]
+    allow_headers: list[str]
+    max_age: int
 
 # The name the OpenAPI document is tagged with; also what a probe sees.
 _TITLE = "OpsPilot API"
@@ -90,6 +117,8 @@ def create_app(
         dependencies=[Depends(_noop_dependency)],
     )
 
+    app.add_middleware(CORSMiddleware, **_cors_options(settings))
+
     _bind_stores(
         app,
         run_store=run_store,
@@ -101,15 +130,84 @@ def create_app(
     )
 
     # Health first, so its two token-exempt routes are registered before the
-    # guarded routers.
+    # guarded routers. Every guarded router shares ``ERROR_RESPONSES`` so the
+    # contract's "one error shape, everywhere" (``docs/api-contract.md`` §6) is
+    # something a generated client can read rather than only something the
+    # humans are bound by. The health routes are exempt: they are token-free by
+    # design and declare their own 503.
     app.include_router(health.router)
-    app.include_router(tickets.router)
-    app.include_router(runs.router)
-    app.include_router(approvals.router)
-    app.include_router(knowledge.router)
+    app.include_router(tickets.router, responses=_router_responses())
+    app.include_router(runs.router, responses=_router_responses())
+    app.include_router(approvals.router, responses=_router_responses())
+    app.include_router(knowledge.router, responses=_router_responses())
 
     register_exception_handlers(app)
     return app
+
+
+def _router_responses() -> dict[int | str, dict[str, object]]:
+    """A fresh copy of the shared error declarations for one router.
+
+    Copied per router because FastAPI mutates the mapping it is handed while
+    merging it into the document; sharing one dict across four routers would let
+    the first merge leave its state behind for the next three.
+    """
+    return {code: dict(entry) for code, entry in ERROR_RESPONSES.items()}
+
+
+def _cors_options(settings: Settings) -> _CorsOptions:
+    """Build the ``CORSMiddleware`` keyword arguments for this deployment.
+
+    Every value here is deliberate; the reasons are load-bearing rather than
+    conventional, so they are written out next to the values.
+
+    ``allow_origins`` comes from ``OPSPILOT_CORS_ORIGINS`` and is never
+    wildcarded. The field validator in :mod:`opspilot.settings` refuses to
+    construct settings containing ``*``, and the second check below re-asserts it
+    at the point of use, so a future edit that builds the list by another route
+    still fails loudly instead of widening the API.
+
+    ``allow_credentials=True`` because the dashboard sends
+    ``Authorization: Bearer`` -- that is a credential, and without this flag the
+    browser strips the response before the page sees it. This combination is the
+    reason the wildcard is refused rather than merely discouraged: Starlette
+    would refuse to attach ``Access-Control-Allow-Credentials`` to a wildcard
+    response anyway, so a ``*`` here would mean a *broken* dashboard sitting
+    next to an unbounded read path.
+
+    ``allow_methods`` is the documented write set of ``docs/api-contract.md``
+    §1, not ``*``. The contract is GET, POST, and preflight-OPTIONS; a method the
+    contract does not define has no route to reach, so naming them is free
+    precision.
+
+    ``allow_headers`` must include ``Authorization``: it is on the browser's
+    preflight list, and omitting it is the single most common reason a CORS
+    config that "looks right" still fails every request. ``Content-Type`` is
+    there because every write in the contract posts JSON.
+
+    ``max_age`` is 600s so a developer editing the dashboard does not send a
+    preflight on every hot-reload, without being long enough that revoking an
+    origin takes ten minutes to take effect.
+
+    An empty ``allow_origins`` installs the middleware with an empty allowlist,
+    which refuses every cross-origin request. That is the intended behaviour for
+    "no dashboard": the app still builds and every same-origin and non-browser
+    client is unaffected.
+    """
+    origins = settings.cors_origins
+    if any(origin == "*" for origin in origins):
+        # Unreachable while the settings validator holds. Present because this is
+        # the function that would otherwise be the one place to widen the API,
+        # and a guard that only exists in a sibling module is a guard that is one
+        # refactor away from not existing.
+        raise WildcardCorsOrigin
+    return {
+        "allow_origins": list(origins),
+        "allow_credentials": True,
+        "allow_methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type"],
+        "max_age": 600,
+    }
 
 
 def _bind_stores(

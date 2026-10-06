@@ -27,6 +27,7 @@ for exactly this reason. Do not split it up.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Final
@@ -174,6 +175,24 @@ def executed_lookup_for(tool_call_store: ToolCallStore) -> ExecutedLookup:
 def _utcnow() -> datetime:
     """Timezone-aware UTC now."""
     return datetime.now(UTC)
+
+
+def _elapsed_ms(started: float) -> int:
+    """Milliseconds elapsed since ``started`` (a ``perf_counter`` reading).
+
+    The same measurement the MCP gateway and the model providers already make
+    (``adapters/tools/mcp_gateway.py`` ``_elapsed_ms``, and the
+    ``(time.perf_counter() - started) * 1000`` both providers compute). It lives
+    here as well because ``retrieval`` is a *port callable* returning a bare
+    ``list[SearchHit]`` with no usage record attached -- there is nowhere else
+    for the retrieval call's duration to come from, and §M6's "every step with
+    latency" needs one.
+
+    ``int(...)`` truncates, so a call finishing in under a millisecond records
+    ``0``. That is a real measurement, not a placeholder: the golden path's
+    in-process MCP calls and its replayed model calls all land there.
+    """
+    return int((time.perf_counter() - started) * 1000)
 
 
 class ToolCallRef:
@@ -407,6 +426,17 @@ async def _gate_and_execute(
         # the key (a lookup that reports a prior execution that is not backed by
         # a row -- the case the gate-4 unit tests script), this row is the one
         # that records the execution and may carry the key.
+        #
+        # Neither branch writes a ``latency_ms``, and that is a decision rather
+        # than an omission. Control short-circuits *before* ``gateway.call_tool``
+        # on both, so nothing was dispatched on this pass and there is no
+        # duration to record. The three plausible alternatives are all wrong:
+        # writing ``0`` would assert the call was instantaneous and would be
+        # indistinguishable from a real sub-millisecond dispatch; copying the
+        # *prior* row's latency onto this one would attribute another row's
+        # dispatch to a row that never dispatched; and leaving it unset -- which
+        # is what this does -- says honestly "this transition performed no work".
+        # The prior measurement stays on the prior row, where it is true.
         prior = await tool_call_store.find_executed_call_id(
             run_id=ctx.run.id, idempotency_key=idempotency_key or ""
         )
@@ -532,6 +562,12 @@ async def _gate_and_execute(
             ToolCallStatus.EXECUTED,
             result=result.result,
             idempotency_key=idempotency_key,
+            # The gateway measured the dispatch it just made and reported it on
+            # the same object whose ``result`` is being written here; it was
+            # being dropped, leaving ``tool_calls.latency_ms`` NULL for every
+            # executed call while the audit event two lines below carried the
+            # very same number. A genuine 0 is forwarded as 0, not as None.
+            latency_ms=result.latency_ms,
         )
     else:
         # A failed execution is still a *recorded* execution attempt with its
@@ -542,6 +578,10 @@ async def _gate_and_execute(
             ToolCallStatus.FAILED,
             error=result.error or "tool_error",
             idempotency_key=idempotency_key,
+            # A failure is a dispatch too -- an unreachable server and a refused
+            # call both took time to be discovered, and that time is exactly
+            # what an operator reading this row is looking for.
+            latency_ms=result.latency_ms,
         )
 
         # An unreachable tool server is different from a tool that refused.
@@ -1005,6 +1045,7 @@ async def _respond(
     """Compose the customer reply and complete the run via ``RESPONDING``."""
     if ctx.run.status is not RunStatus.RESPONDING:
         await _transition(ctx, run_store, RunStatus.RESPONDING)
+    response_ms = 0
     try:
         body: str
         response = await provider.generate_structured(
@@ -1014,6 +1055,10 @@ async def _respond(
         )
         body = response.value.body
         ctx.escalated = ctx.escalated or response.value.escalated
+        # The provider measured this call and reported it in its usage record;
+        # it was the one model-call latency that was available here and not
+        # forwarded, the same shape of defect as the retrieval step's.
+        response_ms = response.usage.latency_ms
     except (ValidationError, ValueError):
         # The structured reply did not validate. Phase 1 does not retry a
         # schema-invalid model response (``docs/agent-state-machine.md`` §3).
@@ -1023,6 +1068,7 @@ async def _respond(
     await recorder.record_step(
         step_type="response",
         output_payload={"escalated": ctx.escalated, "chars": len(body)},
+        latency_ms=response_ms,
     )
     await _transition(ctx, run_store, RunStatus.COMPLETED)
     return ctx
@@ -1095,8 +1141,11 @@ async def _retrieve(
     exact string the contract shows -- so the router never joins tables.
     """
     hits: list[SearchHit] = []
+    retrieval_ms = 0
     if retrieval is not None:
+        started = time.perf_counter()
         hits = await retrieval(ctx.ticket_subject + "\n" + ctx.ticket_body)
+        retrieval_ms = _elapsed_ms(started)
 
     # Resolved for the same reason as the pump's: a ``None`` here would make
     # the comparison a TypeError exactly when there are hits to cite.
@@ -1111,6 +1160,7 @@ async def _retrieve(
             "count": len(hits),
             "document_slugs": [hit.document_slug for hit in hits],
         },
+        latency_ms=retrieval_ms,
     )
     return hits
 
@@ -1142,13 +1192,24 @@ async def _plan(
 
     The raw dict is parsed into ``ProposedAction``; a response that does not fit
     the schema fails the run with ``schema_invalid`` (no retries in Phase 1).
+
+    The call is timed here, at the call site, rather than taken from the
+    provider. ``choose_tool`` returns a bare ``dict`` -- unlike
+    ``generate_structured``, which returns a ``ModelResponse`` carrying
+    ``usage.latency_ms`` -- so there is nothing for the provider to report and
+    no port change could surface one. Measuring the awaited call is what the
+    trace's column actually means ("how long did this step take the run"), and
+    for a live provider it includes the real network round trip that a
+    provider-reported figure would exclude or approximate.
     """
     try:
+        started = time.perf_counter()
         raw = await provider.choose_tool(
             system=_SYSTEM_PROMPT,
             prompt=_planning_prompt(ctx),
             available_tools=registered_tool_names(),
         )
+        planning_ms = _elapsed_ms(started)
         proposal = ProposedAction.model_validate(raw)
     except (ValidationError, ValueError):
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
@@ -1159,6 +1220,7 @@ async def _plan(
             "tool_name": proposal.tool_name,
             "done": proposal.done,
         },
+        latency_ms=planning_ms,
     )
     return proposal
 

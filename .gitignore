@@ -37,12 +37,18 @@ htmlcov/
 data/
 
 # ---- Frontend ----
+# The dashboard lives in web/. These are the bare directory names so the rule
+# applies at any depth (web/node_modules, and any nested package if one is
+# added), which is why they are written without a leading slash.
 node_modules/
 .next/
 out/
 .turbo/
-apps/web/.env.local
-apps/web/next-env.d.ts
+
+# Next.js regenerates next-env.d.ts on every build; it describes the installed
+# Next version rather than the project, so it is not source. tsconfig.json's
+# `include` still references it so a fresh checkout type-checks after one build.
+next-env.d.ts
 
 # ---- Editors / OS ----
 .idea/
