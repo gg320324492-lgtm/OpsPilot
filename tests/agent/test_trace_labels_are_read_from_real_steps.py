@@ -26,9 +26,9 @@ reader *together*.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
+from opspilot.adapters.persistence import models
 from opspilot.api.routers.runs import _detail_for, _label_for
+from opspilot.domain.runs import RunStatus
 from tests.agent._golden_harness import Harness
 
 #: The step types the golden path actually records, discovered rather than
@@ -57,7 +57,7 @@ async def test_no_real_step_renders_as_to_none(harness: Harness) -> None:
     changes = [s for s in steps if s.step_type == "state_change"]
     assert changes, "the golden path recorded no state changes to check"
 
-    statuses = {status.value for status in _run_status()}
+    statuses = {status.value for status in RunStatus}
     for step in changes:
         detail = _detail_for(step.step_type, step.output)
         assert detail.startswith("to "), (
@@ -119,19 +119,17 @@ async def test_the_work_step_types_are_the_ones_the_trace_renders(
             )
 
 
-async def _drive(harness: Harness):  # noqa: ANN202 - golden-path row type
-    """Run the golden path to completion and return its real step rows."""
+async def _drive(harness: Harness) -> list[models.AgentStep]:
+    """Run the golden path to completion and return its real step rows.
+
+    Typed as the real persisted row (``models.AgentStep``) rather than a bare
+    ``object``: the tests below read ``.step_type``, ``.sequence`` and ``.output``
+    off each row, and an untyped sequence is what let the ``to`` / ``to_status``
+    mismatch survive -- the helper hid the shape the assertions depend on.
+    """
     run = await harness.start_run()
     assert await harness.drain(worker_id="w-1") is True
     approval = await harness.pending_approval(run.id)
     await harness.decide(approval.id, approved=True)
     assert await harness.drain(worker_id="w-2") is True
-    steps: Sequence[object] = harness.steps(run.id)
-    return steps
-
-
-def _run_status() -> object:
-    """The ``RunStatus`` enum, imported lazily to keep the module import cheap."""
-    from opspilot.domain.runs import RunStatus
-
-    return RunStatus
+    return harness.steps(run.id)

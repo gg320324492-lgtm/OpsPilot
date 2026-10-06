@@ -20,9 +20,23 @@ Two options:
 
 The specification for this project says PostgreSQL only, with an explicit
 instruction not to add Pinecone/Qdrant/Weaviate. SQLite is not a second
-*datastore* in the sense that rule addresses — no data lives in SQLite in any
-deployment — but it is a second SQL dialect in the test path, and that needs to
-be an explicit, bounded decision rather than an accident.
+*datastore* in the sense that rule addresses. It is a second SQL dialect in the
+test path, and that needs to be an explicit, bounded decision rather than an
+accident.
+
+**Correction (found by running the real system, not by testing it).** An earlier
+draft of this ADR claimed "no data lives in SQLite in any deployment". That was
+false in one place, and the way it was false breaks the golden path. On SQLite
+`adapters/wiring.py::build_vector_store` returns `InMemoryVectorStore`, which
+keeps the chunk *embeddings* in the process's memory (`self._embeddings`) and
+writes the `knowledge_chunks` rows with `embedding` NULL. The embedder's output
+is therefore a per-process fact, not a stored one. A real deployment runs two
+processes — the API serves `POST /api/knowledge/reindex`, the worker performs
+retrieval — so the API's reindex loads vectors into the **API's** memory and the
+worker's memory is empty. Retrieval returns zero hits, the run abstains and
+escalates, no tool is called, and the reply still claims a resolution nothing
+performed. The suite could not see it because its harness builds both processes
+in one process, over a store a deployment does not share.
 
 ## Decision
 
@@ -35,7 +49,7 @@ with a test that covers the divergence:
 | Divergence | Handling |
 |---|---|
 | `FOR UPDATE SKIP LOCKED` | SQLite has no equivalent. The worker's claim uses a dialect-aware construct; the two-worker concurrency test is `@pytest.mark.postgres` and runs only in CI. |
-| pgvector `vector(1536)` column | Replaced by a JSON column in tests, with `ports/vector_store.py` providing an in-memory cosine implementation. A differential test loads the same chunks into both stores (in the Postgres CI job) and asserts identical top-5 results and scores to 4 dp. |
+| pgvector `vector(1536)` column | Replaced by a JSON column in tests, with `ports/vector_store.py` providing an in-memory cosine implementation. A differential test loads the same chunks into both stores (in the Postgres CI job) and asserts identical top-5 results and scores to 4 dp. **This is not a clean swap.** The in-memory store keeps embeddings in process memory, so it is correct only in a *single* process: two processes over one SQLite database do not share vectors, and a deployment that reindexes in the API and retrieves in the worker gets zero hits. The differential test compares what the two stores *return* within one process and cannot see this; SQLite is a tests-only path (one process), not a supported runtime configuration. |
 | `JSONB` | Maps to SQLite's `JSON`. Same SQLAlchemy type; no application-visible difference for the queries used. |
 | Partial indexes, `gen_random_uuid()` | Emulated for SQLite; native in Postgres. The claim-predicate index exists only in Postgres by design — SQLite is single-threaded in tests anyway. |
 

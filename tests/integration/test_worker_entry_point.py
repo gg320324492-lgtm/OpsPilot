@@ -197,7 +197,9 @@ def test_the_provider_is_built_from_settings(migrated_db: pathlib.Path) -> None:
     assert provider is not None
 
 
-def test_an_unknown_provider_is_refused_before_the_worker_starts() -> None:
+def test_an_unknown_provider_is_refused_before_the_worker_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A provider this build has no adapter for fails at settings, not later.
 
     ``MODEL_PROVIDER`` is typed as a ``Literal``, so an unknown name is rejected
@@ -214,8 +216,14 @@ def test_an_unknown_provider_is_refused_before_the_worker_starts() -> None:
 
     from opspilot.settings import Settings
 
-    with pytest.raises(ValidationError) as caught:
-        Settings(MODEL_PROVIDER="nope-not-a-provider")
+    # Built through the environment rather than as a typed argument, because
+    # ``MODEL_PROVIDER`` is a ``Literal``: passing the bad name directly is a
+    # type error, which mypy flags -- and it is right to. A deployment supplies
+    # this as an environment variable, so this is also the real path. The
+    # comment is the test: it is asserting what an *operator's typo* does.
+    with pytest.raises(ValidationError) as caught, monkeypatch.context() as env:
+        env.setenv("MODEL_PROVIDER", "nope-not-a-provider")
+        Settings()
     assert "MODEL_PROVIDER" in str(caught.value), (
         "an unknown provider must be refused, naming the setting to fix"
     )

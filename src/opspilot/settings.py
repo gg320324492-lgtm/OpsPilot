@@ -100,6 +100,19 @@ class Settings(BaseSettings):
     model_name: str = Field(default="", alias="MODEL_NAME")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+
+    # The base URL the OpenAI adapter points its SDK at. Empty means the SDK's
+    # own default (``https://api.openai.com/v1``), which is the right value for a
+    # plain OpenAI deployment -- and the reason the adapter passes it only when
+    # non-empty: ``base_url=""`` is not the same as omitting it, it is an invalid
+    # endpoint that breaks the default case.
+    #
+    # Set it to reach any server that speaks the OpenAI HTTP protocol: a
+    # self-hosted vLLM, an Azure OpenAI deployment, Together, Groq, or OpenRouter
+    # (``https://openrouter.ai/api/v1``). Those are legitimate OpenAI-compatible
+    # endpoints, not a special case for one vendor's test run.
+    openai_base_url: str = Field(default="", alias="OPENAI_BASE_URL")
+
     model_timeout_seconds: float = Field(default=60.0, alias="MODEL_TIMEOUT_SECONDS")
 
     # Which recorded fixture the ``fake`` provider replays, by scenario name.

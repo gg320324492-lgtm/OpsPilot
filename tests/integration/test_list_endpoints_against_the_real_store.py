@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -67,8 +67,15 @@ def factory() -> Iterator[sessionmaker[Session]]:
         engine.dispose()
 
 
-async def _seed(factory: sessionmaker[Session]) -> tuple[repositories.SqlRunStore, object]:
-    """Two runs and one parked approval, written through the real stores."""
+async def _seed(
+    factory: sessionmaker[Session],
+) -> tuple[repositories.SqlRunStore, ApprovalRequest]:
+    """Two runs and one parked approval, written through the real stores.
+
+    The return type is spelled out rather than inferred: callers read ``.id``,
+    ``.run_id`` and the two texts off the approval, and a helper typed as
+    ``object`` would strip exactly the fields the tests are here to check.
+    """
     tickets = repositories.SqlTicketStore(factory)
     runs = repositories.SqlRunStore(factory)
     calls = repositories.SqlToolCallStore(factory)
@@ -328,7 +335,7 @@ async def test_get_pending_approval_returns_the_earliest_of_two(
     run = await runs.create(ticket_id=ticket_id, model_provider="fake", model_name="fake-1")
     await runs.set_status(run.id, RunStatus.CLASSIFYING)
 
-    first_id: object = None
+    first_id: UUID | None = None
     for index in range(2):
         call_id = await calls.record_proposed(
             run_id=run.id,

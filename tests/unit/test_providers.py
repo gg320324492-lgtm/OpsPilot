@@ -64,3 +64,48 @@ def test_provider_modules_import_without_sdk_at_module_scope() -> None:
     source_o = Path(openai_mod.__file__).read_text(encoding="utf-8")
     assert "\nimport anthropic" not in source_a and "\nfrom anthropic" not in source_a
     assert "\nimport openai" not in source_o and "\nfrom openai" not in source_o
+
+
+def _capture_openai_client_kwargs(
+    monkeypatch: pytest.MonkeyPatch, *, base_url: str
+) -> dict[str, object]:
+    """Construct the provider's client and return the kwargs the SDK received.
+
+    A seam, not a network call: ``openai.AsyncOpenAI`` is replaced with a
+    recorder so the test can assert on exactly what the adapter passed, and CI
+    stays offline. The SDK is a real dependency here, so the import inside the
+    provider succeeds -- only the constructor is swapped.
+    """
+    import openai
+
+    captured: dict[str, object] = {}
+
+    def _recorder(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", _recorder)
+    provider = OpenAIModelProvider(api_key="test-key", model_name="gpt-4o-mini", base_url=base_url)
+    # The seam under test is the client build, so calling the private builder
+    # directly is the point rather than an oversight.
+    provider._client()
+    return captured
+
+
+def test_empty_base_url_is_not_passed_to_the_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty ``OPENAI_BASE_URL`` omits ``base_url`` entirely.
+
+    ``base_url=""`` is a different argument from an omitted one -- it is an
+    invalid endpoint -- so the plain-OpenAI deployment must not receive it.
+    """
+    captured = _capture_openai_client_kwargs(monkeypatch, base_url="")
+    assert "base_url" not in captured
+    assert captured["api_key"] == "test-key"
+
+
+def test_non_empty_base_url_is_passed_to_the_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured ``OPENAI_BASE_URL`` reaches the SDK, so a compatible endpoint works."""
+    captured = _capture_openai_client_kwargs(
+        monkeypatch, base_url="https://openrouter.ai/api/v1"
+    )
+    assert captured["base_url"] == "https://openrouter.ai/api/v1"

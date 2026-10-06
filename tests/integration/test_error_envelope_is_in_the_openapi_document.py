@@ -28,11 +28,32 @@ so the hand-written file is deleted rather than quietly kept in sync forever.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from fastapi import FastAPI
 
 from opspilot.api.app import create_app
 from opspilot.settings import get_settings
+
+
+def _mapping(value: object, *, where: str) -> dict[str, object]:
+    """Narrow one level of the OpenAPI document to a mapping.
+
+    The document is ``dict[str, object]`` all the way down -- a JSON schema is
+    a tree of dictionaries, and there is no model for it to be typed against.
+    Rather than sprinkle ``# type: ignore`` at every index, each descent goes
+    through here, so the narrowing happens at one named place and the assertion
+    (a node we expect to be an object is one) is stated once.
+    """
+    assert isinstance(value, dict), f"OpenAPI node at {where} is not a mapping"
+    return cast("dict[str, object]", value)
+
+
+def _string_list(value: object, *, where: str) -> list[str]:
+    """Narrow a JSON array of strings (``required``, property names)."""
+    assert isinstance(value, list), f"OpenAPI node at {where} is not a list"
+    return cast("list[str]", value)
 
 
 @pytest.fixture
@@ -55,7 +76,8 @@ def openapi_schema(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
 def test_the_error_envelope_is_in_the_schema(openapi_schema: dict[str, object]) -> None:
     """``components.schemas`` carries both envelope models."""
-    schemas = openapi_schema["components"]["schemas"]  # type: ignore[index]
+    components = _mapping(openapi_schema["components"], where="components")
+    schemas = _mapping(components["schemas"], where="components.schemas")
     missing = [name for name in ("ErrorResponse", "ErrorBody") if name not in schemas]
     assert not missing, (
         f"{missing} are defined in api/schemas.py but absent from the OpenAPI "
@@ -77,15 +99,18 @@ def test_every_guarded_route_declares_the_error_envelope(
     the envelope is only attached to one router, every other client still has to
     hand-write it.
     """
-    paths = openapi_schema["paths"]
+    paths = _mapping(openapi_schema["paths"], where="paths")
     missing: dict[str, list[str]] = {}
     for path, operations in paths.items():
         if not path.startswith("/api/"):
             continue
-        for method, operation in operations.items():
+        for method, operation in _mapping(operations, where=f"paths.{path}").items():
             if method not in {"get", "post", "put", "patch", "delete"}:
                 continue
-            responses = operation.get("responses", {})
+            responses = _mapping(
+                _mapping(operation, where=f"paths.{path}.{method}").get("responses", {}),
+                where=f"paths.{path}.{method}.responses",
+            )
             codes = {str(code) for code in responses}
             envelope_statuses = codes & {"400", "401", "404", "409", "422"}
             if not envelope_statuses:
@@ -110,9 +135,12 @@ def test_the_runtime_envelope_matches_the_declared_schema(
     """
     from opspilot.api.errors import error_response
 
-    schemas = openapi_schema["components"]["schemas"]
-    declared = schemas["ErrorBody"]["properties"]
-    emitted = error_response(code="x", message="y", details={"k": "v"})["error"]
+    components = _mapping(openapi_schema["components"], where="components")
+    schemas = _mapping(components["schemas"], where="components.schemas")
+    error_body = _mapping(schemas["ErrorBody"], where="components.schemas.ErrorBody")
+    declared = _mapping(error_body["properties"], where="ErrorBody.properties")
+    envelope = error_response(code="x", message="y", details={"k": "v"})
+    emitted = _mapping(envelope["error"], where="error_response()['error']")
 
     undeclared = sorted(set(emitted) - set(declared))
     assert not undeclared, (
@@ -120,7 +148,7 @@ def test_the_runtime_envelope_matches_the_declared_schema(
         "declare. errors.py builds the body from the ErrorResponse model, so "
         "this can only happen if the model and the document disagree."
     )
-    required = schemas["ErrorBody"].get("required", [])
+    required = _string_list(error_body.get("required", []), where="ErrorBody.required")
     missing = sorted(name for name in required if name not in emitted)
     assert not missing, (
         f"the schema declares {missing} required, but the runtime envelope does "
@@ -142,4 +170,5 @@ def test_the_envelope_model_is_the_one_the_router_returns() -> None:
     assert set(ErrorBody.model_fields) == {"code", "message", "details"}
     body = error_response(code="not_found", message="m", details=None)
     assert set(body) == {"error"}
-    assert set(body["error"]) == {"code", "message", "details"}  # type: ignore[index]
+    inner = _mapping(body["error"], where="error_response()['error']")
+    assert set(inner) == {"code", "message", "details"}

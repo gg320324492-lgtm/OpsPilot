@@ -49,21 +49,41 @@ class MissingAPIKeyError(RuntimeError):
 class OpenAIModelProvider:
     """OpenAI-backed ``ModelProvider``. Imports the SDK lazily."""
 
-    def __init__(self, *, api_key: str, model_name: str, timeout_seconds: float = 60.0) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model_name: str,
+        timeout_seconds: float = 60.0,
+        base_url: str = "",
+    ) -> None:
         self._api_key = api_key
         self._model_name = model_name
         self._timeout_seconds = timeout_seconds
+        self._base_url = base_url
 
     def _client(self) -> Any:
         """Build the async client, importing the SDK here and checking the key.
 
         The key check precedes the import so a missing key raises a named error
         even on a machine without the SDK -- the message is the same either way.
+
+        ``base_url`` is passed only when non-empty. An empty string is a
+        *different* argument from an omitted one: the SDK treats ``""`` as an
+        endpoint rather than "use the default", so passing it unconditionally
+        would break every plain-OpenAI deployment. Omitting it leaves the SDK's
+        own ``https://api.openai.com/v1`` in place.
         """
         if not self._api_key:
             raise MissingAPIKeyError("openai")
         from openai import AsyncOpenAI
 
+        if self._base_url:
+            return AsyncOpenAI(
+                api_key=self._api_key,
+                timeout=self._timeout_seconds,
+                base_url=self._base_url,
+            )
         return AsyncOpenAI(api_key=self._api_key, timeout=self._timeout_seconds)
 
     async def generate_structured(

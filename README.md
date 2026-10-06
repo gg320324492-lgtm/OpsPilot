@@ -258,6 +258,18 @@ real PostgreSQL are marked `postgres` and skipped locally — the skip count is
 printed, so a green run is not mistaken for full coverage.
 ([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md))
 
+Static types are checked with the file set configured in `pyproject.toml`
+(`[tool.mypy] files`), not with a hand-typed path list:
+
+```bash
+mypy
+```
+
+Run bare `mypy`, with no arguments: the argument list and the configured `files`
+are kept identical by `tests/unit/test_mypy_configuration_is_enforced.py`, so
+`mypy --strict src` — which checks only `src` — is not the project's type check.
+Passing a path on the command line would silently narrow the check to that path.
+
 ## Scope
 
 **Phase 1 builds one workflow properly.** It does not include multi-agent

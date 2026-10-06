@@ -113,6 +113,22 @@ and none of them is comfortable:
    and a measurement behind it, which is better than the previous value (0.35,
    which nothing could reach) and is still a long way from a learned ranker.
 
+**The SQLite vector store does not survive a second process, and SQLite is not a
+supported runtime configuration.** On SQLite `build_vector_store` returns
+`InMemoryVectorStore`, which holds the chunk *embeddings* in process memory and
+writes the `knowledge_chunks` rows with `embedding` NULL. A real deployment runs
+two processes — the API performs `POST /api/knowledge/reindex`, the worker
+retrieves — so reindexing loads vectors into the API's memory, the worker's
+memory is empty, and retrieval returns **zero hits on every SQLite deployment**.
+Measured on a real worker and a real API over an indexed corpus (17 documents, 98
+chunks): classification correct (`duplicate_charge`, 0.93), retrieval `count: 0`,
+no tool called, no refund proposed, no approval requested — the run abstains,
+escalates, and the reply claims a refund that never happened. This is *not* a bug
+to fix: per ADR-0004, production is PostgreSQL + pgvector and SQLite is a
+tests-only path. The test suite could not see it because the golden harness
+builds the API and the worker in one process, sharing a store a deployment does
+not share. **Use PostgreSQL for anything that runs as more than one process.**
+
 **Knowledge is static Markdown re-indexed manually.** `POST /api/knowledge/reindex`
 is the only update path; there is no watch, no incremental indexing, no
 versioning of document revisions. Citations point at a document's current content,

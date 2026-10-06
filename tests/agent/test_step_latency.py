@@ -220,15 +220,36 @@ async def test_a_response_latency_tracks_the_provider_reported_usage(
     this one.
     """
     from opspilot.adapters.models.fake import FakeModelProvider
-    from opspilot.ports.model_provider import ModelUsage
+    from opspilot.ports.model_provider import ModelResponse, ModelUsage, TModel
 
     declared_ms = 4321
 
     class DeclaredLatencyProvider(FakeModelProvider):
-        """A fake that reports a specific, unmistakable latency."""
+        """A fake that reports a specific, unmistakable latency.
 
-        async def generate_structured(self, **kwargs: object) -> object:
-            response = await super().generate_structured(**kwargs)  # type: ignore[arg-type]
+        The override matches the port's generic signature exactly -- including
+        ``schema: type[TModel]`` and ``ModelResponse[TModel]`` -- rather than
+        taking ``**kwargs: object``. A looser signature still runs, but it
+        silently stops *being* a ``ModelProvider``: the wrapper would accept any
+        call shape and return an untyped value, which is precisely the drift
+        this suite exists to catch. Substituting only the ``usage`` field keeps
+        the recorded structured value untouched, which is what the test needs.
+        """
+
+        async def generate_structured(
+            self,
+            *,
+            system: str,
+            prompt: str,
+            schema: type[TModel],
+            timeout_seconds: float | None = None,
+        ) -> ModelResponse[TModel]:
+            response = await super().generate_structured(
+                system=system,
+                prompt=prompt,
+                schema=schema,
+                timeout_seconds=timeout_seconds,
+            )
             response.usage = ModelUsage(
                 provider="test",
                 model="test",
@@ -512,8 +533,13 @@ async def test_an_idempotent_replay_keeps_the_prior_latency_and_says_so(harness:
     from opspilot.agents.schemas import ProposedAction
     from opspilot.agents.state import RunContext
 
+    refreshed_run = await harness.runs.get(run.id)
+    assert refreshed_run is not None, (
+        "the just-completed run could not be re-read; RunContext needs the "
+        "persisted row, not the pre-drain object"
+    )
     ctx = RunContext(
-        run=await harness.runs.get(run.id),
+        run=refreshed_run,
         ticket_subject="We were charged twice for invoice INV-2026-384.",
         ticket_body="Please investigate and fix it.",
         customer_email="billing@acme.example",

@@ -275,6 +275,9 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
             api_key=resolved.openai_api_key,
             model_name=model_name,
             timeout_seconds=resolved.model_timeout_seconds,
+            # Empty means the SDK's own endpoint; the adapter omits the argument
+            # then rather than passing "", which would break plain OpenAI.
+            base_url=resolved.openai_base_url,
         )
 
     raise WorkerConfigError(

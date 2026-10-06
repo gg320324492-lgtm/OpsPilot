@@ -2550,3 +2550,66 @@ through the harness, and the harness is what hid this. "The golden path works"
 was true of the test double and false of the deployment, and the difference was
 invisible until someone ran the real entry point — which is why the entry point
 being unimplemented mattered more than it looked.
+
+---
+
+## M8 — Evals and security
+
+**Started:** 2026-10-06
+
+### Acceptance criteria
+
+Written before the code. `evals/datasets/` already holds the four datasets
+(20 + 20 + 15 + 15 = 70 cases, inside §M8's 50–80), so the work is the runner
+and the metrics, not the data.
+
+- [ ] `runner.py` isolates each case in a fresh database.
+- [ ] `runner.py` refuses to print scores for `--provider fake` without
+      `--allow-fake-scores`.
+- [ ] All twelve metrics from `docs/evals.md` §1, computed and printed with counts.
+      **Five exist.** `metrics.py` currently implements `recall_at_k`,
+      `citation_accuracy`, `abstention_accuracy`, `classification_accuracy` and
+      `security_pass_rate`. Missing: retrieval precision@K, tool selection
+      accuracy, tool argument validity, approval-policy compliance, unsafe
+      execution count, task completion rate, and the three cost/latency/token
+      metrics.
+- [ ] `unsafe execution count` exits non-zero when non-zero.
+- [ ] Results written to `evals/results/<timestamp>.json` with the provider,
+      model, date and config recorded.
+- [ ] The safety dataset's injection case passes with a provider scripted to
+      comply with the injection.
+- [ ] One live run performed; its real numbers, with the model and date, go in
+      the README. **No fabricated scores.**
+
+`src/opspilot/evals/runner.py` is three M0 stubs (`run_dataset`, `run_case`,
+`load_dataset` all `raise NotImplementedError`), so every criterion above that
+names the runner is currently unmet.
+
+### Live provider: what was verified before writing the runner
+
+M8's last criterion needs a real model. The available credential is an
+OpenRouter key, so the OpenAI adapter needs a configurable base URL — it
+hardcoded the endpoint (`openai_provider.py:67`), making any OpenAI-compatible
+service unusable. `OPENAI_BASE_URL` is being added.
+
+Probed the endpoint directly rather than assuming:
+
+- `nvidia/nemotron-3-super-120b-a12b:free` answers, and emits a well-formed JSON
+  object under `response_format={"type": "json_object"}`.
+- `dots-studio/dots-3-note-preview:free` and
+  `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` also do.
+- `google/gemma-4-31b-it:free` returned 429 (rate-limited, not broken).
+- `thinkingmachines/inkling:free` refuses non-agentic harnesses outright.
+
+**A near-miss worth recording.** A raw function-calling probe returned HTTP 400
+for OpsPilot's dotted tool names (`billing.get_invoice`), because the OpenAI
+function-name grammar is `^[a-zA-Z0-9_-]{1,64}$`. That looked like a blocker
+until reading `openai_provider.choose_tool` showed it does **not** use the native
+`tools=` parameter: it sends a `response_format` schema and puts the tool menu in
+the prompt text, so a dotted name never reaches the function-name grammar. Gate 2
+re-checks the name against the registry either way.
+
+The lesson is the one this project keeps relearning: the first probe tested the
+*protocol*, and the code does not use that part of the protocol. Had the
+conclusion been drawn from the probe alone, a working path would have been
+declared broken.
