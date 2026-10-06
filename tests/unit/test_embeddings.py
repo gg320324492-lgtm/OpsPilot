@@ -63,6 +63,94 @@ async def test_local_embed_differs_for_different_texts() -> None:
     assert a != b
 
 
+# --------------------------------------------------------------------------- #
+# The lexical properties the retriever actually depends on.
+#
+# These are new since the M5e fix, and they are the reason the embedder is not a
+# hash of the whole text any more. A hash of the text is a perfectly
+# deterministic function and scores everything in a 0.04-0.09 band with the
+# answerable and unanswerable bands overlapping, so no threshold could
+# discriminate. These assert the property that fixes it: the score reflects
+# shared *vocabulary*.
+# --------------------------------------------------------------------------- #
+
+
+async def test_local_embed_scores_text_sharing_vocabulary_above_text_that_does_not() -> None:
+    """Two texts sharing terms must outscore two that share none.
+
+    This is the load-bearing property. Without it ``RETRIEVAL_MIN_SCORE`` cannot
+    mean anything, which is exactly how M5 shipped an abstaining golden path.
+    """
+    embedder = LocalDeterministicEmbedder(dim=1536)
+    query, related, unrelated = await embedder.embed(
+        [
+            "duplicate charge refund approval threshold",
+            "a duplicate charge is refunded after verification and approval",
+            "espresso martini recipe for an office party",
+        ]
+    )
+
+    def cosine(a: list[float], b: list[float]) -> float:
+        return sum(x * y for x, y in zip(a, b, strict=True))
+
+    assert cosine(query, related) > cosine(query, unrelated), (
+        "a related document must score above an unrelated one; the embedder is "
+        "not responding to the text's content"
+    )
+
+
+async def test_local_embed_ignores_stopwords_when_scoring() -> None:
+    """Stopwords carry no retrieval signal, so they must not change the score.
+
+    ``"what is the refund policy"`` and ``"refund policy"`` differ only in
+    closed-class words. If those moved the score, every unanswerable eval
+    question -- all of which open with "What is ..." -- would score like a
+    policy question, which is precisely how the two bands came to overlap.
+    """
+    embedder = LocalDeterministicEmbedder(dim=1536)
+    with_stopwords, without = await embedder.embed(["what is the refund policy", "refund policy"])
+
+    assert with_stopwords == without, (
+        "stopwords must not affect the embedding; the corpus and the query must "
+        "be tokenised identically"
+    )
+
+
+async def test_local_embed_folds_inflections_onto_one_term() -> None:
+    """The ticket's word and the document's word must be the same term.
+
+    The golden-path ticket says "charged"; ``refund-policy.md`` writes "duplicate
+    charges". Without that fold the one document governing the interaction is
+    not retrievable for the question that needs it, which is what kept
+    ``refund-policy.md`` out of the golden path's citations before the fix.
+
+    Scoped to that pair deliberately. The stemmer is rule-based, not a Porter
+    stemmer, so ``charging`` folds to ``charg`` while ``charged`` folds to
+    ``charge`` -- they meet but do not merge. Asserting the full paradigm would
+    be asserting a better stemmer than this one has; the honest claim is the one
+    the corpus actually depends on.
+    """
+    embedder = LocalDeterministicEmbedder(dim=1536)
+    charged, charges, charge = await embedder.embed(["charged", "charges", "charge"])
+
+    assert charged == charges, (
+        "'charged' (the ticket's word) and 'charges' (the document's word) must "
+        "fold to one term, or the golden path cannot retrieve refund-policy.md"
+    )
+    assert charged == charge
+
+
+async def test_local_embed_keeps_distinct_words_distinct() -> None:
+    """Folding must not collapse unrelated words onto one another.
+
+    The guard on the previous test: a stemmer that maps everything to the same
+    term would pass it while retrieving nothing.
+    """
+    embedder = LocalDeterministicEmbedder(dim=1536)
+    refund, suspension = await embedder.embed(["refund", "suspension"])
+    assert refund != suspension
+
+
 async def test_local_embed_is_unit_norm() -> None:
     """Cosine similarity and dot product must coincide, so |v| == 1."""
     embedder = LocalDeterministicEmbedder(dim=DIM)

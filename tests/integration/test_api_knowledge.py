@@ -111,17 +111,26 @@ def test_listing_is_populated_after_a_reindex(client: TestClient) -> None:
     assert "refund-policy.md" in sources
     assert "duplicate-charge-sop.md" in sources
 
-    # A known SQLite-path limitation, asserted rather than hidden: the in-memory
-    # vector store keeps chunks in process memory and never writes
-    # ``knowledge_chunks`` rows (``memory_store.InMemoryVectorStore.upsert`` vs
-    # ``pgvector_store.PgVectorStore.upsert``, which does write them). So on the
-    # SQLite configuration the chunk counts are all 0 even though the documents
-    # are indexed. On Postgres the counts are real. This is *not* something the
-    # knowledge route can fix: it reads the table, and the table is empty because
-    # no code writes it on this path.
-    assert all(item["chunk_count"] == 0 for item in body["items"]), (
-        "the SQLite path now writes knowledge_chunks rows; update this test and "
-        "re-check `docs/data-model.md` §2's chunk_count expectation"
+    # Chunk counts are real on the SQLite path too. This assertion used to be
+    # ``all(item["chunk_count"] == 0)``, and it was pinning a defect in place:
+    # ``InMemoryVectorStore.upsert`` kept chunks in process memory and wrote no
+    # ``knowledge_chunks`` rows, so every count was 0 -- which is also why
+    # ``SqlCitationStore.create_many`` silently dropped every citation on SQLite
+    # (``docs/progress.md`` M5e, Finding F2). The store now writes the chunk
+    # rows with ``embedding`` NULL, so the counts are populated.
+    #
+    # What is still true and is asserted below: the *vectors* are still in
+    # process memory on SQLite, because the dialect has no vector column
+    # (ADR-0004). Only the metadata moved to the database.
+    counts = {item["source"]: item["chunk_count"] for item in body["items"]}
+    assert all(count > 0 for count in counts.values()), (
+        f"every indexed document must report its chunks; got {counts}. The SQLite "
+        f"path writes knowledge_chunks rows (embedding column NULL, ADR-0004)."
+    )
+    assert sum(counts.values()) > _EXPECTED_DOCUMENTS, (
+        "a corpus of documents chunked into sections must yield more chunks than "
+        f"documents; got {sum(counts.values())} chunks for {_EXPECTED_DOCUMENTS} "
+        "documents"
     )
 
 

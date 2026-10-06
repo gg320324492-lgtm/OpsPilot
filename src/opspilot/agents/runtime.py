@@ -37,7 +37,7 @@ from pydantic import ValidationError
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
 from opspilot.agents.state import RunContext, ToolCallRecord
 from opspilot.domain.approvals import ApprovalRequest
-from opspilot.domain.errors import MaxStepsExceeded, RunParked
+from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
 from opspilot.domain.policies import (
     derive_idempotency_key,
     evaluate_policy,
@@ -69,17 +69,35 @@ from opspilot.tracing.recorder import TraceRecorder
 # context may carry its own.
 _DEFAULT_MAX_STEPS: Final[int] = 24
 
+
+def _settings_min_score() -> float:
+    """``Settings.retrieval_min_score``, so the threshold has one definition."""
+    from opspilot.settings import get_settings
+
+    return get_settings().retrieval_min_score
+
+
 # The abstention threshold defaults to ``RETRIEVAL_MIN_SCORE``'s value. The
-# runtime takes it as a parameter rather than importing settings (the ``agents``
-# layer holds no configuration, exactly as it takes ``max_steps``); a caller
-# wires it from settings. Below this top score the evidence is too weak to plan
-# from and the run escalates via ``PLANNING -> RESPONDING`` rather than answering
-# from a weak match (``docs/architecture.md`` §9, ``docs/agent-state-machine.md``
-# §3).
-_DEFAULT_RETRIEVAL_MIN_SCORE: Final[float] = 0.35
+# runtime takes it as a parameter rather than holding configuration (the
+# ``agents`` layer holds none, exactly as it takes ``max_steps``); a caller wires
+# it from settings. Below this top score the evidence is too weak to plan from
+# and the run escalates via ``PLANNING -> RESPONDING`` rather than answering from
+# a weak match (``docs/architecture.md`` §9, ``docs/agent-state-machine.md`` §3).
+#
+# It used to be a literal ``0.35`` here, duplicating ``settings.py``, and that was
+# a defect: the number lived in three places -- here, ``worker/loop.py`` and
+# ``settings.py`` -- so lowering it in one left the others stale, and a caller
+# relying on the default abstained on a threshold the deployment had already
+# moved. The value is now read from settings, the same reason
+# ``domain/policies.py`` reads ``refund_ceiling`` there. One knob, one place.
+_DEFAULT_RETRIEVAL_MIN_SCORE: Final[float] = _settings_min_score()
 
 # Audit event types written by this module. Named constants so a test asserts on
 # a symbol rather than a string literal a typo could quietly change.
+# The gateway's error code for a server it could not reach. Named so the gate
+# compares against a symbol rather than a string literal.
+MCP_UNAVAILABLE: Final[str] = "mcp_unavailable"
+
 AUDIT_TOOL_EXECUTED: Final[str] = "tool_executed"
 AUDIT_TOOL_REJECTED: Final[str] = "tool_rejected"
 AUDIT_APPROVAL_REQUESTED: Final[str] = "approval_requested"
@@ -526,6 +544,19 @@ async def _gate_and_execute(
             idempotency_key=idempotency_key,
         )
 
+        # An unreachable tool server is different from a tool that refused.
+        # ``invalid_state`` and ``not_found`` are answers -- the run can reason
+        # about them and finish, and §3's "FAILED means OpsPilot did not finish
+        # the job" does not apply. ``mcp_unavailable`` is the absence of an
+        # answer: continuing would let the pump plan its next step on results it
+        # never received, and it would park for approval on a refund proposal
+        # built from nothing. §3 names this exact case -- "MCP server
+        # unreachable -> FAILED ... The system could not complete the work it was
+        # asked to do" -- so the run fails here rather than downstream.
+        if result.error == MCP_UNAVAILABLE:
+            await _fail_run(ctx, run_store, recorder=recorder, reason=MCP_UNAVAILABLE)
+            raise MCPUnavailable(spec.name)
+
     # ------------------------------------------------------------------
     # AUDIT -- always, for every permission level including READ
     # ------------------------------------------------------------------
@@ -657,7 +688,7 @@ async def run_loop(
     resume_tool_call_id: UUID | None = None,
     retrieval: RetrievalCallable | None = None,
     citation_store: CitationStore | None = None,
-    retrieval_min_score: float = _DEFAULT_RETRIEVAL_MIN_SCORE,
+    retrieval_min_score: float | None = None,
     responded_without_tool: bool = False,
 ) -> RunContext:
     """Drive a run until it is terminal or parked.
@@ -775,7 +806,14 @@ async def run_loop(
         recorder=trace,
         retrieval=retrieval,
         citation_store=citation_store,
-        retrieval_min_score=retrieval_min_score,
+        # Resolved here, at the boundary, so the pump and the citation filter
+        # below always compare against a number. A ``None`` reaching either would
+        # make ``score >= min_score`` a TypeError at the moment a citation is
+        # written -- i.e. only when retrieval found something, which is the worst
+        # time to discover it.
+        retrieval_min_score=(
+            retrieval_min_score if retrieval_min_score is not None else _settings_min_score()
+        ),
         max_steps=max_steps,
     )
 
@@ -1038,7 +1076,7 @@ async def _retrieve(
     recorder: TraceRecorder,
     *,
     citation_store: CitationStore | None = None,
-    min_score: float = _DEFAULT_RETRIEVAL_MIN_SCORE,
+    min_score: float | None = None,
 ) -> list[SearchHit]:
     """Run the retrieval callable, persist citations, and record the step.
 
@@ -1060,7 +1098,10 @@ async def _retrieve(
     if retrieval is not None:
         hits = await retrieval(ctx.ticket_subject + "\n" + ctx.ticket_body)
 
-    strong = [hit for hit in hits if hit.score >= min_score]
+    # Resolved for the same reason as the pump's: a ``None`` here would make
+    # the comparison a TypeError exactly when there are hits to cite.
+    threshold = min_score if min_score is not None else _settings_min_score()
+    strong = [hit for hit in hits if hit.score >= threshold]
     if citation_store is not None and strong:
         await citation_store.create_many(ctx.run.id, _citation_records(strong))
 

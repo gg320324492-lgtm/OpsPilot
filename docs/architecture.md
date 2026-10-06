@@ -202,11 +202,29 @@ Consequences of this choice, stated honestly:
 - **`WAITING_APPROVAL` is not a busy-wait.** The worker parks the run and moves
   on. Approval is an *edge-triggered* event: `POST /approvals/{id}/approve`
   flips the run back to a claimable state, and the worker picks it up again.
-- **Restart behaviour is deliberately shallow.** On boot the worker marks any
-  run left in a mid-flight state (`CLASSIFYING`, `RETRIEVING`, `PLANNING`,
-  `EXECUTING`, `RESPONDING`) as `FAILED` with `failure_reason='interrupted'`.
-  Runs in `WAITING_APPROVAL` are left alone — they are legitimately waiting.
-  Automatic mid-step resume is Phase 2 work and is not pretended here.
+- **Restart behaviour is deliberately shallow, with one exception.** On boot the
+  worker marks a run left mid-step (`CLASSIFYING`, `RETRIEVING`, `PLANNING`,
+  `RESPONDING`) as `FAILED` with `failure_reason='interrupted'`. Runs in
+  `WAITING_APPROVAL` are left alone — they are legitimately waiting on a human
+  decision that has not been made yet.
+
+  `EXECUTING` is **also** left alone, and that is not an oversight. A run is
+  `EXECUTING` either because the pump is driving it right now or because a human
+  approved and the worker died before finishing, and a single status column
+  cannot tell those apart. Sweeping the second kind converts a decision someone
+  made into `FAILED('interrupted')`: the approved refund is never issued and
+  nothing records that anyone said yes. `agent-state-machine.md` §3 says `FAILED`
+  means OpsPilot did not finish the job, which is false of a run one resume away
+  from finishing, and `milestones.md` §M6 requires that approving later resumes
+  the run under a worker that restarted in between. An `EXECUTING` row is
+  claimable, so `claim_next` reclaims it like any other.
+
+  What is *not* claimed here is mid-step resume: a run interrupted between two
+  gate decisions restarts from the beginning of the pump. That remains Phase 2
+  work. What is claimed is narrower — a run whose approval has already been
+  granted completes that approval rather than losing it, and a run that was
+  genuinely mid-write is made safe by the refund's idempotency key rather than
+  by the sweep.
 
 ## 6. Run state machine
 
@@ -304,11 +322,18 @@ Two properties that matter more than retrieval quality at this stage:
   the run escalates instead of guessing. `retrieval.jsonl` contains cases whose
   correct answer is "no document answers this".
 
-Embeddings: a deterministic local embedding function is the default so the test
-suite and a fresh clone work with no API key. A real embedding provider is
-selected by config. The vector store port makes both interchangeable, and — for
-the SQLite test configuration — an in-memory cosine implementation replaces
-pgvector without changing `retrieval/search.py`'s interface.
+Embeddings: a deterministic **local lexical** embedding function is the default
+so the test suite and a fresh clone work with no API key. It is a bag of
+stopword-free, lightly-stemmed words weighted sublinearly by frequency and
+hashed into a fixed-width vector — dependency-free, deterministic across
+processes, and a genuine retriever on this corpus rather than a placeholder (it
+reaches Recall@5 = 14/15 on `retrieval.jsonl`). It is not semantic and has no
+synonymy; `docs/limitations.md` §3 says so in the README's terms. A real
+embedding provider is selected by config, and the threshold moves with it
+because the two are not on the same scale. The vector store port makes both
+interchangeable, and — for the SQLite test configuration — an in-memory cosine
+implementation replaces pgvector without changing `retrieval/search.py`'s
+interface.
 
 ## 10. Observability
 
@@ -385,7 +410,7 @@ Stated here so it is a design decision rather than a surprise at review time.
 |---|---|---|
 | Single tenant, no `organization_id` | The golden workflow has one company. Adding tenancy before there is a second tenant produces guesses, not design. | Phase 2 |
 | Simple local auth (one operator token) | SSO is a Phase 3 topic; pretending otherwise adds a fake login screen. | Phase 3 |
-| DB-polling worker; mid-flight runs marked `interrupted` on restart | Correct and cheap. Auto-resume needs a step journal and idempotency design at a depth that would delay the golden path. | Phase 2 |
+| DB-polling worker; mid-step runs marked `interrupted` on restart (`EXECUTING` excepted, §5) | Correct and cheap. Auto-resume needs a step journal and idempotency design at a depth that would delay the golden path. | Phase 2 |
 | Top-k vector search, no reranker, no hybrid BM25 | Measurable on the eval set only after there is an eval set. | Phase 2 |
 | Basic prompt-injection defence (structural, not a red-team) | The structural defence is the load-bearing part; prompt hardening is optimisation. | Phase 2/3 |
 | Prompts stored unredacted | Needed to debug Phase 1 at all. | Phase 3 |

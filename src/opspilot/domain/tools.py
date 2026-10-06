@@ -100,14 +100,6 @@ TOOL_REGISTRY: Final[dict[str, ToolSpec]] = {
 }
 
 
-class _PaginationArgs(BaseModel):
-    """Arguments for the search/list tools that take a bounded page size."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    limit: int = Field(default=20, ge=1, le=100)
-
-
 class KnowledgeSearchArgs(BaseModel):
     """Arguments for ``knowledge.search``."""
 
@@ -164,12 +156,32 @@ class InvoiceLookupArgs(BaseModel):
 
 
 class TransactionListArgs(BaseModel):
-    """Arguments for ``billing.list_transactions``."""
+    """Arguments for ``billing.list_transactions``.
+
+    ``invoice_id`` is the only argument, and it is the only one the tool takes:
+    ``mcp_servers/billing/server.py`` declares
+    ``list_transactions(invoice_id: str)`` and ``docs/mcp-contracts.md`` §S2
+    specifies ``{ "invoice_id": "INV-2026-384" }``. This model previously declared
+    ``account_id`` plus a ``limit`` page size, and **no argument set satisfied
+    both sides** -- gate 1 accepted ``account_id`` and the server rejected it as
+    ``validation_error``; the server accepted ``invoice_id`` and gate 1 rejected
+    it under ``extra="forbid"``. The duplicate-detection step of the golden path
+    therefore could not execute at all. It survived four milestones because
+    ``tests/unit/test_permissions.py`` pinned the ``account_id`` form, i.e. a
+    test agreed with the bug.
+
+    The contract is the authority. ``limit`` is dropped because the server has no
+    such parameter: sending one is accepted (the MCP layer ignores unknown
+    fields) but silently ignored, so a declared ``limit`` would promise a bound
+    that does not exist. The drift guard
+    ``tests/unit/test_permissions.py::test_every_gate_1_schema_is_accepted_by_the_real_tool``
+    pushes each registered model through the real gateway so the two sides cannot
+    diverge again without a red test.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    account_id: str = Field(min_length=1)
-    limit: int = Field(default=20, ge=1, le=100)
+    invoice_id: str = Field(min_length=1)
 
 
 class IssueSearchArgs(BaseModel):

@@ -30,14 +30,17 @@ the exact code. Nothing here guesses: a call with no ``expect_error`` is asserte
 to succeed, so the default is the strict one and a fixture author has to opt in
 to leniency.
 
-**The MCP server is the authority, and one known divergence is pinned.** Gate 1
-(``domain.tools``) and the servers do not fully agree: ``TransactionListArgs``
-declares ``billing.list_transactions(account_id=..., limit=...)`` while the
-billing server implements ``list_transactions(invoice_id=...)`` and
+**The MCP server is the authority, and the divergence that used to exist is
+gone.** Gate 1 (``domain.tools``) and the servers disagreed until M6c:
+``TransactionListArgs`` declared ``billing.list_transactions(account_id=...)``
+while the billing server implements ``list_transactions(invoice_id=...)`` and
 ``docs/mcp-contracts.md`` §S2 documents the ``invoice_id`` form. No argument set
-satisfies both, so the fixtures are written against the *server* -- the thing
-that actually runs. Rather than quietly ignore gate 1, the divergence is listed
-in :data:`KNOWN_GATE1_DIVERGENCES` and
+satisfied both, so the fixtures were written against the *server* and the
+disagreement was pinned in :data:`KNOWN_GATE1_DIVERGENCES` -- which is now empty,
+because ``TransactionListArgs`` matches the contract.
+:func:`test_the_gate1_divergence_list_is_still_accurate` guards that emptiness in
+both directions: an entry that stops being a divergence fails, so a stale
+justification cannot linger, and
 :func:`test_the_gate1_divergence_list_is_still_accurate` fails if the list stops
 describing reality, so the defect is pinned in the open instead of absorbed.
 """
@@ -99,9 +102,15 @@ _RECORD_EVIDENCE: dict[str, tuple[str, ...]] = {
 # keeps the disagreement visible instead of leaving the layer that is wrong
 # silently wrong. See the module docstring; this is the one finding this work
 # could not fix inside its own scope.
-KNOWN_GATE1_DIVERGENCES: dict[str, tuple[str, ...]] = {
-    "billing.list_transactions": ("invoice_id",),
-}
+# Gate 1 (``domain.tools.TOOL_ARGUMENT_SCHEMAS``) and the servers must accept
+# the same arguments. This map is the escape hatch for a divergence that is known
+# and pinned rather than silently absorbed, and it is **empty**: the one entry it
+# held -- ``billing.list_transactions`` declaring ``account_id`` while the server
+# takes ``invoice_id`` -- was fixed in M6c, and
+# ``test_the_gate1_divergence_list_is_still_accurate`` failed until the entry was
+# removed, which is that mechanism working. An empty list is the honest state;
+# adding an entry back requires saying what cannot be fixed and why.
+KNOWN_GATE1_DIVERGENCES: dict[str, tuple[str, ...]] = {}
 
 
 @pytest.fixture

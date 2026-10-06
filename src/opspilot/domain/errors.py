@@ -70,6 +70,23 @@ class RunParked(DomainError):
         super().__init__(f"run {run_id} parked awaiting approval for tool call {tool_call_id}")
 
 
+class MCPUnavailable(DomainError):
+    """A tool server could not be reached at all.
+
+    Distinct from a tool that ran and refused. ``invalid_state`` and
+    ``not_found`` are answers, and a run can reason about them; this is the
+    absence of one. Continuing past it would let the agent plan its next step
+    from results it never received -- including proposing a refund it has no
+    evidence for -- so the runtime marks the run ``FAILED('mcp_unavailable')``
+    and raises this to unwind, exactly as ``docs/agent-state-machine.md`` §3
+    describes: "The system could not complete the work it was asked to do."
+    """
+
+    def __init__(self, tool_name: str) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"tool server for {tool_name} is unreachable")
+
+
 class ApprovalArgumentsChanged(DomainError):
     """The arguments of an approval-bound tool call changed after approval.
 

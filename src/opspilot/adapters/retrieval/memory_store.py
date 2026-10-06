@@ -13,6 +13,35 @@ database service. Because this implements the same port as ``PgVectorStore``,
 ``retrieval/search.py`` and everything above it is unchanged between the two.
 It is a test/CI implementation -- not a scaling story.
 
+What is stored, and where
+-------------------------
+
+Vectors stay **in process memory** -- that is the point, since the SQLite
+database has no vector column to put them in. Everything *else* a chunk owns --
+its ordinal, anchor, heading path, content and token count -- is also written to
+the real ``knowledge_chunks`` table, with the ``embedding`` column left ``NULL``.
+
+That split is what makes the SQLite configuration behave like a deployment:
+
+- ``citations.chunk_id`` is a foreign key onto ``knowledge_chunks.id``, and
+  ``SqlCitationStore.create_many`` skips a hit whose chunk row is missing. With
+  no rows written, an ingest produced 17 ``knowledge_documents`` rows and **0**
+  ``knowledge_chunks`` rows, so a citation had nothing to point at and the
+  golden path's Sources panel was empty for a reason that had nothing to do
+  with retrieval quality (``docs/progress.md`` M5e, Finding F2).
+- ``GET /api/knowledge`` derives ``chunk_count`` by joining that table, so it
+  reported ``0`` for every indexed document.
+
+Persisting the rows is therefore a **behaviour** fix, not a bookkeeping one.
+The retrieval *results* are unchanged -- search still reads the in-process list,
+still computes the same cosine, still returns the same ids and scores -- so the
+differential test against ``PgVectorStore`` is unaffected: it compares what the
+two stores *return*, and what is written to the table is not part of that.
+
+The session is optional (``session_factory=None`` keeps the store a pure
+in-memory double, which is how the differential test and the store unit tests
+construct it). Wiring passes one, which is what a deployment does.
+
 Two decisions this store makes, and the same ones ``PgVectorStore`` makes, so
 the two agree exactly (the differential test in ``docs/milestones.md`` §M5):
 
@@ -36,9 +65,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid5
 
 from opspilot.ports.vector_store import ChunkRecord, SearchHit
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    from sqlalchemy.orm import Session, sessionmaker
+
+    from opspilot.adapters.persistence.models import KnowledgeChunk
 
 # A fixed namespace UUID for chunk ids. Never change it: stored references
 # (``citations.chunk_id``) point at ids derived from it.
@@ -92,15 +127,28 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 class InMemoryVectorStore:
-    """An in-process cosine-similarity ``VectorStore`` for tests.
+    """An in-process cosine-similarity ``VectorStore`` for the SQLite path.
 
     Constructed with a ``slug_lookup`` that resolves a ``document_id`` to the
     document's slug -- see the module docstring for why the slug is resolved by
     the store rather than carried on ``ChunkRecord``.
+
+    ``session_factory`` is optional. Given one (which is what
+    :func:`opspilot.adapters.wiring.build_retrieval_stack` does), ``upsert``
+    also writes the chunk's metadata to ``knowledge_chunks`` so the citation
+    and knowledge-listing queries have rows to read. Without one the store keeps
+    chunks purely in memory, which is what the differential test and the unit
+    tests want: a double with no database attached.
     """
 
-    def __init__(self, *, slug_lookup: Callable[[UUID], str]) -> None:
+    def __init__(
+        self,
+        *,
+        slug_lookup: Callable[[UUID], str],
+        session_factory: Session | sessionmaker[Session] | None = None,
+    ) -> None:
         self._slug_lookup = slug_lookup
+        self._session_factory = session_factory
         self._chunks: list[ChunkRecord] = []
         self._embeddings: list[list[float]] = []
 
@@ -110,6 +158,13 @@ class InMemoryVectorStore:
         A chunk whose ``(document_id, ordinal)`` already exists replaces the
         stored row's embedding and content in place, so re-ingesting a document
         does not grow the store.
+
+        When a ``session_factory`` was supplied the chunk's metadata is also
+        written to ``knowledge_chunks`` under the same ``derive_chunk_id`` the
+        hit reports, keyed the same way ``PgVectorStore`` keys it -- so the row
+        a citation points at is the row retrieval came from. The ``embedding``
+        column is left ``NULL``: SQLite has no vector column (ADR-0004) and the
+        vectors live in this process.
         """
         if len(chunks) != len(embeddings):
             raise ChunkEmbeddingMismatch(len(chunks), len(embeddings))
@@ -129,6 +184,71 @@ class InMemoryVectorStore:
             else:
                 self._chunks[index] = chunk
                 self._embeddings[index] = list(embedding)
+
+        self._persist_chunks(chunks)
+
+    def _persist_chunks(self, chunks: list[ChunkRecord]) -> None:
+        """Write chunk metadata rows, or do nothing without a session factory.
+
+        Follows the house session-binding rule (``repositories._SessionBound``):
+        a bound ``Session`` is used as-is and never committed, while a
+        ``sessionmaker`` gets its own committed transaction per call. That is
+        the same rule ``PgVectorStore`` follows, which is what lets the two
+        stores be swapped without the caller changing how it manages
+        transactions.
+        """
+        if self._session_factory is None or not chunks:
+            return
+
+        from sqlalchemy.orm import Session
+
+        from opspilot.adapters.persistence import db
+        from opspilot.adapters.persistence.models import KnowledgeChunk
+
+        bound = self._session_factory
+        if isinstance(bound, Session):
+            self._write_rows(KnowledgeChunk, bound, chunks)
+            return
+        with db.session_scope(bound) as session:
+            self._write_rows(KnowledgeChunk, session, chunks)
+
+    def _write_rows(
+        self,
+        chunk_model: type[KnowledgeChunk],
+        session: Session,
+        chunks: list[ChunkRecord],
+    ) -> None:
+        """Insert or update one ``knowledge_chunks`` row per chunk.
+
+        Replacement is keyed on the primary key, exactly as
+        ``PgVectorStore.upsert`` does, so re-ingesting a document rewrites its
+        rows in place and the ids -- which ``citations`` points at -- stay
+        stable across a reindex.
+        """
+        for chunk in chunks:
+            chunk_id = derive_chunk_id(chunk.document_id, chunk.ordinal)
+            existing = session.get(chunk_model, chunk_id)
+            if existing is None:
+                session.add(
+                    chunk_model(
+                        id=chunk_id,
+                        document_id=chunk.document_id,
+                        ordinal=chunk.ordinal,
+                        anchor=chunk.anchor,
+                        heading_path=chunk.heading_path,
+                        content=chunk.content,
+                        token_count=chunk.token_count,
+                        embedding=None,
+                    )
+                )
+            else:
+                existing.document_id = chunk.document_id
+                existing.ordinal = chunk.ordinal
+                existing.anchor = chunk.anchor
+                existing.heading_path = chunk.heading_path
+                existing.content = chunk.content
+                existing.token_count = chunk.token_count
+        session.flush()
 
     async def search(self, query_embedding: list[float], *, top_k: int) -> list[SearchHit]:
         """Return the ``top_k`` nearest chunks by cosine similarity.

@@ -142,21 +142,52 @@ async def test_drain_once_does_nothing_when_only_a_parked_run_exists(
 async def test_boot_marks_interrupted_runs_and_spares_waiting_approval(
     factory: sessionmaker[Session],
 ) -> None:
-    interrupted = await _make_run(factory, status=RunStatus.EXECUTING)
+    """Boot fails runs mid-step and preserves every human decision.
+
+    Three classes, and the third is the one that used to be wrong:
+
+    * ``RETRIEVING`` (like ``CLASSIFYING``/``PLANNING``/``RESPONDING``) -- no
+      approval behind it, nothing but the pump claims it, so it was mid-step when
+      the process died and is marked ``FAILED('interrupted')``.
+    * ``WAITING_APPROVAL`` -- nobody has decided yet. Failing it would erase a
+      pending decision.
+    * ``EXECUTING`` -- somebody *may* have decided. A single status column cannot
+      distinguish "the pump is driving this right now" from "a human approved and
+      the worker died before finishing", and failing the second kind discards a
+      decision someone made: the approved refund is never issued and nothing
+      records that anyone said yes. Preserved, per ``docs/architecture.md`` §5.
+    """
+    mid_step = await _make_run(factory, status=RunStatus.RETRIEVING)
     waiting = await _make_run(factory, status=RunStatus.WAITING_APPROVAL)
+    executing = await _make_run(factory, status=RunStatus.EXECUTING)
 
     marked = mark_interrupted_on_boot(factory)
-    assert marked == 1
+    assert marked == 1, "only the genuinely mid-step run should be marked"
 
-    reloaded_interrupted = await SqlRunStore(factory).get(interrupted.id)
-    assert reloaded_interrupted is not None
-    assert reloaded_interrupted.status is RunStatus.FAILED
-    assert reloaded_interrupted.failure_reason == "interrupted"
+    reloaded_mid_step = await SqlRunStore(factory).get(mid_step.id)
+    assert reloaded_mid_step is not None
+    assert reloaded_mid_step.status is RunStatus.FAILED
+    assert reloaded_mid_step.failure_reason == "interrupted"
 
     reloaded_waiting = await SqlRunStore(factory).get(waiting.id)
     assert reloaded_waiting is not None
     assert reloaded_waiting.status is RunStatus.WAITING_APPROVAL
     assert reloaded_waiting.failure_reason is None
+
+    reloaded_executing = await SqlRunStore(factory).get(executing.id)
+    assert reloaded_executing is not None
+    assert reloaded_executing.status is RunStatus.EXECUTING, (
+        "boot failed a run whose refund a human had already approved; the "
+        "decision must survive the restart (docs/milestones.md §M6)"
+    )
+    assert reloaded_executing.failure_reason is None
+
+    # A preserved EXECUTING run is claimable, so a restarted worker picks it up
+    # rather than stranding it. This is what makes preservation useful rather
+    # than merely safe.
+    claimed = await SqlRunStore(factory).claim_next(worker_id="w-after-boot")
+    assert claimed is not None
+    assert claimed.id == executing.id
 
 
 async def test_claim_next_is_the_queue_primitive(factory: sessionmaker[Session]) -> None:

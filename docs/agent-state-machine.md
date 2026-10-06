@@ -160,7 +160,7 @@ Failures that are *expected and handled* do not map to `FAILED`:
 | Knowledge insufficient to answer | `COMPLETED` (via `RESPONDING`) | Abstention is a supported outcome, not an error. |
 | MCP server unreachable after retry (Phase 2) | `FAILED` | The system could not complete the work it was asked to do. |
 | Model returned a schema-invalid proposal twice | `FAILED` | Not recoverable within Phase 1's no-retry policy. |
-| Worker crashed mid-step | `FAILED` (`interrupted`) at next boot | Honest about what Phase 1 does not do. |
+| Worker crashed mid-step | `FAILED` (`interrupted`) at next boot | Honest about what Phase 1 does not do. **Not** `EXECUTING`: that state may hold an approval a human already granted, and failing it would discard their decision (`architecture.md` §5). |
 
 The distinction in one line: **`FAILED` means OpsPilot did not finish the job;
 `COMPLETED` means it did, even when the answer was "no".**

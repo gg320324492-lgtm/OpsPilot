@@ -24,6 +24,7 @@ import pytest
 
 from opspilot.adapters.retrieval.search import RetrievalOutcome, retrieve
 from opspilot.ports.vector_store import ChunkRecord, SearchHit
+from opspilot.settings import Settings
 
 _DOC = UUID("00000000-0000-0000-0000-0000000000aa")
 
@@ -164,17 +165,31 @@ async def test_retrieve_threshold_is_inclusive_at_min_score() -> None:
     assert outcome.abstained is False
 
 
-async def test_retrieve_default_min_score_is_0_35() -> None:
-    """The default threshold is ``0.35`` (the brief's signature).
+async def test_retrieve_default_min_score_matches_the_configured_setting() -> None:
+    """``retrieve``'s default is the value ``Settings`` actually ships.
 
-    A hit just below the default abstains; a hit just above does not -- both
-    with no ``min_score`` argument passed.
+    The adapter cannot import settings -- ``docs/architecture.md`` §3 keeps
+    ``adapters`` configuration-free -- so this default is a repeated constant.
+    That is a drift risk, and it has already bitten: it read ``0.35`` while the
+    default embedder scored nothing above ``0.09``, so every query abstained
+    (``docs/progress.md`` M5e, Finding A). This test is the guard against that
+    recurring, and it reads the real setting rather than restating a number.
+
+    The boundary behaviour is still asserted, so this is not merely an equality
+    check: a hit just below the default abstains, one just above does not, both
+    with no ``min_score`` passed.
     """
-    below = await retrieve("q", embedder=RecordingEmbedder(), store=FixedStore([_hit(0.34, 1)]))
-    above = await retrieve("q", embedder=RecordingEmbedder(), store=FixedStore([_hit(0.36, 1)]))
+    default = Settings(DATABASE_URL="sqlite+pysqlite:///:memory:").retrieval_min_score
 
-    assert below.abstained is True
-    assert above.abstained is False
+    just_below = await retrieve(
+        "q", embedder=RecordingEmbedder(), store=FixedStore([_hit(default - 0.01, 1)])
+    )
+    just_above = await retrieve(
+        "q", embedder=RecordingEmbedder(), store=FixedStore([_hit(default + 0.01, 1)])
+    )
+
+    assert just_below.abstained is True
+    assert just_above.abstained is False
 
 
 async def test_retrieve_abstention_is_not_an_exception() -> None:

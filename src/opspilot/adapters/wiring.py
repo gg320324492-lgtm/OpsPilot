@@ -16,14 +16,31 @@ Why SQLite gets the in-memory store
 
 SQLite has no ``vector(1536)`` column (ADR-0004), so the on-disk database cannot
 hold embeddings. When ``DATABASE_URL`` names SQLite the vector store is
-``InMemoryVectorStore`` -- an in-process cosine store -- and the ``knowledge``
-document/chunk rows still live in the SQLite database behind
-``SqlKnowledgeDocumentStore``. That split is why the citation rows and the
-``GET /api/knowledge`` listing work under SQLite even though the vectors do not:
-the *table* is real in both, only the embedding column differs.
+``InMemoryVectorStore`` -- an in-process cosine store, handed the session factory
+below so it also writes the chunk's *metadata* rows.
+
+What is in the database on either dialect, then:
+
+- ``knowledge_documents`` -- written by ``SqlKnowledgeDocumentStore`` on both.
+- ``knowledge_chunks`` -- written by both vector stores. On Postgres with the
+  embedding attached; on SQLite with the embedding column left ``NULL``.
+- the vectors themselves -- in-process on SQLite, in the column on Postgres.
+
+That is what makes the citation rows and the ``GET /api/knowledge`` listing work
+under SQLite: ``citations.chunk_id`` is a foreign key onto ``knowledge_chunks``,
+and ``SqlCitationStore.create_many`` skips any hit whose chunk row is missing.
+
+**This was not true until the M5e fixes.** ``InMemoryVectorStore.upsert`` used to
+keep chunks in process memory only, so an ingest produced 17
+``knowledge_documents`` rows and **0** ``knowledge_chunks`` rows: every citation
+was silently skipped as unresolvable, and every document reported
+``chunk_count == 0``. This module's docstring claimed otherwise. The store now
+takes the session factory, which is what makes the claim true.
 
 The differential test (``tests/integration/test_citations.py``) asserts the two
-vector stores agree, which is what makes swapping them here safe.
+vector stores *return* the same ids and scores, which is what makes swapping
+them here safe. It compares retrieval results, not table contents, so persisting
+the metadata rows does not affect it.
 """
 
 from __future__ import annotations
@@ -212,11 +229,20 @@ def _build_vector_store(
     cosine store; Postgres gets ``PgVectorStore``. Both take the same
     ``slug_lookup`` keyword, which is what lets this be a one-line swap rather
     than a branch above the port.
+
+    The in-memory store is given the ``session_factory`` so its ``upsert``
+    writes ``knowledge_chunks`` rows (with ``embedding`` NULL). Without that the
+    table stays empty on SQLite, ``citations.chunk_id`` has nothing to reference
+    and ``SqlCitationStore.create_many`` drops every hit -- the run completes
+    with zero citations while retrieval appears to have worked.
     """
     _ = documents
     slug_lookup = _slug_lookup_for(session_factory)
     if settings.is_sqlite:
-        return InMemoryVectorStore(slug_lookup=slug_lookup)
+        return InMemoryVectorStore(
+            slug_lookup=slug_lookup,
+            session_factory=session_factory,  # type: ignore[arg-type]
+        )
 
     from opspilot.adapters.retrieval.pgvector_store import PgVectorStore
 

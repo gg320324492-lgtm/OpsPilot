@@ -41,7 +41,7 @@ from uuid import UUID
 from opspilot.agents.runtime import RetrievalCallable, executed_lookup_for, run_loop
 from opspilot.agents.state import RunContext
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import RunParked
+from opspilot.domain.errors import MCPUnavailable, RunParked
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
@@ -58,9 +58,22 @@ from opspilot.tracing.recorder import TraceRecorder
 
 type RecorderFactory = Callable[[UUID], TraceRecorder]
 
-# The abstention threshold used when a caller does not supply one. It matches
-# ``RETRIEVAL_MIN_SCORE``'s default; the entry point wires the setting's value.
-_DEFAULT_MIN_SCORE: float = 0.35
+
+def _settings_retrieval_min_score() -> float:
+    """``Settings.retrieval_min_score``, so the threshold has one definition."""
+    from opspilot.settings import get_settings
+
+    return get_settings().retrieval_min_score
+
+
+# The abstention threshold used when a caller does not supply one. It used to be
+# a literal ``0.35`` here, duplicating ``settings.py``; that was a defect, because
+# the number then lived in three places -- here, ``agents/runtime.py`` and
+# ``settings.py`` -- so lowering it in one left the others stale and a caller
+# relying on the default abstained on a threshold the deployment had already
+# moved. It is now read from settings, the same reason ``domain/policies.py``
+# reads ``refund_ceiling`` there. One knob, one place.
+_DEFAULT_MIN_SCORE: float = _settings_retrieval_min_score()
 
 
 async def claim_next(
@@ -214,7 +227,12 @@ async def drain_once(
 
     min_score = retrieval_min_score if retrieval_min_score is not None else _DEFAULT_MIN_SCORE
 
-    with contextlib.suppress(RunParked):
+    # ``RunParked`` is suppressed: parking is the workflow working, and the
+    # point here is to release the row. ``MCPUnavailable`` is suppressed too,
+    # but for the opposite reason -- the runtime has *already* marked the run
+    # ``FAILED('mcp_unavailable')`` before raising, so letting it escape would
+    # crash the poll loop over a failure that is already recorded.
+    with contextlib.suppress(RunParked, MCPUnavailable):
         await run_loop(
             ctx,
             provider=provider,

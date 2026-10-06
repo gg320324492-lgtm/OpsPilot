@@ -32,13 +32,33 @@ class RetrievalOutcome:
     top_score: float | None
 
 
+#: The abstention threshold used when a caller does not pass one.
+#:
+#: Read from ``Settings.retrieval_min_score`` rather than repeated here. It was
+#: repeated, with a test asserting the two agreed -- and that test is exactly
+#: what let the drift through: comparing two numbers passes when both are stale
+#: in the same way. The threshold then existed in four places, and moving it in
+#: one left a caller abstaining on a value the deployment had already lowered.
+#: ``tests/unit/test_threshold_has_one_definition.py`` is the guard that
+#: actually works: it fails when a *second* literal exists, which an equality
+#: assertion cannot do.
+def _default_min_score() -> float:
+    """``Settings.retrieval_min_score``, read per call so there is one source."""
+    from opspilot.settings import get_settings
+
+    return get_settings().retrieval_min_score
+
+
+_DEFAULT_MIN_SCORE = _default_min_score()
+
+
 async def retrieve(
     query: str,
     *,
     embedder: Embedder,
     store: VectorStore,
     top_k: int = 5,
-    min_score: float = 0.35,
+    min_score: float = _DEFAULT_MIN_SCORE,
 ) -> RetrievalOutcome:
     """Embed ``query`` and return the top-k hits, or abstain.
 
@@ -52,7 +72,10 @@ async def retrieve(
         embedder: Turns the query into a vector.
         store: The ``VectorStore`` holding the corpus.
         top_k: How many hits to ask the store for.
-        min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``).
+        min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``). Defaults
+            to :data:`_DEFAULT_MIN_SCORE`, which is the same number
+            ``Settings.retrieval_min_score`` carries; the adapter cannot import
+            settings, so the equality is asserted by a test instead.
 
     Returns:
         A ``RetrievalOutcome``. ``abstained`` is ``True`` when the store returns

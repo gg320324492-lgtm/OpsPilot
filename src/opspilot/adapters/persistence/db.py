@@ -108,13 +108,38 @@ def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
 def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
     """On worker boot, fail runs left mid-flight with ``failure_reason='interrupted'``.
 
-    Only the claimable mid-flight states are touched (``CLAIMABLE`` minus
-    ``RECEIVED``, which has no work to interrupt). ``WAITING_APPROVAL`` is left
-    alone because those runs are legitimately waiting on a human, and
-    ``COMPLETED``/``FAILED`` are terminal. Returns the number marked.
+    ``CLASSIFYING``, ``RETRIEVING``, ``PLANNING`` and ``RESPONDING`` are marked;
+    they have no approval behind them and nothing claims them but the pump, so a
+    run found in one of them was mid-step when the process died.
+    ``RECEIVED`` has no work to interrupt, and ``COMPLETED``/``FAILED`` are
+    terminal.
+
+    ``WAITING_APPROVAL`` and ``EXECUTING`` are **left alone**, and the second is
+    the interesting one. A run is ``EXECUTING`` either because the pump is
+    driving it right now or because a human approved and the worker died before
+    finishing -- and a single-column status cannot tell those apart. Sweeping it
+    turns the second case into ``FAILED('interrupted')``, which discards a
+    decision a person made and leaves an approved refund unmade: the run can
+    never resume, and nothing records that anyone said yes. ``docs/
+    milestones.md`` §M6 requires that approving later resumes the run under a
+    worker that restarted in between, and ``docs/agent-state-machine.md`` §3
+    says ``FAILED`` means OpsPilot did not finish the job -- neither is true of
+    a run that is one resume away from finishing.
+
+    An ``EXECUTING`` row is claimable, so ``claim_next`` reclaims it like any
+    other. Automatic *mid-step* resume remains Phase 2 work; what is claimed here
+    is narrower and is not pretending to more -- a run whose approval has already
+    been granted completes that approval rather than losing it. A run that was
+    genuinely mid-write is made safe by the refund's idempotency key, not by the
+    sweep.
+
+    Returns the number marked.
     """
     interrupted_statuses: Sequence[str] = tuple(
-        status.value for status in sorted(CLAIMABLE - {RunStatus.RECEIVED}, key=lambda s: s.value)
+        status.value
+        for status in sorted(
+            CLAIMABLE - {RunStatus.RECEIVED, RunStatus.EXECUTING}, key=lambda s: s.value
+        )
     )
     with session_scope(factory) as session:
         result = cast(

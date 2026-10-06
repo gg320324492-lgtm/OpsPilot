@@ -81,14 +81,37 @@ it is.
 long procedures split awkwardly. Nothing in Phase 1 detects a bad split.
 
 **The embedding model is whatever `EMBEDDING_PROVIDER` selects.** The default
-local deterministic embedder exists so a fresh clone and the CI suite work with
-no API key, and its retrieval quality is poor — it is a plumbing placeholder, not
-a good embedder. Any number quoted in the README comes from a run that used a
-real embedding provider, and the run's config is recorded with the result.
+`local` embedder is a **lexical** scorer, not a semantic one: a bag of
+stopword-free, lightly-stemmed words, weighted sublinearly by frequency and
+hashed into a fixed-width vector. It is a real retriever on this corpus —
+measured over `evals/datasets/retrieval.jsonl` it reaches **Recall@5 = 14/15**
+and **Recall@10 = 15/15**, and its scores separate answerable from unanswerable
+questions — which is what lets a fresh clone and the CI suite run the golden
+path with no API key. What it is not is semantic: **there is no synonymy**. A
+question whose answer is worded entirely differently from the question will not
+match it, and the stopword list and the two suffix rules are hand-written rather
+than derived from a corpus. Any number quoted in the README comes from a run
+that used a real embedding provider, and the run's config is recorded with the
+result.
 
-**Abstention is a single global threshold.** If the top score is below
-`RETRIEVAL_MIN_SCORE`, the run escalates. The threshold is not tuned per query
-type and is a magic number with a comment, not a calibrated value.
+**`RETRIEVAL_MIN_SCORE` is calibrated against the default embedder, and only
+against it.** The default is `0.22`, chosen by measuring
+`evals/datasets/retrieval.jsonl`: the answerable cases score **≥ 0.2500** and
+the `expect_abstention` cases **≤ 0.1844**, so any value in that gap separates
+them and `0.22` sits inside it with margin on both sides. Three things follow,
+and none of them is comfortable:
+
+1. **The margin is narrow.** 0.1844 → 0.2500 is a band 0.066 wide, on 20 cases.
+   A corpus of 20 questions is a smoke test for separation, not a calibration.
+2. **The number is meaningless under a different embedder.** A provider's cosine
+   and this lexical score are different quantities on different scales; `0.22`
+   for one is not `0.22` for the other, and switching `EMBEDDING_PROVIDER`
+   without recalibrating gives a threshold that either admits everything or
+   refuses everything. `.env.example` says which default suits which provider.
+3. **It is still a single global threshold.** Not tuned per query type, not
+   calibrated per corpus, and not a probability — it is a number with a comment
+   and a measurement behind it, which is better than the previous value (0.35,
+   which nothing could reach) and is still a long way from a learned ranker.
 
 **Knowledge is static Markdown re-indexed manually.** `POST /api/knowledge/reindex`
 is the only update path; there is no watch, no incremental indexing, no
