@@ -2749,3 +2749,56 @@ order. Every test of tool selection, every golden-path run, and M6's whole
 acceptance set exercised a code path that only exists in the fake.
 
 Recorded, not yet fixed.
+
+### M8 — the last live run was cut off by the free tier, and that is the honest result
+
+`choose_tool` is fixed (pass the Pydantic class, as `generate_structured` already
+did, so there is one spelling of the request rather than two) and proven live:
+
+```json
+{"tool_name": "lookup_order", "arguments": {"invoice_id": "INV-2291"},
+ "reason": "First we need to verify the order details and confirm the duplicate
+            charge before proceeding with a refund.", "done": false}
+```
+
+A sensible proposal, not merely a 200. The old shape was then replayed against
+the same live endpoint and still returns `unknown variant 'object'`, so the
+defect was real rather than inferred.
+
+**The full live run then hit a wall that is not a code problem:**
+
+```
+RateLimitError: Rate limit exceeded: free-models-per-day.
+  X-RateLimit-Limit: 50   X-RateLimit-Remaining: 0
+```
+
+Fifty free requests per day, spent. The run stopped at the third dataset.
+
+What that produced, and did not produce:
+
+- **No live results file.** `EvalRunUnmeasurable` fires before the results are
+  written, so nothing was recorded claiming to be a measurement. Verified:
+  `grep -l '"provider": "openai"' evals/results/*.json` returns **zero files**.
+- **The fake-provider runs that did write files say `provider=fake`,
+  `model=fake-1`** and score 1.0 on most metrics, which is exactly why §3
+  refuses to print them without `--allow-fake-scores`.
+
+**§M8's last criterion — one live run, its real numbers in the README — is
+therefore NOT met.** The criterion exists to prevent a fabricated score, and the
+only honest thing available today is to say so. What *is* known from live
+measurement, measured before the limit was hit:
+
+| Fact | Value | How |
+|---|---|---|
+| Live classification accuracy, first 6 cases | **3/6** | direct provider calls |
+| `cls-001` (golden-path ticket) | `billing_dispute`, not `duplicate_charge` | twice, two prompts |
+| Live token usage, one classification | in 35 / out 432 | provider `usage` |
+| `choose_tool` against a live model | works, returns a sensible proposal | after the fix |
+
+Those are measurements. A full twelve-metric table is not available, and nothing
+in this repository will pretend otherwise until the run can be made.
+
+**The guard earned its place within an hour of being written.** The rate-limit
+run was refused with the provider's own message and exit 1, instead of printing
+a table of zeros under a banner that read like a result — which is precisely
+what the pre-fix harness did with a missing API key.

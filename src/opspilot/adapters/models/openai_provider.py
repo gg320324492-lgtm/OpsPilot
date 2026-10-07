@@ -140,11 +140,22 @@ class OpenAIModelProvider:
     ) -> dict[str, Any]:
         """Call OpenAI and return a tool proposal as an unvalidated dict.
 
+        Requests structured output through the **same** mechanism as
+        ``generate_structured``: the Pydantic class in ``response_format``, which
+        the SDK expands into a well-formed
+        ``{"type": "json_schema", "json_schema": {...}}`` envelope. Handing the
+        SDK the *bare* JSON Schema instead -- ``_shared.json_schema_for`` -- is
+        the trap here: the SDK forwards a dict unchanged, so the request went out
+        with ``response_format.type="object"`` and every tool-selection call
+        returned 400 ``unknown variant 'object'``. There is now one spelling of
+        this request in this module, and a boundary test holds it there.
+
         The proposal is returned unvalidated on purpose: gate 1 and gate 2 decide
         whether it is acceptable, and the port's contract says the result is
         untrusted until then. ``tool_choice`` is left to the model; a proposal
         naming an unregistered tool is a legal (and testable) outcome.
         """
+        model = _tool_proposal_model()
         client = self._client()
         completion = await client.beta.chat.completions.parse(
             model=self._model_name,
@@ -152,11 +163,13 @@ class OpenAIModelProvider:
                 _shared.default_system(system),
                 _shared.with_tool_menu(prompt, available_tools),
             ),
-            response_format=_tool_proposal_schema(),
+            response_format=model,
             timeout=timeout_seconds or self._timeout_seconds,
         )
         message = completion.choices[0].message
-        proposal = _shared.parse_structured(message.content or "", _tool_proposal_model())
+        # Parse the raw content on the shared validating path, exactly as
+        # ``generate_structured`` does, rather than trusting ``message.parsed``.
+        proposal = _shared.parse_structured(message.content or "", model)
         dumped: dict[str, Any] = proposal.model_dump()
         return dumped
 
@@ -183,12 +196,13 @@ def _tool_proposal_model() -> type[ProposedAction]:
     A local import of the agent schema: ``ProposedAction`` is the value object a
     proposal is, and reusing it keeps the fake and both real providers aligned on
     the same shape.
+
+    The class is used for both *requesting* and *validating* the proposal. There
+    is deliberately no companion ``_tool_proposal_schema`` helper: handing
+    ``model_json_schema()`` to the OpenAI SDK produces a request the API rejects,
+    so the schema is the SDK's business, not this module's. See
+    ``choose_tool``.
     """
     from opspilot.agents.schemas import ProposedAction
 
     return ProposedAction
-
-
-def _tool_proposal_schema() -> dict[str, Any]:
-    """The JSON schema for a tool proposal."""
-    return _shared.json_schema_for(_tool_proposal_model())
