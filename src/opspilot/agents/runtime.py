@@ -53,7 +53,7 @@ from opspilot.domain.tools import (
     ToolSpec,
     validate_tool_call,
 )
-from opspilot.ports.model_provider import ModelProvider
+from opspilot.ports.model_provider import ModelProvider, ModelUsage
 from opspilot.ports.orchestrator import Orchestrator
 from opspilot.ports.stores import (
     ApprovalStore,
@@ -103,6 +103,12 @@ AUDIT_TOOL_EXECUTED: Final[str] = "tool_executed"
 AUDIT_TOOL_REJECTED: Final[str] = "tool_rejected"
 AUDIT_APPROVAL_REQUESTED: Final[str] = "approval_requested"
 AUDIT_RUN_FAILED: Final[str] = "run_failed"
+# Written once per real model call -- classification, each planning round and the
+# response -- carrying the provider's ``ModelUsage``. The event type is the one
+# ``docs/data-model.md`` §2 already lists and ``docs/evals.md`` §1 names as the
+# source of metrics 10-12; the runtime simply never wrote it, so three of the
+# twelve metrics could only ever print zero. See ``_record_model_call``.
+AUDIT_MODEL_CALLED: Final[str] = "model_called"
 # Written when the top retrieved score is below the abstention threshold and the
 # run escalates via ``PLANNING -> RESPONDING`` rather than planning from weak
 # evidence. A distinct event so an abstention is visible in the trace rather than
@@ -193,6 +199,65 @@ def _elapsed_ms(started: float) -> int:
     in-process MCP calls and its replayed model calls all land there.
     """
     return int((time.perf_counter() - started) * 1000)
+
+
+async def _record_model_call(
+    recorder: TraceRecorder,
+    *,
+    provider: str,
+    model: str,
+    latency_ms: int,
+    usage: ModelUsage | None = None,
+) -> None:
+    """Write the ``model_called`` audit event for one real model call.
+
+    ``docs/evals.md`` §1 takes metrics 10 (latency per model call), 11 (tokens)
+    and 12 (cost) from these events, and ``evals/runner.py`` reads exactly the
+    payload keys written here. The runtime had the numbers in hand -- every
+    ``generate_structured`` returns a ``ModelUsage`` -- and dropped three of the
+    six fields, so the eval table reported ``0 tokens`` and ``$0.0000`` over real
+    runs: a measurement-shaped zero, which is worse than an absent row.
+
+    **What is observable depends on the call site, and the event says which.**
+    ``generate_structured`` (classification, response) returns a ``ModelResponse``
+    carrying the provider's full ``ModelUsage``, so ``usage`` is passed and all
+    six fields are the provider's own numbers. ``choose_tool`` (planning) returns
+    a bare ``dict`` by port design (widening it would touch all four providers for
+    one milestone), so it can report *when* only. In that case
+    ``tokens_available`` is ``False`` and the three token/cost fields are
+    ``None`` -- JSON ``null``, not ``0``.
+
+    The ``None``-not-``0`` choice is the whole point. A ``0`` would be
+    indistinguishable from a provider that genuinely reported zero tokens (the
+    committed fake fixtures do exactly that), and metrics 11/12 would sum it into
+    a total that looks measured. ``null`` says "not observed here" and the boolean
+    says why, so a reader -- or a future metric -- can exclude planning calls from
+    a token mean instead of silently averaging a fabricated zero into it. The
+    ``null`` also degrades safely in the existing reader: ``metrics._as_float``
+    returns ``None`` for it and the sum's ``or 0.0`` treats an unknown call as
+    contributing nothing, which is the honest arithmetic.
+
+    Written through ``record_audit``, which opens its own session and flushes
+    inside it, so the event is committed the moment the call returns. That is
+    deliberate for a run that later fails: a model call that happened is a fact
+    the ledger must keep even if the run goes on to ``FAILED``, otherwise the
+    interesting cases (the ones that errored mid-plan) would lose their
+    accounting.
+    """
+    payload: dict[str, object] = {
+        "provider": provider,
+        "model": model,
+        "latency_ms": latency_ms,
+        "tokens_available": usage is not None,
+        "input_tokens": usage.input_tokens if usage is not None else None,
+        "output_tokens": usage.output_tokens if usage is not None else None,
+        "estimated_cost_usd": usage.estimated_cost_usd if usage is not None else None,
+    }
+    await recorder.record_audit(
+        event_type=AUDIT_MODEL_CALLED,
+        actor="runtime",
+        payload=payload,
+    )
 
 
 class ToolCallRef:
@@ -1059,6 +1124,13 @@ async def _respond(
         # it was the one model-call latency that was available here and not
         # forwarded, the same shape of defect as the retrieval step's.
         response_ms = response.usage.latency_ms
+        await _record_model_call(
+            recorder,
+            provider=response.usage.provider,
+            model=response.usage.model,
+            latency_ms=response.usage.latency_ms,
+            usage=response.usage,
+        )
     except (ValidationError, ValueError):
         # The structured reply did not validate. Phase 1 does not retry a
         # schema-invalid model response (``docs/agent-state-machine.md`` §3).
@@ -1101,6 +1173,13 @@ async def _classify(
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
     value = response.value
+    await _record_model_call(
+        recorder,
+        provider=response.usage.provider,
+        model=response.usage.model,
+        latency_ms=response.usage.latency_ms,
+        usage=response.usage,
+    )
     await recorder.record_step(
         step_type="classification",
         input_payload={"provider": response.usage.provider, "model": response.usage.model},
@@ -1222,6 +1301,20 @@ async def _plan(
     except (ValidationError, ValueError):
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
+    # A planning round *is* a model call, so it writes a ``model_called`` event
+    # too -- §1's metric 10 counts latency "per model call", and the latency here
+    # is a real measurement the call site took (``choose_tool`` reports none,
+    # see above). Tokens and cost are *not* observable: ``choose_tool`` returns a
+    # bare ``dict`` with no usage record, so this event carries ``None`` for all
+    # three and ``tokens_available=False``. The provider and model names come from
+    # the run row, which is what the worker recorded when it created the run --
+    # the only place they are known at this call site.
+    await _record_model_call(
+        recorder,
+        provider=ctx.run.model_provider,
+        model=ctx.run.model_name,
+        latency_ms=planning_ms,
+    )
     await recorder.record_step(
         step_type="planning",
         output_payload={
@@ -1340,6 +1433,7 @@ def registered_tool_names() -> list[str]:
 
 __all__: list[str] = [
     "AUDIT_APPROVAL_REQUESTED",
+    "AUDIT_MODEL_CALLED",
     "AUDIT_RETRIEVAL_ABSTAINED",
     "AUDIT_RUN_FAILED",
     "AUDIT_TOOL_EXECUTED",

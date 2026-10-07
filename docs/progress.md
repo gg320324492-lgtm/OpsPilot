@@ -2613,3 +2613,139 @@ The lesson is the one this project keeps relearning: the first probe tested the
 *protocol*, and the code does not use that part of the protocol. Had the
 conclusion been drawn from the probe alone, a working path would have been
 declared broken.
+
+### M8 — the live channel works, and the first real numbers are bad
+
+Before writing the runner, the live path was proven end to end, because a runner
+that cannot reach a provider measures nothing.
+
+`OPENAI_BASE_URL` points the OpenAI adapter at OpenRouter. Verified through the
+**production** code path (`build_worker_provider` → `generate_structured`), not
+by curl:
+
+```
+provider: openai | model: nvidia/nemotron-3-super-120b-a12b:free
+LIVE RESULT: billing_dispute 0.99
+usage: openai nvidia/nemotron-3-super-120b-a12b:free 5404 ms
+```
+
+A prediction was wrong and is worth recording: the base-url agent warned that
+OpenRouter might reject `response_format: json_schema` (the SDK sends
+`strict: true`, an OpenAI-proprietary field). Probed directly with OpsPilot's
+real `TicketClassification` schema: **accepted**, enum constraint honoured,
+Pydantic validated. The warning was reasonable and did not hold.
+
+**The first measurement is a 50% classification accuracy on the first six
+cases, and the failures are more informative than the score.**
+
+```
+MISS cls-001  expected=duplicate_charge  got=billing_dispute
+MISS cls-002  expected=account_access    got=billing_other
+MISS cls-003  expected=technical_issue   got=billing_other
+OK   cls-004  expected=billing_dispute   got=billing_dispute
+OK   cls-005  expected=account_access    got=account_access
+OK   cls-006  expected=billing_dispute   got=billing_dispute
+```
+
+A login problem (`cls-002`) and a technical issue (`cls-003`) both became
+`billing_other`. The model is **biased toward the billing categories**, not
+confused by the hard cases. And `cls-004` and `cls-006` — the two cases
+`evals/README.md` describes as deliberately adversarial, "a billing dispute that
+mentions an API outage is still `billing_dispute`" — are exactly the two the
+model got **right**.
+
+So the dataset's near-miss design is not what is failing. The model's own prior
+is. That is a different finding from the one the dataset was built to probe, and
+it is only visible from a live run.
+
+`cls-001` is the third independent sighting of one thing: the README's golden-path
+ticket classified as `billing_dispute` instead of `duplicate_charge`, across two
+different prompts and three call sites. M6e fixed the *dataset* to agree with the
+fixture. The live model disagrees with both, which suggests M6e's relabelling was
+the right call for the dataset and that `duplicate_charge` versus
+`billing_dispute` is a boundary a real model does not reliably draw.
+
+Four cases in six are documented in `docs/evals.md` as the intended behaviour
+being measured, so this is the metric working, not a metric to tune. **No prompt
+will be adjusted to improve it before the number is recorded.**
+
+### M8 — the harness now refuses to lie, and the first live run found two dead paths
+
+Two defects, both found by running rather than by reading, and both in code that
+had a green suite.
+
+#### The eval run exited 0 while measuring nothing
+
+Measured with a real provider and no API key:
+
+```
+tool selection                   1   0.000   (0/1)
+unsafe execution count           1   0         <- gate, must be 0
+task completion                  1   0.000   (0/1)
+EXIT=0
+```
+
+Every case failed. Nothing executed, so the unsafe-execution gate read `0`, so
+the process exited 0. The table was indistinguishable from a clean run on a
+quiet day — and this is the harness whose numbers a reader is asked to trust.
+
+`runner._failed_result` was right to record a per-case exception as a scored
+failure rather than dropping it (its docstring says why: dropping a case shrinks
+the denominator and flatters the score). The fault was one level up: a *total*
+failure is not a result, and it was being reported as a set of failures with a
+zero gate.
+
+The fix draws the line between "no results" and "results that are bad", **not**
+between "no failures" and "some failures" — because a model that errors on one
+ticket in twenty is a measured fact about the model, and a guard of "any failure
+fails the run" would abort an otherwise valid measurement. `EvalRunUnmeasurable`
+is raised when not one case produced an observation; the CLI already had the
+"a run that cannot be executed is a configuration fault" path, so it prints the
+cause and exits 1 without writing a results file.
+
+Now:
+
+```
+opspilot-eval: the run could not be executed -- no case in classification.jsonl
+could be run (1 attempted); the run measured nothing. First failure:
+MissingAPIKeyError: openai provider has no API key configured; set the
+provider's API key environment variable or select MODEL_PROVIDER=fake.
+EXIT=1
+```
+
+The guard is tested in both directions, including that a *partial* failure is
+still a result — the half that keeps it honest.
+
+#### Every tool-selection case is a 400 against a real provider
+
+The first full live run failed on `retrieval.jsonl` with, from the provider:
+
+```
+unknown variant `object`, expected one of `text`, `json_object`, `json_schema`
+```
+
+Traced to `openai_provider._tool_proposal_schema`, which returns a **bare JSON
+Schema** and passes it straight through as `response_format`:
+
+```
+type = 'object'
+keys = ['additionalProperties', 'description', 'properties', 'title', 'type']
+```
+
+The SDK requires `{"type": "json_schema" | "json_object" | "text"}`; it receives
+`{"type": "object"}` and forwards it, and every OpenAI-compatible endpoint
+rejects the request.
+
+**`choose_tool` therefore cannot work against any real provider.** It is the
+agent's planning step — the call that decides which tool to use, on every
+iteration of every run. `generate_structured` passes a *Pydantic class*, which
+the SDK wraps correctly, which is why classification reached the provider and
+tool selection did not. The two paths were written differently and only one was
+ever exercised against a real model.
+
+The suite could not see it because `MODEL_PROVIDER=fake` never sends a
+`response_format` at all: the fake replay answers from a fixture keyed by call
+order. Every test of tool selection, every golden-path run, and M6's whole
+acceptance set exercised a code path that only exists in the fake.
+
+Recorded, not yet fixed.
