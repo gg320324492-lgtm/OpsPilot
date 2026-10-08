@@ -257,6 +257,40 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [ ] The repository's own Definition of Done checked line by line, with any
       unmet item named rather than omitted.
 
+### Definition of Done
+
+The DoD the last criterion above refers to. It is **derived from claims the
+repository already makes about itself**, not invented here: every line traces to
+a document, a README statement, or a CI invariant that predates this audit. An
+item is included only because something in the repository already asserts it —
+there are no aspirational additions, because a DoD invented at the end describes
+what got built rather than what was promised.
+
+| # | Item | Derived from |
+|---|---|---|
+| D1 | `ruff check` is clean. | M0 acceptance criteria; README "Running it". |
+| D2 | `ruff format --check` is clean. | M0 acceptance criteria. |
+| D3 | Bare `mypy` (no path argument) reports no errors. | README "Tests"; `pyproject.toml [tool.mypy] files`. |
+| D4 | `pytest` is green, with the skip count printed and non-zero. | README "Tests"; ADR-0004. |
+| D5 | The four CI invariants each return 0 after the whole suite. | `tool-permissions.md` §6; README "Evaluation". |
+| D6 | The four safety properties in `limitations.md` "What is *not* on this list" hold: the permission model is verified; the refund cannot execute twice; retrieved text cannot escalate a permission. | `limitations.md` §"What is not on this list". |
+| D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. | `milestones.md` §M3; `architecture.md` §7. |
+| D8 | Every setting the code reads appears in `.env.example` with an empty value. | M0 acceptance criteria. |
+| D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
+| D10 | The CI jobs §M9 names exist and run the commands the README documents. | `milestones.md` §M9; README "Tests". |
+| D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
+| D12 | `docker compose up` brings up api, worker, web, postgres, three MCP servers. | `milestones.md` §M9. |
+| D13 | The Compose stack has been run at least once. | `docker-compose.yml` header ("NOT VERIFIED"); `limitations.md` §6. |
+| D14 | README carries the golden-path trace, the eval table, an architecture diagram, the five demo scenarios, a recorded GIF, and a limitations section linking `docs/limitations.md`. | `milestones.md` §M9. |
+| D15 | The README's eval table matches the results file it cites. | README "One live run". |
+| D16 | The tests `limitations.md` names as existing actually exist. | `limitations.md` §2. |
+| D17 | `docs/progress.md` records every milestone, including what went wrong. | `milestones.md` §M9. |
+| D18 | The README's status banner agrees with the milestone that is actually done. | README status banner; `milestones.md` working method. |
+| D19 | No documented capability is unimplemented (`MCP_*_COMMAND` settings read by no code, etc.). | `architecture.md` §8; the pattern of §M3/§M5. |
+
+The audit result for each line, with the unmet and unverifiable ones named, is
+recorded in `docs/progress.md` under §M9.
+
 ---
 
 ## Risk to the schedule

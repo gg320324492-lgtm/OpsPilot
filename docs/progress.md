@@ -2985,3 +2985,218 @@ kind of thing this project has already had to correct twice.
 
 Note what is *not* claimed: nothing here asserts the requested model name selects
 a model. On the gateway it demonstrably does not.
+
+---
+
+## M9 — CI and documentation
+
+**Started:** 2026-10-08
+
+### Acceptance criteria
+
+From `docs/milestones.md` §M9, with the two that are already known to be
+unreachable as written marked here rather than discovered at the end.
+
+- [ ] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
+      (pgvector container), `mcp-contract`, `security`, `eval-smoke`,
+      `web-lint`, `web-typecheck`, `docker-build`.
+- [ ] `eval-live` on `workflow_dispatch` only.
+- [ ] `docker compose up` brings up api, worker, web, postgres, **three MCP
+      servers** — see below; this clause cannot be met as written.
+- [ ] README: golden-path trace, the eval table, an architecture diagram, the
+      five demo scenarios, a recorded GIF, a limitations section.
+- [ ] `docs/progress.md` records each milestone, including what went wrong.
+- [ ] The Definition of Done checked line by line, unmet items named.
+
+### The MCP servers cannot be three Compose services
+
+Found while preparing the Compose work, before writing it.
+
+**They are stdio servers, and the gateway never spawns them.** Evidence:
+
+- `mcp_servers/crm/server.py:290` — `server.run(transport="stdio")`, and the
+  same for billing and issues.
+- `adapters/tools/mcp_gateway.py:167` — `MCPToolGateway.__init__` defaults its
+  `server_factory` to `build_in_process_servers()`, which returns three
+  `MCPServer` objects used **in the calling process**. No subprocess, no port.
+- `grep -rn "mcp_crm_command\|mcp_billing_command\|mcp_issues_command" src/ tests/`
+  returns **nothing** outside `settings.py`'s own declarations. The three
+  `MCP_*_COMMAND` settings are defined, documented in `.env.example`, and read by
+  no code.
+
+And `docs/mcp-contracts.md:15-16` states:
+
+> **Why stdio and not HTTP/SSE:** Phase 1 runs these as sibling processes in
+> Compose.
+
+**That sentence describes a design the code does not implement**, and it is the
+third of its kind in this project — with `issues.create` and
+`knowledge_injection`, each a documented capability that no code performs.
+
+The consequence for §M9 is concrete: a Compose service running
+`python -m mcp_servers.crm.server` would start, block on stdin, serve nothing,
+and be ignored by both the API and the worker. Adding three such services would
+make `docker compose up` print five healthy containers while three of them did
+nothing, which is worse than having four — it is a diagram made executable.
+
+**What Compose will do instead**, and what the report must say: the servers are
+in-process by design, they are not services, and **this clause of §M9 is unmet
+and cannot be met without a design change** — either the servers become HTTP, or
+the gateway learns to spawn the stdio commands it already has settings for. Both
+are decisions about the deployment shape, not chores, and neither belongs in a
+documentation milestone.
+
+### The deterministic path cannot demonstrate the golden path here
+
+Verified while preparing the §M9 GIF, on a fresh database: API + worker,
+`MODEL_PROVIDER=fake`, `OPSPILOT_FAKE_SCENARIO=duplicate_charge`, corpus
+reindexed (17 documents, 98 chunks reported), golden-path ticket submitted.
+
+```
+status: completed
+  2 classification 0
+  4 retrieval      0      <- zero hits
+  7 response       0      <- escalation reply
+pending: no
+
+knowledge_chunks: 98
+embedding 非空:   0      <- never persisted
+tool_calls:       0
+approval_requests: 0
+```
+
+**No tool call, no approval, no refund.** The run classifies correctly, retrieves
+nothing, abstains, and completes through `RESPONDING`.
+
+The cause is the SQLite limitation already recorded above: `InMemoryVectorStore`
+keeps embeddings in **process memory**, and the API and worker are **two
+processes**, so the API's reindex populates its own memory and the worker finds
+nothing. It is why ADR-0004 now calls SQLite tests-only.
+
+The consequence for §M9 is narrow and concrete. **"A recorded GIF from the
+deterministic path" describes something this machine cannot show**: the
+deterministic path is `MODEL_PROVIDER=fake`, and on SQLite that path abstains
+before it reaches a refund. A recording of it would be the true output of a real
+run — and a caption calling it the golden path would be false.
+
+Two honest options, and the choice is the agent's to make and justify: record the
+real abstention and caption it as exactly that, or drive the worker in-process the
+way `tests/agent/_golden_harness.py` does — which does produce the full refund
+path — and caption it precisely as the harness rather than as a deployment.
+
+**What is not acceptable is a recording of the harness presented as a
+deployment**, which is the same defect class as `issues.create`, the
+`MCP_*_COMMAND` settings and the readiness probe: a claim that reads as evidence
+of something it is not.
+
+### The Definition of Done, audited line by line
+
+The DoD is written in `docs/milestones.md` §M9 as a checklist (items D1–D19),
+derived from claims the repository already makes about itself. Here is the result
+of checking each one. Each was **run**, not read: the commands and their outputs
+are named.
+
+**Verified green on this machine:**
+
+- **D1 `ruff check` clean** — `.venv/Scripts/python -m ruff check` → "All checks
+  passed!".
+- **D3 bare `mypy` clean** — `mypy` (no path, per `[tool.mypy] files`) → "Success:
+  no issues found in 160 source files".
+- **D4 `pytest` green, skip count non-zero** — `pytest -q` → **665 passed, 6
+  skipped**. The six skips are the documented postgres/skeleton ones.
+- **D5 four invariants return 0** — `pytest tests/security` → 30 passed. The four
+  queries are in `tests/security/test_invariants.py`; each *causes* the attack
+  and then asserts the invariant survived.
+- **D6 the three safety properties hold** — the permission registry is compared
+  to a literal (`test_permission_immutability.py`), the refund cannot execute
+  twice (tested against the MCP server directly), and retrieved text cannot
+  escalate a permission (`test_prompt_injection.py`). All green.
+- **D9 `import opspilot` after editable install** — works; all four console
+  scripts register.
+- **D10 the ten §M9 CI jobs exist and run the documented commands** —
+  `ci.yml` declares `lint, typecheck, test, verify, mcp-contract, security,
+  eval-smoke, web-lint, web-typecheck, docker-build`, exactly the ten named.
+- **D11 `eval-live` on `workflow_dispatch` only** — `eval-live.yml` triggers on
+  `workflow_dispatch` alone.
+- **D14 (partial) README artefacts** — the golden-path trace, the eval table, the
+  architecture diagram and the limitations link are all present. The five demo
+  scenarios and the recorded GIF are **not** (see the two entries above and
+  D14-unmet below).
+- **D17 `progress.md` records each milestone** — M0–M9 all have sections.
+
+**Unmet:**
+
+- **D2 `ruff format --check` clean — UNMET.** `ruff format --check` reports
+  **17 files would be reformatted** (ruff 0.16.10): five in `src/` (including
+  `adapters/models/anthropic_provider.py`, `api/app.py`, `worker/__main__.py`)
+  and twelve under `tests/`. This is not stale code — the tree is at `HEAD`, and
+  the difference is ruff's formatter rev changing under an unpinned `ruff>=0.6`.
+  M0's criterion says `ruff format --check` is clean; it is not, and **no CI job
+  checks it** (`ci.yml` runs only `ruff check`). To meet it: pin ruff, run
+  `ruff format`, and add `ruff format --check` to the `lint` job. Until then the
+  repository cannot claim a formatting gate it does not run.
+- **D7 `issues.create` executes on the golden path — UNMET.** The README's
+  golden-path trace prints `Issue  issues.create → OPS-1042` (README:79), and
+  `test_golden_path.py`'s docstring calls "issue created" a step of the documented
+  sequence (lines 9, 123). But the fixture the golden path replays,
+  `evals/datasets/fixtures/duplicate_charge.json`, **contains no `issues.create`
+  call**: its `choose_tool` sequence is `crm.get_customer → billing.get_invoice →
+  billing.list_transactions → billing.issue_refund`, then a response. No
+  golden-path test asserts an issue was created. `issues.create` is exercised in
+  isolation (`test_mcp_gateway.py`, `test_gates.py`) — so the tool works — but the
+  README's central trace shows a step the golden path does not perform. This is
+  the fifth instance of the documented-but-absent pattern, and the first one
+  visible in the README's own diagram. To meet it: add the `issues.create` step to
+  the golden-path fixture and assert it, or remove the line from the README trace
+  and the docstring.
+- **D8 every setting the code reads is in `.env.example` — UNMET.**
+  `OPSPILOT_REFUND_CEILING` is declared in `settings.py:236` and read by
+  `domain/policies.py:147`, but appears nowhere in `.env.example`. No test guards
+  `.env.example` completeness, which is why it drifted.
+- **D12 `docker compose up` brings up three MCP servers — UNMET, as already
+  recorded above.** The servers are stdio and built in-process
+  (`mcp_gateway.py:167`); the `MCP_*_COMMAND` settings are read by no code;
+  `docker-compose.yml` deliberately declares no such services.
+- **D13 the Compose stack has been run — UNVERIFIABLE, and effectively unmet.**
+  `docker` is not on PATH on this machine (`docker version` → command not found),
+  so `docker compose up` has never executed. The file's own header says so
+  ("NOT VERIFIED"). Naming what would verify it: a machine with a Docker daemon,
+  running `docker compose up -d --wait` — which is exactly what the `docker-build`
+  CI job does, and that job has never run either.
+- **D15 the README eval table matches the file it cites — UNMET, narrowly.** The
+  metric values in the README table match `evals/results/2026-10-08T05-24-41.json`
+  exactly (verified field by field). The `model` does not: the README prints
+  `model=deepseek-v4.1-flash`; the cited JSON records `model: "claude-sonnet-5-5"`.
+  The README's own prose explains the requested-vs-reported name ambiguity, but
+  the result file it points at records the *requested* name, so the table's model
+  string cannot be reproduced from the file it cites. To meet it: re-cite the
+  file, or record the reported name in it.
+- **D16 the tests `limitations.md` names exist — UNMET.** `limitations.md` §2 says
+  "the concurrency test only runs in CI … `test_two_workers_do_not_claim_the_same_run`
+  is marked `@pytest.mark.postgres` and skipped locally". **No such test exists**
+  — a repository-wide search finds no test by that name and no worker-concurrency
+  test at all; the three `@pytest.mark.postgres` tests are
+  `test_citations.py` + two `test_vector_stores.py` stubs. §M9's `verify` job is
+  described as running "worker concurrency" tests and runs none. `limitations.md`
+  §6 ("untested at any real concurrency") is the honest statement; §2 contradicts
+  it by naming a test that was never written.
+- **D14 (remaining) five demo scenarios and the recorded GIF — UNMET.** The README
+  has an attack table but no enumerated five-scenario section; there is no GIF in
+  the repository. The GIF is already explained above: the deterministic path on
+  SQLite abstains, so a true recording cannot show the golden path.
+- **D18 the README status banner matches reality — UNMET.** The banner still reads
+  "Status: Phase 1, milestone M0 — architecture and skeleton … The agent loop is
+  not yet implemented", which the rest of the README (live eval table, golden
+  path) flatly contradicts. `README.md` is being edited concurrently and was not
+  touched by this audit.
+- **D19 no documented-but-unimplemented capability — UNMET.** The standing set:
+  `MCP_*_COMMAND` settings read by no code, `issues.create` absent from the golden
+  path, the `test_two_workers_do_not_claim_the_same_run` phantom, and the
+  readiness-probe/`candidate` items recorded earlier in this file.
+
+**Score: 11 of 19 met, 8 unmet or unverifiable.** The pattern is consistent: the
+things that run (the test suite, the gates, the security invariants, mypy,
+`ruff check`) hold. The things that are *claims about running* — a formatting
+gate no job checks, a diagram step the workflow skips, a named test that does not
+exist, a Compose stack never up — do not. Every one of the eight is a
+documentation-versus-code gap, not a broken mechanism.
