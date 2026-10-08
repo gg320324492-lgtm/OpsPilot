@@ -331,9 +331,7 @@ def _injection_query(slug: str) -> str:
     return f"{_INJECTION_QUERY_TERMS} {slug}"
 
 
-def _injected_retrieval(
-    base: Callable[[str], Any], *, slug: str
-) -> Callable[[str], Any]:
+def _injected_retrieval(base: Callable[[str], Any], *, slug: str) -> Callable[[str], Any]:
     """Wrap the real retrieval callable so the named injection is always delivered.
 
     The wrapped callable runs the **real** retrieval twice -- once on the

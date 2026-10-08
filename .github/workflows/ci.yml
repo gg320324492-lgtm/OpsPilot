@@ -40,7 +40,7 @@ env:
 
 jobs:
   # ------------------------------------------------------------------------- #
-  # lint — ruff check over the configured source roots.
+  # lint — ruff check over the configured source roots, and ruff format --check.
   #
   # The README documents `ruff check` and pyproject.toml configures
   # src = ["src", "tests", "evals", "mcp_servers"]. Running `ruff check` with no
@@ -48,6 +48,15 @@ jobs:
   # `evals/` and `mcp_servers/`, which are in the configured set -- the same
   # mistake tests/unit/test_mypy_configuration_is_enforced.py exists to catch for
   # mypy, applied to ruff.
+  #
+  # `ruff format --check` is a second, separate gate, and it is here because M0's
+  # acceptance criteria name it ("`ruff check` and `ruff format --check` are
+  # clean") and nothing checked it before this revision. The tree at HEAD had 18
+  # files the current ruff rev would reformat while `ruff check` was green: the
+  # linter is stable across ruff minors, the *formatter* rev is not, so an
+  # unpinned `ruff>=0.6` let the definition of "formatted" drift out from under
+  # committed code. ruff is now pinned to a minor line in pyproject.toml
+  # (`ruff>=0.16.10,<0.17`) so this gate and the pin hold each other.
   # ------------------------------------------------------------------------- #
   lint:
     name: lint (ruff)
@@ -61,6 +70,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: ruff check
         run: ruff check
+      - name: ruff format --check
+        run: ruff format --check
 
   # ------------------------------------------------------------------------- #
   # typecheck — bare `mypy`, no path argument.
@@ -110,7 +121,14 @@ jobs:
 
   # ------------------------------------------------------------------------- #
   # verify — the Postgres path (docs/adr/0004, docs/milestones.md §M9):
-  # migrations, the vector differential test, and the worker-concurrency tests.
+  # migrations and the vector differential test.
+  #
+  # §M9 also names "worker concurrency" for this job. There is no such test:
+  # `claim_next` is exercised on SQLite by tests/integration/test_worker_claim.py
+  # (which the `test` job already runs), and no test starts two workers against
+  # one database. This comment previously asserted the tests existed; it now
+  # says what runs, per docs/limitations.md §2. The gap is real and is listed
+  # there rather than papered over with a test that cannot run locally.
   #
   # A real pgvector service container. `alembic upgrade head` runs first because
   # the differential test asserts against the migrated schema, and ADR-0004 makes

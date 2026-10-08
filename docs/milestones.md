@@ -185,7 +185,14 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `billing_dispute` → retrieve → `crm.get_customer` → `billing.get_invoice`
       → `billing.list_transactions` → duplicate detected → propose refund →
       `HIGH_RISK_WRITE` → `WAITING_APPROVAL` → approve → refund executed once →
-      issue created → customer reply → `COMPLETED`.
+      customer reply → `COMPLETED`.
+      (An earlier wording of this criterion ended "→ issue created →", but the
+      committed `duplicate_charge` fixture proposes no `issues.create` call, so
+      the workflow does not perform that step. The criterion was corrected to
+      match what runs rather than the fixture changed to match the criterion --
+      `issues.create` is a real `SAFE_WRITE` tool, exercised in isolation by the
+      gateway and gate tests, and whether the golden path *should* file an issue
+      is an open product decision recorded in `docs/limitations.md` §8.)
 - [ ] The trace shows every step with latency, and the citations are the two
       expected documents.
 - [ ] Reject path: `WAITING_APPROVAL` → `RESPONDING` → `COMPLETED` with an

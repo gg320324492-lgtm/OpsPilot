@@ -57,11 +57,23 @@ fails fails the run. An MCP server that is down fails the run. There is a single
 attempt and the failure is recorded honestly. This makes the eval numbers clean
 and the demo fragile — both are intentional at this stage.
 
-**One worker, and the concurrency test only runs in CI.** The claim query uses
-`FOR UPDATE SKIP LOCKED`, which is correct on Postgres, but SQLite does not
-support it, so `test_two_workers_do_not_claim_the_same_run` is marked
-`@pytest.mark.postgres` and skipped locally. If that test is red, it is red only
-in CI.
+**One worker, and the concurrency claim is tested only at the predicate.** The
+claim query uses `FOR UPDATE SKIP LOCKED` on Postgres
+(`repositories.py::SqlRunStore.claim_next`; SQLite has no equivalent, so the
+same statement runs there without the locking clause — ADR-0004). The claim
+*predicate* is tested on SQLite: `tests/integration/test_worker_claim.py` drives
+`claim_next` and `drain_once` and asserts a `RECEIVED` run is claimed, a
+`WAITING_APPROVAL` run is **not**, and boot preserves the states it must. What is
+**not** tested — at any concurrency, on any machine — is the locking clause
+itself, because there is no test that starts two workers against one database.
+An earlier revision of this section named a
+`test_two_workers_do_not_claim_the_same_run` marked `@pytest.mark.postgres`; no
+such test exists in the repository and none ever did. It was removed rather than
+written, because a Postgres-only test that cannot run locally would ship as
+unverified and would repeat the very defect (a claim backed by evidence that does
+not exist) this correction exists to remove. Writing it is real work that needs a
+Docker daemon or a Postgres service — the same thing §6 below says is untested.
+§6 is the honest statement; this section now agrees with it.
 
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.
@@ -217,6 +229,55 @@ assumed.
 messier shapes — missing fields, multiple currencies, partial refunds across
 periods — and the fake servers return clean records. The agent's argument
 validation is exercised against a schema, not against real-world messiness.
+
+---
+
+## 8. Documented but not implemented
+
+The repository has repeatedly shipped a small, specific defect class: a
+capability described in a document — a README diagram, a `.env.example` line, a
+limitations claim — that no code performs or no test covers. Each instance was
+found late (three in M2–M5, more in M9's Definition of Done audit) and each is
+the same failure in a different costume: a claim that reads as evidence of
+something it is not. They are listed here, in one place, because the pattern is
+only visible when the instances are gathered rather than scattered through a
+milestone log.
+
+**Remaining — documented, not implemented:**
+
+1. **`issues.create` is not on the golden path.** The tool is real, is
+   `SAFE_WRITE`, and is exercised in isolation (`test_mcp_gateway.py`,
+   `test_gates.py`, `test_policies.py`). The committed `duplicate_charge` fixture
+   the golden path replays proposes no `issues.create` call, so the run does not
+   create a ticket; the README's golden-path trace and `docs/milestones.md` §M6
+   no longer draw that step. Whether the workflow **should** file an issue is an
+   open product decision, not a docs fix — adding the call would change what the
+   golden path does.
+2. **The three `MCP_*_COMMAND` settings are read by no code.** `MCP_CRM_COMMAND`,
+   `MCP_BILLING_COMMAND` and `MCP_ISSUES_COMMAND` are declared in `settings.py`
+   and documented in `.env.example`, but the gateway builds the servers
+   **in-process** (`mcp_gateway.py`) and never spawns a subprocess, so nothing
+   reads them. `docs/mcp-contracts.md` §"Why stdio and not HTTP/SSE" describes
+   the servers as "sibling processes in Compose", which the code does not do.
+3. **The MCP servers are not Compose services.** They are stdio servers used
+   in-process, so `docker-compose.yml` deliberately declares none. §M9's "three
+   MCP servers" clause is unmet and cannot be met without a deployment-shape
+   decision (make the servers HTTP, or teach the gateway to spawn the stdio
+   commands it already has settings for).
+4. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
+   covers the claim *predicate* on SQLite; nothing starts two workers against one
+   database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).
+
+**Fixed, and no longer in this list** (kept as a record so the list's history is
+legible):
+
+- `knowledge_injection` — the `safety.jsonl` injection cases are now covered by
+  `tests/security/test_prompt_injection.py` against a real retrieved injection.
+- `/ready` — the readiness probe now reports unhealthy when the database is
+  unreachable, rather than healthy on any reachable process.
+
+The rule the list enforces: a claim about running belongs in this section until
+something actually runs it.
 
 ---
 

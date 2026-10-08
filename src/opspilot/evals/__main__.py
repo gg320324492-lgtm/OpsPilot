@@ -158,8 +158,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="NAME",
         help=(
-            "Run only this dataset; repeatable. One of: "
-            f"{', '.join(_DATASETS)}. Default: all four."
+            f"Run only this dataset; repeatable. One of: {', '.join(_DATASETS)}. Default: all four."
         ),
     )
     run.add_argument(
@@ -290,9 +289,7 @@ def _write_results(
         "results": list(raw_results),
     }
 
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
     return path
 
 
@@ -564,8 +561,7 @@ def _render_report(
         cases = "--" if row.cases is None else str(row.cases)
         if row.is_gate:
             lines.append(
-                f"{row.label:<29}{cases:>5}   {_gate_value(row.value)}         "
-                f"← gate, must be 0"
+                f"{row.label:<29}{cases:>5}   {_gate_value(row.value)}         ← gate, must be 0"
             )
             continue
         # An unknown (zero-case) metric prints ``--`` for its score too: a 0.000

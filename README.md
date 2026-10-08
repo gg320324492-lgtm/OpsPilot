@@ -18,12 +18,16 @@ once. Every model call, tool call and retrieval is recorded and replayable.
 | **Safety** | Static permissions, persisted approvals, idempotent refunds |
 | **Evaluation** | 70+ deterministic cases, 12 metrics, no self-grading |
 
-> **Status: Phase 1, milestone M0 — architecture and skeleton.**
-> The specification is complete and the repository is scaffolded. The agent loop
-> is not yet implemented; the milestone plan is in
-> [`docs/milestones.md`](docs/milestones.md) and progress is tracked in
-> [`docs/progress.md`](docs/progress.md). Nothing in this README is claimed as
-> working until its milestone is green.
+> **Status: Phase 1, milestones M0–M9 — the golden path runs end to end.**
+> The system is built: the agent loop, the five gates, the persisted approval
+> gate, idempotent refunds, retrieval with citations, the dashboard, the eval
+> harness and CI all exist and are tested (665 tests, 6 skipped). What is
+> **not** done is listed honestly — `issues.create` is implemented and tested in
+> isolation but the golden path does not call it (see the trace below), the
+> golden path needs PostgreSQL for retrieval (SQLite is a tests-only path), and
+> `docker compose up` has never been run on a machine with a Docker daemon. The
+> full list is in [`docs/limitations.md`](docs/limitations.md), and each
+> milestone's outcome is in [`docs/progress.md`](docs/progress.md).
 
 ---
 
@@ -76,12 +80,22 @@ Park          ⏸  WAITING_FOR_APPROVAL
               │
               ▼                                 [Approve]  ← a human decides
 Execute       billing.issue_refund  → REF-10091  (idempotent)         312 ms
-Issue         issues.create        → OPS-1042
 Respond       grounded reply, citations attached
               │
               ▼
 Complete      ✓  COMPLETED  — full trace persisted, replayable
 ```
+
+> **A step this trace does *not* show.** An earlier revision drew an
+> `issues.create → OPS-1042` line between the refund and the reply. The tool is
+> real, is `SAFE_WRITE`, is exercised in isolation by the gateway and policy
+> tests — but the committed fixture the golden path replays
+> (`evals/datasets/fixtures/duplicate_charge.json`) proposes four calls and
+> `issues.create` is not one of them, so the run above never creates an issue.
+> The line was removed rather than the fixture changed: adding a call to make a
+> diagram true would be writing code to match a drawing. Whether the workflow
+> *should* file a ticket is a product decision, and it is recorded as an open
+> item in [`docs/limitations.md`](docs/limitations.md) §8.
 
 Re-running the same refund produces `replayed: true` and **no second refund**.
 That is tested by calling the MCP server directly, bypassing the agent.
@@ -226,11 +240,26 @@ cost      $0.0000 mean per run
   above is unchanged. `unsafe execution count` is *not* split: the injection
   cases are exactly what the gate must cover.
 - **The model name is what answered, not what was requested.** The run was
-  configured for `claude-sonnet-5-5`; every response reported
-  `deepseek-v4.1-flash`. The endpoint ignores the requested name entirely — a
-  probe with `totally-bogus-model-name` routed to the same backend — so a model
-  name here is a label, not a selection. `runner.py` records the reported name
-  for exactly this reason.
+  configured for `claude-sonnet-5-5`; every response that reported a name
+  reported `deepseek-v4.1-flash`. The endpoint ignores the requested name
+  entirely — a probe with `totally-bogus-model-name` routed to the same backend
+  — so a model name here is a label, not a selection. `runner.py` records the
+  reported name for exactly this reason.
+- **The committed results file predates that fix, and its `model` field is
+  wrong for that reason.** `evals/results/2026-10-08T05-24-41.json` records
+  `model: "claude-sonnet-5-5"` — the *requested* name — while the table above
+  prints `deepseek-v4.1-flash`. This is not a discrepancy to reconcile by
+  editing either: the file was written before `_reported_model` began counting
+  only calls that carry a usage record (`tokens_available`). `choose_tool` calls
+  return no usage, so they defaulted to the requested name, and across the run
+  those defaulted events outnumbered the observed ones **299 to 96** — so the
+  old rule picked `claude-sonnet-5-5` even though the 96 real responses all
+  reported `deepseek-v4.1-flash`. The table above is right about what the
+  endpoint returned (it is reproduced from the individual `model_calls` events,
+  which still carry both names in the file); the file's summary field is what
+  the pre-fix code wrote. Re-running the live eval would fix the field but is not
+  worth doing for a label that changes nothing about the numbers, and the metrics
+  in the table match the file field-for-field.
 - **20 of 70 cases failed**, evenly across all four datasets (4/6/3/7), from
   `MaxStepsExceeded` (12) and structured-output errors (8). Both are the
   endpoint's planning reliability, not a property of the metrics: the same cases
@@ -293,18 +322,22 @@ The specification was written before the code, and it is the artifact to review:
 
 ## Running it
 
-> Not yet functional at M0. The commands below are the target interface and are
-> documented now so the milestones build toward a stated contract.
-
 ```bash
 git clone https://github.com/gg320324492-lgtm/OpsPilot && cd OpsPilot
 cp .env.example .env          # add OPSPILOT_OPERATOR_TOKEN; no model key needed
 docker compose up
 ```
 
+> `docker compose up` is the intended entry point and the Compose file is
+> committed, but **it has never been run on a machine with a Docker daemon** —
+> the development machine has no Docker. The `docker-build` CI job runs it on a
+> runner. See [limitations.md](docs/limitations.md) §6.
+
 The default `MODEL_PROVIDER=fake` replays recorded responses, so the golden path
-runs with no API key and produces a byte-identical trace — which is what the demo
-GIF is generated from. Set `MODEL_PROVIDER=anthropic` or `openai` for a live run.
+runs with no API key. Retrieval needs PostgreSQL: SQLite is a tests-only path
+([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md)), and on SQLite
+the API and worker do not share vectors, so a two-process run abstains. Set
+`MODEL_PROVIDER=anthropic` or `openai` for a live model run.
 
 ### Tests
 
@@ -316,6 +349,19 @@ SQLite in-memory by default, so the suite needs no services. Tests requiring a
 real PostgreSQL are marked `postgres` and skipped locally — the skip count is
 printed, so a green run is not mistaken for full coverage.
 ([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md))
+
+Lint and formatting are two separate gates, both run by the `lint` CI job:
+
+```bash
+ruff check             # linter — four configured trees: src, tests, evals, mcp_servers
+ruff format --check    # formatter — no file may need reformatting
+```
+
+Run both bare, with no path. `ruff check src tests` would silently skip `evals/`
+and `mcp_servers/`, which the config includes. `ruff format --check` is a gate in
+its own right because the formatter's output changes between ruff minor
+releases: `ruff` is pinned to a minor line in `pyproject.toml` so a dependency
+bump cannot quietly redefine what "formatted" means.
 
 Static types are checked with the file set configured in `pyproject.toml`
 (`[tool.mypy] files`), not with a hand-typed path list:

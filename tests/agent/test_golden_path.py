@@ -2,15 +2,26 @@
 
 ``docs/milestones.md`` §M6, verbatim:
 
-    The exact ticket from the README drives the exact documented sequence:
+    The exact ticket from the README drives the documented sequence:
     ``billing_dispute`` → retrieve → ``crm.get_customer`` →
     ``billing.get_invoice`` → ``billing.list_transactions`` → duplicate
     detected → propose refund → ``HIGH_RISK_WRITE`` → ``WAITING_APPROVAL`` →
-    approve → refund executed once → issue created → customer reply →
-    ``COMPLETED``.
+    approve → refund executed once → customer reply → ``COMPLETED``.
 
     The trace shows every step with latency, and the citations are the two
     expected documents.
+
+    **The criterion's original wording ends "→ issue created →", and the run
+    does not do that.** The committed fixture this file replays
+    (``evals/datasets/fixtures/duplicate_charge.json``) proposes four calls --
+    ``crm.get_customer``, ``billing.get_invoice``, ``billing.list_transactions``,
+    ``billing.issue_refund`` -- and ``issues.create`` is not among them. The
+    docstring and ``docs/milestones.md`` §M6 were corrected to describe what
+    runs rather than the fixture changed to match them, because adding the call
+    would be writing code to satisfy a diagram. The step is real
+    (``test_mcp_gateway.py``, ``test_gates.py`` exercise it) but is not part of
+    this workflow; see ``README.md``'s golden-path note and
+    ``docs/limitations.md`` §8.
 
 What makes this file different from every other gate test in the repository
 ----------------------------------------------------------------------------
@@ -116,11 +127,12 @@ async def test_duplicate_charge_run_waits_then_refunds_exactly_once(
     """The README ticket drives the README sequence and refunds exactly once.
 
     Acceptance criterion (docs/milestones.md §M6): the exact ticket from the
-    README drives the exact documented sequence -- ``billing_dispute`` → retrieve
+    README drives the documented sequence -- ``billing_dispute`` → retrieve
     → ``crm.get_customer`` → ``billing.get_invoice`` →
     ``billing.list_transactions`` → duplicate detected → propose refund →
     ``HIGH_RISK_WRITE`` → ``WAITING_APPROVAL`` → approve → refund executed once →
-    issue created → customer reply → ``COMPLETED``.
+    customer reply → ``COMPLETED``. (The criterion's "issue created" step is
+    omitted because the fixture does not perform it; see the module docstring.)
 
     Driven through the real worker with the fake provider replaying the
     committed ``duplicate_charge`` fixture, so the model's behaviour is scripted
