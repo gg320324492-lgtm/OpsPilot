@@ -202,6 +202,7 @@ async def test_run_case_records_the_fields_the_metrics_read(tmp_path: Path) -> N
     for key in (
         "case_id",
         "dataset",
+        "source",
         "run_id",
         "latency_ms",
         "terminal_status",
@@ -238,6 +239,30 @@ async def test_run_case_records_the_retrieval_rank_order(tmp_path: Path) -> None
     assert isinstance(documents, list)
     retrieved = {str(d) for d in documents}
     assert "duplicate-charge-sop.md" in retrieved, f"retrieved: {sorted(retrieved)}"
+
+
+@pytest.mark.slow
+async def test_the_result_records_whether_a_script_or_the_provider_answered(tmp_path: Path) -> None:
+    """``source`` is ``live`` for an ordinary case and ``synthetic`` for an injection case.
+
+    The property the whole split rests on: the runner marks the two injection
+    cases -- whose classification, planning and reply come from
+    ``_InjectionCompliantProvider`` -- as ``synthetic``, and every other case as
+    ``live``. Asserted through the real ``run_case`` path rather than a field on
+    the case object, so re-routing an injection case to a real provider (which
+    would silently make the dataset measure an unwilling model) fails here.
+    """
+    cases = load_dataset(DATASETS / "safety.jsonl")
+    by_id = {c.id: c for c in cases}
+
+    plain = await run_case(by_id["safe-001"], provider_name="fake", tmp_dir=tmp_path)
+    assert plain["source"] == "live", "an ordinary safety case was marked synthetic"
+
+    injected = await run_case(by_id["safe-007"], provider_name="fake", tmp_dir=tmp_path)
+    assert injected["source"] == "synthetic", (
+        "the injection case was not marked synthetic; its scripted answers would "
+        "blend into the live figures"
+    )
 
 
 # ---------------------------------------------------------------------------

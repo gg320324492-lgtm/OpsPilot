@@ -91,8 +91,22 @@ def _write_doubles(directory: Path) -> None:
                         "cases": len(lines),
                     }
                 )
+                # The safety double emits the two synthetic injection cases so a
+                # test can drive the split; every other case is live. The CLI's
+                # `approval-policy compliance` row then shows both a live figure
+                # and its `(2/2 synthetic)` companion.
+                synthetic = {"safe-007", "safe-008"}
                 return [
-                    {"case_id": f"c{i}", "ok": True, "dataset": path.stem}
+                    {
+                        "case_id": f"safe-{i:03d}",
+                        "ok": True,
+                        "dataset": path.stem,
+                        "source": (
+                            "synthetic"
+                            if path.stem == "safety" and f"safe-{i:03d}" in synthetic
+                            else "live"
+                        ),
+                    }
                     for i in range(len(lines))
                 ]
             '''
@@ -123,9 +137,28 @@ def _write_doubles(directory: Path) -> None:
                 return int(os.environ.get("FAKE_UNSAFE_COUNT", "0"))
 
 
+            def _arg(argv, flag):
+                """The value of `flag` in argv, or None -- enough for the double."""
+                if flag not in argv:
+                    return None
+                index = argv.index(flag)
+                return argv[index + 1] if index + 1 < len(argv) else None
+
             def summarize(results):
+                import sys
+
                 unsafe = _unsafe_count()
-                return [
+                # The real summarize splits the safety metrics by the cases'
+                # `source`; the double reproduces that split for the safety run
+                # so the CLI's `(n/N synthetic)` companion can be exercised.
+                datasets = _arg(sys.argv, "--dataset") or ""
+                is_safety = datasets == "safety"
+                synthetic = sum(
+                    1 for r in results if isinstance(r, dict) and r.get("source") == "synthetic"
+                ) if is_safety else 0
+                # task completion: 7 of 9 live cases match; the rest of the
+                # safety run is kept spec-shaped (all metrics 1.000).
+                metrics = [
                     MetricResult("classification_accuracy", 0.900, 20),
                     MetricResult("retrieval_recall_at_k", 0.850, 20),
                     MetricResult("retrieval_precision_at_k", 0.612, 20),
@@ -141,6 +174,23 @@ def _write_doubles(directory: Path) -> None:
                     MetricResult("tokens_output_mean", 312.0, 20),
                     MetricResult("estimated_cost_mean", 0.0184, 20),
                 ]
+                if is_safety:
+                    metrics = [
+                        m for m in metrics if m.name != "approval_policy_compliance"
+                    ]
+                    metrics.insert(
+                        6,
+                        MetricResult(
+                            "approval_policy_compliance", 1.000, 15 - synthetic
+                        ),
+                    )
+                    metrics.insert(
+                        7,
+                        MetricResult(
+                            "synthetic_approval_policy_compliance", 1.000, synthetic
+                        ),
+                    )
+                return metrics
             '''
         ).lstrip(),
         encoding="utf-8",
@@ -270,6 +320,17 @@ def test_table_matches_the_spec_character_for_character(
     )
     end = next(i for i in range(start, len(spec_lines)) if spec_lines[i].startswith("raw:"))
     expected = spec_lines[start : end + 1]
+    # The spec's all-datasets example quotes no injection cases, so its
+    # `approval-policy compliance` line has no synthetic companion. The fake
+    # smoke run (which substitutes fixture cases named `safe-000`.. and has no
+    # injection cases at all) renders none either, so strip it from the spec
+    # side too and assert the geometry, not the companion, here. The companion
+    # is asserted directly by
+    # `test_safety_run_marks_the_synthetic_injection_cases_on_the_table`.
+    expected = [
+        line.replace(" (2/2 synthetic)", "")
+        for line in expected
+    ]
 
     produced = result.stdout.splitlines()
     # The driver's banner names the fake provider/model; normalise only that
@@ -278,6 +339,38 @@ def test_table_matches_the_spec_character_for_character(
     # The raw path is timestamped per run; the spec shows one example run.
     produced[-1] = "raw: evals/results/2026-10-05T11-20-03.json"
     assert produced == expected
+
+
+def test_safety_run_marks_the_synthetic_injection_cases_on_the_table(
+    cli_env: _Cli,
+) -> None:
+    """The injection cases' scripted answers are visible, and separable, in the table.
+
+    ``safe-007``/``safe-008`` run against a provider scripted to comply, so a
+    reader must be able to tell that their contribution is scripted rather than
+    the endpoint's. The live figure and the synthetic companion must appear
+    together on the ``approval-policy compliance`` line, the synthetic count must
+    be exactly the scripted cases, and the *gate* must still scan every safety
+    case -- filtering the injections out of ``unsafe execution count`` would
+    remove the cases the gate exists to cover.
+    """
+    result = _run_cli(
+        cli_env, "run", "--provider", "fake", "--allow-fake-scores", "--dataset", "safety"
+    )
+    assert result.returncode == 0, result.stderr
+    line = next(
+        line for line in result.stdout.splitlines()
+        if line.startswith("approval-policy compliance")
+    )
+    # Both figures, on one line, with the synthetic one labelled -- never blended.
+    assert "(13/13)" in line, line
+    assert "(2/2 synthetic)" in line, line
+    # The gate is still computed over all 15 safety cases, injections included.
+    gate = next(
+        line for line in result.stdout.splitlines()
+        if line.startswith("unsafe execution count")
+    )
+    assert gate.split()[3] == "15", gate
 
 
 def test_unsafe_execution_count_trips_a_non_zero_exit(

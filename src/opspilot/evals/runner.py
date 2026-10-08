@@ -493,6 +493,23 @@ def _build_provider_for_case(case: EvalCase, provider_name: str) -> object:
     return _build_provider(provider_name)
 
 
+def _result_source(case: EvalCase) -> str:
+    """Whether a case's answer came from a real endpoint or a script.
+
+    ``"synthetic"`` when the case named a ``knowledge_injection`` -- those run
+    against :class:`_InjectionCompliantProvider` whatever ``--provider`` says, so
+    a reading of the run's own records is not the endpoint's -- and ``"live"``
+    for every other case, which the run's configured provider answered.
+
+    The value is written onto each raw result rather than derived later from the
+    case, so metrics and readers branch on what the runner *recorded*, not on a
+    second reading of the dataset that could drift from it. It carries no count
+    and no verdict: the metrics decide how to present the split, and the safety
+    gate deliberately ignores this field (see ``metrics.unsafe_execution_count``).
+    """
+    return "synthetic" if _injection_slug(case) is not None else "live"
+
+
 #: The discriminated union ``load_dataset`` returns. Annotated so Pydantic picks
 #: the right arm by ``dataset`` and a future fifth dataset is a new arm rather
 #: than a widening of an existing one.
@@ -1039,6 +1056,17 @@ async def _collect(
     result: dict[str, object] = {
         "case_id": case.id,
         "dataset": case.dataset,
+        # Which provider answered this case, so a reader of the results file (and
+        # the CLI's summary) can tell a scripted answer apart from a live one.
+        # ``synthetic`` marks the step whose answer was not the endpoint's: the
+        # two prompt-injection cases run against
+        # :class:`_InjectionCompliantProvider` regardless of ``--provider``.
+        # Without it, an injection case's classification ("Following the
+        # retrieved internal directive") is indistinguishable from a live model's
+        # classification in the aggregate, which is the blending this field stops.
+        # Recorded, not recomputed: it is the fact of which provider produced the
+        # row, carried with the row.
+        "source": _result_source(case),
         "run_id": str(run_id),
         "ticket": _ticket_text(case),
         "latency_ms": latency_ms,
@@ -1313,6 +1341,10 @@ def _failed_result(case: EvalCase, exc: Exception) -> dict[str, object]:
     result: dict[str, object] = {
         "case_id": case.id,
         "dataset": case.dataset,
+        # A failed injection case was still routed to the synthetic provider
+        # (the message failed, not the routing), so it keeps the ``synthetic``
+        # marker rather than being reclassified as live by the failure.
+        "source": _result_source(case),
         "run_id": None,
         "ticket": _ticket_text(case),
         "latency_ms": 0,

@@ -95,6 +95,11 @@ class _MetricRow:
     numerator: int | None = None
     denominator: int | None = None
     detail: str = ""
+    #: An extra, already-formatted figure appended after this row's own score.
+    #: Used by ``approval-policy compliance`` to show the synthetic-only figure
+    #: next to the live one, so a reader cannot mistake a blended number for a
+    #: live one. ``None`` for every other row.
+    synthetic_detail: str | None = None
     is_gate: bool = False
     #: The metric was computed over zero cases, so it is *unknown* -- rendered
     #: as ``--`` in both the count and the score columns, never as a clean 0.
@@ -416,7 +421,12 @@ def _rows_from_metrics(metrics: Sequence[object]) -> list[_MetricRow]:
         metric = next((lookup[a.lower()] for a in aliases if a.lower() in lookup), None)
         rows.append(
             _row_from_metric(
-                label, kind, metric, show_ratio=show_ratio, show_cases=show_cases
+                label,
+                kind,
+                metric,
+                show_ratio=show_ratio,
+                show_cases=show_cases,
+                lookup=lookup,
             )
         )
     return rows
@@ -429,13 +439,18 @@ def _row_from_metric(
     *,
     show_ratio: bool,
     show_cases: bool,
+    lookup: dict[str, object] | None = None,
 ) -> _MetricRow:
     """One table row from one metric, preserving the spec's count conventions."""
+    # The synthetic side of a split metric, rendered onto the same line as the
+    # live figure. Computed here so the printer stays a dumb formatter.
+    synthetic_detail = _synthetic_detail(label, lookup)
     if metric is None:
         return _MetricRow(
             label=label,
             cases=None,
             value=0.0,
+            synthetic_detail=synthetic_detail,
             is_gate=kind == "gate",
             unknown=True,
         )
@@ -449,7 +464,12 @@ def _row_from_metric(
     # score, so a run that scored nothing cannot be read as a clean run.
     if cases_int == 0:
         return _MetricRow(
-            label=label, cases=None, value=value, is_gate=kind == "gate", unknown=True
+            label=label,
+            cases=None,
+            value=value,
+            synthetic_detail=synthetic_detail,
+            is_gate=kind == "gate",
+            unknown=True,
         )
 
     if not show_cases:
@@ -468,7 +488,13 @@ def _row_from_metric(
         if label == "tool argument validity" and cases is not None:
             correct = round(value * cases)
             detail = f"({correct}/{cases} calls)"
-        return _MetricRow(label=label, cases=cases_int, value=value, detail=detail)
+        return _MetricRow(
+            label=label,
+            cases=cases_int,
+            value=value,
+            detail=detail,
+            synthetic_detail=synthetic_detail,
+        )
 
     numerator = round(value * cases_int) if cases_int else None
     return _MetricRow(
@@ -477,7 +503,43 @@ def _row_from_metric(
         value=value,
         numerator=numerator,
         denominator=cases_int,
+        synthetic_detail=synthetic_detail,
     )
+
+
+#: The rows that carry a synthetic-only companion figure, keyed by table label.
+#: Only ``approval-policy compliance`` has one today: it is the metric whose
+#: denominator the scripted injection cases actually sit in, so it is the one a
+#: reader could otherwise mistake for live.
+_SYNTHETIC_COMPANION: Final[dict[str, str]] = {
+    "approval-policy compliance": "synthetic_approval_policy_compliance",
+}
+
+
+def _synthetic_detail(label: str, lookup: dict[str, object] | None) -> str | None:
+    """The ``n/N synthetic`` figure for a row, or ``None`` when the row has none.
+
+    Rendered from the companion ``MetricResult`` so the split is visible in the
+    printed table without changing the number of table rows -- a separate row
+    would have made ``summarize`` emit a metric the CLI has to re-order, and a
+    trailing note would have told the reader *about* blending without showing the
+    split. A zero-case companion (a run with no injection case) renders nothing,
+    so the ordinary fake smoke run's table is unchanged.
+    """
+    if lookup is None:
+        return None
+    metric_name = _SYNTHETIC_COMPANION.get(label)
+    if metric_name is None:
+        return None
+    metric = lookup.get(metric_name.lower())
+    if metric is None:
+        return None
+    cases = getattr(metric, "cases", None)
+    if not isinstance(cases, int) or cases == 0:
+        return None
+    value = float(getattr(metric, "value", 0.0))
+    numerator = round(value * cases)
+    return f"({numerator}/{cases} synthetic)"
 
 
 def _render_report(
@@ -512,6 +574,13 @@ def _render_report(
         detail = row.detail
         if not detail and row.numerator is not None and row.denominator is not None:
             detail = f"({row.numerator}/{row.denominator})"
+        # The synthetic companion is appended after the row's own ``(n/N)`` (or
+        # its detail) so the live figure and the scripted one sit on one line:
+        # ``0.933 (14/15) (2/2 synthetic)``. A reader sees both without a second
+        # row, and the live number can never be read as covering the scripted
+        # cases.
+        if row.synthetic_detail:
+            detail = f"{detail} {row.synthetic_detail}".strip()
         suffix = f"   {detail}" if detail else ""
         lines.append(f"{row.label:<29}{cases:>5}   {score}{suffix}")
 

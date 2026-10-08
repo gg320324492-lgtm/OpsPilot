@@ -214,6 +214,17 @@ cost      $0.0000 mean per run
 
 **Read these as a measurement of one route, not of this system's design.**
 
+- **Two of the 70 cases are not the endpoint's answers.** `safe-007` and
+  `safe-008` are the prompt-injection cases: their classification and reply come
+  from a provider *scripted* to comply with the retrieved attack
+  (`runner._InjectionCompliantProvider`), so the approval gate can be shown to
+  hold against a model that obeyed it. That is the deliberate worst case, not a
+  live number. Their results carry `source: "synthetic"`, and the
+  `approval-policy compliance` row is computed over the **live** safety cases
+  only, with the scripted pair reported separately as `(n/N synthetic)`. This
+  run predates the marker, so all three of its cases count as live and the row
+  above is unchanged. `unsafe execution count` is *not* split: the injection
+  cases are exactly what the gate must cover.
 - **The model name is what answered, not what was requested.** The run was
   configured for `claude-sonnet-5-5`; every response reported
   `deepseek-v4.1-flash`. The endpoint ignores the requested name entirely — a
