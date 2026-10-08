@@ -165,8 +165,8 @@ class MCPServerSpawnError(RuntimeError):
 
     def __init__(self, server: str, command: str, cwd: Path, reason: str) -> None:
         super().__init__(
-            f"the {server!r} MCP server did not start from "
-            f"MCP_{server.upper()}_COMMAND={command!r} (working directory {cwd}): "
+            f"the {_server_phrase(server)} did not start from "
+            f"{_command_setting(server, command)} (working directory {cwd}): "
             f"{reason}"
         )
         self.server = server
@@ -196,7 +196,7 @@ class _Call:
     future: asyncio.Future[CallToolReturn]
 
 
-def parse_command(spec: str) -> tuple[str, list[str]]:
+def parse_command(spec: str, *, server: str = "") -> tuple[str, list[str]]:
     """Split a ``MCP_*_COMMAND`` value into ``(executable, argv)``.
 
     The setting is a string because ``.env`` files hold strings. It is split
@@ -216,15 +216,19 @@ def parse_command(spec: str) -> tuple[str, list[str]]:
 
     Args:
         spec: The raw setting value.
+        server: The server the value came from, used **only** to name the
+            setting in an error. Optional because this function is callable on
+            its own -- :class:`StdioServerProcess` is what passes it, so the
+            production path names the actual ``MCP_<NAME>_COMMAND``. Left unset
+            the message says the value is unparseable without claiming to know
+            which server it belonged to; see :func:`_command_setting`.
 
     Returns:
         ``(executable, args)``, both non-empty.
 
     Raises:
         MCPServerSpawnError: If the value is empty or has no executable, or if
-            its quotes do not balance. Reported per-server by
-            :func:`build_stdio_servers`, which knows which setting the value came
-            from.
+            its quotes do not balance.
     """
     lexer = shlex.shlex(spec, posix=True)
     lexer.whitespace_split = True
@@ -237,11 +241,11 @@ def parse_command(spec: str) -> tuple[str, list[str]]:
         parts = list(lexer)
     except ValueError as exc:
         raise MCPServerSpawnError(
-            "", spec, Path.cwd(), f"the value is not a valid command line ({exc})"
+            server, spec, Path.cwd(), f"the value is not a valid command line ({exc})"
         ) from exc
 
     if not parts:
-        raise MCPServerSpawnError("", spec, Path.cwd(), "the value is empty")
+        raise MCPServerSpawnError(server, spec, Path.cwd(), "the value is empty")
     return parts[0], parts[1:]
 
 
@@ -295,7 +299,10 @@ class StdioServerProcess:
         self._name = name
         self._spec = spec
         self._cwd = cwd if cwd is not None else server_working_directory()
-        self._command, self._args = parse_command(spec)
+        # The name is passed on so a malformed value is reported against the
+        # setting it came from (``MCP_CRM_COMMAND=``) rather than as an
+        # anonymous parse failure. See ``parse_command``'s ``server`` argument.
+        self._command, self._args = parse_command(spec, server=name)
 
         self._task: asyncio.Task[None] | None = None
         self._queue: asyncio.Queue[_Call | None] = asyncio.Queue()
@@ -568,6 +575,38 @@ def build_stdio_servers(commands: Mapping[str, str]) -> dict[str, StdioServerPro
 
 
 # -- module helpers -------------------------------------------------------
+
+
+def _server_phrase(server: str) -> str:
+    """How to refer to a server in an error, given whatever name it arrived with.
+
+    Every call site passes a real name -- ``crm``, ``billing``, ``issues`` --
+    except :func:`parse_command`, which is handed only the raw setting value and
+    has no idea which of the three it came from. It used to format that as
+    ``the '' MCP server ... MCP__COMMAND=``, so the one failure that fires
+    *before* any server name exists reported a setting called ``MCP__COMMAND``,
+    which is not a setting an operator can find in ``.env.example``. An operator
+    reading that would go looking for a fourth command.
+
+    So an unnamed failure names the value it could not parse and says plainly
+    that it does not know which server it belongs to, instead of inventing an
+    empty name that looks like a bug.
+    """
+    if server:
+        return f"{server!r} MCP server"
+    return "MCP server command"
+
+
+def _command_setting(server: str, command: str) -> str:
+    """The ``MCP_<NAME>_COMMAND=<value>`` a reader needs to see to act.
+
+    Named from the server when there is one. When :func:`parse_command` raises
+    there is not -- the value is quoted on its own, which is enough to find the
+    line in ``.env`` (the three values are distinguishable at a glance), and
+    saying ``MCP__COMMAND=`` was strictly worse than saying nothing because it
+    names a variable that does not exist.
+    """
+    return f"MCP_{server.upper()}_COMMAND={command!r}" if server else repr(command)
 
 
 def _child_environment() -> dict[str, str]:

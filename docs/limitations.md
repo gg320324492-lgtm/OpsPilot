@@ -78,6 +78,30 @@ Docker daemon or a Postgres service — the same thing §6 below says is unteste
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.
 
+**A hard-killed worker orphans its MCP child processes.** Under the default
+`MCP_TRANSPORT=inprocess` this section does not apply — there is no child
+process. Under `MCP_TRANSPORT=stdio` the worker spawns up to three server
+children, and it reaps them on a *clean* shutdown: `SIGINT`/`SIGTERM` set a
+stop flag, the poll loop drains, and the `finally` that closes the gateway
+terminates each child. `SIGKILL`, a container OOM-kill, or a host power loss
+bypass all of that — the finally never runs, the children are reparented to the
+init process, and they keep running, holding their pipes open with nobody
+reading them. Nothing in this codebase detects that: there is no parent-death
+guard (`PR_SET_PDEATHSIG` on Linux, a Job Object on Windows), and adding one is
+a cross-platform design change rather than a fix that belongs in a limitations
+entry.
+
+*Operator mitigation:* treat an ungraceful worker death as a reason to restart
+the whole container, not just the worker process — `docker compose restart
+worker` reaps the orphans as a side effect of the runtime replacing the
+container's process tree, whereas restarting the process in place does not. If
+you need the guarantee rather than the habit, give the deployment a process
+supervisor that kills the whole process group on worker exit
+(`docker stop`, a systemd `KillMode=control-group`, or a `prctl(PR_SET_PDEATHSIG)`
+wrapper). Phase 2, if it is done at all, should be a parent-death guard rather
+than a scan, because a scan cannot distinguish this worker's children from an
+operator running a server by hand.
+
 **The step budget is the only loop guard.** 24 plan/execute rounds. A run that
 loops more cheaply than it calls tools (e.g. re-retrieving without acting) is not
 otherwise bounded, and cost is not capped.

@@ -248,6 +248,132 @@ async def test_a_spawn_failure_becomes_a_result_not_an_exception() -> None:
     await gateway.aclose()
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        pytest.param('python -m "unterminated', id="unbalanced_quote"),
+        pytest.param('python -m mcp_servers.crm.server "', id="lone_quote"),
+    ],
+)
+async def test_an_unparseable_command_becomes_a_result_not_an_exception(spec: str) -> None:
+    """A command that cannot even be *parsed* is still a result, not a raise.
+
+    This is a different failure from the sibling test above, and it is the one
+    that used to escape. :func:`parse_command` runs in the server factory, and
+    the factory is called from ``_server_for`` -- so a malformed
+    ``MCP_CRM_COMMAND`` raised ``MCPServerSpawnError`` out of ``call_tool``
+    *before* the dispatch ``try`` that makes this layer's contract true.
+
+    The consequence was not a crashed request. ``agents/runtime.py`` has the
+    only ``call_tool`` call site and no handler, ``worker/loop.py``'s poll loop
+    has none either, so the exception unwound the loop and the worker process
+    exited: the run never reached ``_fail_run``, its ``tool_calls`` row stayed
+    ``APPROVED``, and the run was left pre-dispatch. A typo in one ``.env`` line
+    produced exactly the state the five gates exist to prevent.
+
+    Asserted with no ``pytest.raises`` anywhere, because the assertion *is* the
+    absence of one: if this regresses, the exception propagates out of
+    ``call_tool`` and pytest reports it as an error in this test.
+
+    Only unbalanced quotes are parameterised. A *blank* setting is not one of
+    these cases and must not become one: ``_command_for`` resolves blank to the
+    default command, so ``MCP_CRM_COMMAND=`` spawns a working server rather than
+    failing (``test_a_blank_command_falls_back_to_the_default``).
+    """
+    settings = Settings(MCP_TRANSPORT="stdio", MCP_CRM_COMMAND=spec)
+    gateway = MCPToolGateway(server_factory=lambda: build_stdio_servers_from_settings(settings))
+
+    result = await gateway.call_tool("crm.get_customer", {"customer_id": "CUS-1001"})
+
+    assert result.ok is False
+    assert result.error == "mcp_unavailable"
+    # The command is quoted back: an operator has to be able to find the typo.
+    assert _payload(result)["code"] == "mcp_unavailable"
+    assert spec in str(result.result)
+    await gateway.aclose()
+
+
+async def test_an_unparseable_command_names_the_setting_that_is_wrong() -> None:
+    """The failure names ``MCP_CRM_COMMAND``, not an empty or invented setting.
+
+    ``parse_command`` receives only the raw value, so it used to format its error
+    with ``server=""``, producing ``the '' MCP server did not start from
+    MCP__COMMAND=...``. That names a variable which does not exist -- an
+    operator reading it goes looking for a fourth command in ``.env.example``
+    instead of fixing the three they have.
+
+    The name now travels with the value, so the production path (which knows
+    which of the three settings it read) reports the real one.
+    """
+    settings = Settings(MCP_TRANSPORT="stdio", MCP_CRM_COMMAND='python -m "unterminated')
+    gateway = MCPToolGateway(server_factory=lambda: build_stdio_servers_from_settings(settings))
+
+    result = await gateway.call_tool("crm.get_customer", {"customer_id": "CUS-1001"})
+
+    message = str(result.result)
+    assert "MCP_CRM_COMMAND=" in message
+    # The two things the old message got wrong, both now absent.
+    assert "MCP__COMMAND" not in message
+    assert "'' MCP server" not in message
+    await gateway.aclose()
+
+
+async def test_parse_command_without_a_server_does_not_invent_one() -> None:
+    """Called with no name, the message quotes the value and claims nothing.
+
+    ``parse_command`` is public and is called directly by several tests here, so
+    it has to work with no server to hand -- but "works" must not mean
+    inventing ``MCP__COMMAND``, which is the defect being pinned.
+    """
+    with pytest.raises(MCPServerSpawnError) as caught:
+        parse_command('python -m "unterminated')
+
+    message = str(caught.value)
+    assert "MCP__COMMAND" not in message
+    assert 'python -m "unterminated' in message
+
+
+async def test_a_closed_gateway_refuses_to_reopen_its_process_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``aclose`` is final: a later call is refused, not silently re-spawned.
+
+    ``aclose`` nulls the server map, and ``_server_for`` rebuilt it from the
+    factory on the next call -- so ``call`` → ``aclose`` → ``call`` returned
+    ``ok=True`` from a **new** ``StdioServerProcess``. A closed gateway quietly
+    reopening the process boundary is a leak the worker cannot clear, because
+    its shutdown path has already run ``aclose`` once and will never run it
+    again.
+
+    Refusing is also what this layer owes the caller regardless: a tool that
+    cannot be executed is a ``ToolResult(ok=False)``, never a raise.
+
+    The first call is what makes this non-vacuous. Asserting only that the
+    post-close call fails would also hold for a gateway that had never worked,
+    so the same gateway is made to genuinely spawn and succeed first.
+    """
+    monkeypatch.setenv("OPSPILOT_MCP_DATA_DIR", str(tmp_path))
+    settings = Settings(MCP_TRANSPORT="stdio")
+    gateway = MCPToolGateway(server_factory=lambda: build_stdio_servers_from_settings(settings))
+
+    first = await gateway.call_tool("crm.get_customer", {"customer_id": "CUS-1001"})
+    assert first.ok is True, f"the gateway must work before it is closed: {first.result}"
+    spawned = gateway._servers
+    assert spawned is not None
+    handle = spawned["crm"]
+    assert isinstance(handle, StdioServerProcess)
+
+    await gateway.aclose()
+
+    after = await gateway.call_tool("crm.get_customer", {"customer_id": "CUS-1001"})
+    assert after.ok is False
+    assert after.error == "server_unavailable"
+    # The defect in one assertion: the map was rebuilt from the factory, so the
+    # handle would be a *different* object and its child a *new* process.
+    assert gateway._servers is None, "a closed gateway rebuilt its servers"
+    assert handle._task is None
+
+
 async def test_a_failed_spawn_does_not_hang_the_next_call() -> None:
     """A second call after a failed spawn returns the same named error.
 
@@ -397,7 +523,7 @@ def stdio_crm_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPToo
 
 
 def _crm_server_pids() -> set[int]:
-    """PIDs of every live process whose command line names the ``crm`` server.
+    """PIDs of every live ``crm`` server process spawned by *this* test process.
 
     Used to prove the gateway really spawned a child and really reaped it. An
     assertion about the gateway's internals -- that ``_task`` is set, that a
@@ -405,10 +531,34 @@ def _crm_server_pids() -> set[int]:
     happened. Counting operating-system processes is the only way to check the
     claim the documentation actually makes.
 
-    Filtered to this process's *descendants*, so a sibling test's server -- which
-    may still be shutting down -- cannot be mistaken for this one's. Without the
-    filter, tests that assert on counts interfere with each other through
-    scheduling rather than through anything they are testing.
+    Three filters, each earning its place against a way this check has lied
+    before:
+
+    1. **``$_.ProcessId -ne $PID``.** This helper is a ``powershell`` child of
+       the test, and the substring it filters on is *in its own command line* --
+       so with only a command-line match it found itself. Probed with zero
+       servers spawned, it returned one PID, a different one each call, which
+       made ``assert during - before`` pass while nothing had been spawned at
+       all: the assertion whose own failure message says "this test proved
+       nothing about the transport" was itself proof of nothing. Excluding
+       PowerShell's own process is what makes an empty set mean empty.
+    2. **``$_.Name -like 'python*'``.** Independently excludes PowerShell too.
+       Verified by mutation, not assumed: dropping *only* filter 1 still leaves
+       this check green, and dropping both turns it red. So the two are genuine
+       redundancy rather than one of them being dead weight -- which is the
+       point of having both, since either could be edited away by someone
+       tidying a filter.
+    3. **``ParentProcessId -eq <this process>``.** Keeps a sibling test's server,
+       which may still be shutting down, from being mistaken for this one's, so
+       tests that assert on counts do not interfere through scheduling.
+
+    **It fails loudly rather than returning an empty set.** That is the other
+    half: an empty set makes ``len(during) == len(before) + 1`` an arithmetic
+    tautology, so a silent failure here is a green test that asserts nothing. The
+    script therefore proves it enumerated anything at all -- checking that its
+    own PID appears in the result -- and marks the run failed otherwise. A
+    skipped test on a platform with no CIM is the honest alternative, and the
+    test asserting a *spawn happened* must never take that path silently.
 
     Synchronous, not async: it is a test assertion helper that runs once or
     twice per test, it blocks for a few hundred milliseconds, and making it async
@@ -417,10 +567,8 @@ def _crm_server_pids() -> set[int]:
     alternative (threading it) would add a thread to a helper that reads a
     process list.
 
-    Enumerated through the WMI command line rather than ``psutil``, which is not
-    a dependency of this project. On a platform with no CIM the test skips rather
-    than passing vacuously: a green assertion that never looked is worse than no
-    assertion.
+    Enumerated through CIM rather than ``psutil``, which is not a dependency of
+    this project.
     """
     import subprocess
 
@@ -429,11 +577,24 @@ def _crm_server_pids() -> set[int]:
     # $PID here would silently filter on the wrong parent and find no servers
     # ever -- a check that always reports "nothing spawned".
     parent = str(os.getpid())
+    # `parent` is the only interpolation and is `str(os.getpid())`; nothing a
+    # test or caller supplied reaches this script.
     script = (
-        "Get-CimInstance Win32_Process | "
-        f"Where-Object {{ $_.CommandLine -like '*mcp_servers.crm.server*' -and "
-        f"$_.ParentProcessId -eq {parent} }} | "
-        "Select-Object -ExpandProperty ProcessId"
+        "$ErrorActionPreference = 'Stop'\n"
+        "$procs = @(Get-CimInstance Win32_Process)\n"
+        # The positive control. Without it a broken or unavailable enumeration
+        # is indistinguishable from "nothing is running", and every caller would
+        # pass. `Get-CimInstance` yielding a list that does not contain the
+        # process asking for it means this script did not enumerate what it
+        # thinks it enumerated.
+        "if (-not ($procs.ProcessId -contains $PID)) {"
+        " Write-Output 'ENUMERATION_BROKEN'; exit 3 }\n"
+        "$procs | Where-Object {"
+        " $_.ProcessId -ne $PID -and"
+        f" $_.ParentProcessId -eq {parent} -and"
+        " $_.Name -like 'python*' -and"
+        " $_.CommandLine -like '*mcp_servers.crm.server*'"
+        " } | ForEach-Object { Write-Output ('CHILD=' + $_.ProcessId) }\n"
     )
     try:
         # S603: the only input here is `parent`, which is `str(os.getpid())` --
@@ -449,12 +610,49 @@ def _crm_server_pids() -> set[int]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - non-Windows
-        pytest.skip("process enumeration by command line is unavailable here")
+        pytest.fail(
+            "could not run the process-enumeration helper at all; every test "
+            "below would pass without ever looking at a process"
+        )
 
+    if "ENUMERATION_BROKEN" in result.stdout:  # pragma: no cover - non-Windows
+        pytest.fail(f"the process enumeration did not run: {result.stdout.strip()}")
     if result.returncode != 0:  # pragma: no cover - non-Windows
-        pytest.skip("process enumeration by command line is unavailable here")
+        pytest.fail(
+            "the process-enumeration helper exited "
+            f"{result.returncode}; a test that cannot enumerate processes cannot "
+            "prove that a server was spawned or reaped"
+        )
 
-    return {int(line) for line in result.stdout.split() if line.isdigit()}
+    return {
+        int(line.split("=", 1)[1])
+        for line in result.stdout.splitlines()
+        if line.startswith("CHILD=")
+    }
+
+
+def test_the_process_helper_cannot_see_its_own_probe() -> None:
+    """The anti-vacuity self-check, with nothing spawned.
+
+    ``_crm_server_pids`` used to return a PID on every call even when no server
+    existed: the ``powershell`` process it spawns has the filter's substring in
+    *its own* command line and is a child of this process, so it matched itself.
+    Probed with zero servers spawned it returned one PID, a different one each
+    time -- which made the ``assert during - before`` in
+    ``test_a_read_only_tool_is_served_by_a_real_subprocess`` pass while nothing
+    had been spawned. An assertion that says "this test proved nothing about the
+    transport" was itself proof of nothing.
+
+    So the exclusion is asserted directly here, with no server running: an empty
+    result is now the *only* correct answer, and if it ever goes back to
+    matching PowerShell, this test fails before the vacuous ones can pass
+    quietly. The positive direction -- that a real child *is* found -- is what
+    the live tests above establish.
+    """
+    assert _crm_server_pids() == set(), (
+        "the process helper matched a process with no crm server running, so its "
+        "own 'a server appeared' assertions pass vacuously"
+    )
 
 
 async def test_a_read_only_tool_is_served_by_a_real_subprocess(
@@ -496,9 +694,11 @@ async def test_one_server_is_spawned_once_and_reused(
     call would pay an interpreter boot, and the mutation state a subprocess owns
     would not survive between the calls in a single run.
 
-    Asserted on the *count* of live servers rather than on PID identity: earlier
-    tests in this file leave servers that exit at their own pace, so a specific
-    PID is not stable, but "a second call started one more process" is.
+    Asserted by *identity*: the set of PIDs that appeared after the first call
+    must be unchanged after the second. This is strictly stronger than counting,
+    and it is the form that cannot absorb a respawn -- a second child shows up
+    as an extra PID in the set, which a count taken against a moving baseline
+    had previously been able to hide.
     """
     before = _crm_server_pids()
 
@@ -509,13 +709,13 @@ async def test_one_server_is_spawned_once_and_reused(
     after_second = _crm_server_pids()
 
     assert first.ok is True and second.ok is True
-    assert len(after_first) == len(before) + 1, (
-        "the first call did not start exactly one crm server"
-    )
-    assert len(after_second) == len(after_first), (
+    appeared = after_first - before
+    assert len(appeared) == 1, f"the first call started {len(appeared)} crm servers, not one"
+    assert after_second - after_first == set(), (
         "a second call spawned another crm server; the spawn must happen once "
         "per gateway, not once per tool call"
     )
+    assert after_second - before == appeared, "the first call's server went away"
     assert _payload(second)["customer"]["customer_id"] == "CUS-1002"
 
 
@@ -529,19 +729,27 @@ async def test_closing_the_gateway_reaps_the_child_process(
     it is checked at the operating-system level because that is the level at
     which the leak would matter.
 
-    Counted rather than matched on PIDs, for the reason the sibling test gives:
-    other tests' servers come and go, so identity is unstable and count is not.
+    Asserted on PID *identity* against the child this test saw, not on a count.
+    The count version reads more naturally but is the shape that hid the defect:
+    when the helper matched its own probe, ``before`` was one phantom PID and
+    ``during`` was the same phantom plus the real child, so a leaked child was
+    absorbed into the arithmetic and the test passed. Naming the PID that was
+    observed going in, and requiring it to be gone afterwards, has no way to
+    absorb an extra process.
     """
     before = _crm_server_pids()
     assert (await stdio_crm_gateway.call_tool("crm.get_customer", {"customer_id": "CUS-1001"})).ok
     during = _crm_server_pids()
-    assert len(during) == len(before) + 1
+    appeared = during - before
+    assert appeared, "the call spawned no crm server, so there is nothing to reap"
 
     await stdio_crm_gateway.aclose()
 
-    assert len(_crm_server_pids()) == len(before), (
-        "the gateway was closed but its crm server is still running"
+    survivors = _crm_server_pids()
+    assert not (appeared & survivors), (
+        f"the gateway was closed but its crm server {sorted(appeared)} is still running"
     )
+    assert survivors == before, "closing the gateway disturbed processes it did not spawn"
 
 
 async def test_closing_a_gateway_that_never_spawned_anything_is_safe() -> None:

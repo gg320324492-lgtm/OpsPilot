@@ -76,6 +76,7 @@ raise.
 from __future__ import annotations
 
 import contextlib
+import logging
 import time
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -84,6 +85,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, InputRequiredResult
 
+from opspilot.adapters.tools.mcp_stdio import MCPServerSpawnError
 from opspilot.domain.tools import TOOL_REGISTRY, ToolSpec
 from opspilot.ports.tool_gateway import ToolResult
 
@@ -92,6 +94,8 @@ if TYPE_CHECKING:
     from opspilot.settings import Settings
 
 __all__ = ["MCPToolGateway", "build_in_process_servers"]
+
+logger = logging.getLogger(__name__)
 
 # The SDK's ``call_tool`` return union. Named so the narrowing helper and the
 # call site agree on the two arms without repeating the union.
@@ -183,10 +187,14 @@ def build_stdio_servers_from_settings(settings: object) -> dict[str, StdioServer
         MCPServerSpawnError: If any command is empty or unbalanced, naming the
             setting that is wrong.
     """
-    # Imported here, not at module scope, for the same reason the in-process
-    # builder imports its servers inside the function: a deployment that never
-    # selects the stdio transport must not pay for importing the MCP *client*
-    # half of the SDK at every process start.
+    # ``build_stdio_servers`` is imported here rather than at module scope, but
+    # the deferral no longer buys what it used to: this module already imports
+    # ``MCPServerSpawnError`` at module scope (below) because ``call_tool`` has
+    # to name it, and importing this module already pulls the whole MCP SDK in
+    # through ``mcp.server.mcpserver`` -- which loads ``mcp.client.stdio`` as
+    # well. The remaining cost is ~4 ms of this module's own imports, and the
+    # import stays here because it is the seam that keeps a deployment that
+    # never selects stdio from *constructing* three server handles.
     from opspilot.adapters.tools.mcp_stdio import build_stdio_servers
     from opspilot.settings import Settings
 
@@ -313,6 +321,11 @@ class MCPToolGateway:
         self._server_factory: Callable[[], Mapping[str, DispatchableServer]] = (
             server_factory if server_factory is not None else _default_server_factory()
         )
+        # Set by ``aclose`` and never cleared. It is not the same as
+        # ``_servers is None``, because ``_servers`` is also ``None`` before the
+        # first call -- a fresh gateway must still be able to build its servers.
+        # See ``aclose`` for why closing is final.
+        self._closed = False
 
     async def list_tools(self) -> list[ToolSpec]:
         """Return the ``ToolSpec``s from the static ``TOOL_REGISTRY``.
@@ -331,8 +344,21 @@ class MCPToolGateway:
         """Dispatch ``name`` to its owning server and return a ``ToolResult``.
 
         Only ever reached after the five gates pass. A refusal -- whether a
-        structured server error or a protocol-layer validation rejection -- is
-        returned as a result with ``ok=False``, never raised.
+        structured server error, a protocol-layer validation rejection, or a
+        server that cannot be started at all -- is returned as a result with
+        ``ok=False``, never raised.
+
+        Everything that can fail is inside the ``try``, including resolving the
+        server. :meth:`_server_for` calls the factory, and on the stdio path the
+        factory parses ``MCP_*_COMMAND`` eagerly -- so a malformed command used
+        to raise ``MCPServerSpawnError`` from *here*, above the ``try`` that was
+        supposed to make the layer's contract true. The single call site
+        (``agents/runtime.py``) has no handler and the worker's poll loop has
+        none, so one bad ``.env`` value unwound the loop and killed the worker
+        process: the run never reached ``_fail_run``, its ``tool_calls`` row
+        stayed ``APPROVED``, and the run was left pre-dispatch. That is the
+        outcome the five gates exist to make impossible, reached by a different
+        door.
         """
         spec = TOOL_REGISTRY.get(name)
         started = time.perf_counter()
@@ -345,16 +371,15 @@ class MCPToolGateway:
                 latency_ms=_elapsed_ms(started),
             )
 
-        server = self._server_for(spec.server)
-        if server is None:
-            return ToolResult(
-                tool_name=name,
-                ok=False,
-                error="server_unavailable",
-                latency_ms=_elapsed_ms(started),
-            )
-
         try:
+            server = self._server_for(spec.server)
+            if server is None:
+                return ToolResult(
+                    tool_name=name,
+                    ok=False,
+                    error="server_unavailable",
+                    latency_ms=_elapsed_ms(started),
+                )
             raw = await server.call_tool(name, dict(arguments))
         except ToolError as exc:
             # A protocol-layer rejection: the arguments failed the tool's
@@ -368,6 +393,30 @@ class MCPToolGateway:
                 result={"code": "validation_error", "message": str(exc)},
                 latency_ms=_elapsed_ms(started),
             )
+        except MCPServerSpawnError as exc:
+            # The deployment named a command that cannot be parsed. Narrowly
+            # typed rather than folded into the ``Exception`` arm below,
+            # because that arm already exists for faults *during* a dispatch,
+            # and this one happens before one is attempted -- so it gets its own
+            # clause rather than being reclassified as a transport failure.
+            #
+            # ``mcp_unavailable`` is the same token the runtime maps to
+            # ``FAILED(mcp_unavailable)``, which is the point: a worker with an
+            # unreadable ``.env`` should fail its run honestly and stay alive to
+            # fail the next one, not exit mid-dispatch.
+            #
+            # The traceback belongs here and not in the returned result: the
+            # result's ``message`` carries ``str(exc)`` because the agent reads
+            # it, but an operator debugging a deployment wants the stack, and
+            # ``logger.exception`` is what attaches it.
+            logger.exception("the MCP transport could not be built")
+            return ToolResult(
+                tool_name=name,
+                ok=False,
+                error="mcp_unavailable",
+                result={"code": "mcp_unavailable", "message": str(exc)},
+                latency_ms=_elapsed_ms(started),
+            )
         except Exception as exc:
             # Any other transport failure is reported as a result carrying a
             # machine-stable token, so the runtime can map it to
@@ -375,6 +424,16 @@ class MCPToolGateway:
             # not written to catch. The narrow-``Exception`` catch is deliberate:
             # the layer's contract is "errors are results", and a leaked
             # exception here would violate it.
+            #
+            # It is *not* wide enough to hide a bug in this file. ``Exception``
+            # is every ordinary fault -- a transport error, a closed pipe, a
+            # malformed reply -- and not the programming errors a broad catch
+            # normally swallows: ``AttributeError``, ``TypeError``,
+            # ``NameError`` and ``KeyError`` here would mean a mistake in *this*
+            # module, and this file's own tests would have to be lying for one to
+            # reach a caller. Those are left to propagate rather than reported as
+            # a tool the user asked for having failed; a red test is a better
+            # outcome than a silently wrong tool result.
             return ToolResult(
                 tool_name=name,
                 ok=False,
@@ -387,7 +446,7 @@ class MCPToolGateway:
         return _to_tool_result(name, result, started)
 
     async def aclose(self) -> None:
-        """Release every server this gateway holds.
+        """Release every server this gateway holds, and refuse to be used again.
 
         In-process servers hold no transport resources and have no close method,
         so they are left alone. A spawned stdio server is a child process and is
@@ -399,7 +458,19 @@ class MCPToolGateway:
         exclude the default transport by typing alone. Idempotent, and safe when
         no tool was ever dispatched -- nothing was spawned and there is nothing
         to reap.
+
+        Closing is final. A gateway that could be reopened would rebuild its
+        server map from the factory, so a call arriving after shutdown would
+        spawn a *fresh* child process -- silently reopening the process boundary
+        the shutdown just closed, on a handle whose owner nobody will ever
+        reap, because the worker's ``aclose`` has already returned once. The
+        next ``aclose`` would then find nothing to close. That is a leak that
+        only the container restarting clears, produced by exactly the sequence
+        (call, close, call) that looks like a harmless mistake. So the gateway
+        stays shut: a later call is refused with a result, which is what this
+        layer owes its caller anyway.
         """
+        self._closed = True
         servers, self._servers = self._servers, None
         if servers is None:
             return
@@ -423,7 +494,13 @@ class MCPToolGateway:
         (``docs/mcp-contracts.md`` §4), never by this gateway, so a dispatch
         attempt reaching here for it is a wiring bug that should fail loudly
         rather than silently gain an MCP server.
+
+        Returns ``None`` once :meth:`aclose` has run, for the reason that method
+        documents. ``None`` is what the caller already turns into a
+        ``server_unavailable`` result, so the refusal needs no new code path.
         """
+        if self._closed:
+            return None
         if server_name not in _KNOWN_SERVERS:
             return None
         if self._servers is None:

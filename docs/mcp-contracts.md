@@ -1,8 +1,8 @@
 # MCP Server Contracts
 
 Three demo MCP servers. Each is a real MCP server (official Python SDK), each
-owns its own SQLite file, each is deterministic. They stand in for Salesforce,
-Stripe and Jira.
+owns its own JSON file (`mcp_servers/_store.py`), each is deterministic. They
+stand in for Salesforce, Stripe and Jira.
 
 Implementation: `mcp_servers/{crm,billing,issues}/server.py`.
 
@@ -338,20 +338,37 @@ in the main `test` job rather than in `mcp-contract`.
 
 Everything in §6 runs **in-process**, which covers every contract above — the
 schemas, the structured errors, the idempotency behaviour — and skips only the
-pipe. Three tests cover the pipe, in `tests/integration/test_mcp_stdio_transport.py`:
+pipe. `tests/integration/test_mcp_stdio_transport.py` covers the pipe (40 tests,
+of which the ones that actually spawn a child outnumber the pure-parser
+assertions). The three that matter most:
 
 1. `crm.get_customer` is answered by a real child process, verified by checking
    that a `crm` server process actually appeared in the OS process table while
-   the call was in flight (not by inspecting the gateway's own state, which
-   would pass just as well if nothing had been spawned).
+   the call was in flight — not by inspecting the gateway's own state, which
+   would pass just as well if nothing had been spawned. The helper that does the
+   looking explicitly excludes its own `powershell` probe from the match and
+   fails the test if it cannot enumerate at all, because the first version of
+   this check matched the probe and made the assertion below it vacuous; a
+   sibling test asserts that self-check directly, with no server running.
 2. One server is spawned **once** and reused across calls, and `aclose` reaps
    it — the two facts that make a per-call respawn, and a per-run leak,
-   failures rather than performance details.
+   failures rather than performance details. Both are asserted on the PID that
+   was observed going in rather than on a count, because a count taken against a
+   moving baseline absorbs an extra process.
 3. A server that cannot start surfaces as a named error naming the command and
    quoting the child's own stderr, rather than as `ExceptionGroup: unhandled
    errors in a TaskGroup (1 sub-exception)`.
 
-The suite runs these with `MCP_TRANSPORT=stdio` **for those tests only**. The
-default transport stays in-process for everything else, because flipping it would
-change what the other 660-odd tests exercise, and a subprocess server owns its
-own on-disk store, so tests sharing one would leak state into each other.
+**There is no `MCP_TRANSPORT=stdio` environment variable in the test suite**, and
+none is needed. Isolation is by construction rather than by process environment:
+each test builds its own `Settings(MCP_TRANSPORT="stdio")` in-process and hands
+it to its own `MCPToolGateway`, so the transport is a per-object decision and
+the ambient environment cannot affect it. (A `MCP_TRANSPORT` in the surrounding
+shell *would* reach `Settings`, so an operator running pytest with it exported
+can still influence the default-path tests — which is one more reason the stdio
+tests do not rely on it.)
+
+The default transport stays in-process for the rest of the suite, because
+flipping it would change what the other ~670 tests exercise, and a subprocess
+server owns its own on-disk store, so tests sharing one would leak state into
+each other.
