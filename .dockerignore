@@ -1,0 +1,100 @@
+# What the Docker build context must NOT contain.
+#
+# The build context is everything sent to the daemon before a single line of the
+# Dockerfile runs. On this repository that would otherwise include a `.venv/`
+# with 200+ MB of Windows wheels, `web/node_modules/` with the full Next.js
+# dependency tree, and several SQLite databases left by local test runs -- none
+# of which the image needs, all of which slow every build and can leak local
+# state into an image. The rules below are the same set `.gitignore` uses where
+# the reasons coincide, plus the image-specific exclusions it has no opinion on.
+#
+# This is `.dockerignore`, not `.gitignore`: a file can be committed (so the
+# build legitimately needs it) while still being useless to the image, and the
+# two lists are kept separate for exactly that reason.
+
+# ---- Version control ----
+# `.git` is the single largest thing in many checkouts and nothing in the image
+# reads it. Excluded here even though the Dockerfiles do not COPY it, because
+# the context is sent before the Dockerfile chooses what to COPY.
+.git
+.gitignore
+.gitattributes
+
+# ---- Secrets ----
+# These must never reach an image layer. `.env` is already gitignored; this is
+# the second lock on the same door, because a `COPY . .` that forgot to exclude
+# it would bake the operator token -- a refund-capable credential -- into a
+# layer. The rendered image gets its configuration from the environment the
+# operator supplies at run time (compose `env_file`), never from a copied file.
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ---- Python: virtualenv, bytecode, caches, build artifacts ----
+# The image builds its own environment from pyproject.toml. A copied `.venv`
+# would be a Windows venv inside a Linux image: wrong interpreter, wrong wheels,
+# and hundreds of megabytes that shadow nothing useful.
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage.xml
+.coverage
+coverage.json
+htmlcov/
+
+# ---- Local databases and runtime state ----
+# `*.db` is the SQLite file the test suite and local dev produce; `.opspilot-data`
+# is where the MCP store writes its working copy. Both are runtime artefacts of
+# the host, and the container writes its own to a mounted volume instead.
+*.db
+*.sqlite
+*.sqlite3
+data/
+.opspilot-data/
+
+# ---- Frontend ----
+# `node_modules` is reinstalled inside the web image from package-lock.json (and
+# `npm ci` requires the lockfile, which is NOT excluded). `.next` is the local
+# build output; the image makes its own. `web/Dockerfile` is excluded from the
+# Python image's context only transitively -- it is tiny, so it is left in and
+# simply not copied.
+node_modules/
+.next/
+out/
+.turbo/
+tsconfig.tsbuildinfo
+
+# ---- Local working notes and eval run output ----
+# Scratch notes and per-run eval output are host artefacts. `evals/datasets/`
+# (the fixtures the eval harness reads) is deliberately NOT excluded -- the
+# `opspilot-eval` entry point lives in the same image and needs them.
+.scratch/
+evals/results/*
+
+# ---- Editors / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+README.md
+docs/
+
+# ---- Docker files themselves ----
+# Not needed inside any image, and keeping them out makes a build-context change
+# to a Dockerfile not invalidate unrelated layers.
+docker-compose.yml
+.dockerignore
+Dockerfile
+web/Dockerfile

@@ -1,0 +1,344 @@
+# docker-compose.yml -- the whole OpsPilot system on one host.
+#
+# `docker compose up` brings up: postgres, migrate, api, worker, web.
+#
+# NOT VERIFIED. Docker is not installed on the machine this was written on
+# (docs/adr/0004 records the same absence for the test suite's postgres marker),
+# so nothing here has been through `docker compose up`, `docker compose config`
+# or a build. Every command, path and entry point below was checked against the
+# source that defines it, but a Compose file that has never been up is the least
+# verified artefact in this repository. Treat the first run as a debugging
+# session, not a smoke test.
+
+name: opspilot
+
+services:
+  # -------------------------------------------------------------------------
+  # postgres -- the store the API and worker share.
+  # -------------------------------------------------------------------------
+  postgres:
+    # The pgvector image, not plain `postgres`. The initial migration runs
+    # `CREATE EXTENSION IF NOT EXISTS vector` and declares an `hnsw` index
+    # (migrations/versions/0001_initial_schema.py), and the `vector` extension
+    # is not present in the official `postgres` image -- the migration would
+    # fail on its first statement. The tag pins the Postgres major (16) and the
+    # pgvector version, so a rerun months later resolves the same image.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: opspilot
+      POSTGRES_PASSWORD: opspilot
+      POSTGRES_DB: opspilot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Published so a developer can reach the database from the host (psql, a
+      # migration run outside Docker). It is a local-development convenience;
+      # an operator deploying this elsewhere would remove it.
+      - "5432:5432"
+    healthcheck:
+      # `pg_isready` ships with the image. The `-U`/`-d` are named so the check
+      # proves the specific database is accepting connections, not merely that a
+      # postmaster is listening. The migrate service gates on this being
+      # healthy, so a false "ready" here would let migrations run against a
+      # server still initialising.
+      test: ["CMD-SHELL", "pg_isready -U opspilot -d opspilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # migrate -- run the schema to head, ONCE, before anything serves.
+  # -------------------------------------------------------------------------
+  #
+  # Migrations are a separate service, not a step in the api container's
+  # entrypoint, for two reasons:
+  #
+  #   1. Both the api AND the worker need the schema. If the api ran migrations
+  #      in its own command, a deployment that brought the worker up first (or
+  #      restarted only the worker) would race an unmigrated database, and two
+  #      replicas of the api would race each other running `alembic upgrade`
+  #      concurrently. A one-shot service run to completion exactly once, which
+  #      both others depend on, removes both races.
+  #   2. `alembic upgrade head` on an already-migrated database is a no-op, but a
+  #      failed migration is a hard stop. As its own service, a failure is a
+  #      container that exits non-zero and blocks every dependent -- visible --
+  #      rather than a crash loop inside a container the operator thought was
+  #      the API.
+  #
+  # `service_completed_successfully` is the condition that gives this its
+  # meaning: api and worker do not start until this exits 0.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      # The migration connects with the same URL the app uses. alembic.ini does
+      # not hold a URL; migrations/env.py reads it from opspilot.settings, which
+      # reads this environment. There is one place a deployment configures its
+      # connection.
+      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      # The migration itself does not need the token, but the settings object
+      # is constructed by migrations/env.py and settings has no token
+      # requirement of its own -- only the API enforces that at startup. Given
+      # here so a future migration that imports more of the app cannot fail on
+      # a missing value it does not read.
+      OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # No restart policy: this is meant to run once and stay exited. A restart
+    # policy would turn a failed migration into a retry loop.
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # api -- the FastAPI app under uvicorn.
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["opspilot-api"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      # REQUIRED, with no default. The API refuses to start without it
+      # (api/auth.py::ensure_operator_token_configured). The `:?` form makes
+      # Compose itself refuse to render the file when the variable is unset, so
+      # the failure is "compose will not start" rather than a container that
+      # exits with the token error -- a clearer message at the earlier layer.
+      #
+      # It is read from the environment (or a gitignored .env beside this file),
+      # NEVER written here. A token in this file is a token in git, and these
+      # endpoints issue refunds.
+      OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+      # The dashboard is served on http://localhost:3000 by the web service.
+      # CORS names exactly that origin; a wildcard is refused by the settings
+      # validator (settings.py::WildcardCorsOrigin) and would, with
+      # allow_credentials, be rejected by Starlette anyway.
+      OPSPILOT_CORS_ORIGINS: ${OPSPILOT_CORS_ORIGINS:-http://localhost:3000}
+      # Provider selection. Defaults to `fake`, which needs no key and replays
+      # the recorded golden path -- the same default .env.example documents, so
+      # `docker compose up` on a fresh clone runs the demo with no credentials.
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-fake}
+      MODEL_NAME: ${MODEL_NAME:-}
+      # Blank unless the operator sets them; an empty key is a real
+      # configuration for the fake provider and the adapters are never built
+      # when MODEL_PROVIDER is not anthropic/openai.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Bind all interfaces inside the container. The entry point defaults to
+      # 127.0.0.1, which would be unreachable through a published port.
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      # The in-process MCP servers write their JSON stores here; the volume
+      # below makes those writes survive a container replacement. The API does
+      # not itself call the tools, but it shares the image and this is where the
+      # path is baked; naming it here keeps the two services symmetric.
+      OPSPILOT_MCP_DATA_DIR: /data/mcp
+    ports:
+      - "8000:8000"
+    volumes:
+      # A shared volume for the MCP servers' JSON stores. The worker's gateway
+      # builds the three servers in-process and they persist mutations (a refund
+      # writes billing.json); without a volume, a worker restart would silently
+      # reset the refund idempotency store, which is the state the
+      # duplicate-refund defence consults. The api mounts the same volume so a
+      # reindex on one and a read on the other see one dataset.
+      - mcp-data:/data/mcp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        # THE gate that makes "migrations before serving" true. The api does not
+        # start until the migration container has exited 0.
+        condition: service_completed_successfully
+    healthcheck:
+      # KEYED ON /ready, NOT /health -- and this is load-bearing, per
+      # docs/api-contract.md §7. `/health` answers whenever the process is up,
+      # including one pointed at an unmigrated database; `/ready` checks the
+      # database and that alembic_version is at head. A worker waiting on
+      # /health would start against a schema that does not exist and fail three
+      # layers down with "relation does not exist"; waiting on /ready means it
+      # starts only when the database can actually serve it.
+      #
+      # NOTE, and it is a real limitation: nothing in the source binds a
+      # readiness_check onto app.state (api/app.py), so today /ready reports
+      # `{"database":"ok","migrations":"ok"}` unconditionally -- the route's
+      # documented behaviour when no checker is bound (routers/health.py). The
+      # probe below therefore currently proves only that the app is up. The
+      # keying is still correct, and becomes the intended check the moment a
+      # checker is wired.
+      #
+      # The check uses the stdlib app's own health route through Python's
+      # urllib, because the slim image has no curl or wget. `urlopen` raises on
+      # a non-2xx response, so a bare `urlopen(...).status == 200` would exit on
+      # an unhandled URLError rather than on the intended status check -- hence
+      # the explicit try/except: a 503 and a connection refusal both mean
+      # "not ready", and both must exit non-zero *cleanly*.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys;\ntry:\n    sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status == 200 else 1)\nexcept Exception:\n    sys.exit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # worker -- the poll loop that drains the run table.
+  # -------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["opspilot-worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      # The worker does not serve HTTP and does not check a token, but it builds
+      # the same Settings object. Passed through for the same reason as in
+      # `migrate`: one settings object, one place a value is missing.
+      OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-fake}
+      MODEL_NAME: ${MODEL_NAME:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      # Which golden-path scenario the fake provider replays. Without it, a
+      # `MODEL_PROVIDER=fake` worker dies at `classifying` with
+      # UnmatchedFixtureError (settings.py::fake_scenario). This default is what
+      # makes `docker compose up` actually complete a run on a fresh clone.
+      OPSPILOT_FAKE_SCENARIO: ${OPSPILOT_FAKE_SCENARIO:-duplicate_charge}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
+      # Unique per worker process. A named value rather than the pid fallback,
+      # so a run claimed in this deployment is attributable to *this* container
+      # rather than to a bare `worker-1234` that says nothing about which host.
+      WORKER_ID: ${WORKER_ID:-worker-compose}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPSPILOT_MCP_DATA_DIR: /data/mcp
+    volumes:
+      # The same store volume the api mounts. The worker is the process that
+      # actually calls the tools, and billing.issue_refund persists there; the
+      # refund idempotency guarantee is a property of that file, so it must
+      # outlive the container.
+      - mcp-data:/data/mcp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        # KEYED ON THE API'S HEALTH, WHICH IS KEYED ON /ready (see the api
+        # healthcheck above). This is docs/api-contract.md §7's instruction --
+        # the worker should wait for a *ready* API, never a merely live one.
+        # Because the api's healthcheck is /ready, this one condition carries
+        # both meanings; there is no separate /health probe to get wrong.
+        condition: service_healthy
+    # No healthcheck: the worker serves no HTTP endpoint, so there is nothing to
+    # probe. Its liveness is its log output and its process state, which
+    # `docker compose ps` reports. A TCP probe on a port it does not open would
+    # be a check that always fails or a port invented to satisfy it.
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # web -- the Next.js dashboard.
+  # -------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # Inlined into the browser bundle at build time, deliberately: it is a
+        # URL, not a credential, and the browser needs to reach the API for
+        # client-side fetches. The value is the API's *published* address
+        # (localhost:8000), because "localhost" in the browser means the user's
+        # machine, not the compose network -- a container hostname here would be
+        # unreachable from the browser.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    environment:
+      # READ AT RUN TIME, SERVER-SIDE ONLY. No NEXT_PUBLIC_ prefix, so it is
+      # never inlined into the bundle -- web/src/lib/api/client.ts reads it in
+      # Server Components and Route Handlers. This is the same operator token
+      # the api checks; it must match exactly.
+      OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+      # At run time the server-side fetches go straight to the api service on
+      # the compose network, which resolves the service name `api`. This differs
+      # from the build arg above on purpose: the browser uses the published
+      # localhost URL, the server uses the internal one. When they were the same
+      # value one of the two would be wrong.
+      #
+      # NOTE: client.ts reads NEXT_PUBLIC_API_BASE_URL for both paths today, so
+      # in this configuration server-side fetches use the localhost URL too --
+      # which works because the port is published. A future split (a separate
+      # server-side base URL) would use this variable.
+      API_INTERNAL_BASE_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        # The dashboard checks API reachability on load
+        # (client.ts::checkApiReachability). Starting before the API is ready
+        # would render the "could not reach the API" panel on first paint --
+        # true for a moment, misleading as a first impression. Gating on
+        # service_healthy (which is /ready) removes that.
+        condition: service_healthy
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # THERE ARE NO MCP SERVER SERVICES HERE, AND THAT IS DELIBERATE.
+  # -------------------------------------------------------------------------
+  #
+  # docs/milestones.md §M9 says `docker compose up` brings up "three MCP
+  # servers", and docs/mcp-contracts.md describes them as "sibling processes in
+  # Compose". Neither is implemented, and adding three services would produce
+  # three containers that start, block on stdin, and serve nothing. Why:
+  #
+  #   1. The servers are stdio, not HTTP. Each one ends in
+  #      `server.run(transport="stdio")` (mcp_servers/crm/server.py:290,
+  #      billing/server.py:385, issues/server.py). A stdio MCP server is a
+  #      child of the process that speaks to it, over a pipe. It has no port
+  #      and no listener, so there is nothing for a Compose healthcheck or a
+  #      sibling container to connect to.
+  #
+  #   2. The gateway builds them IN-PROCESS. MCPToolGateway.__init__ defaults
+  #      server_factory to build_in_process_servers (mcp_gateway.py:167), which
+  #      constructs the three MCPServer objects and calls
+  #      `await server.call_tool(...)` directly -- no subprocess, no transport
+  #      (mcp_gateway.py:96-144). The worker's own comment says so: the gateway
+  #      "builds its three MCP servers in-process on first use. It does not take
+  #      the MCP_*_COMMAND settings" (worker/__main__.py:374).
+  #
+  #   3. The MCP_*_COMMAND settings are dead. `grep -rn mcp_crm_command src/`
+  #      finds only the settings declaration and .env.example; nothing reads
+  #      them. They name stdio subprocesses a deployment *could* spawn, but no
+  #      code path spawns them.
+  #
+  # So the three MCP servers live inside the `api` image (src/ and mcp_servers/
+  # are both copied into it) and inside the `worker` container, and the golden
+  # path exercises the full MCP layer -- registration, JSON schema, structured
+  # output -- minus the stdio pipe. The shared `mcp-data` volume is what gives
+  # their JSON stores the durability a separate service would have had.
+  #
+  # §M9's "three MCP servers" clause is therefore NOT MET as literally written.
+  # That is a design gap, not a Compose-file omission: it cannot be fixed here
+  # without either (a) changing the servers to HTTP/SSE transports, or (b)
+  # wiring the gateway to spawn stdio subprocesses from MCP_*_COMMAND. Both are
+  # runtime changes to src/, which this task is explicitly scoped not to make.
+
+volumes:
+  # Named volumes so data survives `docker compose down` (without `-v`).
+  postgres-data:
+  mcp-data:
