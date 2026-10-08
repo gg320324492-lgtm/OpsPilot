@@ -119,3 +119,31 @@ def test_the_documented_command_is_bare_mypy() -> None:
         "the documented command and the configured set no longer agree. Run bare "
         "`mypy` and let the config name the files."
     )
+
+
+def test_ruff_checks_the_scripts_tree() -> None:
+    """``scripts/`` must be inside ruff's configured paths.
+
+    The same defect this file exists for, found again in a different tool. Two
+    shipped scripts sit outside ruff's ``src`` list: ``openapi_schema.py``,
+    which generates the dashboard's types from the live OpenAPI document, and
+    ``demo_golden_path.py``, which produces the README's demo. Nothing checked
+    either -- ``ruff check src tests`` names two of the four configured trees and
+    ``scripts`` was not a fifth.
+
+    They happened to be clean, which is exactly what made the gap survivable:
+    a scope that is wrong and empty looks identical to a scope that is right and
+    clean until the day someone adds a file.
+    """
+    import tomllib
+
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    paths = config["tool"]["ruff"]["src"]
+
+    assert "scripts" in paths, (
+        f"ruff's configured paths are {paths}, which excludes scripts/. CI runs "
+        "`ruff check` bare, so anything added there is never linted. Add it."
+    )
+
+    shipped = sorted(p.name for p in (REPO_ROOT / "scripts").glob("*.py") if p.is_file())
+    assert shipped, "scripts/ is empty, so the setting names nothing"

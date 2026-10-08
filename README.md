@@ -100,6 +100,41 @@ Complete      ✓  COMPLETED  — full trace persisted, replayable
 Re-running the same refund produces `replayed: true` and **no second refund**.
 That is tested by calling the MCP server directly, bypassing the agent.
 
+### Watch it run
+
+![The golden path end to end on the deterministic provider: the API certifies /ready against the database, the duplicate-charge ticket is submitted and parks at WAITING_APPROVAL, a human approves, and the worker executes the refund exactly once](docs/assets/golden-path.gif)
+
+*A real run, recorded from `scripts/demo_golden_path.py` on `MODEL_PROVIDER=fake`
+— a scripted replay with no API key, so it produces the same trace every time.
+It shows `/ready` certifying against the database, the ticket being submitted,
+the run parking at `WAITING_APPROVAL`, the approval, and the worker executing
+the refund; the last line is the billing server's own answer, not the run's.*
+
+**What this recording is, precisely.** The API is the real FastAPI app served by
+uvicorn, and the worker is the real poll loop, but they run **in one process** —
+which is how the script has to run them, because on SQLite the vector store
+keeps embeddings in process memory (`adapters/wiring.py`), so a two-process
+deployment cannot retrieve anything and the run abstains instead of refunding.
+That limitation is real, documented, and in
+[limitations.md](docs/limitations.md). What the GIF proves is that the
+deterministic path does refund exactly once, and that the API surface, the
+approval gate and the worker all behave as documented. It is not a
+demonstration of the two-process deployment.
+
+Reproduce it:
+
+```bash
+./.venv/Scripts/python.exe scripts/demo_golden_path.py    # run it, read the output
+node scripts/record_demo_gif.mjs                          # re-record the GIF
+```
+
+The vhs tape is committed at [`docs/demo/golden-path.tape`](docs/demo/golden-path.tape).
+It is correct, but it is **not** how the committed GIF was made: `vhs` cannot
+record on this machine (its ttyd capture renders blank without WebGL, and its
+GIF encoder writes no file), so the frames were captured the same way — real
+screenshots of the real terminal — and encoded with the system ffmpeg. The tape
+says so at the top, so nobody re-runs it expecting it to work.
+
 ## Why this is not another chatbot
 
 Most agent demos show a model calling a tool. The interesting question is what
@@ -118,6 +153,72 @@ happens when the model is wrong, or is talked into being wrong.
 The claim is narrow and testable: **the model cannot cause a side effect, and
 retrieved text cannot widen what the model may do.** It is not a claim that the
 model cannot be fooled.
+
+## The five demo scenarios
+
+The interesting cases are not all successes. Each of the five below is an
+end-to-end scenario in [`tests/agent/test_readme_scenarios.py`](tests/agent/test_readme_scenarios.py),
+driven through the **real** worker loop, the **real** MCP servers and the **real**
+retrieval stack over the committed corpus. Every one of them asserts against the
+**billing server**, not against the run's own status: a run that says
+`COMPLETED` proves nothing about whether a refund row exists, so the tests ask
+the thing that holds the money.
+
+Run any one of them on its own:
+
+```bash
+pytest tests/agent/test_readme_scenarios.py::test_scenario_1_golden_path_refunds_once_after_approval
+```
+
+**1. The golden path — a refund, exactly once.**
+The duplicate-charge ticket from above is investigated, proposes
+`billing.issue_refund`, parks at `WAITING_APPROVAL`, a human approves, and the
+worker executes it. Proves that after the approval the billing server reports
+**exactly one** refunded transaction (TX-88219), the legitimate charge
+(TX-88218) is untouched, and the server's own store holds exactly one refund row
+for the right amount.
+→ `test_scenario_1_golden_path_refunds_once_after_approval`
+
+**2. Reject — no money moves.**
+A human declines the refund. Proves that a rejection is the workflow *working*,
+not failing: the run goes `WAITING_APPROVAL → RESPONDING → COMPLETED` with an
+escalation reply, the server shows **no** refunded transaction and **no** refund
+row, the legitimate charges are still `charged`, and the agent never issued an
+executed `billing.issue_refund` call at all.
+→ `test_scenario_2_reject_escalates_without_refunding`
+
+**3. Already refunded — correctly do nothing.**
+The duplicate was refunded in a previous contact (the precondition is seeded
+directly against the server first). The run reads the transaction's status and
+`refund_id`, recognises there is nothing more to do, and completes. Proves the
+abstention is real: the run **never enters `WAITING_APPROVAL`**, creates **no**
+approval row, proposes **no** refund — yet it still investigated
+(`billing.list_transactions` executed) — and the server still shows exactly the
+one refund the precondition created, unchanged. The correct outcome here is a
+non-event, which is exactly the kind of case a status-only assertion misses.
+→ `test_scenario_3_already_refunded_completes_without_a_second_refund`
+
+**4. Re-run after interruption — no double refund.**
+A worker dies in the window where the refund has already moved the money at the
+server but the run has not recorded that it did. Proves that a restarted worker
+resumes the approved run and a subsequent fresh re-run cannot refund a second
+time: the server ends with one refunded transaction and one refund row, and the
+same-key retry replays (`replayed: true`) rather than double-charging the card.
+→ `test_scenario_4_rerun_after_interruption_does_not_double_refund`
+→ `test_scenario_4b_boot_preserves_a_decision_and_sweeps_the_rest`
+
+**5. MCP server down — fail cleanly.**
+The billing server is unreachable. Proves the run ends `FAILED(mcp_unavailable)`
+with the machine-stable reason, writes **no** partial refund row to the billing
+store, records **no** tool call as executed or awaiting approval, audits the
+failure, and is not claimable again afterwards.
+→ `test_scenario_5_mcp_server_down_fails_cleanly_with_no_partial_write`
+
+Alongside the five, §M6's sixth criterion has its own test: the worker **parks
+on approval and stays alive**, and approving later resumes the run under a
+**fresh** worker that restarted in between, executing the *approved* tool call
+rather than re-planning.
+→ `test_worker_parks_stays_alive_and_resumes_after_a_restart`
 
 ## Architecture
 

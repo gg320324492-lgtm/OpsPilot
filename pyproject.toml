@@ -138,7 +138,12 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests", "evals", "mcp_servers"]
+# `scripts/` is here because `openapi_schema.py` generates the dashboard's
+# types from the live schema and `demo_golden_path.py` produces the README's
+# demo -- both are shipped code that CI would otherwise never look at. That is
+# the same shape as the `mypy` `files` list, which sat unexecuted for the whole
+# of M0-M7 because every command named a narrower path than the config did.
+src = ["src", "tests", "evals", "mcp_servers", "scripts"]
 # `docs/` holds the human-authored specification. Ruff >= 0.16 reformats fenced
 # Python blocks inside Markdown, which would rewrite the spec text itself. The
 # spec is an input artifact and is reviewed as prose, so it is excluded.
@@ -209,6 +214,15 @@ ignore = [
 "src/opspilot/**/__main__.py" = ["T20", "TRY003"]
 "src/opspilot/mcp_servers/seed.py" = ["T20"]
 "src/opspilot/evals/*.py" = ["T20"]
+# The golden-path demo, whose stdout *is* the deliverable: it exists to be read
+# and to be recorded into the README GIF, so routing it through logging would put
+# the thing being demonstrated one layer away from the reader. T201 is the
+# reason; S105 is here for the same reason it would be for any CLI -- the
+# operator token is a pinned local development value so the recording is
+# reproducible, and it is the same literal already committed in `.env`; S310 is
+# the audit on `urllib.request`, and the URL is a `127.0.0.1` constant this file
+# defines, not caller-supplied.
+"scripts/demo_golden_path.py" = ["T20", "S105", "S310"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation
