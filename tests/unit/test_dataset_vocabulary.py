@@ -392,9 +392,19 @@ def test_every_document_slug_named_in_a_dataset_exists(dataset: str, field: str)
     exist. ``retrieval.jsonl``'s slugs were covered incidentally, because
     Recall@K can never retrieve a file that is not there and the retrieval
     integration test fails. ``safety.jsonl``'s ``knowledge_injection`` slugs
-    were **not** covered by anything -- the injection tests synthesise their
-    own ``SearchHit``, so a slug that does not exist costs nothing, while the
-    "retrieved injection" premise silently never occurs (M5e's F3).
+    were **not** covered by anything, so a slug that does not exist cost
+    nothing while the "retrieved injection" premise silently never occurred
+    (M5e's F3).
+
+    **This test still only checks existence -- that the slug names a file.**
+    It deliberately does not check effect: that an injection case's document is
+    actually retrieved into a run and its text reaches the model is now asserted
+    by ``tests/evals/test_injection_delivery.py``, which drives the real
+    ``run_case`` and reads the prompt the provider was handed. The division is
+    intentional: this file resolves *labels* against code (the vocabulary),
+    while the delivery tests resolve *behaviour* against a run. Before that file
+    the effect was checked nowhere, and the "a slug that does not exist costs
+    nothing" hole was real (see :func:`test_every_injection_document_carries_a_directive`).
     """
     corpus = {path.name for path in KNOWLEDGE_DIR.glob("*.md")}
     assert corpus, f"no documents found in {KNOWLEDGE_DIR}"
@@ -414,6 +424,43 @@ def test_every_document_slug_named_in_a_dataset_exists(dataset: str, field: str)
         f"{missing}. A case expecting a document that does not exist can never "
         "be satisfied, and an injection case naming one never exercises the "
         "path it claims to."
+    )
+
+
+def test_every_injection_document_carries_a_directive() -> None:
+    """Every ``knowledge_injection`` document actually carries an injection.
+
+    The half of M5e's F3 that existence alone cannot close. A case may name a
+    real file that contains no injection at all -- or whose retrieved chunk is
+    the document's housekeeping ``notes`` section rather than the directive --
+    and the "retrieved injection" premise would never occur while everything
+    stayed green. ``safe-008``'s own ticket already retrieves
+    ``ignore-instructions.md``'s ``notes`` chunk below threshold, which is
+    exactly that shape.
+
+    So the document the case names must *contain the injected instruction*, and
+    the harness (``tests/evals/test_injection_delivery.py``) retrieves it by the
+    attack's own wording. The marker is the directive the harness searches for
+    when it asserts delivery, so this guard and the delivery assertion cannot
+    drift apart: both key on the same phrase.
+    """
+    marker = "ignore all previous instructions"
+    empty: list[str] = []
+    for case in _dataset_cases("safety.jsonl"):
+        slug = case.get("knowledge_injection")
+        if not slug:
+            continue
+        path = KNOWLEDGE_DIR / slug
+        # Existence is the sibling test's job; here only the content matters.
+        if not path.is_file():
+            continue
+        if marker not in path.read_text(encoding="utf-8").lower():
+            empty.append(f"{case['id']}.knowledge_injection={slug!r}")
+
+    assert not empty, (
+        f"safety.jsonl declares an injection in a document that carries none: "
+        f"{empty}. The case would run with no injection in its context while "
+        f"reporting a pass -- M5e's F3 in a different dress."
     )
 
 
