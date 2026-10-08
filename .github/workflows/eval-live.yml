@@ -1,0 +1,75 @@
+# eval-live — a real model run over all four datasets.
+#
+# `workflow_dispatch` only, and never on push. `docs/evals.md` §5 and
+# `docs/limitations.md` both state why: a live eval costs money and is
+# non-deterministic, so a model's bad day must not turn a push red. It is run by
+# a human, on purpose, when a run is wanted.
+#
+# The API key is the one secret in the repository's workflows. It is read only
+# from `secrets`, only here, and is passed through the environment to the one
+# process that needs it. Nothing echoes it: `runner.py` reports the model that
+# answered, never the credential, and no step prints the environment.
+
+name: eval-live
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Model provider"
+        required: true
+        default: anthropic
+        type: choice
+        options:
+          - anthropic
+          - openai
+      model:
+        description: "Model name (empty = provider default)"
+        required: false
+        default: ""
+        type: string
+
+# No push trigger, so no cancel-in-progress to fight: one dispatch, one run.
+concurrency:
+  group: eval-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  eval-live:
+    name: eval-live (${{ inputs.provider }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Run the full evaluation against a live provider
+        # `env:` rather than `run: --key=${{ secrets... }}` so the value never
+        # appears in the command line, where GitHub would print it in the log.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          args=(run --provider "${{ inputs.provider }}")
+          if [ -n "${{ inputs.model }}" ]; then
+            args+=(--model "${{ inputs.model }}")
+          fi
+          python -m opspilot.evals "${args[@]}"
+
+      - name: Upload the results file
+        # The run's record, with the provider, model and date -- the artifact a
+        # README number is quoted from. Uploaded rather than committed: a live
+        # result is a fact about a route on a day, and the repository commits
+        # only the run the README cites.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-live-results
+          path: evals/results/*.json
+          if-no-files-found: warn
