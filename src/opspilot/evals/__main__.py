@@ -643,19 +643,29 @@ def _reported_model(results: list[dict[str, object]]) -> str:
 
     Distinct from the requested model, and the distinction is measured rather
     than theoretical. Against the local gateway, a run configured with
-    ``MODEL_NAME=claude-sonnet-5-5`` produced 53 ``model_called`` events all
-    reporting ``deepseek-v4.1-flash`` -- and every one of the five ``claude-*``
-    names tried, plus ``totally-bogus-model-name``, routed to that same backend.
-    The requested name is a label a deployment sets; the reported name is the
-    route that answered.
+    ``MODEL_NAME=claude-sonnet-5-5`` produced events reporting
+    ``deepseek-v4.1-flash`` -- and every ``claude-*`` name tried, plus
+    ``totally-bogus-model-name``, routed to that same backend. The requested name
+    is a label a deployment sets; the reported name is the route that answered.
 
     ``docs/evals.md`` §3 requires the results file to record the model *so the
     numbers are attributable*. Naming the request would attribute a measurement
     to a model that did not produce it, which is the one thing a results file
     must not do.
 
-    Returns ``""`` when no call reported a name, so the caller can fall back to
-    the requested one rather than recording an empty string.
+    **Only calls carrying a usage record are counted, and that restriction is
+    load-bearing.** ``choose_tool`` returns a bare proposal with no usage, so its
+    event falls back to the *configured* name -- 299 of them in the first
+    full-scale run, against 96 real ones. Counting every event made the
+    configured name the most frequent and the results file recorded
+    ``claude-sonnet-5-5`` for a run whose answers all came from
+    ``deepseek-v4.1-flash``: the exact misattribution this function exists to
+    prevent, reintroduced by the counting rule rather than by the fallback.
+    ``tokens_available`` is what distinguishes an observed name from a defaulted
+    one, so it is the filter.
+
+    Returns ``""`` when no call reported an observed name, so the caller can fall
+    back to the requested one rather than recording an empty string.
     """
     counts: dict[str, int] = {}
     for result in results:
@@ -663,10 +673,11 @@ def _reported_model(results: list[dict[str, object]]) -> str:
         if not isinstance(calls, list):
             continue
         for call in calls:
-            if isinstance(call, dict):
-                name = call.get("model")
-                if isinstance(name, str) and name:
-                    counts[name] = counts.get(name, 0) + 1
+            if not isinstance(call, dict) or not call.get("tokens_available"):
+                continue
+            name = call.get("model")
+            if isinstance(name, str) and name:
+                counts[name] = counts.get(name, 0) + 1
     if not counts:
         return ""
     # Most frequent wins, with ties broken by name so a run that touched two

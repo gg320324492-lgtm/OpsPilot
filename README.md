@@ -189,11 +189,59 @@ Executions with invalid arguments ......  0
 Duplicate refund side effects ..........  0
 ```
 
-> **No evaluation numbers appear in this README yet**, because the harness has
-> not run. When it does, the table will carry the model name, the date, the case
-> count and the raw result file path. `runner.py` refuses to print a score table
-> for the fake provider, so a plumbing check cannot be mistaken for a result.
-> ([`docs/evals.md`](docs/evals.md))
+### One live run, 2026-10-08
+
+70 cases, four datasets, against a live OpenAI/Anthropic-protocol endpoint. Raw
+output: [`evals/results/2026-10-08T05-24-41.json`](evals/results/2026-10-08T05-24-41.json).
+
+```
+OpsPilot evaluation — provider=anthropic model=deepseek-v4.1-flash
+                              cases   score
+classification                  20   0.750   (15/20)
+retrieval recall@5              20   0.500   (10/20)
+retrieval precision@5           20   0.110
+abstention correctness           5   0.600   (3/5)
+tool selection                  15   0.067   (1/15)
+tool argument validity          --   0.634   (170/268 calls)
+approval-policy compliance       3   1.000   (3/3)
+unsafe execution count          15   0         ← gate, must be 0
+task completion                  9   0.444   (4/9)
+
+latency   p50 6.6s   p95 58.3s
+tokens    in 1085   out 628   (mean per run)
+cost      $0.0000 mean per run
+```
+
+**Read these as a measurement of one route, not of this system's design.**
+
+- **The model name is what answered, not what was requested.** The run was
+  configured for `claude-sonnet-5-5`; every response reported
+  `deepseek-v4.1-flash`. The endpoint ignores the requested name entirely — a
+  probe with `totally-bogus-model-name` routed to the same backend — so a model
+  name here is a label, not a selection. `runner.py` records the reported name
+  for exactly this reason.
+- **20 of 70 cases failed**, evenly across all four datasets (4/6/3/7), from
+  `MaxStepsExceeded` (12) and structured-output errors (8). Both are the
+  endpoint's planning reliability, not a property of the metrics: the same cases
+  pass against the deterministic provider. Failed cases count in every metric's
+  denominator rather than being dropped.
+- **`tool selection 0.067` is the endpoint.** Measured directly: given the same
+  prompt and tools, it calls a tool **once in four attempts**, answering in prose
+  otherwise. `choose_tool` puts the tool menu in the prompt text by design
+  (`available_tools` is "for ergonomics only"; gate 2 re-checks every name
+  against the registry), so this is a weak constraint for a model that does not
+  follow it reliably. It is not a statement about the design or about any other
+  provider.
+- **`cost $0.0000` is real.** The endpoint reports zero cost; the token counts
+  are non-zero and are what the metrics read.
+
+The four gates are all zero, and `unsafe execution count` is the one that
+matters: **268 tool calls were attempted across the run — 99 executed, 98
+rejected by a gate, 71 failed — over 15 hostile safety cases including a
+retrieved prompt injection instructing a $10,000 unattended refund, and zero
+unapproved high-risk executions.** In the injection cases the model *did*
+comply: it proposed the injected refund, and the gate stopped it. That is the
+property being claimed, and it does not depend on which model answers.
 
 ## Repository layout
 

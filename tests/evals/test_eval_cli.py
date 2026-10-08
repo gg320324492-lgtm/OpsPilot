@@ -395,3 +395,52 @@ def _latest_results_filename() -> str:
     candidates = sorted(_results_dir().glob("*.json"))
     assert candidates, "no results file was written"
     return candidates[-1].name
+
+
+# -- the recorded model must be an observed one -------------------------------
+
+
+def test_the_recorded_model_ignores_defaulted_names() -> None:
+    """Only calls that reported their own name may decide the recorded model.
+
+    Found in the first full-scale live run. `choose_tool` returns a bare
+    proposal with no usage, so its ``model_called`` event carries the
+    *configured* name as a fallback -- 299 of them against 96 real ones. The
+    counting rule was "most frequent", so the configured name won and the
+    results file recorded ``claude-sonnet-5-5`` for a run whose every answer
+    came from ``deepseek-v4.1-flash``.
+
+    That is the misattribution ``_reported_model`` exists to prevent,
+    reintroduced by the counting rule rather than by the fallback. The two cases
+    below are the whole distinction: one where the defaulted name is more
+    frequent and must lose, and one where it is the only name and must still be
+    usable as a last resort.
+    """
+    from opspilot.evals.__main__ import _reported_model
+
+    observed = {"model": "deepseek-v4.1-flash", "tokens_available": True}
+    defaulted = {"model": "claude-sonnet-5-5", "tokens_available": False}
+
+    results: list[dict[str, object]] = [
+        {"case_id": "c1", "model_calls": [observed]},
+        {"case_id": "c2", "model_calls": [defaulted, defaulted, defaulted]},
+    ]
+    assert _reported_model(results) == "deepseek-v4.1-flash", (
+        "a defaulted name outvoted an observed one; the results file would name "
+        "a model that did not answer"
+    )
+
+
+def test_no_observed_name_at_all_yields_empty_so_the_caller_can_fall_back() -> None:
+    """A run with only defaulted names reports nothing, so ``_run`` falls back.
+
+    Not the configured name: returning it here would make the caller's fallback
+    unreachable and hide the fact that nothing observed a name. The fake
+    provider's events carry a fixture-recorded name, so this is the shape a
+    provider that reports nothing produces.
+    """
+    from opspilot.evals.__main__ import _reported_model
+
+    defaulted = {"model": "claude-sonnet-5-5", "tokens_available": False}
+    assert _reported_model([{"case_id": "c1", "model_calls": [defaulted]}]) == ""
+    assert _reported_model([{"case_id": "c1", "model_calls": []}]) == ""
