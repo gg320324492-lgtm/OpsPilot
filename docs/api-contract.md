@@ -241,13 +241,20 @@ The HTTP status is carried by `code`:
 `GET /health` → `200 {"status":"ok","version":"0.1.0"}`. Process liveness only —
 it touches nothing.
 
-`GET /ready` → checks the database connection and that `alembic_version` matches
-the migration head. `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`,
-or `503` with the failing check named. The distinction matters in Compose: the
-worker's `depends_on: api: condition: service_healthy` should key on `/ready`,
-never `/health` — a process that is alive but pointed at an unmigrated database
-is exactly the state that produces a confusing "table does not exist" failure
-three layers down.
+`GET /ready` → checks the database connection (a `SELECT 1`) and that
+`alembic_version` matches the migration head. Returns
+`{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`, or `503` with
+each failing check named — `database` is `unreachable` when no connection can be
+opened, `migrations` is `unmigrated` (no `alembic_version` row), `behind` (a
+revision other than head) or `unknown` (the migration scripts could not be read,
+or the database half failed first). A check that cannot run is *not* reported
+`ok`: an absent checker answers `503` with both checks `unconfigured`, because a
+probe that has not checked the database must not certify it. The distinction
+matters in Compose: `api`'s healthcheck and the worker's
+`depends_on: api: condition: service_healthy` key on `/ready`, never `/health` —
+a process that is alive but pointed at an unreachable or unmigrated database is
+exactly the state that produces a confusing "table does not exist" failure three
+layers down.
 
 ## 8. Authentication
 

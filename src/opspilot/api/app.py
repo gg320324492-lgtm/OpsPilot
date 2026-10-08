@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
+    from sqlalchemy.orm import Session, sessionmaker
+
     from opspilot.adapters.wiring import RetrievalStack
     from opspilot.ports.stores import ApprovalStore, RunStore, TicketStore
 
@@ -96,6 +98,11 @@ def create_app(
         reindex_runner: Optional callable performing a reindex; the ingestion
             adapter supplies it in a full deployment.
         readiness_check: Optional async callable returning the ``/ready`` checks.
+            When omitted, a real one is built from the same session factory as
+            the stores (the deployment path); when the caller also injected
+            stores and no database was built, the fallback checker reports
+            ``unconfigured`` and the route answers 503 rather than a false
+            ``ok``. Tests may inject a checker to pin a specific response.
 
     Returns:
         The app, with routers mounted, handlers registered and stores bound.
@@ -225,9 +232,18 @@ def _bind_stores(
     When a store is not supplied, the SQL adapter is imported lazily and built
     from settings. The lazy import is the point: this module can be imported and
     the app built with fakes even while ``adapters.persistence`` is incomplete.
+
+    The readiness checker is built from the *same* session factory as the stores
+    when the caller injected neither, so the probe and the stores share one
+    engine and one connection pool -- a probe against a different engine could
+    pass while the stores' engine is down. A caller that injects stores (the
+    tests do, with in-memory fakes and no database) is not probing a database it
+    does not have, and the checker falls back to reporting that honestly rather
+    than to a false ``ok``.
     """
+    session_factory: sessionmaker[Session] | None = None
     if run_store is None or ticket_store is None or approval_store is None:
-        sql_run, sql_ticket, sql_approval = _build_sql_stores()
+        session_factory, sql_run, sql_ticket, sql_approval = _build_sql_stores()
         run_store = run_store or sql_run
         ticket_store = ticket_store or sql_ticket
         approval_store = approval_store or sql_approval
@@ -249,7 +265,7 @@ def _bind_stores(
     app.state.approval_store = approval_store
     app.state.knowledge_store = knowledge_store
     app.state.reindex_runner = reindex_runner
-    app.state.readiness_check = readiness_check
+    app.state.readiness_check = readiness_check or _build_readiness_check(session_factory)
 
 
 def _try_build_retrieval_stack() -> RetrievalStack | None:
@@ -271,8 +287,11 @@ def _try_build_retrieval_stack() -> RetrievalStack | None:
         return None
 
 
-def _build_sql_stores() -> tuple[RunStore, TicketStore, ApprovalStore]:
+def _build_sql_stores() -> tuple[sessionmaker[Session], RunStore, TicketStore, ApprovalStore]:
     """Build the concrete SQL stores, importing persistence lazily.
+
+    Returns the session factory alongside the stores so the caller can hand the
+    *same* factory to the readiness checker: one engine, one pool.
 
     Raises:
         _PersistenceUnavailable: If the persistence package cannot supply the
@@ -287,17 +306,49 @@ def _build_sql_stores() -> tuple[RunStore, TicketStore, ApprovalStore]:
 
     settings = get_settings()
     try:
-        sessionmaker = db.session_factory(settings)
-        run_store = repositories.SqlRunStore(sessionmaker)
-        ticket_store = repositories.SqlTicketStore(sessionmaker)
-        approval_store = repositories.SqlApprovalStore(sessionmaker)
+        factory = db.session_factory(settings)
+        run_store = repositories.SqlRunStore(factory)
+        ticket_store = repositories.SqlTicketStore(factory)
+        approval_store = repositories.SqlApprovalStore(factory)
         return (
+            factory,
             cast("RunStore", run_store),
             cast("TicketStore", ticket_store),
             cast("ApprovalStore", approval_store),
         )
     except TypeError as exc:  # pragma: no cover - persistence not finished
         raise _PersistenceUnavailable("construct") from exc
+
+
+def _build_readiness_check(
+    session_factory: sessionmaker[Session] | None,
+) -> Callable[[], Awaitable[dict[str, str]]]:
+    """Build the ``/ready`` checker, degrading honestly when persistence is absent.
+
+    Two cases, and the difference matters:
+
+    - The deployment path built its own SQL stores, so a ``session_factory`` is
+      present and a real checker is returned -- the fix this module needed.
+    - The caller injected stores (the tests do, with in-memory fakes and no
+      database URL wired), so there is no engine to probe. Rather than report
+      ``ok`` for a database that was never checked -- the original defect -- the
+      returned checker reports ``database: unconfigured`` for every call, which
+      the route turns into a ``503``.
+
+    That second case is the deliberate answer to "what does an unbound checker
+    mean": it is no longer possible to mistake the absence of a checker for
+    health. An app with injected stores and no database genuinely cannot certify
+    readiness, so it declines to.
+    """
+    if session_factory is not None:
+        from opspilot.adapters.persistence import readiness
+
+        return readiness.build_readiness_check(get_settings(), session_factory=session_factory)
+
+    async def _unconfigured() -> dict[str, str]:
+        return {"database": "unconfigured", "migrations": "unconfigured"}
+
+    return _unconfigured
 
 
 class _PersistenceUnavailable(RuntimeError):

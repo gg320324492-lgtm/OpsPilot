@@ -42,18 +42,27 @@ async def health() -> HealthResponse:
 async def ready(request: Request) -> JSONResponse:
     """Readiness: check the database and that migrations are at head.
 
-    Each check is named in the body so a 503 states which one failed rather than a
-    bare "not ready". The checker is bound on ``app.state`` by the app factory
-    (``readiness_check``); with none bound this reports both checks as ``ok``,
-    which is honest for an app that has no database wired yet.
+    Each check is named in the body so a 503 states *which* one failed rather than
+    a bare "not ready". The checker is bound on ``app.state`` by the app factory
+    (``readiness_check``); the factory builds a real one from the stores' session
+    factory on every deployment path.
+
+    An unbound checker is not health. Before this was fixed, a missing checker
+    reported both checks as ``ok`` -- a probe that never touched the database
+    saying the database was fine, which is exactly what an orchestrator must not
+    be told. A checker absent or one that returns a non-``ok`` state now yields
+    ``503``, so the absence of a probe reads as "not ready" rather than "fine".
 
     Returns:
         ``200`` with ``{"status":"ready","checks":{...}}`` when every check
-        passes, or ``503`` with the failing check named.
+        passes, or ``503`` with the failing checks named.
     """
     checker = getattr(request.app.state, "readiness_check", None)
     if checker is None:
-        checks = {"database": "ok", "migrations": "ok"}
+        # No checker at all: refuse to certify. The values are the same
+        # vocabulary the built checker uses, so a probe reading the body sees a
+        # state it can act on, not a bare "not ready".
+        checks = {"database": "unconfigured", "migrations": "unconfigured"}
     else:
         checks = await checker()
     failed = {name: state for name, state in checks.items() if state != "ok"}

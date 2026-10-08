@@ -270,10 +270,20 @@ def test_list_runs_rejects_a_bad_status(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_ready_reports_ok_without_a_checker(client: TestClient) -> None:
-    """``/ready`` is 200 with both checks named when no checker is bound."""
+def test_ready_refuses_to_certify_without_a_checker(client: TestClient) -> None:
+    """An unbound checker is 503, not a false ``ok``.
+
+    This fixture injects fake stores and no database, so there is no engine to
+    probe. The old behaviour reported ``database: ok`` here -- a probe that never
+    touched a database saying the database was fine, and the exact defect that
+    let ``/ready`` pass while Postgres was down. An app that cannot check the
+    database must not certify it.
+    """
     response = client.get("/ready")
-    assert response.status_code == 200
+    assert response.status_code == 503
     body = response.json()
-    assert body["status"] == "ready"
-    assert body["checks"] == {"database": "ok", "migrations": "ok"}
+    assert body["status"] == "not_ready"
+    assert body["checks"] == {
+        "database": "unconfigured",
+        "migrations": "unconfigured",
+    }

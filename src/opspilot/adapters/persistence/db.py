@@ -38,6 +38,15 @@ def create_engine(settings: Settings) -> Engine:
     runs the app on its own thread) can share the connection -- and, for the
     in-memory URL, ``StaticPool`` so every session in a process sees the same
     ``:memory:`` database rather than a fresh empty one per connection.
+
+    Postgres gets ``connect_timeout`` in ``connect_args``. Without it an
+    unreachable server does not fail fast: on Windows a silently-dropped SYN
+    makes the driver block until the OS's own connect timeout, which can be
+    minutes -- and ``GET /ready`` would hang on exactly the state it exists to
+    report. A bounded connect is what makes the readiness probe answer *fast
+    and unavailable* rather than not answering at all. Five seconds is long
+    enough for a healthy network and short enough that an orchestrator's
+    healthcheck gets a verdict within its own timeout.
     """
     url = settings.database_url
     if settings.is_sqlite:
@@ -45,7 +54,7 @@ def create_engine(settings: Settings) -> Engine:
         if ":memory:" in url:
             return _sa_create_engine(url, connect_args=connect_args, poolclass=StaticPool)
         return _sa_create_engine(url, connect_args=connect_args)
-    return _sa_create_engine(url, pool_pre_ping=True)
+    return _sa_create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 5})
 
 
 def _enable_sqlite_foreign_keys(dbapi_connection: object, _record: object) -> None:
