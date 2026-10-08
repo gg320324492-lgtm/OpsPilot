@@ -298,45 +298,52 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # THERE ARE NO MCP SERVER SERVICES HERE, AND THAT IS DELIBERATE.
+  # THERE ARE NO MCP SERVER SERVICES HERE, AND THAT IS STILL DELIBERATE.
   # -------------------------------------------------------------------------
   #
-  # docs/milestones.md §M9 says `docker compose up` brings up "three MCP
-  # servers", and docs/mcp-contracts.md describes them as "sibling processes in
-  # Compose". Neither is implemented, and adding three services would produce
-  # three containers that start, block on stdin, and serve nothing. Why:
+  # This block used to say the MCP servers could not be run at all and that
+  # `MCP_*_COMMAND` was dead. Both of those are fixed: the settings are now read
+  # on the production path (`worker/__main__.py::build_worker_gateway` ->
+  # `adapters/tools/mcp_gateway.py::build_stdio_servers_from_settings`) and spawn
+  # real child processes through `adapters/tools/mcp_stdio.py`, selected by
+  # `MCP_TRANSPORT=stdio` and proven by
+  # `tests/integration/test_mcp_stdio_transport.py`.
   #
-  #   1. The servers are stdio, not HTTP. Each one ends in
-  #      `server.run(transport="stdio")` (mcp_servers/crm/server.py:290,
-  #      billing/server.py:385, issues/server.py). A stdio MCP server is a
-  #      child of the process that speaks to it, over a pipe. It has no port
-  #      and no listener, so there is nothing for a Compose healthcheck or a
-  #      sibling container to connect to.
+  # What has NOT changed -- and cannot, without making them a different kind of
+  # server -- is that a stdio MCP server is a CHILD of the process that speaks to
+  # it, over a pipe. Each one ends in `server.run(transport="stdio")`
+  # (mcp_servers/crm/server.py::main, and its siblings). It has no port and no
+  # listener, so there is nothing for a Compose healthcheck or a sibling
+  # container to connect to: three services here would be three containers that
+  # start, block on stdin, and serve nothing. Declaring them would be a Compose
+  # file that looks like it satisfies §M9 and does not.
   #
-  #   2. The gateway builds them IN-PROCESS. MCPToolGateway.__init__ defaults
-  #      server_factory to build_in_process_servers (mcp_gateway.py:167), which
-  #      constructs the three MCPServer objects and calls
-  #      `await server.call_tool(...)` directly -- no subprocess, no transport
-  #      (mcp_gateway.py:96-144). The worker's own comment says so: the gateway
-  #      "builds its three MCP servers in-process on first use. It does not take
-  #      the MCP_*_COMMAND settings" (worker/__main__.py:374).
+  # So the shape is unchanged, and it is the correct shape. The three servers
+  # live inside this image (src/ and mcp_servers/ are both copied in) and run
+  # where they are used:
   #
-  #   3. The MCP_*_COMMAND settings are dead. `grep -rn mcp_crm_command src/`
-  #      finds only the settings declaration and .env.example; nothing reads
-  #      them. They name stdio subprocesses a deployment *could* spawn, but no
-  #      code path spawns them.
+  #   MCP_TRANSPORT=inprocess (the default) -- constructed inside the worker
+  #       process. No process boundary. Fast and hermetic, and it covers
+  #       registration, JSON Schema, structured output and the CallToolResult
+  #       envelope -- everything except the pipe.
   #
-  # So the three MCP servers live inside the `api` image (src/ and mcp_servers/
-  # are both copied into it) and inside the `worker` container, and the golden
-  # path exercises the full MCP layer -- registration, JSON schema, structured
-  # output -- minus the stdio pipe. The shared `mcp-data` volume is what gives
-  # their JSON stores the durability a separate service would have had.
+  #   MCP_TRANSPORT=stdio -- the worker spawns each as a child of itself, using
+  #       the MCP_*_COMMAND settings. This is the only mode that exercises stdio
+  #       framing, the subprocess handshake and wire serialisation. Set it here
+  #       to run the real thing:
   #
-  # §M9's "three MCP servers" clause is therefore NOT MET as literally written.
-  # That is a design gap, not a Compose-file omission: it cannot be fixed here
-  # without either (a) changing the servers to HTTP/SSE transports, or (b)
-  # wiring the gateway to spawn stdio subprocesses from MCP_*_COMMAND. Both are
-  # runtime changes to src/, which this task is explicitly scoped not to make.
+  #         worker:
+  #           environment:
+  #             MCP_TRANSPORT: stdio
+  #
+  #       The commands default to this image's own interpreter and need no
+  #       override: /app is the WORKDIR and is where mcp_servers/ lives.
+  #
+  # The shared `mcp-data` volume is what gives their JSON stores the durability a
+  # separate service would have had, and it is what makes the two transports
+  # equivalent in durability: the stdio children inherit OPSPILOT_MCP_DATA_DIR
+  # (the only environment variable forwarded to them), so a spawned server writes
+  # the same billing.json an in-process one does.
 
 volumes:
   # Named volumes so data survives `docker compose down` (without `-v`).

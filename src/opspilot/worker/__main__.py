@@ -295,6 +295,48 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
     )
 
 
+def build_worker_gateway(settings: object = None) -> ToolGateway:
+    """Build the tool gateway the configured transport asks for.
+
+    This is the composition root's whole job for ``MCP_*_COMMAND``: the settings
+    are read here and nowhere else in the production path, so a deployment that
+    selects the stdio transport gets a gateway that spawns the servers it
+    configured, and a deployment that does not is byte-for-byte the gateway it
+    had before those settings existed.
+
+    The default is deliberately unchanged. ``build_worker`` builds an in-process
+    gateway with no arguments when ``MCP_TRANSPORT`` is unset, which is the path
+    the entire test suite exercises; this function returns exactly that. The
+    stdio branch is taken only when an operator has explicitly asked for it.
+
+    Raises:
+        WorkerConfigError: If ``MCP_TRANSPORT`` names a transport this build has
+            no adapter for, or if one of the three commands is unparseable. Both
+            are startup faults for the same reason ``build_worker_provider``'s
+            are: a worker that came up and silently could not reach its tools is
+            worse than one that refuses to start.
+    """
+    from opspilot.adapters.tools.mcp_gateway import (
+        MCPToolGateway,
+        build_stdio_servers_from_settings,
+    )
+    from opspilot.settings import Settings
+
+    resolved = get_settings() if settings is None else settings
+    assert isinstance(resolved, Settings)
+
+    transport = str(resolved.mcp_transport)
+    if transport == "inprocess":
+        return MCPToolGateway()
+    if transport == "stdio":
+        return MCPToolGateway(server_factory=lambda: build_stdio_servers_from_settings(resolved))
+
+    raise WorkerConfigError(
+        f"MCP_TRANSPORT={transport!r} has no transport in this build",
+        how_to_fix="set MCP_TRANSPORT to 'inprocess' or 'stdio' (see .env.example)",
+    )
+
+
 def build_worker(settings: object = None) -> _Worker:
     """Assemble every concrete collaborator the poll loop needs.
 
@@ -308,7 +350,6 @@ def build_worker(settings: object = None) -> _Worker:
     """
     from opspilot.adapters.orchestration.linear import LinearOrchestrator
     from opspilot.adapters.persistence import repositories
-    from opspilot.adapters.tools.mcp_gateway import MCPToolGateway
     from opspilot.adapters.wiring import build_citation_store
     from opspilot.settings import Settings
     from opspilot.tracing.recorder import TraceRecorder
@@ -369,11 +410,13 @@ def build_worker(settings: object = None) -> _Worker:
         tool_call_store=tool_call_store,
         approval_store=approval_store,
         provider=build_worker_provider(resolved),
-        # The gateway builds its three MCP servers in-process on first use. It
-        # does not take the ``MCP_*_COMMAND`` settings: those name the stdio
-        # subprocesses a Compose deployment runs, and the in-process path is the
-        # one documented as the default (``tools/mcp_gateway.py``).
-        gateway=MCPToolGateway(),
+        # The transport is the deployment's choice, made by ``build_worker_gateway``
+        # from ``MCP_TRANSPORT``. Under the default ``inprocess`` this is a
+        # gateway that builds its three servers in this process on first use; under
+        # ``stdio`` it reads ``MCP_CRM_COMMAND`` & co. and spawns them as child
+        # processes (``tools/mcp_stdio.py``). Either way the worker's shutdown path
+        # closes it, so a stdio deployment leaves no child behind.
+        gateway=build_worker_gateway(resolved),
         # The linear executor, not LangGraph: deterministic, milliseconds-fast and
         # dependency-free. ``run_loop`` accepts the orchestrator but does not
         # dispatch through it today (``agents/runtime.py``) -- the port is what
@@ -494,7 +537,29 @@ async def _run(worker: _Worker) -> None:
             poll.result()
     finally:
         _restore_signal_handlers(previous)
+        # Terminates any stdio MCP servers this worker spawned, and is a no-op
+        # for the in-process gateway. It runs in the ``finally`` so a poll loop
+        # that raised still takes its children down -- a worker that exits
+        # leaving three orphaned servers behind is a leak that only a restart
+        # of the container would clear.
+        await _close_gateway(worker.gateway)
         print(f"opspilot-worker[{worker.worker_id}]: stopped", flush=True)
+
+
+async def _close_gateway(gateway: ToolGateway) -> None:
+    """Close the worker's gateway, tolerating a stub that has no ``aclose``.
+
+    ``ToolGateway`` is a ``Protocol`` and every test's stub implements only the
+    two methods it declares, so calling ``aclose`` through the port is not
+    guaranteed to be callable. Checking with ``getattr`` keeps shutdown from
+    becoming the thing that fails, which is the same reasoning the gateway's own
+    ``aclose`` follows by swallowing its servers' teardown errors.
+    """
+    close = getattr(gateway, "aclose", None)
+    if close is None:
+        return
+    with contextlib.suppress(Exception):
+        await close()
 
 
 def main() -> None:

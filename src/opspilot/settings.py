@@ -17,6 +17,8 @@ lives in static code (see ``docs/tool-permissions.md`` §2.1).
 
 from __future__ import annotations
 
+import shlex
+import sys
 from functools import lru_cache
 from typing import Literal
 
@@ -25,6 +27,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ModelProviderName = Literal["fake", "anthropic", "openai"]
 EmbeddingProviderName = Literal["local", "openai"]
+
+
+def default_mcp_server_command(module: str) -> str:
+    """The ``MCP_<NAME>_COMMAND`` value to fall back on: this interpreter.
+
+    Uses ``sys.executable`` rather than a literal ``python`` because a bare
+    ``python`` is whatever happens to be first on ``PATH``, which is frequently
+    *not* the interpreter OpsPilot is running under. A virtualenv checkout is the
+    normal case: the worker runs from ``.venv/bin/python`` while ``python`` on
+    ``PATH`` is the system interpreter, whose site-packages has no ``mcp``. The
+    server then fails to import with ``ModuleNotFoundError: No module named
+    'mcp'`` -- which reads like a broken install and is not one, and which would
+    be reported against the stdio transport that is in fact the only thing
+    unusual about the deployment.
+
+    Quoted with :func:`shlex.quote` because the interpreter path routinely
+    contains spaces on Windows, and the consumer's parser treats quotes as
+    grouping only.
+
+    Args:
+        module: The dotted module the server is run as, e.g.
+            ``"mcp_servers.crm.server"``.
+    """
+    return f"{shlex.quote(sys.executable)} -m {module}"
 
 
 class WildcardCorsOrigin(ValueError):
@@ -213,14 +239,51 @@ class Settings(BaseSettings):
     worker_id: str = Field(default="", alias="WORKER_ID")
 
     # -- MCP servers ---------------------------------------------------------
+    # Which transport the tool gateway dispatches over.
+    #
+    #   inprocess (default) -- the servers are constructed inside the API/worker
+    #       process and called directly. Hermetic and fast; it is what every test
+    #       in the suite exercises, and it covers registration, JSON Schema
+    #       generation, structured output and the CallToolResult envelope.
+    #
+    #   stdio -- the worker spawns each server as a real child process and calls
+    #       it over a pipe, using the three commands below. This is the only path
+    #       that exercises the transport itself (stdio framing, the subprocess
+    #       handshake, wire serialisation), so it is what an operator selects to
+    #       make the transport the thing under test.
+    #
+    # In-process is the default rather than stdio for three reasons, all recorded
+    # in adapters/tools/mcp_gateway.py: flipping the default would change what the
+    # existing test suite exercises; a subprocess server owns its own on-disk store
+    # and would leak state between tests without a private OPSPILOT_MCP_DATA_DIR;
+    # and each spawn is an interpreter boot plus a handshake.
+    mcp_transport: Literal["inprocess", "stdio"] = Field(default="inprocess", alias="MCP_TRANSPORT")
+
+    # The command the gateway spawns for each server, when ``MCP_TRANSPORT=stdio``.
+    #
+    # A full command *line*: the executable and its arguments, separated by
+    # spaces, with shell quoting available for a path containing spaces
+    # (``"C:\Program Files\Python\python.exe" -m mcp_servers.crm.server``). It is
+    # split with shlex into an explicit argv list and spawned with no shell, so
+    # shell metacharacters are literal arguments rather than a second command --
+    # a ``.env`` value must never be able to execute anything but the server it
+    # names. Arguments are supported and are why this is not a bare ``split()``:
+    # every server takes ``--reset``, which restores its store from the committed
+    # seed before serving.
+    #
+    # Only consulted under ``MCP_TRANSPORT=stdio``; under the default they are
+    # inert, because nothing is spawned. See .env.example.
     mcp_crm_command: str = Field(
-        default="python -m mcp_servers.crm.server", alias="MCP_CRM_COMMAND"
+        default_factory=lambda: default_mcp_server_command("mcp_servers.crm.server"),
+        alias="MCP_CRM_COMMAND",
     )
     mcp_billing_command: str = Field(
-        default="python -m mcp_servers.billing.server", alias="MCP_BILLING_COMMAND"
+        default_factory=lambda: default_mcp_server_command("mcp_servers.billing.server"),
+        alias="MCP_BILLING_COMMAND",
     )
     mcp_issues_command: str = Field(
-        default="python -m mcp_servers.issues.server", alias="MCP_ISSUES_COMMAND"
+        default_factory=lambda: default_mcp_server_command("mcp_servers.issues.server"),
+        alias="MCP_ISSUES_COMMAND",
     )
 
     # -- Tool policy ---------------------------------------------------------

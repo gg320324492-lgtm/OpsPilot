@@ -253,18 +253,7 @@ milestone log.
    no longer draw that step. Whether the workflow **should** file an issue is an
    open product decision, not a docs fix — adding the call would change what the
    golden path does.
-2. **The three `MCP_*_COMMAND` settings are read by no code.** `MCP_CRM_COMMAND`,
-   `MCP_BILLING_COMMAND` and `MCP_ISSUES_COMMAND` are declared in `settings.py`
-   and documented in `.env.example`, but the gateway builds the servers
-   **in-process** (`mcp_gateway.py`) and never spawns a subprocess, so nothing
-   reads them. `docs/mcp-contracts.md` §"Why stdio and not HTTP/SSE" describes
-   the servers as "sibling processes in Compose", which the code does not do.
-3. **The MCP servers are not Compose services.** They are stdio servers used
-   in-process, so `docker-compose.yml` deliberately declares none. §M9's "three
-   MCP servers" clause is unmet and cannot be met without a deployment-shape
-   decision (make the servers HTTP, or teach the gateway to spawn the stdio
-   commands it already has settings for).
-4. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
+2. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
    covers the claim *predicate* on SQLite; nothing starts two workers against one
    database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).
 
@@ -275,6 +264,14 @@ legible):
   `tests/security/test_prompt_injection.py` against a real retrieved injection.
 - `/ready` — the readiness probe now reports unhealthy when the database is
   unreachable, rather than healthy on any reachable process.
+- `MCP_*_COMMAND` — the three command settings are read on the production path
+  (`worker/__main__.py::build_worker_gateway` →
+  `adapters/tools/mcp_gateway.py::build_stdio_servers_from_settings`) and spawn
+  real child processes through `adapters/tools/mcp_stdio.py`. `MCP_TRANSPORT`
+  selects between that and the existing in-process path, which stays the default.
+  `tests/integration/test_mcp_stdio_transport.py` proves it by calling
+  `crm.get_customer` through a live subprocess and by checking that a server
+  process really appeared and was really reaped.
 
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.

@@ -1,10 +1,15 @@
 # MCP Server Contracts
 
-Three demo MCP servers over stdio. Each is a real MCP server (official Python
-SDK), each owns its own SQLite file, each is deterministic. They stand in for
-Salesforce, Stripe and Jira.
+Three demo MCP servers. Each is a real MCP server (official Python SDK), each
+owns its own SQLite file, each is deterministic. They stand in for Salesforce,
+Stripe and Jira.
 
 Implementation: `mcp_servers/{crm,billing,issues}/server.py`.
+
+Each server runs over **stdio** — it is run by `server.run(transport="stdio")`
+and speaks the protocol over stdin/stdout. Which process runs it, and whether it
+is a subprocess at all, is the `MCP_TRANSPORT` setting; see "Why stdio and not
+HTTP/SSE" below.
 
 **Why the SDK and not a hand-rolled JSON-RPC loop:** the point of using MCP is
 that the tool surface is a protocol, not a function call. Writing the protocol
@@ -12,11 +17,39 @@ myself would make the demo a simulation of MCP rather than an instance of it, an
 the `ToolGateway` abstraction would then be hiding a fiction. The SDK is the real
 dependency; the seed data and the domain semantics are what is simulated.
 
-**Why stdio and not HTTP/SSE:** Phase 1 runs these as sibling processes in
-Compose. stdio needs no port allocation, no network config, and no auth between
-the worker and the servers, and it fails loudly (a broken pipe) rather than
-quietly (a 502). HTTP transport is a Phase 2 topic when a server needs to be
-shared across hosts.
+**Why stdio and not HTTP/SSE:** a stdio MCP server is a child of the process that
+speaks to it, over a pipe. stdio needs no port allocation, no network config, and
+no auth between the worker and the servers, and it fails loudly (a broken pipe)
+rather than quietly (a 502). HTTP transport is a Phase 2 topic when a server
+needs to be shared across hosts.
+
+**Which one actually runs is `MCP_TRANSPORT`.** There are two transports, both
+real:
+
+- `MCP_TRANSPORT=inprocess` (**the default**) builds each server inside the
+  API/worker process and calls it directly. Tool registration, the generated JSON
+  Schema, the `structured_output` serialisation and the `CallToolResult` envelope
+  are all exercised; only the pipe is skipped. This is what the whole test suite
+  runs on.
+- `MCP_TRANSPORT=stdio` spawns each server as a real child process from the
+  `MCP_CRM_COMMAND` / `MCP_BILLING_COMMAND` / `MCP_ISSUES_COMMAND` settings and
+  calls it over stdin/stdout. This is the only path that covers stdio framing,
+  the subprocess handshake and the wire serialisation.
+
+A stdio server is therefore a **child of the worker**, not a sibling service in
+Compose: it has no port and no listener, so there is nothing for another
+container to connect to. `docker-compose.yml` declares no MCP services for that
+reason, and says so in full at the end of the file. The commands are read by
+`worker/__main__.py::build_worker_gateway` → `adapters/tools/mcp_gateway.py::
+build_stdio_servers_from_settings`, spawned by `adapters/tools/mcp_stdio.py`, and
+proven end to end by `tests/integration/test_mcp_stdio_transport.py`.
+
+Two details worth knowing before editing a command. It is a command *line*, split
+into an explicit argv list with `shlex` and spawned **with no shell** — a `.env`
+value can name a server and nothing else, so `;`, `&&`, `|` and `$(...)` reach the
+child as literal argument text. And it defaults to *the interpreter running
+OpsPilot*, not a bare `python`, because a bare `python` on `PATH` is frequently
+the system interpreter whose site-packages has no `mcp`.
 
 ---
 
@@ -295,5 +328,30 @@ Each server is tested without the agent and without an LLM, in
 - `issues.create` twice allocates two distinct keys (it is *not* idempotent, and
   the test states that as the contract).
 
-The MCP CI job runs these against the servers started as real subprocesses, so a
-serialisation or protocol mistake fails there rather than at the agent layer.
+The MCP CI job (`mcp-contract`) runs
+`tests/integration/test_mcp_contract_names.py`, which checks that each server
+registers exactly the tool names this document specifies. That is a *name*
+contract, and it is in-process — see §7 for the transport coverage, which lives
+in the main `test` job rather than in `mcp-contract`.
+
+## 7. Exercising the transport itself
+
+Everything in §6 runs **in-process**, which covers every contract above — the
+schemas, the structured errors, the idempotency behaviour — and skips only the
+pipe. Three tests cover the pipe, in `tests/integration/test_mcp_stdio_transport.py`:
+
+1. `crm.get_customer` is answered by a real child process, verified by checking
+   that a `crm` server process actually appeared in the OS process table while
+   the call was in flight (not by inspecting the gateway's own state, which
+   would pass just as well if nothing had been spawned).
+2. One server is spawned **once** and reused across calls, and `aclose` reaps
+   it — the two facts that make a per-call respawn, and a per-run leak,
+   failures rather than performance details.
+3. A server that cannot start surfaces as a named error naming the command and
+   quoting the child's own stderr, rather than as `ExceptionGroup: unhandled
+   errors in a TaskGroup (1 sub-exception)`.
+
+The suite runs these with `MCP_TRANSPORT=stdio` **for those tests only**. The
+default transport stays in-process for everything else, because flipping it would
+change what the other 660-odd tests exercise, and a subprocess server owns its
+own on-disk store, so tests sharing one would leak state into each other.

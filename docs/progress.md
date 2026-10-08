@@ -3200,3 +3200,37 @@ things that run (the test suite, the gates, the security invariants, mypy,
 gate no job checks, a diagram step the workflow skips, a named test that does not
 exist, a Compose stack never up — do not. Every one of the eight is a
 documentation-versus-code gap, not a broken mechanism.
+
+### M10 — the seventh documented-but-unimplemented capability
+
+The last one: `MCP_CRM_COMMAND`, `MCP_BILLING_COMMAND` and `MCP_ISSUES_COMMAND`
+are declared in `settings.py`, documented in `.env.example`, read by nothing,
+and `docs/mcp-contracts.md:15-16` claims they run "as sibling processes in
+Compose" while `mcp_gateway.py:167` builds them **in the calling process**.
+
+The docstring states the argument for the path that is not taken:
+
+> stdio needs no port allocation, no network config, and no auth between the
+> worker and the servers, and **it fails loudly (a broken pipe) rather than
+> quietly (a 502)**.
+
+"Fail loudly" is this project's stated value, and the in-process default is the
+quiet one. Closing this is not a missing feature so much as three documents
+disagreeing about what the system is.
+
+**Two agents were killed by `ECONNREFUSED` before either began** — the local
+proxy on `127.0.0.1:7897` was down, and `api.github.com` still answered, which
+is why the failure looked like an API error rather than a network one. Nothing
+was lost; the tree was clean when they stopped.
+
+What the interruption did surface: three committed files were **not** what
+`ruff format` produces, even though the M9d pass reported the tree formatted.
+Confirmed by extracting the HEAD version and running the formatter against it --
+"would be reformatted", against a working-tree copy that is already formatted.
+So the formatter pass had missed them, and they are now formatted and committed
+(`1ede1d5`). A green "188 files already formatted" is a claim about the working
+tree, not about HEAD, and the two had diverged.
+
+A reminder recorded here because it has recurred all session: **a verification
+command describes the tree you run it in.** Checking the working tree does not
+check what was committed, and the difference hid until a formatter disagreed.

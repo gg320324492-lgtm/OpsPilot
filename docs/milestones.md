@@ -254,7 +254,9 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `mcp-contract`, `security`, `eval-smoke`, `web-lint`, `web-typecheck`,
       `docker-build`.
 - [ ] `eval-live` on `workflow_dispatch` only.
-- [ ] `docker compose up` brings up api, worker, web, postgres, three MCP servers.
+- [ ] `docker compose up` brings up api, worker, web, postgres, and the three
+      MCP servers (as child processes of the worker under
+      `MCP_TRANSPORT=stdio`; the default `inprocess` runs them inside it).
 - [ ] README: the golden-path trace, the honest-numbers eval table, an
       architecture diagram, the five demo scenarios, a recorded GIF from the
       deterministic path, and a limitations section that links
@@ -287,6 +289,7 @@ what got built rather than what was promised.
 | D10 | The CI jobs §M9 names exist and run the commands the README documents. | `milestones.md` §M9; README "Tests". |
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
 | D12 | `docker compose up` brings up api, worker, web, postgres, three MCP servers. | `milestones.md` §M9. |
+| D12a | The three MCP servers exist and are reachable, but as **child processes of the worker**, not as Compose services. A stdio server has no port to expose, so a Compose service for one would be a container that starts, blocks on stdin and serves nothing. `MCP_TRANSPORT=stdio` is what brings them up as subprocesses; the default `inprocess` runs them inside the worker with no process boundary at all. Both are real; only the first exercises the transport. | `mcp-contracts.md` §"Why stdio and not HTTP/SSE"; `docker-compose.yml` footer. |
 | D13 | The Compose stack has been run at least once. | `docker-compose.yml` header ("NOT VERIFIED"); `limitations.md` §6. |
 | D14 | README carries the golden-path trace, the eval table, an architecture diagram, the five demo scenarios, a recorded GIF, and a limitations section linking `docs/limitations.md`. | `milestones.md` §M9. |
 | D15 | The README's eval table matches the results file it cites. | README "One live run". |
