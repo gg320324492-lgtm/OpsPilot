@@ -123,7 +123,12 @@ class OpenAIModelProvider:
             value=value,
             usage=_shared.build_usage(
                 provider="openai",
-                model=self._model_name,
+                # The model the *response* reports, not the one requested: an
+                # OpenAI-compatible endpoint (a gateway, a router) may answer for
+                # a different model, and a results file naming the requested one
+                # would attribute the numbers to a model that did not produce
+                # them. Fall back to the configured name only when omitted.
+                model=_shared.reported_model(completion, self._model_name),
                 latency_ms=latency_ms,
                 input_tokens=usage.prompt_tokens if usage else 0,
                 output_tokens=usage.completion_tokens if usage else 0,

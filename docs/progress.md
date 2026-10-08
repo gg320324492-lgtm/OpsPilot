@@ -2802,3 +2802,186 @@ in this repository will pretend otherwise until the run can be made.
 run was refused with the provider's own message and exit 1, instead of printing
 a table of zeros under a banner that read like a result — which is precisely
 what the pre-fix harness did with a missing API key.
+
+### The local inference gateway is usable, with one real limit
+
+The user asked whether the model this session runs on could serve the live eval
+instead of the exhausted OpenRouter free tier. Probed rather than assumed.
+
+`ANTHROPIC_BASE_URL` in this environment points at `http://127.0.0.1:15742`, a
+local gateway that speaks the Anthropic Messages API and answers **without
+credentials**. Verified:
+
+| Capability | Result |
+|---|---|
+| `POST /v1/messages` | 200, real usage record (`in 17 / out 2`) |
+| Tool use (`tools=`, `tool_choice`) | **works**, arguments correctly populated |
+| `output_config` (JSON-schema-constrained output) | **silently ignored** |
+
+The third row is the limit, and "silently" is the important word. OpsPilot's
+`AnthropicModelProvider.generate_structured` sends
+
+```python
+output_config={"format": {"type": "json_schema", "schema": _shared.json_schema_for(schema)}}
+```
+
+The gateway accepts the request, ignores the constraint, and returns prose — no
+error, no warning. `_shared.parse_structured` then raises
+`StructuredOutputError: not valid JSON: Expecting value: line 1 column 1`, which
+is the correct failure but names the symptom rather than the cause. Running
+`AnthropicModelProvider` against this gateway fails on the first classification.
+
+**Two ways to make it work, both verified by hand:**
+
+1. **Plain prompt, parse the text.** Asking for JSON in the prompt returns
+   ```json
+   {"category": "billing", "confidence": 0.96, "rationale": "..."}
+   ```
+   which parses cleanly. Works, but trusts the model to comply — the constraint
+   is gone, so a malformed reply is a run failure rather than something the
+   provider prevented.
+2. **Forced tool use.** Declaring a tool whose `input_schema` is the target
+   schema and passing `tool_choice={"type": "tool", "name": ...}` returns the
+   arguments as a **structured object**:
+   ```json
+   {"category": "billing", "confidence": 0.95, "rationale": "..."}
+   ```
+   No text parsing at all. This is the same shape `choose_tool` already uses and
+   the gateway demonstrably supports it.
+
+**Also worth recording: the model name reported back is not the model name sent.**
+The gateway answers with `"model": "deepseek-v4.1-flash"` when asked for
+`claude-haiku-4-5`. A results file that records the requested name would be
+wrong about what produced the numbers — and `docs/evals.md` requires the results
+file to record the model, precisely so the numbers are attributable. Whatever
+runs against this gateway must record what came back, not what was asked for.
+
+Both hand probes classified the ticket as `"billing"` — a raw string, not one of
+`TicketCategory`'s eight values. That is model behaviour under a weaker
+constraint, not a harness defect, and it is exactly what the classification
+metric exists to measure.
+
+### The gateway's tool use is real but unreliable, and that is a finding not a blocker
+
+Before wiring the eval to the gateway, its reliability was measured rather than
+assumed. Same prompt, same three tools, four consecutive runs:
+
+```
+run 1: NO TOOL            | deepseek-v4.1-flash | 2339ms
+run 2: NO TOOL            | deepseek-v4.1-flash | 1763ms
+run 3: billing_get_invoice| deepseek-v4.1-flash | 1878ms
+run 4: NO TOOL            | deepseek-v4.1-flash | 2047ms
+latency p50/p95 ms: 2047 / 2339
+```
+
+**One tool call in four.** Probing why: with the instruction "Use a tool" added,
+it calls one every time. Without it, the model answers in prose — "I'll look up
+that invoice." — and stops.
+
+That matters for this project specifically, because `choose_tool` puts the tool
+menu in the **prompt text** rather than in an API-level tool declaration:
+
+```python
+_shared.with_tool_menu(prompt, available_tools)   # "Tools available for this step: ..."
+```
+
+So the gateway's model is being asked to call a tool by convention, not by the
+protocol, and it complies inconsistently. Against the first hand probe — which
+phrased the request as an explicit lookup — it worked first try, which is how a
+1-in-4 behaviour looks like a 4-in-4 behaviour if you only ask once.
+
+**This is not a reason to change `choose_tool`.** The tool menu is a deliberate
+design (the port's docstring says `available_tools` is "for ergonomics only" and
+gate 2 re-checks the name against the registry), and it works against OpenRouter
+and the fake. It is a reason to expect the gateway's tool-selection numbers to be
+poor, and to **report them as the gateway's behaviour rather than the system's**.
+
+The distinction is the whole point of recording what answered: a
+`deepseek-v4.1-flash` result measures that model behind that gateway, and the
+README must not let a reader read it as a statement about OpsPilot's design.
+
+**A correction, and it applies more widely than this gateway.** An earlier draft
+of this entry contrasted the gateway's `deepseek-v4.1-flash` with "a statement
+about Claude", as though one name were the real model and the other a substitute.
+That is wrong here in both directions:
+
+- `claude-haiku-4-5` is a name this project **asks for**; the gateway reports
+  `deepseek-v4.1-flash`, which is what answered.
+- The same is true of this session's own model. It reports a Claude name, but it
+  runs behind the same kind of mapping, and the name it reports is likewise a
+  label rather than a guarantee about which weights produced a token.
+
+So there is no privileged "real Claude" to measure against. What can be stated
+truthfully is narrower and still useful: **a model name in a results file is a
+claim about routing, not about weights.** `docs/evals.md` requires the model to
+be recorded so the numbers are attributable — and attributing them means naming
+the route that answered. Recording the *requested* name is what makes that false,
+which is why the provider now records what the response reported.
+
+The practical consequence for this milestone: the live numbers describe one
+configured route, and the README must say which, without implying that a
+different label would have been more real.
+
+#### The gateway ignores the requested model name entirely
+
+Measured, and it changes what "record what answered" means:
+
+```
+asked=claude-haiku-4-5          -> reported=deepseek-v4.1-flash
+asked=claude-sonnet-5-5         -> reported=deepseek-v4.1-flash
+asked=claude-opus-5-5           -> reported=deepseek-v4.1-flash
+asked=gpt-5.1                   -> reported=deepseek-v4.1-flash
+asked=totally-bogus-model-name  -> reported=deepseek-v4.1-flash
+```
+
+Every name — including one that is not a model — is routed to the same backend.
+OpenRouter, for contrast, rejects an unknown name outright:
+
+```
+{"error": {"message": "totally-bogus-model is not a valid model ID", "code": 400}}
+```
+
+So the two venues differ in kind, not degree. OpenRouter's model name **selects**;
+the gateway's model name is **decoration**. Setting `MODEL_NAME` against the
+gateway is a no-op, and a results file is only meaningful if it records what came
+back rather than what was asked — which is what the provider was just changed to
+do, and this probe is why that change was worth making rather than cosmetic.
+
+It also means the eval cannot be pointed at a specific backend here. The route is
+whatever the gateway chooses, and the number is about that route.
+
+**And it is the same shape as the session's own model.** This session reports a
+Claude name while running behind the same kind of indirection. There is no
+configuration in this environment — not the gateway, not the session, not the
+OpenRouter key — where a reported model name is a guarantee about which weights
+produced a token. What a model name means is "the route that answered", and that
+is the only claim a results file can honestly make.
+
+#### Both SDKs read their base URL from the environment; the settings are belt-and-braces
+
+Checked in the installed packages rather than taken on trust, because the claim
+decides whether the two new settings are a capability or a second spelling of
+one that already existed:
+
+```
+anthropic 1.11.0  _client.py:674  base_url = os.environ.get("ANTHROPIC_BASE_URL")
+openai    3.24.0  _client.py:306  base_url = os.environ.get("OPENAI_BASE_URL")
+```
+
+**Both.** The first report of this said the Anthropic SDK reads the variable and
+the OpenAI one does not, and the second half is false — `openai 3.24.0` reads
+`OPENAI_BASE_URL` too. So `OPENAI_BASE_URL` and `ANTHROPIC_BASE_URL` are each
+*partly* redundant with the environment: setting either would already have
+reached the SDK without the code change.
+
+They are kept, and the reason is precedent rather than capability. The SDKs'
+precedence is `kwarg > env > profile > default`, which is private behaviour that
+a minor version may change; passing the value explicitly makes the wiring visible
+in `build_worker_provider` alongside every other deployment knob, and makes the
+settings the single place a reader looks. The comments in `settings.py` and
+`_client` say this rather than implying a new capability was added — which is the
+version of the mistake that matters, because a comment claiming an ability is the
+kind of thing this project has already had to correct twice.
+
+Note what is *not* claimed: nothing here asserts the requested model name selects
+a model. On the gateway it demonstrably does not.

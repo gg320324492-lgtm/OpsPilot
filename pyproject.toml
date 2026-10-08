@@ -184,7 +184,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests and the eval harness print by design: their output is the product.
-"tests/**" = ["T20", "S101", "ARG001"]
+"tests/**" = ["T20", "S101", "ARG001", "TRY003"]
 "evals/**" = ["T20", "S101", "ARG001"]
 # MCP servers are standalone processes; their entry points print.
 "mcp_servers/**/__main__.py" = ["T20"]

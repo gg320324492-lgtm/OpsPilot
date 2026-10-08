@@ -96,6 +96,21 @@ _DEFAULT_MODEL_NAMES: dict[str, str] = {
 }
 
 
+def _configured_model_name(provider_name: str) -> str:
+    """The model this run was configured to use, for the run row.
+
+    ``MODEL_NAME`` when set, else the provider's documented default. Note what
+    this is *not*: the name of whatever answered. A gateway may route the
+    request anywhere, and the only place the real name exists is the
+    ``model_called`` events -- ``__main__._reported_model`` reads those for the
+    results file, which is where attribution matters.
+    """
+    from opspilot.settings import get_settings
+
+    configured = get_settings().model_name
+    return configured or _DEFAULT_MODEL_NAMES.get(provider_name, provider_name)
+
+
 class DatasetError(ValueError):
     """A dataset line could not be parsed into a case.
 
@@ -422,10 +437,19 @@ def _build_provider(provider_name: str) -> object:
         from opspilot.settings import get_settings
 
         settings = get_settings()
+        # Every setting the adapter accepts is forwarded, matching
+        # ``worker/__main__.py``. This site was missing ``base_url`` and
+        # ``structured_output``: an eval pointed at a gateway reached
+        # api.anthropic.com instead and used the default mechanism, so the
+        # deployment's configuration was silently ignored and every case failed
+        # with a validation error rather than a connection error. Two assembly
+        # points for one adapter, and only one had been updated.
         return AnthropicModelProvider(
             api_key=settings.anthropic_api_key,
             model_name=settings.model_name or _DEFAULT_MODEL_NAMES["anthropic"],
             timeout_seconds=settings.model_timeout_seconds,
+            base_url=settings.anthropic_base_url,
+            structured_output=settings.anthropic_structured_output,
         )
     if provider_name == "openai":
         from opspilot.adapters.models.openai_provider import OpenAIModelProvider
@@ -523,8 +547,19 @@ async def run_case(
                 customer_email="eval@example",
                 external_id=case.id,
             )
+            # The configured model, not the literal "eval". A run row that names
+            # its model "eval" makes `RunDetail.model_name` useless for the one
+            # thing it is for -- saying what produced the run -- and it leaked
+            # into the results file, where `_reported_model` then read it back
+            # and reported agreement that was really two wrong values matching.
+            #
+            # Still the *requested* name: the run row is written before any call
+            # is made, and the provider's reported name is only known afterwards
+            # (see `_reported_model` in `__main__`, which prefers the events).
             run = await run_store.create(
-                ticket_id=ticket_id, model_provider=provider_name, model_name="eval"
+                ticket_id=ticket_id,
+                model_provider=provider_name,
+                model_name=_configured_model_name(provider_name),
             )
 
             def recorder_factory(rid: UUID) -> object:

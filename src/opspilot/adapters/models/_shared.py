@@ -106,6 +106,25 @@ def parse_structured[TModel: BaseModel](raw: str | dict[str, Any], schema: type[
         raise StructuredOutputError(schema.__name__, detail) from exc
 
 
+def reported_model(response: object, configured: str) -> str:
+    """The model name the response reports, else the configured name.
+
+    A gateway or router may answer for a different model than the one requested
+    -- a local server fronting several, an OpenRouter router, a proxy. The
+    results file must name the model that produced the numbers
+    (``docs/evals.md``), so the response's own ``model`` field, not the
+    requested string, is what belongs in ``ModelUsage.model``. The configured
+    name is the fallback for a reply that omits one: a missing model is not
+    evidence of a different one.
+
+    Shared so both real adapters record the same thing rather than drifting.
+    """
+    reported = getattr(response, "model", None)
+    if isinstance(reported, str) and reported:
+        return reported
+    return configured
+
+
 def build_usage(
     *,
     provider: str,

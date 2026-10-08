@@ -266,6 +266,13 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
             api_key=resolved.anthropic_api_key,
             model_name=model_name,
             timeout_seconds=resolved.model_timeout_seconds,
+            # Empty means the SDK's own endpoint; the adapter omits the argument
+            # then rather than passing "", which would be an invalid endpoint.
+            base_url=resolved.anthropic_base_url,
+            # Which structured-output request to send; "output_config" (real
+            # Anthropic) unless the operator opted into the forced-tool-use path
+            # for a gateway that ignores it. Never selected silently.
+            structured_output=resolved.anthropic_structured_output,
         )
 
     if name == "openai":

@@ -113,6 +113,42 @@ class Settings(BaseSettings):
     # endpoints, not a special case for one vendor's test run.
     openai_base_url: str = Field(default="", alias="OPENAI_BASE_URL")
 
+    # The base URL the Anthropic adapter points its SDK at. Empty means the SDK's
+    # own default (``https://api.anthropic.com``).
+    #
+    # Unlike ``OPENAI_BASE_URL`` this is *not* the only way to reach the SDK's
+    # base-url knob: ``anthropic`` 1.x already reads ``ANTHROPIC_BASE_URL`` from
+    # the environment itself, with the precedence kwarg > env > default. So a
+    # deployment that sets the variable need not go through this field at all --
+    # this setting exists so the worker's wiring names the value explicitly and
+    # does not depend on an SDK's private precedence rule (and so the two
+    # providers read the same way in ``build_worker_provider``).
+    #
+    # Set it to reach any server that speaks the Anthropic Messages protocol: a
+    # self-hosted gateway, a proxy, or a local inference server (e.g. one
+    # speaking the API at ``http://127.0.0.1:15742``). The adapter passes it to
+    # the SDK only when non-empty; passing ``""`` would be an invalid endpoint.
+    anthropic_base_url: str = Field(default="", alias="ANTHROPIC_BASE_URL")
+
+    # Which mechanism the Anthropic adapter uses to obtain structured output.
+    #
+    # ``output_config`` (the default) is the correct request for real Anthropic:
+    # it constrains generation so a malformed reply is *impossible*. Some
+    # Anthropic-protocol gateways accept ``output_config`` and silently ignore it
+    # -- they then answer with prose and the reply fails validation. For those,
+    # ``tool`` selects the forced-tool-use path: declare one tool whose
+    # ``input_schema`` is the target schema and force it with ``tool_choice``, so
+    # the model's arguments arrive as an already-structured object with no text
+    # to parse. That path makes the same class of failure merely *unlikely*
+    # rather than impossible, which is a different failure mode -- so the
+    # operator has to opt into it by name and is never defaulted into it.
+    #
+    # Default ``output_config`` keeps a real Anthropic deployment unchanged; the
+    # name says which *request is sent*, because that is the thing that differs.
+    anthropic_structured_output: Literal["output_config", "tool"] = Field(
+        default="output_config", alias="ANTHROPIC_STRUCTURED_OUTPUT"
+    )
+
     model_timeout_seconds: float = Field(default=60.0, alias="MODEL_TIMEOUT_SECONDS")
 
     # Which recorded fixture the ``fake`` provider replays, by scenario name.

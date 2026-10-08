@@ -613,9 +613,18 @@ def _configure_model(provider: str, model: str | None) -> str:
     first settings read (possibly from ``.env``) would win and the run would be
     recorded against a model it did not use.
 
-    Returns the effective model name, which is what the results file records:
-    the default when none was given, because "the run I recorded" must name the
-    model that produced it even when the operator let the provider choose.
+    Returns the **requested** model name -- what this deployment asked for, used
+    to configure the provider before the run.
+
+    It is deliberately *not* what the results file records, and an earlier
+    version of this docstring claimed otherwise, calling it "the model that
+    produced it". Measured against the local gateway: the request asked for
+    `claude-sonnet-5-5`, every response reported `deepseek-v4.1-flash`, and the
+    results file named the first. `docs/evals.md` requires the recorded model so
+    the numbers are attributable, and attributing them means naming the route
+    that answered.
+
+    ``_reported_model`` derives that from the run's own ``model_called`` events.
     """
     resolved = model or _default_model_for(provider)
     os.environ["MODEL_NAME"] = resolved
@@ -627,6 +636,43 @@ def _configure_model(provider: str, model: str | None) -> str:
     if callable(cache_clear):
         cache_clear()
     return resolved
+
+
+def _reported_model(results: list[dict[str, object]]) -> str:
+    """The model the responses named, taken from the run's own usage records.
+
+    Distinct from the requested model, and the distinction is measured rather
+    than theoretical. Against the local gateway, a run configured with
+    ``MODEL_NAME=claude-sonnet-5-5`` produced 53 ``model_called`` events all
+    reporting ``deepseek-v4.1-flash`` -- and every one of the five ``claude-*``
+    names tried, plus ``totally-bogus-model-name``, routed to that same backend.
+    The requested name is a label a deployment sets; the reported name is the
+    route that answered.
+
+    ``docs/evals.md`` §3 requires the results file to record the model *so the
+    numbers are attributable*. Naming the request would attribute a measurement
+    to a model that did not produce it, which is the one thing a results file
+    must not do.
+
+    Returns ``""`` when no call reported a name, so the caller can fall back to
+    the requested one rather than recording an empty string.
+    """
+    counts: dict[str, int] = {}
+    for result in results:
+        calls = result.get("model_calls")
+        if not isinstance(calls, list):
+            continue
+        for call in calls:
+            if isinstance(call, dict):
+                name = call.get("model")
+                if isinstance(name, str) and name:
+                    counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return ""
+    # Most frequent wins, with ties broken by name so a run that touched two
+    # backends records a deterministic one rather than whichever the dict
+    # happened to yield first.
+    return min(counts.items(), key=lambda item: (-item[1], item[0]))[0]
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -642,7 +688,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"opspilot-eval: {exc}", file=sys.stderr)
         return _EXIT_CONFIG
 
-    model = _configure_model(provider, args.model)
+    requested_model = _configure_model(provider, args.model)
 
     per_dataset: dict[str, list[dict[str, object]]] = {}
     try:
@@ -669,6 +715,13 @@ def _run(args: argparse.Namespace) -> int:
     metric_objects = list(metrics.summarize(all_results))
     rows = _rows_from_metrics(metric_objects)
     model_metrics = _model_metrics(metric_objects)
+
+    # What the responses reported, which is what belongs in the record. The
+    # requested name is what the deployment asked for and may be routed anywhere;
+    # the local gateway ignores it entirely and answers as `deepseek-v4.1-flash`
+    # whatever is sent. Falls back to the requested name only when no call
+    # reported one -- a fake run, or a provider that omits it.
+    model = _reported_model(all_results) or requested_model
 
     moment = _utc_now()
     raw_path = _write_results(

@@ -99,3 +99,54 @@ def test_cors_origins_refuses_a_wildcard_alongside_named_origins() -> None:
     """
     with pytest.raises(ValueError, match="cannot contain"):
         Settings(OPSPILOT_CORS_ORIGINS="http://localhost:3000,*")
+
+
+# -- model provider endpoints and structured output ---------------------------
+
+
+def test_anthropic_base_url_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unset ``ANTHROPIC_BASE_URL`` yields the empty string -- "use the SDK's own".
+
+    The variable is removed from the environment and ``.env`` is ignored: this
+    machine may have ``ANTHROPIC_BASE_URL`` exported (a gateway run), and the
+    point under test is the *default*, not whatever the shell or a developer's
+    ``.env`` happens to carry.
+    """
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    assert Settings(_env_file=None).anthropic_base_url == ""  # type: ignore[call-arg]
+
+
+def test_anthropic_base_url_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None, ANTHROPIC_BASE_URL="http://127.0.0.1:15742"
+    )
+    assert settings.anthropic_base_url == "http://127.0.0.1:15742"
+
+
+def test_anthropic_structured_output_defaults_to_output_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default is the real-Anthropic request; the workaround is opt-in.
+
+    This is asserted because the whole safety of the opt-in rests on the default
+    being unchanged: an operator must never be silently switched onto the weaker
+    mechanism.
+    """
+    monkeypatch.delenv("ANTHROPIC_STRUCTURED_OUTPUT", raising=False)
+    assert Settings(_env_file=None).anthropic_structured_output == "output_config"  # type: ignore[call-arg]
+
+
+def test_anthropic_structured_output_accepts_the_tool_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_STRUCTURED_OUTPUT", raising=False)
+    settings = Settings(_env_file=None, ANTHROPIC_STRUCTURED_OUTPUT="tool")  # type: ignore[call-arg]
+    assert settings.anthropic_structured_output == "tool"
+
+
+def test_anthropic_structured_output_refuses_an_unknown_value() -> None:
+    """A typo is a configuration error, not a silent fallback to the default."""
+    with pytest.raises(ValueError):
+        Settings(ANTHROPIC_STRUCTURED_OUTPUT="toool")  # type: ignore[arg-type]
+

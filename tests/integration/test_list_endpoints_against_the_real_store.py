@@ -171,16 +171,60 @@ async def test_the_real_approval_store_answers_the_get_by_id_probe(
 async def test_ticket_list_returns_the_written_tickets_newest_first(
     factory: sessionmaker[Session],
 ) -> None:
-    """Both tickets come back, newest first (contract §10)."""
+    """Both tickets come back, newest first (contract §10).
+
+    Asserted on ``created_at``, not on the subject of ``rows[0]``.
+
+    An earlier version asserted ``rows[0].subject == "How do I rotate my API
+    key?"`` and failed roughly one run in three. It was not flaky for a
+    mystery reason: ``SqlTicketStore.list`` orders by ``(created_at DESC, id)``
+    -- a total order, deliberately, so offset paging cannot repeat or skip a row
+    -- and ``id`` is a random UUID. The two tickets are written microseconds
+    apart, so when SQLite stores the same timestamp for both, the tie-break
+    decides, and the tie-break is random by design.
+
+    So the contract guarantees a *deterministic* order, not a *chronological*
+    one, when two rows share a timestamp. This test asserted the second and
+    called it the first. The monotonic check below is what the contract actually
+    promises, and it holds either way.
+    """
     await _seed(factory)
     tickets = repositories.SqlTicketStore(factory)
 
     rows = await tickets.list()
 
     assert len(rows) == 2
-    assert rows[0].subject == "How do I rotate my API key?"
     created = [row.created_at for row in rows]
-    assert created == sorted(created, reverse=True)
+    assert created == sorted(created, reverse=True), (
+        "the list is not ordered newest-first; contract §10 requires it, and "
+        f"got {created}"
+    )
+
+
+async def test_the_ticket_list_order_is_total(factory: sessionmaker[Session]) -> None:
+    """Two rows sharing a timestamp still come back in a stable order.
+
+    The property ``SqlTicketStore.list``'s secondary sort on ``id`` exists for,
+    stated as a test rather than left to the comment that describes it. Without
+    a total order, offset paging can show one row twice or skip it, and no single
+    response reveals it.
+    """
+    await _seed(factory)
+    tickets = repositories.SqlTicketStore(factory)
+
+    first = [row.id for row in await tickets.list()]
+    second = [row.id for row in await tickets.list()]
+
+    assert first == second
+    assert len(set(first)) == len(first), "a row appeared twice in one page"
+
+    # Paging in two halves must reconstruct the whole, in order.
+    page_one = [row.id for row in await tickets.list(limit=1, offset=0)]
+    page_two = [row.id for row in await tickets.list(limit=1, offset=1)]
+    assert page_one + page_two == first, (
+        "offset paging does not reconstruct the unpaged order: "
+        f"{page_one + page_two} vs {first}"
+    )
 
 
 async def test_run_list_returns_the_written_runs(factory: sessionmaker[Session]) -> None:

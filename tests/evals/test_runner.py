@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pytest
 
+from opspilot.adapters.models.anthropic_provider import AnthropicModelProvider
 from opspilot.evals.runner import (
     KNOWLEDGE_DIR,
     REPO_ROOT,
@@ -274,3 +275,132 @@ def test_the_committed_corpus_is_present() -> None:
     """The runner indexes a real corpus; an absent one would score every recall 0."""
     assert KNOWLEDGE_DIR.is_dir()
     assert any(KNOWLEDGE_DIR.glob("*.md"))
+
+
+# -- provider construction is a second assembly point ------------------------
+
+
+def test_the_runner_passes_the_gateway_settings_to_the_anthropic_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_build_provider`` must forward every setting the adapter accepts.
+
+    Caught live, not by reading: an eval pointed at a local gateway failed every
+    classification with ``StructuredOutputError: not valid JSON`` because the
+    runner constructed ``AnthropicModelProvider`` with neither ``base_url`` nor
+    ``structured_output`` — so it reached the real Anthropic endpoint and used
+    the default mechanism, ignoring the deployment's entire configuration.
+
+    ``worker/__main__.py`` had been updated for exactly this and the runner had
+    not. Two assembly points for one adapter, and only one was checked — the same
+    shape as the two ``response_format`` spellings in the OpenAI adapter, and as
+    the ``build_stores`` call that never existed.
+
+    Asserted against the constructed object rather than a spy, so a rename in the
+    adapter surfaces here as an AttributeError instead of a silently unset value.
+    """
+    from opspilot.evals import runner
+    from opspilot.settings import get_settings
+
+    monkeypatch.setenv("MODEL_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("ANTHROPIC_STRUCTURED_OUTPUT", "tool")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "probe-key-not-real")
+    monkeypatch.setenv("MODEL_NAME", "some-model-label")
+    get_settings.cache_clear()
+
+    built = runner._build_provider("anthropic")
+    assert isinstance(built, AnthropicModelProvider), (
+        f"the runner built {type(built).__name__}, not an AnthropicModelProvider"
+    )
+    provider = built
+
+    assert provider._base_url == "http://127.0.0.1:9999", (
+        "the runner did not forward ANTHROPIC_BASE_URL; a deployment pointing at "
+        "a gateway would silently talk to api.anthropic.com instead"
+    )
+    assert provider._structured_output == "tool", (
+        "the runner did not forward ANTHROPIC_STRUCTURED_OUTPUT; the deployment's "
+        "chosen mechanism was ignored and the default was used"
+    )
+    assert provider._model_name == "some-model-label", (
+        "the configured model name did not reach the adapter. Note it is a label: "
+        "a gateway may route it anywhere, and the reported name is what counts"
+    )
+
+
+def test_the_runner_and_the_worker_build_the_anthropic_provider_the_same_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two assembly points must not drift apart again.
+
+    They are separate functions because the worker reads a deployment's
+    environment and the runner reads the eval's, but they construct the same
+    adapter from the same settings. Asserting the field sets match is what stops
+    one gaining a parameter the other never learns about — which is exactly how
+    this defect happened.
+    """
+    import inspect
+
+    from opspilot.adapters.models.anthropic_provider import AnthropicModelProvider
+    from opspilot.evals import runner
+    from opspilot.worker import __main__ as worker_main
+
+    accepted = set(inspect.signature(AnthropicModelProvider.__init__).parameters) - {
+        "self",
+    }
+
+    worker_src = inspect.getsource(worker_main.build_worker_provider)
+    runner_src = inspect.getsource(runner._build_provider)
+
+    # Every parameter the adapter accepts, other than the key and timeout which
+    # both sites pass positionally-by-name anyway, must appear at both sites.
+    for name in sorted(accepted - {"api_key", "timeout_seconds"}):
+        assert name in worker_src, f"the worker does not pass {name!r}"
+        assert name in runner_src, (
+            f"the runner does not pass {name!r}, which the adapter accepts. The "
+            "two construction sites have drifted; a deployment setting "
+            f"{name} would be honoured by one and ignored by the other."
+        )
+
+
+def test_the_run_row_records_a_real_model_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No run row may name its model "eval".
+
+    Found by reading the results file rather than the code: `_reported_model`
+    reported agreement between the file's model field and the `model_called`
+    events, and both were wrong -- the runner wrote the literal ``"eval"`` into
+    every run row, and the file's field had read it back.
+
+    That mattered beyond tidiness. ``RunDetail.model_name`` exists to say what
+    produced a run; a placeholder makes it useless for exactly that, and it is
+    what a reader would see in the dashboard for any run the eval harness
+    created. The agreement check could not see it because it compared two
+    copies of the same placeholder.
+
+    Asserted through the real ``run_case`` path rather than by grepping, so the
+    guard holds if the value moves.
+    """
+    from opspilot.evals import runner as module
+    from opspilot.settings import get_settings
+
+    monkeypatch.setenv("MODEL_NAME", "a-configured-label")
+    monkeypatch.setenv("MODEL_PROVIDER", "fake")
+    get_settings.cache_clear()
+
+    assert module._configured_model_name("anthropic") == "a-configured-label"
+
+    monkeypatch.setenv("MODEL_NAME", "")
+    get_settings.cache_clear()
+    assert module._configured_model_name("anthropic") == "claude-sonnet-5-5"
+    assert module._configured_model_name("fake") == "fake-1"
+
+    # The literal that used to be written, asserted absent from the source that
+    # writes run rows. A grep, because the failure is a constant reappearing.
+    import inspect
+
+    src = inspect.getsource(module)
+    assert 'model_name="eval"' not in src, (
+        'the runner writes model_name="eval" again; that placeholder reaches '
+        "RunDetail.model_name and any results file built from it"
+    )
