@@ -196,8 +196,7 @@ async def test_ticket_list_returns_the_written_tickets_newest_first(
     assert len(rows) == 2
     created = [row.created_at for row in rows]
     assert created == sorted(created, reverse=True), (
-        "the list is not ordered newest-first; contract §10 requires it, and "
-        f"got {created}"
+        f"the list is not ordered newest-first; contract §10 requires it, and got {created}"
     )
 
 
@@ -222,8 +221,7 @@ async def test_the_ticket_list_order_is_total(factory: sessionmaker[Session]) ->
     page_one = [row.id for row in await tickets.list(limit=1, offset=0)]
     page_two = [row.id for row in await tickets.list(limit=1, offset=1)]
     assert page_one + page_two == first, (
-        "offset paging does not reconstruct the unpaged order: "
-        f"{page_one + page_two} vs {first}"
+        f"offset paging does not reconstruct the unpaged order: {page_one + page_two} vs {first}"
     )
 
 

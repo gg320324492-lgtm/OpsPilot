@@ -65,6 +65,7 @@ class _CorsOptions(TypedDict):
     allow_headers: list[str]
     max_age: int
 
+
 # The name the OpenAPI document is tagged with; also what a probe sees.
 _TITLE = "OpsPilot API"
 _DESCRIPTION = (

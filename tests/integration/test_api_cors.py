@@ -148,9 +148,9 @@ def test_a_second_configured_origin_is_allowed(make_client: _ClientFactory) -> N
     client = make_client(f"{_DASHBOARD},http://127.0.0.1:3000")
 
     assert (
-        client.get(
-            "/api/tickets", headers={**_AUTH, "Origin": "http://127.0.0.1:3000"}
-        ).headers["access-control-allow-origin"]
+        client.get("/api/tickets", headers={**_AUTH, "Origin": "http://127.0.0.1:3000"}).headers[
+            "access-control-allow-origin"
+        ]
         == "http://127.0.0.1:3000"
     )
 

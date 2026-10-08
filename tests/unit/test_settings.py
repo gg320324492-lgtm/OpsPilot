@@ -60,9 +60,7 @@ def test_cors_origins_default_to_the_local_dashboard() -> None:
 
 
 def test_cors_origins_parses_a_comma_separated_list() -> None:
-    settings = Settings(
-        OPSPILOT_CORS_ORIGINS="http://localhost:3000, https://ops.internal.example"
-    )
+    settings = Settings(OPSPILOT_CORS_ORIGINS="http://localhost:3000, https://ops.internal.example")
     assert settings.cors_origins == ("http://localhost:3000", "https://ops.internal.example")
 
 
@@ -149,4 +147,3 @@ def test_anthropic_structured_output_refuses_an_unknown_value() -> None:
     """A typo is a configuration error, not a silent fallback to the default."""
     with pytest.raises(ValueError):
         Settings(ANTHROPIC_STRUCTURED_OUTPUT="toool")  # type: ignore[arg-type]
-

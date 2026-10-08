@@ -87,8 +87,7 @@ async def test_a_step_type_nothing_records_has_no_detail_branch(harness: Harness
         "step type is real."
     )
     assert _detail_for("tool_call", {"tool_name": "billing.issue_refund"}) == "", (
-        "a detail branch exists for a step type nothing records -- code that can "
-        "only ever be wrong"
+        "a detail branch exists for a step type nothing records -- code that can only ever be wrong"
     )
 
 

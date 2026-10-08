@@ -315,9 +315,7 @@ def test_table_matches_the_spec_character_for_character(
 
     spec_lines = (_REPO_ROOT / "docs" / "evals.md").read_text(encoding="utf-8").splitlines()
     # The fence block runs from the banner line to the `raw:` line inclusive.
-    start = spec_lines.index(
-        "OpsPilot evaluation — provider=anthropic model=claude-sonnet-5-5"
-    )
+    start = spec_lines.index("OpsPilot evaluation — provider=anthropic model=claude-sonnet-5-5")
     end = next(i for i in range(start, len(spec_lines)) if spec_lines[i].startswith("raw:"))
     expected = spec_lines[start : end + 1]
     # The spec's all-datasets example quotes no injection cases, so its
@@ -327,10 +325,7 @@ def test_table_matches_the_spec_character_for_character(
     # side too and assert the geometry, not the companion, here. The companion
     # is asserted directly by
     # `test_safety_run_marks_the_synthetic_injection_cases_on_the_table`.
-    expected = [
-        line.replace(" (2/2 synthetic)", "")
-        for line in expected
-    ]
+    expected = [line.replace(" (2/2 synthetic)", "") for line in expected]
 
     produced = result.stdout.splitlines()
     # The driver's banner names the fake provider/model; normalise only that
@@ -359,16 +354,14 @@ def test_safety_run_marks_the_synthetic_injection_cases_on_the_table(
     )
     assert result.returncode == 0, result.stderr
     line = next(
-        line for line in result.stdout.splitlines()
-        if line.startswith("approval-policy compliance")
+        line for line in result.stdout.splitlines() if line.startswith("approval-policy compliance")
     )
     # Both figures, on one line, with the synthetic one labelled -- never blended.
     assert "(13/13)" in line, line
     assert "(2/2 synthetic)" in line, line
     # The gate is still computed over all 15 safety cases, injections included.
     gate = next(
-        line for line in result.stdout.splitlines()
-        if line.startswith("unsafe execution count")
+        line for line in result.stdout.splitlines() if line.startswith("unsafe execution count")
     )
     assert gate.split()[3] == "15", gate
 
@@ -404,9 +397,7 @@ def test_limit_selects_representative_cases_round_robin(
     plumbing regression in any one of them, where 8 cases from one dataset
     would not.
     """
-    result = _run_cli(
-        cli_env, "run", "--provider", "fake", "--allow-fake-scores", "--limit", "8"
-    )
+    result = _run_cli(cli_env, "run", "--provider", "fake", "--allow-fake-scores", "--limit", "8")
     assert result.returncode == 0, result.stderr
     raw = _latest_results_file()
     assert _config(raw)["limit"] == 8

@@ -105,7 +105,5 @@ def test_empty_base_url_is_not_passed_to_the_sdk(monkeypatch: pytest.MonkeyPatch
 
 def test_non_empty_base_url_is_passed_to_the_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
     """A configured ``OPENAI_BASE_URL`` reaches the SDK, so a compatible endpoint works."""
-    captured = _capture_openai_client_kwargs(
-        monkeypatch, base_url="https://openrouter.ai/api/v1"
-    )
+    captured = _capture_openai_client_kwargs(monkeypatch, base_url="https://openrouter.ai/api/v1")
     assert captured["base_url"] == "https://openrouter.ai/api/v1"

@@ -79,8 +79,17 @@ def _run_eval(*args: str, env_overrides: dict[str, str]) -> subprocess.Completed
         **env_overrides,
     }
     return subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "opspilot.evals", "run", "--provider", "openai",
-         "--limit", _LIMIT, *args],
+        [
+            sys.executable,
+            "-m",
+            "opspilot.evals",
+            "run",
+            "--provider",
+            "openai",
+            "--limit",
+            _LIMIT,
+            *args,
+        ],
         capture_output=True,
         text=True,
         cwd=_REPO_ROOT,
@@ -121,8 +130,7 @@ def test_the_failure_names_the_provider_problem_not_just_a_zero(
     """
     combined = (no_key_run.stdout + no_key_run.stderr).lower()
     assert any(
-        marker in combined
-        for marker in ("api key", "api_key", "no api key", "missingapikey")
+        marker in combined for marker in ("api key", "api_key", "no api key", "missingapikey")
     ), (
         "the run failed without saying that the provider had no API key. "
         "Output was:\n" + no_key_run.stdout + no_key_run.stderr
@@ -144,8 +152,17 @@ def test_a_partial_failure_is_still_a_result(
     import os
 
     fake = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "opspilot.evals", "run", "--provider", "fake",
-         "--allow-fake-scores", "--limit", _LIMIT],
+        [
+            sys.executable,
+            "-m",
+            "opspilot.evals",
+            "run",
+            "--provider",
+            "fake",
+            "--allow-fake-scores",
+            "--limit",
+            _LIMIT,
+        ],
         capture_output=True,
         text=True,
         cwd=_REPO_ROOT,
@@ -155,8 +172,7 @@ def test_a_partial_failure_is_still_a_result(
     )
     assert fake.returncode == 0, (
         "a fake-provider run with results exited non-zero, so the "
-        "measured-nothing guard is over-applied:\n"
-        + fake.stdout + fake.stderr
+        "measured-nothing guard is over-applied:\n" + fake.stdout + fake.stderr
     )
 
 

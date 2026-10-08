@@ -111,7 +111,10 @@ class AnthropicModelProvider:
         started = time.perf_counter()
         if self._structured_output == "tool":
             message = await self._create_with_forced_tool(
-                client, system=system, prompt=prompt, schema=schema,
+                client,
+                system=system,
+                prompt=prompt,
+                schema=schema,
                 timeout_seconds=timeout_seconds,
             )
             raw: str | dict[str, Any] = _tool_use_input(message)
@@ -270,4 +273,3 @@ def _tool_use_input(message: Any) -> dict[str, Any]:
             if isinstance(value, dict):
                 return value
     return {}
-

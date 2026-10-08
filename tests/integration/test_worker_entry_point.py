@@ -46,9 +46,7 @@ from opspilot.worker.__main__ import (
 
 
 @pytest.fixture
-def migrated_db(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> pathlib.Path:
+def migrated_db(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
     """A real SQLite database at the migration head.
 
     Migrated rather than created from metadata: the point is to exercise the
@@ -286,9 +284,8 @@ def test_main_runs_and_stops_cleanly(migrated_db: pathlib.Path) -> None:
     try:
         # Give it long enough to either start polling or fail while building.
         _time.sleep(4.0)
-        assert proc.poll() is None, (
-            "the worker exited on its own within 4s; stderr:\n"
-            + (proc.stderr.read() if proc.stderr else "")
+        assert proc.poll() is None, "the worker exited on its own within 4s; stderr:\n" + (
+            proc.stderr.read() if proc.stderr else ""
         )
 
         if sys.platform == "win32":
@@ -346,9 +343,7 @@ def test_the_console_script_target_is_importable_and_callable() -> None:
 
     module = importlib.import_module("opspilot.worker.__main__")
     target = getattr(module, "main", None)
-    assert callable(target), (
-        "pyproject.toml's opspilot-worker entry point target is not callable"
-    )
+    assert callable(target), "pyproject.toml's opspilot-worker entry point target is not callable"
 
 
 def test_importing_the_entry_point_does_not_require_a_database() -> None:
@@ -371,8 +366,7 @@ def test_importing_the_entry_point_does_not_require_a_database() -> None:
         timeout=60,
     )
     assert result.returncode == 0, (
-        "importing the worker entry point failed with an empty DATABASE_URL:\n"
-        f"{result.stderr}"
+        f"importing the worker entry point failed with an empty DATABASE_URL:\n{result.stderr}"
     )
 
 

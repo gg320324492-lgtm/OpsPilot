@@ -406,8 +406,7 @@ async def test_every_executed_tool_call_persists_the_measured_latency(harness: H
     assert not missing, (
         f"{len(missing)} of {len(calls)} tool calls executed without a persisted "
         "latency_ms; the gateway measured each dispatch and the value was "
-        "dropped: "
-        + ", ".join(f"{c.tool_name} status={c.status}" for c in missing)
+        "dropped: " + ", ".join(f"{c.tool_name} status={c.status}" for c in missing)
     )
 
 

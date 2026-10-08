@@ -176,9 +176,7 @@ async def test_classification_event_carries_the_providers_reported_usage(
     run = await _run_to_completion(harness)
 
     events = _model_events(harness, run.id)
-    classification = [
-        e for e in events if e.get("provider") == declared.provider
-    ]
+    classification = [e for e in events if e.get("provider") == declared.provider]
     assert classification, (
         "no model_called event carried the provider's own usage; the runtime "
         f"did not forward ModelUsage. Events were: {events}"

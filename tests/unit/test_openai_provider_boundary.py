@@ -79,9 +79,7 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
         # the reply only has to be parseable.
         name = (sent.get("response_format", {}) or {}).get("json_schema", {}).get("name", "")
         body = json.loads(json.dumps(_COMPLETION_BODY))
-        body["choices"][0]["message"]["content"] = _REPLY_BY_SCHEMA_NAME.get(
-            name, _PROPOSAL_JSON
-        )
+        body["choices"][0]["message"]["content"] = _REPLY_BY_SCHEMA_NAME.get(name, _PROPOSAL_JSON)
         return httpx.Response(200, json=body)
 
 

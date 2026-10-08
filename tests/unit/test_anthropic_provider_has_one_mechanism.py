@@ -61,9 +61,7 @@ def test_choose_tool_does_not_build_its_own_request() -> None:
     calls = [
         n
         for n in ast.walk(node)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "create"
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "create"
     ]
     assert not calls, (
         "choose_tool issues its own API request. It must delegate to "
@@ -122,6 +120,5 @@ def test_the_setting_is_read_in_exactly_one_place() -> None:
 
     generate = _function_node("generate_structured")
     assert any(
-        isinstance(n, ast.Attribute) and n.attr == f"_{_SETTING_FIELD}"
-        for n in ast.walk(generate)
+        isinstance(n, ast.Attribute) and n.attr == f"_{_SETTING_FIELD}" for n in ast.walk(generate)
     ), "generate_structured no longer consults the setting at all"

@@ -290,8 +290,7 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
     raise WorkerConfigError(
         f"MODEL_PROVIDER={name!r} has no adapter in this build",
         how_to_fix=(
-            f"set MODEL_PROVIDER to one of {sorted(_DEFAULT_MODEL_NAMES)} "
-            "(see .env.example)"
+            f"set MODEL_PROVIDER to one of {sorted(_DEFAULT_MODEL_NAMES)} (see .env.example)"
         ),
     )
 
@@ -350,8 +349,7 @@ def build_worker(settings: object = None) -> _Worker:
         ) from None
     except _DATABASE_BUILD_ERRORS as exc:
         raise WorkerConfigError(
-            f"the worker could not build its stores from DATABASE_URL "
-            f"({resolved.database_url})",
+            f"the worker could not build its stores from DATABASE_URL ({resolved.database_url})",
             how_to_fix=(
                 "set DATABASE_URL to a reachable database and run "
                 "'alembic upgrade head' so the schema exists (see .env.example)"
@@ -487,9 +485,7 @@ async def _run(worker: _Worker) -> None:
     )
     stopping = asyncio.ensure_future(stop.wait())
     try:
-        done, pending = await asyncio.wait(
-            {poll, stopping}, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, pending = await asyncio.wait({poll, stopping}, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
