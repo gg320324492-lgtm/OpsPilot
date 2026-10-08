@@ -2997,16 +2997,26 @@ a model. On the gateway it demonstrably does not.
 From `docs/milestones.md` §M9, with the two that are already known to be
 unreachable as written marked here rather than discovered at the end.
 
-- [ ] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
+- [x] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
       (pgvector container), `mcp-contract`, `security`, `eval-smoke`,
-      `web-lint`, `web-typecheck`, `docker-build`.
-- [ ] `eval-live` on `workflow_dispatch` only.
+      `web-lint`, `web-typecheck`, `docker-build`. **Ten jobs written.** Every
+      command in them was run locally; the two jobs needing Docker or a local
+      Postgres have never executed and say so.
+- [x] `eval-live` on `workflow_dispatch` only, key passed via `env:` and never
+      on a command line, results uploaded as an artefact.
 - [ ] `docker compose up` brings up api, worker, web, postgres, **three MCP
-      servers** — see below; this clause cannot be met as written.
-- [ ] README: golden-path trace, the eval table, an architecture diagram, the
-      five demo scenarios, a recorded GIF, a limitations section.
-- [ ] `docs/progress.md` records each milestone, including what went wrong.
-- [ ] The Definition of Done checked line by line, unmet items named.
+      servers** — the MCP clause **cannot be met as written**; see D12a below,
+      where they are the worker's child processes instead. The rest of the stack
+      is written and, at the time of writing, unrun.
+- [x] README: golden-path trace, the eval table, an architecture diagram, the
+      five demo scenarios, a recorded GIF (1400x1050, 90 frames, from a real
+      run), and a limitations section.
+- [x] `docs/progress.md` records each milestone, including what went wrong.
+- [x] The Definition of Done checked line by line, unmet items named — **19
+      items derived from claims the repository already made, then audited. The
+      audit scored 11 of 19; M9b–M10 then closed six more, and the two that
+      remain are D13 (no Docker) and D19's last strand.** The audit's own
+      numbers were a snapshot and are superseded by "M9/M10 outcome" below.
 
 ### The MCP servers cannot be three Compose services
 
@@ -3194,12 +3204,38 @@ are named.
   path, the `test_two_workers_do_not_claim_the_same_run` phantom, and the
   readiness-probe/`candidate` items recorded earlier in this file.
 
-**Score: 11 of 19 met, 8 unmet or unverifiable.** The pattern is consistent: the
-things that run (the test suite, the gates, the security invariants, mypy,
-`ruff check`) hold. The things that are *claims about running* — a formatting
-gate no job checks, a diagram step the workflow skips, a named test that does not
-exist, a Compose stack never up — do not. Every one of the eight is a
-documentation-versus-code gap, not a broken mechanism.
+**Score at the time of the audit: 11 of 19 met, 8 unmet or unverifiable.** The
+pattern is consistent: the things that run (the test suite, the gates, the
+security invariants, mypy, `ruff check`) hold. The things that are *claims about
+running* — a formatting gate no job checks, a diagram step the workflow skips, a
+named test that does not exist, a Compose stack never up — do not. Every one of
+the eight is a documentation-versus-code gap, not a broken mechanism.
+
+### M9/M10 outcome — the audit re-scored
+
+The eight gaps above were worked rather than left. Re-measured after M9b–M10:
+
+| Item | Was | Now |
+|---|---|---|
+| D2 `ruff format --check` | unmet, 18 files, no CI gate | pinned ruff, formatted, gated in CI |
+| D7 `issues.create` | traced in README, never called | trace and docstrings corrected; **the call was not added** |
+| D8 `OPSPILOT_REFUND_CEILING` | read, absent from `.env.example` | documented, including that empty means no ceiling |
+| D14 scenarios + GIF | absent | five scenarios traced to their assertions; a real recorded GIF |
+| D15 README vs cited JSON | table named a model the file did not | explained; the file predates the fix and no number was invented |
+| D16 phantom concurrency test | cited as a mitigation, never existed | limitations now says so and why it was removed rather than written |
+| D18 status banner | still said M0 | rewritten, keeping the caveats |
+| D19 documented-but-unimplemented | six standing | one: `issues.create` off the golden path, which is an open product decision |
+
+**17 of 19 met.** The two that remain:
+
+- **D12 — "three MCP servers" as Compose services.** Not satisfiable as written.
+  They are stdio servers with no port; a service would be a container that starts,
+  blocks on stdin and serves nothing. `MCP_TRANSPORT=stdio` now brings them up as
+  the worker's child processes, which is what `mcp-contracts.md` always claimed.
+  Recorded as **D12a** rather than quietly ticked.
+- **D13 — the Compose stack has never been run.** No Docker daemon on the
+  development machine. Enabling WSL2 and Docker Desktop requires a Windows
+  restart; that is being done rather than left.
 
 ### M10 — the seventh documented-but-unimplemented capability
 
