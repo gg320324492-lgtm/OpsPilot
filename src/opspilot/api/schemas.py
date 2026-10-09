@@ -240,6 +240,16 @@ class RunDetail(BaseModel):
     citations: list[CitationDetail] = Field(default_factory=list)
     pending_approval: PendingApproval | None = None
     customer_reply: CustomerReply | None = None
+    # The subset of ``tool_calls`` that did not succeed, repeated as a summary.
+    #
+    # The rows were already in ``tool_calls``; this changes nothing about what is
+    # recorded and everything about what an operator can see. Observed live, a
+    # run reported ``completed`` with five citations and a customer reply
+    # claiming a refund, with the failed refund one status string deep in a list
+    # a human has to know to scan. A summary field is what makes "this run lost
+    # money somewhere" impossible to read past -- which is the only property that
+    # matters when the same page also says "and here is your reply".
+    failed_tool_calls: list[ToolCallDetail] = Field(default_factory=list)
 
 
 class TraceResponse(BaseModel):

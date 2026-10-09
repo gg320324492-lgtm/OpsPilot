@@ -3477,3 +3477,105 @@ the refunds collection still at one entry). That last one is the case worth
 having and nothing asserts it — `docs/tool-permissions.md` §6 states the
 invariant, and the suite covers the replan path but not the operator clicking
 approve twice.
+
+---
+
+## M11 — A failed tool call, and a customer reply that claimed a refund
+
+**Date:** 2026-10-09. Closes the `completed`-run-with-a-failed-refund case
+recorded above, and the unasserted double-approval half of invariant 4.
+
+### The decision, and why it was not the obvious one
+
+**A failed `ToolCall` does not change the run's status.** The run still reaches
+`COMPLETED`. The argument is recorded in `docs/agent-state-machine.md` §3.1; the
+short form is that §3's question is "did OpsPilot finish the job", and the
+question that actually separates the cases is not *did a tool return an error*
+but *did the tool return an answer*.
+
+The read/write split is the real content of it:
+
+| Failure | Run | Reply |
+|---|---|---|
+| `READ` → `not_found` | `COMPLETED` | not escalated |
+| Write → refused | `COMPLETED` | **escalated** |
+| Any tool → `mcp_unavailable` | **`FAILED`** | (unchanged) |
+
+Both halves are pinned, because each one alone would be satisfiable by the
+wrong implementation: without the read case the rule could be "escalate on any
+refusal", and without the `mcp_unavailable` case the escalation rule could be
+applied uniformly. The permission is read from `TOOL_REGISTRY`, not from a tool
+list or an error code.
+
+### What changed
+
+`agents/runtime.py` — a `tool_failed` audit event carrying the error (rather
+than an `ok: false` payload on `tool_executed`, whose *name* asserted the
+opposite of its contents); a `WARNING` log line naming run, tool, error and
+permission; a reply prompt that says the failed actions "did not complete and
+had no effect" and forbids claiming them; and `ctx.escalated = True` on a failed
+write, read from the registry rather than inferred from the tool name.
+
+`api/schemas.py`, `api/routers/runs.py` — `failed_tool_calls` on
+`RunDetail`, filtered server-side. `docs/api-contract.md` §3 documents it.
+
+`web/` — the generated client type (regenerated, not hand-edited) and a banner
+on the run page.
+
+### Two defects found while doing it
+
+**1. The customer reply could, and did, claim a refund that never happened.**
+Confirmed live on three runs, before any change: `c7cd0d91`, `f37fb2ff`,
+`cf8d3b1f` all reported `completed`, five citations and the reply *"We confirmed
+the duplicate charge of $129.00 … and have **refunded** the extra transaction
+(TX-88219)"* — with `billing.issue_refund` at `status='failed'`,
+`error='invalid_state'`. The prompt had said only
+`Actions taken: billing.issue_refund=failed`, which a model reads as a refund
+that happened. **This was the most serious part of the finding and it is fixed
+at the prompt level only.** The `fake` provider replays a recorded fixture
+verbatim, so on the shipped default the reply still asserts the refund — verified
+live *after* the change. A structural guarantee would need the runtime to parse
+model output; that is not built and is recorded in §3.1 as unaddressed.
+
+**2. `migrations/env.py` silenced every application logger.** Found because
+`test_a_failed_tool_call_is_logged` passed alone and was captured by nobody in
+the full suite — bisected to `test_api_readiness.py`, which runs
+`alembic upgrade head` in-process. `fileConfig` defaults to
+`disable_existing_loggers=True`, so it switched off `opspilot.agents.runtime` and
+everything else `alembic.ini` does not name, for the rest of the process. Any
+deployment migrating in-process would have lost **every** log line after that
+point — which would have made the warning added above invisible in production.
+Fixed, and pinned by a test that runs a real `command.upgrade`.
+
+### The pattern, once more, wearing a different hat
+
+The double-approval test the previous entry asked for passed the first time it
+was written against the API. Removing `WHERE status='pending'` from
+`SqlApprovalStore.decide` left it **green** — because `_decide` re-reads the
+approval and returns 409 before it ever calls the store. A sequential test of
+the handler cannot see the store's guard at all; only two clicks arriving
+together reach the race it exists for. The suite now pins both, and the second
+bypasses the handler and reads the row back from the database. **Had this been
+written the obvious way, "the invariant is asserted" would have been true and
+worth nothing.**
+
+### Commands run
+
+```
+ruff check . / ruff format --check .   All checks passed! / 193 files already formatted
+mypy                                    Success: no issues found in 165 source files
+pytest                                  730 passed, 9 skipped
+web: npm run check:types                client types are current with the live OpenAPI schema
+```
+
+Mutation-verified: removing `status='pending'` reddens two tests and not the
+API-level one; reverting `disable_existing_loggers=False` reddens the logging
+guard. Both reverted, files diffed back.
+
+### Not done
+
+- The **structural** guarantee on the customer reply (see above).
+- `failed_tool_calls` on the *list* endpoint (`GET /api/runs`), so an operator
+  scanning the run list still cannot see a failed call without opening the run.
+- The Postgres-marked tests still skip locally (ADR-0004); the live verification
+  above was done against the Compose stack by hand, not by the suite.

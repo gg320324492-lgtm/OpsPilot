@@ -24,8 +24,25 @@ config = context.config
 
 # Python logging is configured only when a config file is present (it is not
 # when env.py is invoked programmatically by a test).
+#
+# ``disable_existing_loggers=False`` is load-bearing. ``fileConfig`` defaults it
+# to ``True``, which disables every already-constructed logger the config file
+# does not name -- and ``alembic.ini`` names only alembic's own. When ``env.py``
+# runs *inside* this process (``alembic upgrade head`` invoked programmatically,
+# as the readiness and migration-schema tests do), that silently switched off
+# ``opspilot.agents.runtime`` and every other application logger for the rest of
+# the process.
+#
+# Found by a test that could not see its own failure: the warning asserted by
+# ``test_failed_tool_call_visibility.py::test_a_failed_tool_call_is_logged``
+# passed alone and was captured by nobody once a migration had run earlier in the
+# same session. Nothing in the runtime had changed; the logging tree had been
+# reconfigured underneath it. The CLI path was unaffected only because there the
+# application loggers do not exist yet when ``env.py`` runs -- which is exactly
+# why this would have stayed invisible in any manual check of ``alembic
+# upgrade head``.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The database URL has one source of truth: `opspilot.settings`, which reads the
 # environment (and .env). `%` is escaped because configparser interpolates.

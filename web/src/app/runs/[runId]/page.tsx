@@ -72,6 +72,7 @@ export default async function RunDetailPage({
   const isFailed = detail.status === "failed";
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
+  const failedCalls = detail.failed_tool_calls ?? [];
 
   return (
     <Page
@@ -133,6 +134,25 @@ export default async function RunDetailPage({
             ) : null}
           </dl>
         </Panel>
+
+        {failedCalls.length > 0 ? (
+          <div
+            role="alert"
+            className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+          >
+            <p className="font-semibold">
+              {failedCalls.length} tool call{failedCalls.length === 1 ? "" : "s"} did not complete
+              {detail.status === "completed" ? ", and this run still reported completed" : ""}.
+            </p>
+            <p className="mt-1">
+              Anything listed below did <em>not</em> happen:{" "}
+              {failedCalls
+                .map((call) => `${call.tool_name} (${call.error ?? "unknown error"})`)
+                .join(", ")}
+              . If a customer reply is shown, it was composed without these effects.
+            </p>
+          </div>
+        ) : null}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">

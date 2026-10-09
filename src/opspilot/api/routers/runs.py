@@ -192,6 +192,12 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
     step. Both are fetched through optional store methods so a store that does
     not offer them still serves the run.
 
+    ``failed_tool_calls`` is the summary an operator needs and the ``tool_calls``
+    list does not give them: a run can be ``completed``, carry a customer reply
+    and five citations, and still have had a refund refused somewhere in the
+    middle of the trace. Filtering here rather than in the client means the
+    dashboard cannot forget to.
+
     Raises:
         ApiError: 404 ``run_not_found`` if there is no such run.
     """
@@ -220,6 +226,7 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
         citations=citations,
         pending_approval=pending,
         customer_reply=reply,
+        failed_tool_calls=[tc for tc in tool_calls if tc.status is ToolCallStatus.FAILED],
     )
 
 

@@ -27,6 +27,7 @@ for exactly this reason. Do not split it up.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -70,6 +71,8 @@ from opspilot.tracing.recorder import TraceRecorder
 # context may carry its own.
 _DEFAULT_MAX_STEPS: Final[int] = 24
 
+logger = logging.getLogger(__name__)
+
 
 def _settings_min_score() -> float:
     """``Settings.retrieval_min_score``, so the threshold has one definition."""
@@ -100,6 +103,13 @@ _DEFAULT_RETRIEVAL_MIN_SCORE: Final[float] = _settings_min_score()
 MCP_UNAVAILABLE: Final[str] = "mcp_unavailable"
 
 AUDIT_TOOL_EXECUTED: Final[str] = "tool_executed"
+# Written when a dispatched tool call came back ``ok=False``. It is a *separate*
+# event rather than an ``ok: false`` payload on ``tool_executed`` because that
+# name asserts the opposite of what the row contains: an operator grepping the
+# ledger for what executed would have to know to distrust the event they found,
+# which is the same silence as not writing it at all. The split is what makes
+# "one failed write" a query rather than an inference.
+AUDIT_TOOL_FAILED: Final[str] = "tool_failed"
 AUDIT_TOOL_REJECTED: Final[str] = "tool_rejected"
 AUDIT_APPROVAL_REQUESTED: Final[str] = "approval_requested"
 AUDIT_RUN_FAILED: Final[str] = "run_failed"
@@ -662,11 +672,33 @@ async def _gate_and_execute(
             await _fail_run(ctx, run_store, recorder=recorder, reason=MCP_UNAVAILABLE)
             raise MCPUnavailable(spec.name)
 
+        # Logged here, at the one place the outcome is known, and at WARNING
+        # rather than INFO. A refund the run proposed and could not perform is
+        # not an ordinary event: observed live, a run whose only refund failed
+        # reached ``completed`` with a customer reply claiming the money had
+        # moved, and the worker's log for that entire run contained exactly one
+        # line -- the boot line. The ``status='failed'`` row was written thirty
+        # lines earlier and nothing said so. One line naming the run, the tool
+        # and the error code is the difference between an operator who knows and
+        # an operator who has to go looking.
+        logger.warning(
+            "tool call failed: run=%s tool=%s error=%s permission=%s",
+            ctx.run.id,
+            call.tool_name,
+            result.error or "tool_error",
+            permission.value,
+        )
+
     # ------------------------------------------------------------------
     # AUDIT -- always, for every permission level including READ
     # ------------------------------------------------------------------
+    # A failure gets its own event type rather than an ``ok: false`` payload
+    # under ``tool_executed``. The event name is what a ledger reader queries
+    # on, and a name that asserts the opposite of its own contents is worse than
+    # no record: an operator searching for failed writes has to know in advance
+    # to distrust the results they find.
     await recorder.record_audit(
-        event_type=AUDIT_TOOL_EXECUTED,
+        event_type=AUDIT_TOOL_EXECUTED if result.ok else AUDIT_TOOL_FAILED,
         actor="runtime",
         payload={
             "tool_call_id": str(call.id),
@@ -674,6 +706,10 @@ async def _gate_and_execute(
             "permission": permission.value,
             "ok": result.ok,
             "latency_ms": result.latency_ms,
+            # Only meaningful on the failure event; ``None`` rather than an
+            # empty string on a success, so a reader cannot mistake "no error
+            # was reported" for "the error code was blank".
+            "error": None if result.ok else (result.error or "tool_error"),
         },
     )
 
@@ -737,6 +773,44 @@ async def _park_run(
     raise RunParked(str(ctx.run.id), str(call.id))
 
 
+def _failed_write_names(ctx: RunContext) -> list[str]:
+    """Names of the *effect-bearing* tools in this run that failed.
+
+    The read/write split is the whole content of the decision in
+    ``docs/agent-state-machine.md`` §3.1, so it is made once, here, from the
+    static registry rather than from the tool's name or its error code:
+
+    * A failed **READ** -- ``billing.get_invoice`` returning ``not_found`` -- is
+      a *fact about the world*. The agent is supposed to see it and reason
+      about it, so it does not escalate and does not fail the run.
+    * A failed **WRITE** of any level -- ``billing.issue_refund`` returning
+      ``invalid_state`` -- is an action that was supposed to happen and did not.
+      The run still finishes, but the reply is escalated, because the customer
+      was promised an effect that never occurred.
+
+    Reading the permission from ``TOOL_REGISTRY`` rather than hard-coding a tool
+    list means a second ``SAFE_WRITE`` or ``HIGH_RISK_WRITE`` tool gets the rule
+    for free, and a tool that is reclassified cannot silently flip behaviour: the
+    registry is the single source of truth (``docs/tool-permissions.md`` §2).
+    """
+    return [
+        rec.tool_name
+        for rec in ctx.executed_tool_calls
+        if rec.status == ToolCallStatus.FAILED.value and _is_effect_bearing(rec.tool_name)
+    ]
+
+
+def _is_effect_bearing(tool_name: str) -> bool:
+    """Whether a registered tool performs a side effect at all."""
+    spec = TOOL_REGISTRY.get(tool_name)
+    if spec is None:
+        # An unregistered name can never have executed, so a ``failed`` row
+        # carrying one is not a write whose effect is missing. Treat it as not
+        # effect-bearing rather than guessing.
+        return False
+    return spec.permission is not Permission.READ
+
+
 async def run_step(
     ctx: RunContext,
     proposal: ProposedAction,
@@ -775,6 +849,18 @@ async def run_step(
     ctx.executed_tool_calls.append(record)
     ctx.proposed_actions.append(proposal)
     ctx.steps_taken += 1
+    # A write that was supposed to happen and did not makes the reply an
+    # escalation. Set here rather than in ``_respond`` so the flag is a property
+    # of the trace by the time anything reads it -- the worker's ``responded_
+    # without_tool`` rejection path sets it the same way, and the response step
+    # records whichever value is current when the reply is composed.
+    #
+    # Only writes, never reads: see ``_failed_write_names``. A refused
+    # ``billing.get_invoice`` is an answer, and escalating on it would make the
+    # system unable to tell a customer "that invoice does not exist" in the tone
+    # it reserves for "we could not do what you asked".
+    if record.status == ToolCallStatus.FAILED.value and _is_effect_bearing(record.tool_name):
+        ctx.escalated = True
     return ctx
 
 
@@ -1360,17 +1446,54 @@ def _planning_prompt(ctx: RunContext) -> str:
 
 
 def _response_prompt(ctx: RunContext) -> str:
-    """The RESPONDING prompt: the trace and whether the outcome escalated."""
+    """The RESPONDING prompt: the trace and whether the outcome escalated.
+
+    The failed actions get their own sentence, in words rather than as a bare
+    status token, and they are named again in the prohibition. This is the
+    narrowest place the whole defect lives: observed live, the run reached
+    ``completed`` and its reply read "we ... have refunded the extra transaction
+    (TX-88219)" while the refund row sat at ``status='failed'`` with
+    ``error='invalid_state'``. The prompt at the time said only
+    ``Actions taken: billing.issue_refund=failed``, which the model read as a
+    completed refund.
+
+    The rule it encodes is narrow on purpose. A failed action is an action that
+    **did not happen**, so it must not be described to a customer as something
+    that did. That is not the same as "the run failed": a refused *read* is a
+    legitimate answer the agent reasons about, so only a failed *write* escalates
+    the reply (``_failed_write_names``, and §3.1 of the state-machine document).
+    """
     lines = [_ticket_text(ctx)]
     if ctx.executed_tool_calls:
         lines.append(
             "Actions taken: "
             + ", ".join(f"{rec.tool_name}={rec.status}" for rec in ctx.executed_tool_calls)
         )
+
+    failed = [rec for rec in ctx.executed_tool_calls if rec.status == ToolCallStatus.FAILED.value]
+    if failed:
+        # Plain language, because the status token alone was what the model
+        # misread. "did not complete" is unambiguous to a reader and leaves no
+        # room for the model to infer a success from the surrounding trace.
+        names = ", ".join(rec.tool_name for rec in failed)
+        lines.append(
+            f"These actions did not complete and had no effect: {names}. "
+            "Treat every one of them as something that did NOT happen."
+        )
+
     if ctx.escalated:
         lines.append(
             "The proposed action was declined by a human or blocked by policy. "
             "Write an escalation reply; do not claim any refund happened."
+        )
+    elif failed:
+        # The prohibition is stated even though ``escalated`` is False for a
+        # failed read: a read that found nothing is an answer the agent may
+        # reason about, but it must still not be *reported* as having happened.
+        lines.append(
+            "Write a reply that says only what actually happened. Do not claim "
+            "any action completed when it did not, and do not promise an outcome "
+            "that has not occurred."
         )
     lines.append("Write the customer reply.")
     return "\n\n".join(lines)

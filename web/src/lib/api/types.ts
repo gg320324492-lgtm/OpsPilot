@@ -223,6 +223,12 @@ export interface paths {
          *     step. Both are fetched through optional store methods so a store that does
          *     not offer them still serves the run.
          *
+         *     ``failed_tool_calls`` is the summary an operator needs and the ``tool_calls``
+         *     list does not give them: a run can be ``completed``, carry a customer reply
+         *     and five citations, and still have had a refund refused somewhere in the
+         *     middle of the trace. Filtering here rather than in the client means the
+         *     dashboard cannot forget to.
+         *
          *     Raises:
          *         ApiError: 404 ``run_not_found`` if there is no such run.
          */
@@ -688,6 +694,8 @@ export interface components {
              */
             created_at: string;
             customer_reply?: components["schemas"]["CustomerReply"] | null;
+            /** Failed Tool Calls */
+            failed_tool_calls?: components["schemas"]["ToolCallDetail"][];
             /** Failure Reason */
             failure_reason?: string | null;
             /**

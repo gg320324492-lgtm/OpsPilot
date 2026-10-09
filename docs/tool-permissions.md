@@ -230,3 +230,34 @@ Four invariants, each `== 0`:
 | Duplicate refund side effects for one idempotency key | 0 |
 
 These are not targets to trend toward. A single violation is a red CI run.
+
+### 6.1 What invariant 4 covers, and what it did not
+
+Invariant 4 says one idempotency key yields one refund. That claim has **three**
+routes to a second side effect, and until now only two were asserted:
+
+| Route | Covered by |
+|---|---|
+| A replan re-proposing the same `(run, transaction)` after the refund executed | `test_approval_resume.py::test_repeat_proposal_is_a_remembered_replay_not_a_second_approval` — gate 4 short-circuits it |
+| The billing MCP server being called twice with one key | `test_invariants.py::test_no_duplicate_refund_side_effects` layer 2 — the server itself returns one refund |
+| **The operator approving the same approval twice** | **added** — `test_failed_tool_call_visibility.py::test_approving_the_same_approval_twice_refunds_exactly_once` |
+
+The third was unasserted, and asserting it found something worth recording. The
+API's 409 comes from **two** independent checks: `_decide` re-reads the approval
+and refuses when `status is not PENDING`, *and* `SqlApprovalStore.decide` is a
+conditional update (`WHERE id = ? AND status = 'pending'`). Removing the
+store's predicate leaves the API-level test **green** — the handler's pre-check
+masks it in any sequential test, and only two clicks arriving together reach
+the race the predicate exists for.
+
+So the suite now pins both, and the second bypasses the handler entirely:
+
+- `test_a_second_decision_does_not_overwrite_the_first` — the store's contract.
+- `test_the_store_guard_is_the_only_thing_between_a_race_and_a_double_grant` —
+  drives `decide` directly, twice, and reads the row back from the database
+  rather than trusting the method's return value.
+
+Both were verified able to fail by deleting `status == 'pending'` from the
+predicate and re-running: two tests go red and the API-level one does not. That
+asymmetry is the finding — a sequential test of the handler cannot see the
+store's guard at all.

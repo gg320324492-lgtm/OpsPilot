@@ -127,7 +127,11 @@ The payload the dashboard's run-detail screen renders.
     "created_at": "…"
   },
 
-  "customer_reply": null
+  "customer_reply": null,
+
+  // The subset of tool_calls with status "failed" -- empty above because the
+  // run has not executed anything yet. See the field note below.
+  "failed_tool_calls": []
 }
 ```
 
@@ -138,6 +142,26 @@ Field notes:
 - `pending_approval` is present only when the run is parked. It is the only
   place in the API where an approver-visible payload is nested inside a run.
 - `customer_reply` is set only at `COMPLETED`.
+- **`failed_tool_calls`** repeats, as a summary, every entry of `tool_calls`
+  whose `status` is `failed`. It exists because `tool_calls` alone did not
+  survive contact with a real deployment.
+
+  Observed live against the Compose stack: a run reached `completed` with
+  `failure_reason: null`, five citations and a customer reply stating the
+  refund had been issued, while its `billing.issue_refund` row sat at
+  `status: "failed"` with `error: "invalid_state"`. The failed row *was* in
+  `tool_calls` — one status string deep in a list a reader has to know to
+  scan. A run status is not a sufficient signal for "money did not move", and
+  `failure_reason` is `null` by design on a run that completed (§3 of
+  `agent-state-machine.md`), so neither of the two fields a glance lands on
+  could show it.
+
+  This field is filtered **server-side** rather than in the client so the
+  dashboard cannot forget to, and it includes *reads*: a refused read is
+  reported here even though it does not change the run's status, because an
+  operator deciding whether to trust a run needs the whole list. What it does
+  not do is imply the run failed — see `failed_tool_calls` vs. `status` in
+  `docs/agent-state-machine.md` §3.1.
 
 ## 4. `GET /api/runs/{run_id}/trace`
 
