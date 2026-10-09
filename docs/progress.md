@@ -3263,6 +3263,39 @@ are named.
   working as written rather than a bug, and it is why the demo above needs a
   worker restart between runs.
 
+  **Independently re-verified, and it holds one level further than the run
+  above.** Resetting `/data/mcp` to the committed seed and restarting the worker,
+  the whole loop was driven again through the HTTP API by hand:
+  `classifying -> retrieving -> waiting_approval -> (approve) -> executing ->
+  completed`, with `TX-88219` returning `status: refunded, refund_id: REF-10091`
+  from the billing server and one matching row in Postgres under
+  `idempotency_key: refund:379aca75-...:TX-88219`. Re-approving the same
+  approval afterwards returns **409** and leaves the refunds collection at
+  exactly one entry — so the exactly-once guarantee holds under operator error,
+  not only under the happy path. That case is the one worth having, and it is
+  not asserted anywhere: `docs/tool-permissions.md` §6 states the invariant as
+  "the refund executes exactly once", which the suite checks for the
+  replan-and-replay path and not for double-approval.
+
+  **The store reset has a footgun worth writing down.** `Store.reset()`
+  replaces the in-memory document *only* — persisting requires an explicit
+  `save()`. Calling `reset()` from a short-lived process (a `docker compose
+  exec python -c ...`, a REPL) therefore resets nothing that survives, and the
+  data looks reset in that process's output while the file on disk still holds
+  the previous state. Resetting the demo data is `reset(); save()`, in the same
+  process, or `docker compose down -v` and let the servers re-seed from
+  `mcp_servers/*/seed.json`.
+
+  **A silent failure the run above did not surface.** When the fixture selects
+  a transaction an earlier run has already refunded, the run still reports
+  `completed` while `billing.issue_refund` is recorded `failed` with a null
+  result — and the worker log says nothing at all. A `completed` run whose
+  money did not move is the worst combination this system can produce, and the
+  only evidence is a status column nobody reads on the happy path. The refusal
+  itself is correct (`invalid_state` from a shared, persistent store is the
+  idempotency contract working); what is missing is that the agent does not
+  notice its own write failing. See the spawn_task for the follow-up.
+
   The shape of this is the project's recurring pattern one level out: **every
   verification so far ran on SQLite, against in-process fakes, on a machine with
   no Docker.** Each of those is a reasonable choice, and together they meant the
