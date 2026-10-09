@@ -21,7 +21,10 @@ Postgres-only vs SQLite, and why:
   the ORM's Python-side ``uuid.uuid4`` default supplies the value (the app
   always inserts through the ORM).
 - The ``hnsw`` vector index is Postgres-only; SQLite serves retrieval from the
-  in-memory store.
+  in-memory store. The embedding *column* needs no such guard: it is declared
+  with ``with_variant`` (``_vector_type``) so it is born ``vector(1536)`` on
+  Postgres and ``JSON`` on SQLite, which is the same construct ``models.py``
+  uses.
 - The claim and idempotency indexes are partial indexes, which SQLite *does*
   support, so their predicates are emitted on both dialects via
   ``postgresql_where`` and ``sqlite_where``.
@@ -51,6 +54,29 @@ _CLAIM_WHERE = "status IN (" + ", ".join(f"'{s}'" for s in _CLAIMABLE) + ")"
 
 _IDEMPOTENCY_WHERE = "idempotency_key IS NOT NULL AND status = 'executed'"
 
+# The width of ``knowledge_chunks.embedding``, frozen here as a literal.
+#
+# It is deliberately NOT read from ``opspilot.settings.embedding_dim``, and that
+# is the judgement this migration now records. A migration's job is to be a
+# fixed point: the same revision, applied to two databases, must produce the
+# same schema, today and in three years. Reading a runtime setting makes the
+# emitted DDL a function of the deployer's environment -- the migration file
+# stops being a reviewable snapshot of history and becomes a program whose
+# output depends on who ran it. That property is what makes a migration
+# auditable, so it is not traded away for the convenience of an env var.
+#
+# The consequence is that changing the embedding width is a schema change: it
+# takes a new revision here, and the same number has to move in
+# ``models.py::_EMBEDDING_DIM`` and ``pgvector_store.py::PgVectorStore.DEFAULT_DIM``.
+# Three literals that agree is a cost. A migration that silently disagrees with
+# the ORM it was written from is a worse one, because the disagreement only
+# surfaces at insert time, on one deployment, as a pgvector dimension error.
+#
+# The values are asserted to agree rather than merely documented as agreeing:
+# ``tests/integration/test_migration_schema.py`` reads this constant and the
+# two model-side ones and fails if they drift apart.
+_EMBEDDING_DIM = 1536
+
 
 def _is_postgres() -> bool:
     """Whether the bound migration connection targets PostgreSQL."""
@@ -65,6 +91,27 @@ def _uuid_server_default() -> sa.TextClause | None:
 def _json_type() -> sa.types.TypeEngine[object]:
     """``JSONB`` on Postgres, ``JSON`` elsewhere."""
     return sa.JSON().with_variant(JSONB(), "postgresql")
+
+
+def _vector_type() -> sa.types.TypeEngine[object]:
+    """``vector(N)`` on Postgres, ``JSON`` elsewhere -- the dialect split in one expression.
+
+    This is the *same* construct ``models.py`` uses (``_Vector`` there is a
+    ``TypeDecorator`` for exactly this reason), so the migration and the ORM
+    agree on the DDL by construction rather than by coincidence.
+
+    It exists so the column is created as ``vector(N)`` in the first place.
+    The previous approach -- declare ``sa.JSON()``, then ``ALTER`` the column to
+    ``vector(1536)`` -- cannot work, and not merely because it was missing a
+    ``USING`` clause. pgvector registers *no* cast from ``json`` to ``vector``,
+    not even an explicit one: ``ALTER ... USING embedding::vector(1536)``, the
+    form Postgres itself suggests in the HINT, fails with ``cannot cast type
+    json to vector`` as well. The column has to be *born* the right type; there
+    is no later moment at which it can become one.
+    """
+    from pgvector.sqlalchemy import Vector
+
+    return sa.JSON().with_variant(Vector(_EMBEDDING_DIM), "postgresql")
 
 
 def upgrade() -> None:
@@ -204,9 +251,9 @@ def upgrade() -> None:
         sa.Column("heading_path", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("token_count", sa.Integer(), nullable=False),
-        # pgvector on Postgres, JSON on SQLite. The dimension is read at render
-        # time by the model's TypeDecorator, so it is not baked in here.
-        sa.Column("embedding", sa.JSON(), nullable=True),
+        # pgvector on Postgres, JSON on SQLite -- the same construct the model
+        # uses, so the two render byte-identical DDL.
+        sa.Column("embedding", _vector_type(), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_knowledge_chunks"),
         sa.ForeignKeyConstraint(
             ["document_id"], ["knowledge_documents.id"], name="fk_knowledge_chunks_document_id"
@@ -217,7 +264,10 @@ def upgrade() -> None:
     )
     op.create_index("ix_knowledge_chunks_document_id", "knowledge_chunks", ["document_id"])
     if _is_postgres():
-        op.execute("ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(1536)")
+        # The column is already `vector(N)` (see `_vector_type`); this index is
+        # the only thing left that is genuinely Postgres-only. `hnsw` is a
+        # pgvector access method SQLite does not have, and the SQLite path serves
+        # retrieval from the in-memory vector store (ADR-0004).
         op.execute(
             "CREATE INDEX ix_knowledge_chunks_embedding "
             "ON knowledge_chunks USING hnsw (embedding vector_cosine_ops)"
