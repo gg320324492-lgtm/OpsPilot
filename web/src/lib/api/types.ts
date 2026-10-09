@@ -241,6 +241,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Audit
+         * @description The run's audit ledger, oldest event first (contract §4.1).
+         *
+         *     The ledger, not the trace, and the two answer different questions.
+         *     ``/trace`` is the *execution timeline* -- what step ran, in what order, how
+         *     long it took. ``/audit`` is the *compliance record* -- which events were
+         *     appended, by whom, with what payload. A step says the tool was called; the
+         *     ledger says the run was authorised to call it and what came back. Only the
+         *     ledger is append-only, and only the ledger is what an auditor reads.
+         *
+         *     Events are returned in the order they were written, unfiltered and
+         *     un-summarised. An operator looking for "did this run lose money somewhere"
+         *     reads ``failed_tool_calls`` on ``GET /api/runs/{id}``; an operator looking
+         *     for *everything that was recorded about this run*, including the events no
+         *     other surface shows, reads this.
+         *
+         *     A run with no events is an empty list, not an error. A run id that does not
+         *     exist is the 404 ``run_not_found`` its sibling endpoints raise -- an empty
+         *     list there would say "this run's ledger is empty" about a run that was never
+         *     created, which is a different and more dangerous statement.
+         *
+         *     Raises:
+         *         ApiError: 404 ``run_not_found`` if there is no such run.
+         */
+        get: operations["get_run_audit_api_runs__run_id__audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/trace": {
         parameters: {
             query?: never;
@@ -496,6 +537,59 @@ export interface components {
              * Format: uuid
              */
             tool_call_id: string;
+        };
+        /**
+         * AuditEventDetail
+         * @description One ``audit_events`` row in the audit payload (contract §4.1).
+         *
+         *     ``actor`` is who or what wrote the event. Every event the agent loop records
+         *     today names ``runtime`` -- the constant is there so a writer that is *not* the
+         *     runtime (an API-side action, a human decision) is distinguishable from it by
+         *     reading one column rather than by knowing which log line to trust.
+         *     ``payload`` is the event's own contents and its shape depends on
+         *     ``event_type``: ``tool_failed`` carries ``{tool_call_id, tool_name,
+         *     permission, ok, latency_ms, error}``, which is the one an operator greps for.
+         *
+         *     Neither is interpreted here. A step's label is a *presentation* concern, so
+         *     the trace assembles it server-side; an audit event's contents are a *record*
+         *     concern, so this model transcribes them and explains nothing.
+         */
+        AuditEventDetail: {
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * AuditResponse
+         * @description Body of ``GET /api/runs/{run_id}/audit`` (contract §4.1).
+         *
+         *     ``events`` is empty when the run has written none, which is a real answer
+         *     ("nothing is on this ledger yet") rather than an error -- the run has to
+         *     exist, which is the only 404 this endpoint returns.
+         */
+        AuditResponse: {
+            /** Events */
+            events?: components["schemas"]["AuditEventDetail"][];
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
         };
         /**
          * CitationDetail
@@ -1543,6 +1637,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Bad request (``validation_error``) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token (``unauthorized``) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No such resource (entity-specific code) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicting state (``*_already_decided`` and friends) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Schema validation failed (``validation_error``) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_run_audit_api_runs__run_id__audit_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditResponse"];
                 };
             };
             /** @description Bad request (``validation_error``) */

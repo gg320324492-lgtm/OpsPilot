@@ -259,6 +259,41 @@ class TraceResponse(BaseModel):
     steps: list[TraceStep] = Field(default_factory=list)
 
 
+class AuditEventDetail(BaseModel):
+    """One ``audit_events`` row in the audit payload (contract §4.1).
+
+    ``actor`` is who or what wrote the event. Every event the agent loop records
+    today names ``runtime`` -- the constant is there so a writer that is *not* the
+    runtime (an API-side action, a human decision) is distinguishable from it by
+    reading one column rather than by knowing which log line to trust.
+    ``payload`` is the event's own contents and its shape depends on
+    ``event_type``: ``tool_failed`` carries ``{tool_call_id, tool_name,
+    permission, ok, latency_ms, error}``, which is the one an operator greps for.
+
+    Neither is interpreted here. A step's label is a *presentation* concern, so
+    the trace assembles it server-side; an audit event's contents are a *record*
+    concern, so this model transcribes them and explains nothing.
+    """
+
+    id: UUID
+    event_type: str
+    created_at: datetime
+    actor: str
+    payload: dict[str, object]
+
+
+class AuditResponse(BaseModel):
+    """Body of ``GET /api/runs/{run_id}/audit`` (contract §4.1).
+
+    ``events`` is empty when the run has written none, which is a real answer
+    ("nothing is on this ledger yet") rather than an error -- the run has to
+    exist, which is the only 404 this endpoint returns.
+    """
+
+    run_id: UUID
+    events: list[AuditEventDetail] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Approvals
 # ---------------------------------------------------------------------------

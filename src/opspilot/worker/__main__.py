@@ -44,6 +44,14 @@ status is already durable) or is left in a claim-and-work status -- and the next
 boot's sweep is what marks it ``FAILED('interrupted')``. Doing it here as well
 would risk failing the one status that is deliberately exempt: ``EXECUTING``.
 See :func:`_install_signal_handlers` and ``docs/architecture.md`` §5.
+
+**``LOG_LEVEL`` is applied here, first thing in ``main()``.** The setting was
+defined and validated and read by nothing, so a deployment that changed it changed
+nothing. Applying it at the entry point rather than in a library module is what
+keeps the configuration out of anything that merely *imports* the worker (the
+test suite does, heavily) -- see ``opspilot.observability`` for why that
+distinction is load-bearing. It runs before ``build_worker`` so that a worker
+which then refuses to start still logs its refusal at the configured level.
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
+from opspilot.observability import apply_log_level
 from opspilot.settings import get_settings
 from opspilot.worker.loop import mark_interrupted_on_boot, poll_forever
 
@@ -665,6 +674,7 @@ def main() -> None:
     supply the collaborators the loop needs, naming what to set. Exits 0 on a
     clean shutdown.
     """
+    apply_log_level(get_settings().log_level)
     try:
         worker = build_worker()
     except WorkerConfigError as exc:

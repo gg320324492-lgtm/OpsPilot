@@ -19,6 +19,7 @@ Base path: `/api`. Errors use a single shape (§6).
 | `GET` | `/api/runs` | List runs (filterable by status) |
 | `GET` | `/api/runs/{run_id}` | Run detail: status, steps, tool calls, citations |
 | `GET` | `/api/runs/{run_id}/trace` | The ordered execution timeline only |
+| `GET` | `/api/runs/{run_id}/audit` | The run's audit ledger (append-only events) |
 | `GET` | `/api/approvals` | List approvals (default: `pending`) |
 | `GET` | `/api/approvals/{approval_id}` | One approval, with the arguments as shown |
 | `POST` | `/api/approvals/{approval_id}/approve` | Approve; resumes the run |
@@ -172,6 +173,82 @@ human-readable and `detail` is a short summary string. Rendering this requires n
 client-side logic beyond ordering, which is the point: the timeline is assembled
 server-side so the screenshot in the README and the dashboard show the same
 thing.
+
+## 4.1 `GET /api/runs/{run_id}/audit`
+
+The run's audit ledger — the append-only record, not the execution timeline.
+
+```jsonc
+{
+  "run_id": "7c1b…",
+  "events": [
+    {
+      "id": "e91a…",
+      "event_type": "model_called",
+      "created_at": "2026-10-05T10:42:04Z",
+      "actor": "runtime",
+      "payload": { "provider": "anthropic", "model": "claude-sonnet-5-5",
+                   "latency_ms": 612, "tokens_available": true,
+                   "input_tokens": 980, "output_tokens": 41,
+                   "estimated_cost_usd": 0.0031 }
+    },
+    {
+      "id": "e91f…",
+      "event_type": "approval_requested",
+      "created_at": "2026-10-05T10:42:09Z",
+      "actor": "runtime",
+      "payload": { "tool_call_id": "aa07…", "tool_name": "billing.issue_refund",
+                   "risk_explanation": "This moves $129.00 and cannot be undone automatically.",
+                   "arguments": { "transaction_id": "TX-88219", "amount": 129.00 } }
+    },
+    {
+      "id": "e927…",
+      "event_type": "tool_failed",
+      "created_at": "2026-10-05T10:42:31Z",
+      "actor": "runtime",
+      "payload": { "tool_call_id": "aa07…", "tool_name": "billing.issue_refund",
+                   "permission": "high_risk_write", "ok": false, "latency_ms": 7,
+                   "error": "invalid_state" }
+    }
+  ]
+}
+```
+
+`events` is in the order the ledger was written, oldest first, and it is
+**complete**: nothing is summarised and nothing is filtered out. The event types a
+run can write are `model_called`, `tool_executed`, `tool_failed`,
+`tool_rejected`, `approval_requested`, `retrieval_abstained` and `run_failed`.
+`payload`'s shape depends on `event_type` — the two that matter most:
+
+- `tool_failed` carries `{tool_call_id, tool_name, permission, ok, latency_ms,
+  error}`, where `error` is the code the tool server answered with
+  (`invalid_state`, `not_found`, `mcp_unavailable`). It is a **separate event
+  type** from `tool_executed`, not an `ok: false` payload inside it, because the
+  event type is what a ledger reader queries on and a name that asserts the
+  opposite of its own contents is worse than no record.
+- `model_called` carries the provider, model, latency and token counts, and its
+  token fields are `null` when the provider reports no usage — an unknown call
+  contributes nothing rather than a fabricated zero.
+
+**Which endpoint answers which question.** `/trace` is the *execution timeline*:
+which step ran, in what order, how long it took. This is the *compliance record*:
+which events were appended, by whom, with what payload. A step says a tool was
+called; the ledger says the run was authorised to call it and what came back. Only
+the ledger is append-only, and only the ledger holds the events no other surface
+shows — a model call, an abstention, a failed write.
+
+For the question "did this run lose money anywhere", read `failed_tool_calls` on
+the run-detail payload (§3): it is the filtered, server-computed summary of the
+same failure, and it is the field a glance lands on. This endpoint is for
+"everything of record about this run", including the events nothing else
+surfaces — and it is the only one of the three that exists to be read by an
+auditor rather than by a dashboard.
+
+Errors: `401` without a valid bearer token (§8). `404 run_not_found` when there
+is no such run. An empty `events` list is **not** an error: it means the run
+exists and has recorded nothing yet. The distinction is deliberate — conflating
+"this run has an empty ledger" with "there is no such run" would make a mistyped
+run id indistinguishable from a run that had just been created.
 
 ## 5. Approvals
 

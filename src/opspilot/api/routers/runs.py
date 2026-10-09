@@ -11,11 +11,11 @@ A run parked in ``WAITING_APPROVAL`` is a normal, non-terminal state to return,
 not an error.
 
 Reads that the ``RunStore`` port does not name -- listing runs, the citation
-join, the steps of a run -- are reached through optional methods when the
-concrete store offers them, so this router stays bound to the port while still
-serving the dashboard's payload. Where a store does not offer one, the field is
-an empty list rather than a 500: a missing citations panel is a smaller failure
-than a run-detail screen that will not render.
+join, the steps of a run, the audit ledger -- are reached through optional
+methods when the concrete store offers them, so this router stays bound to the
+port while still serving the dashboard's payload. Where a store does not offer
+one, the field is an empty list rather than a 500: a missing citations panel is
+a smaller failure than a run-detail screen that will not render.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ from opspilot.api.auth import require_operator
 from opspilot.api.errors import ApiError
 from opspilot.api.routers.deps import RunStoreDep, TicketStoreDep
 from opspilot.api.schemas import (
+    AuditEventDetail,
+    AuditResponse,
     CitationDetail,
     CustomerReply,
     PendingApproval,
@@ -87,6 +89,21 @@ class CitationRow(Protocol):
     chunk: str
     score: float
     rank: int
+
+
+class AuditEventRow(Protocol):
+    """The shape the router needs from a persisted ``audit_events`` row.
+
+    The ledger's columns, and nothing else: an ``AuditEvent`` is written once and
+    never rewritten (``tracing/recorder.py``), so the projection is a copy of the
+    row rather than a derived view of it.
+    """
+
+    id: UUID
+    event_type: str
+    created_at: datetime
+    actor: str
+    payload: dict[str, object]
 
 
 def _settings() -> Settings:
@@ -250,6 +267,38 @@ async def get_run_trace(run_id: UUID, runs: RunStoreDep) -> TraceResponse:
     return TraceResponse(run_id=run_id, steps=timeline)
 
 
+@router.get("/runs/{run_id}/audit", response_model=AuditResponse)
+async def get_run_audit(run_id: UUID, runs: RunStoreDep) -> AuditResponse:
+    """The run's audit ledger, oldest event first (contract §4.1).
+
+    The ledger, not the trace, and the two answer different questions.
+    ``/trace`` is the *execution timeline* -- what step ran, in what order, how
+    long it took. ``/audit`` is the *compliance record* -- which events were
+    appended, by whom, with what payload. A step says the tool was called; the
+    ledger says the run was authorised to call it and what came back. Only the
+    ledger is append-only, and only the ledger is what an auditor reads.
+
+    Events are returned in the order they were written, unfiltered and
+    un-summarised. An operator looking for "did this run lose money somewhere"
+    reads ``failed_tool_calls`` on ``GET /api/runs/{id}``; an operator looking
+    for *everything that was recorded about this run*, including the events no
+    other surface shows, reads this.
+
+    A run with no events is an empty list, not an error. A run id that does not
+    exist is the 404 ``run_not_found`` its sibling endpoints raise -- an empty
+    list there would say "this run's ledger is empty" about a run that was never
+    created, which is a different and more dangerous statement.
+
+    Raises:
+        ApiError: 404 ``run_not_found`` if there is no such run.
+    """
+    run = await runs.get(run_id)
+    if run is None:
+        raise _run_not_found(run_id)
+    events = await _load_audit_events(runs, run_id)
+    return AuditResponse(run_id=run_id, events=events)
+
+
 # -- loaders -----------------------------------------------------------------
 
 
@@ -305,6 +354,36 @@ async def _load_citations(store: object, run_id: UUID) -> list[CitationDetail]:
             chunk=row.chunk,
             score=float(row.score),
             rank=int(row.rank),
+        )
+        for row in rows
+    ]
+
+
+async def _load_audit_events(store: object, run_id: UUID) -> list[AuditEventDetail]:
+    """Load a run's audit events, oldest first, or an empty list if unsupported.
+
+    Ordered by the store rather than re-sorted here: the store is the object that
+    knows the ledger's total order (``created_at`` then ``id``, so two events
+    sharing a timestamp do not swap between two reads). Re-sorting in the router
+    on ``created_at`` alone would throw that away and make the page's order
+    depend on the clock's resolution.
+
+    No projection and no filtering. The trace assembles labels server-side
+    because a step's meaning is a *presentation* concern; an audit event's
+    meaning is a *record* concern, and a router that interpreted one would be
+    editing the ledger's contents on the way out.
+    """
+    loader = _optional_method(store, "list_audit_events")
+    if loader is None:
+        return []
+    rows: list[AuditEventRow] = await loader(run_id)
+    return [
+        AuditEventDetail(
+            id=row.id,
+            event_type=row.event_type,
+            created_at=row.created_at,
+            actor=row.actor,
+            payload=dict(row.payload),
         )
         for row in rows
     ]

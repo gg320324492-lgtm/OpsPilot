@@ -9,6 +9,14 @@ Host and port are read from the environment with defaults that are correct for
 local development (``127.0.0.1:8000``). The token check happens inside
 :func:`create_app`, so an unconfigured process exits here, before uvicorn binds a
 socket -- it never serves one unauthenticated request.
+
+``LOG_LEVEL`` is applied here, before the app is built and before uvicorn starts,
+because this is the process entry point and the only place a logging policy
+belongs (``opspilot.observability``). It is deliberately *not* in
+:func:`create_app`: the factory is imported by tests and by the type generator,
+and a module that configures logging when it is imported dictates policy to
+whatever imported it. Uvicorn's own ``dictConfig`` runs after this and leaves the
+root logger alone, so the level set here is the level the process serves with.
 """
 
 from __future__ import annotations
@@ -18,6 +26,8 @@ import os
 import uvicorn
 
 from opspilot.api.app import create_app
+from opspilot.observability import apply_log_level
+from opspilot.settings import get_settings
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8000
@@ -32,6 +42,7 @@ def main() -> None:
     default, because "it started on the wrong port" is a worse failure to debug
     than a refused start.
     """
+    apply_log_level(get_settings().log_level)
     app = create_app()
     host = os.environ.get("API_HOST") or os.environ.get("HOST") or _DEFAULT_HOST
     port = _resolve_port()

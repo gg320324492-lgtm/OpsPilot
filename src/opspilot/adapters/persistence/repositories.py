@@ -27,6 +27,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
@@ -164,6 +165,31 @@ def _to_pending_tool_call(row: models.ToolCall) -> PendingToolCall:
         arguments=dict(row.arguments),
         status=ToolCallStatus(row.status),
     )
+
+
+@dataclass(frozen=True)
+class AuditEventRow:
+    """One ``audit_events`` row, as ``GET /api/runs/{id}/audit`` reads it.
+
+    The other dashboard reads return read models defined in ``ports/stores.py``
+    (``StepRow``, ``ToolCallRow``, ``CitationRow``, ``CustomerReplyRow``). This one
+    is defined here, and the reason is structural rather than incidental: the
+    ledger has **no store port at all** -- it is append-only and
+    ``tracing/recorder.py`` is its only writer, so there is no port for the read
+    model to sit beside. ``runs.py``'s local ``AuditEventRow`` Protocol is what the
+    router actually types against, exactly as it does for ``StepRow``, so this
+    dataclass satisfies it without the router importing the adapter.
+
+    ``payload`` is copied (``dict(row.payload)``) because a JSON column is handed
+    back as a fresh mutable object per row, and a caller must not be able to reach
+    into the ORM's state through it.
+    """
+
+    id: UUID
+    event_type: str
+    created_at: datetime
+    actor: str
+    payload: dict[str, object]
 
 
 class SqlTicketStore(_SessionBound):
@@ -499,6 +525,52 @@ class SqlRunStore(_SessionBound):
                     rank=int(rank),
                 )
                 for source, anchor, score, rank in rows
+            ]
+
+    async def list_audit_events(self, run_id: UUID) -> list[AuditEventRow]:
+        """Return a run's audit events, oldest first (contract §4.1).
+
+        The fourth dashboard read that has to live here for the reason the block
+        above gives: the router is bound to the *run* store, so a read it makes
+        about a run is a method on this object or it is no read at all.
+
+        It exists because the ledger had no reader. ``runtime.py`` writes a
+        ``tool_failed`` event for every dispatched call that came back
+        ``ok=False`` and its comment calls that "what makes 'one failed write' a
+        query rather than an inference" -- but nothing could query it: the only
+        readers of ``audit_events`` under ``src/`` were the eval harness and the
+        tests. An operator had to open ``psql`` to find out that a run's refund
+        was refused. ``GET /api/runs/{id}/audit`` is that query.
+
+        Only this run's rows come back. The ledger also holds events whose
+        ``run_id`` is ``NULL`` -- authentication and reindex -- and those are not
+        this run's history, so they are not on its page. This is also the *only*
+        method the ledger has: the append-only convention at the top of this
+        module means there is no update or delete path to pair a read with, which
+        is what makes it safe to expose where a mutating one would not be.
+
+        The secondary sort on ``id`` is a total-order tie-break, not meaning:
+        several events for one run are written inside one transaction and the
+        clock's resolution (coarser on Windows) can give them the same
+        ``created_at``, so ordering on time alone would return the same rows in
+        an arbitrary order between two reads. A UUID carries no information; the
+        claim is only that the order is stable for one database.
+        """
+        with self._scope() as session:
+            rows = session.execute(
+                select(models.AuditEvent)
+                .where(models.AuditEvent.run_id == run_id)
+                .order_by(models.AuditEvent.created_at, models.AuditEvent.id)
+            ).scalars()
+            return [
+                AuditEventRow(
+                    id=row.id,
+                    event_type=row.event_type,
+                    created_at=row.created_at,
+                    actor=row.actor,
+                    payload=dict(row.payload),
+                )
+                for row in rows
             ]
 
     # `list` is defined last in this class on purpose. Naming a method `list`
@@ -1075,6 +1147,7 @@ class SqlCitationStore(_SessionBound):
 
 
 __all__ = [
+    "AuditEventRow",
     "SqlApprovalStore",
     "SqlCitationStore",
     "SqlKnowledgeDocumentStore",

@@ -669,6 +669,52 @@ async def _gate_and_execute(
         # unreachable -> FAILED ... The system could not complete the work it was
         # asked to do" -- so the run fails here rather than downstream.
         if result.error == MCP_UNAVAILABLE:
+            # The same WARNING the refusal path writes below, at the same point
+            # and with the same four fields in the same order, so one grep
+            # pattern reaches every failed dispatch. It is needed here even more
+            # than it is there, because this is the failure an operator would
+            # otherwise never hear about at all: the worker suppresses
+            # ``MCPUnavailable`` outright (``worker/loop.py``: "the runtime has
+            # *already* marked the run ``FAILED`` ... letting it escape would
+            # crash the poll loop"), and ``_fail_run`` below writes database
+            # rows and no log line. Without this, an MCP server going away takes
+            # every run in flight with it and leaves the log saying only that
+            # the worker booted -- the silence ``docs/agent-state-machine.md``
+            # §3.1 set out to end, and the run dying is not a reason to withhold
+            # the evidence of what killed it.
+            #
+            # Logged *before* ``_fail_run`` on purpose. The line names the cause
+            # -- the tool the runtime could not reach -- and ``_fail_run`` is its
+            # consequence, so the tool-level evidence goes down before the
+            # run-level consequence it leads to, which is the order the refusal
+            # path already uses (row, then line, then audit). It is also the
+            # order that survives: ``_fail_run`` is a database write, and an
+            # incident that takes an MCP server down can take the database down
+            # in the same minute, so a line logged after it is a line that write
+            # can destroy -- leaving the run neither marked failed nor explained.
+            logger.warning(
+                "tool call failed: run=%s tool=%s error=%s permission=%s",
+                ctx.run.id,
+                call.tool_name,
+                result.error or "tool_error",
+                permission.value,
+            )
+
+            # No ``tool_failed`` event here, which is the one asymmetry that is
+            # correct rather than an omission. ``tool_failed`` says the call was
+            # dispatched and the tool answered not-ok -- ``invalid_state``,
+            # ``not_found``. This is the absence of an answer: the gateway never
+            # reached the transport, so the tool never saw the call
+            # (``adapters/tools/mcp_gateway.py`` logs "the MCP transport could
+            # not be built" on that path). Recording it under an event name that
+            # asserts a dispatch would put "a refund was attempted and refused"
+            # into the ledger's one query for exactly that -- the query the
+            # ``tool_executed``/``tool_failed`` split exists to make answerable
+            # (§3.1) -- and an operator counting refused refunds would count
+            # refunds that never left the building. What this path records is
+            # already exact and unmissable: this row at ``failed`` with
+            # ``error='mcp_unavailable'``, the ``run_failed`` event ``_fail_run``
+            # writes below carrying the same reason, and the line above.
             await _fail_run(ctx, run_store, recorder=recorder, reason=MCP_UNAVAILABLE)
             raise MCPUnavailable(spec.name)
 
