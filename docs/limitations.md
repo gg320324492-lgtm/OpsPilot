@@ -269,14 +269,16 @@ milestone log.
 
 **Remaining — documented, not implemented:**
 
-1. **`issues.create` is not on the golden path.** The tool is real, is
+1. **`issues.create` is not on the golden path** — recorded boundary, operator
+   decision 2026-10-09 (D19a in `docs/milestones.md`). The tool is real, is
    `SAFE_WRITE`, and is exercised in isolation (`test_mcp_gateway.py`,
    `test_gates.py`, `test_policies.py`). The committed `duplicate_charge` fixture
    the golden path replays proposes no `issues.create` call, so the run does not
    create a ticket; the README's golden-path trace and `docs/milestones.md` §M6
-   no longer draw that step. Whether the workflow **should** file an issue is an
-   open product decision, not a docs fix — adding the call would change what the
-   golden path does.
+   no longer draw that step. The capability is **not done, by decision rather
+   than by neglect**: whether the workflow **should** file an issue is still
+   open, and adding it to the golden path remains a possible Phase 2 product
+   decision.
 2. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
    covers the claim *predicate* on SQLite; nothing starts two workers against one
    database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).

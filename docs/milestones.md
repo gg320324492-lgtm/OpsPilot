@@ -283,7 +283,7 @@ what got built rather than what was promised.
 | D4 | `pytest` is green, with the skip count printed and non-zero. | README "Tests"; ADR-0004. |
 | D5 | The four CI invariants each return 0 after the whole suite. | `tool-permissions.md` §6; README "Evaluation". |
 | D6 | The four safety properties in `limitations.md` "What is *not* on this list" hold: the permission model is verified; the refund cannot execute twice; retrieved text cannot escalate a permission. | `limitations.md` §"What is not on this list". |
-| D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. | `milestones.md` §M3; `architecture.md` §7. |
+| D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. **The call was deliberately not added to the golden path — see D19a below.** | `milestones.md` §M3; `architecture.md` §7. |
 | D8 | Every setting the code reads appears in `.env.example` with an empty value. | M0 acceptance criteria. |
 | D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
 | D10 | The CI jobs §M9 names exist and run the commands the README documents. | `milestones.md` §M9; README "Tests". |
@@ -296,7 +296,8 @@ what got built rather than what was promised.
 | D16 | The tests `limitations.md` names as existing actually exist. | `limitations.md` §2. |
 | D17 | `docs/progress.md` records every milestone, including what went wrong. | `milestones.md` §M9. |
 | D18 | The README's status banner agrees with the milestone that is actually done. | README status banner; `milestones.md` working method. |
-| D19 | No documented capability is unimplemented (`MCP_*_COMMAND` settings read by no code, etc.). | `architecture.md` §8; the pattern of §M3/§M5. |
+| D19 | No documented capability is unimplemented (`MCP_*_COMMAND` settings read by no code, etc.). **Its last strand is recorded as boundary D19a — an operator decision of 2026-10-09, a boundary rather than unfinished work.** | `architecture.md` §8; the pattern of §M3/§M5. |
+| D19a | `issues.create` is real, is `SAFE_WRITE`, is covered in isolation, and is **deliberately not a step of the golden path**: the committed `duplicate_charge` fixture proposes four calls and none of them creates an issue, so the run creates nothing and the README trace no longer draws the line. Recorded rather than closed, for three reasons: README:89-98's own rule that adding a call to make a diagram true would be writing code to match a drawing; D7 and D12a, where the document was corrected to match the behaviour rather than the behaviour to match the document; and whether the workflow **should** file a ticket is a Phase 2 product question already recorded in `risks.md` C1. Recorded as a boundary rather than quietly ticked. | README:89-98; `limitations.md` §8; `risks.md` C1. |
 
 The audit result for each line, with the unmet and unverifiable ones named, is
 recorded in `docs/progress.md` under §M9.

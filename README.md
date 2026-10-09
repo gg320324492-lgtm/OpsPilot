@@ -94,8 +94,8 @@ Complete      ✓  COMPLETED  — full trace persisted, replayable
 > `issues.create` is not one of them, so the run above never creates an issue.
 > The line was removed rather than the fixture changed: adding a call to make a
 > diagram true would be writing code to match a drawing. Whether the workflow
-> *should* file a ticket is a product decision, and it is recorded as an open
-> item in [`docs/limitations.md`](docs/limitations.md) §8.
+> *should* file a ticket is a product decision, and it is recorded as boundary
+> D19a in [`docs/limitations.md`](docs/limitations.md) §8.
 
 Re-running the same refund produces `replayed: true` and **no second refund**.
 That is tested by calling the MCP server directly, bypassing the agent.

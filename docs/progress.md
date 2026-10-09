@@ -3579,3 +3579,20 @@ guard. Both reverted, files diffed back.
   scanning the run list still cannot see a failed call without opening the run.
 - The Postgres-marked tests still skip locally (ADR-0004); the live verification
   above was done against the Compose stack by hand, not by the suite.
+
+---
+
+## M12 — D19's last strand closed as a boundary, not as unfinished work
+
+**Date:** 2026-10-09. The operator decided that `issues.create` stays off the
+golden path and that D19's remaining strand is recorded as **D19a** — a
+boundary, not a chore that failed to happen. The `duplicate_charge` fixture
+proposes four calls and none creates an issue; the README trace keeps the line
+it already lacks; no code changed, by decision. Reasons: **README.md:95**'s rule
+that adding a call to make a diagram true would be writing code to match a
+drawing; **D7 and D12a**, where the document was corrected to match the
+behaviour rather than the reverse; and whether the workflow **should** file a
+ticket is a Phase 2 product question recorded in `docs/risks.md` C1.
+**Score: 18 of 19, with D19's last strand recorded as boundary D19a.** Not
+19/19 — `issues.create` remains an undecided product capability; what changed
+today is that it is no longer counted as unfinished work.
