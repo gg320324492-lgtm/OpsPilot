@@ -85,6 +85,17 @@ COPY migrations/ ./migrations/
 # Same extras as the dependency-only layer above, and for the same reason: the
 # `migrate` service runs this image's project install too, and a venv that
 # resolved them once must not resolve a different set the second time.
+#
+# The project is installed *editable*, and that is load-bearing rather than
+# incidental. `fake.py::_default_fixtures_dir` resolves the fixtures directory as
+# `Path(__file__).resolve().parents[4]`, i.e. "the repository root, four levels
+# above the package". That arithmetic only holds while the package resolves to
+# `/app/src/opspilot/...`: a non-editable install would copy the package to
+# `/app/.venv/lib/python3.12/site-packages/opspilot/...`, where `parents[4]` is
+# `/app/.venv/lib/python3.12` and the fixtures are found in neither place. The
+# copied `/app/evals/datasets/` and the resolved `parents[4]` are the same
+# contract from two ends, which is why this stays editable and why
+# `fake.py` was not touched to accommodate it.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --extra anthropic --extra openai --frozen 2>/dev/null \
     || uv sync --no-dev --extra anthropic --extra openai
@@ -116,11 +127,38 @@ COPY --from=builder --chown=opspilot:opspilot /app/mcp_servers /app/mcp_servers
 COPY --from=builder --chown=opspilot:opspilot /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=opspilot:opspilot /app/migrations /app/migrations
 
-# The knowledge corpus the reindex route ingests and the eval fixtures the eval
+# The knowledge corpus the reindex route ingests and the eval data the eval
 # entry point replays. Copied because both are product data, not build input:
 # `knowledge/*.md` is what `POST /api/knowledge/reindex` reads, and it lives in
 # the image so a deployment does not need the repository mounted.
 COPY --chown=opspilot:opspilot knowledge/ ./knowledge/
+
+# WHY `evals/datasets/` IS COPIED, AND WHY NOT THE WHOLE `evals/` TREE
+# ---------------------------------------------------------------
+#
+# `MODEL_PROVIDER` defaults to `fake` in docker-compose.yml, so the *shipped
+# default configuration* runs on `FakeModelProvider`, which replays recorded
+# fixtures and has no fallback: an unmatched call raises
+# `UnmatchedFixtureError` rather than inventing an answer. Those fixtures were
+# not in this image, so the default could not work on any machine --
+# `opspilot.adapters.models.fake.UnmatchedFixtureError: ... no recorded
+# generate_structured response matched scenario 'duplicate_charge'`, and the
+# first step of every run died with `failure_reason: "interrupted"`.
+#
+# The path is not a choice, it is a contract. `fake.py::_default_fixtures_dir`
+# resolves `Path(__file__).resolve().parents[4] / "evals" / "datasets" /
+# "fixtures"`, i.e. the repo root four levels above the package; from
+# `/app/src/opspilot/adapters/models/fake.py` that is exactly `/app`, the
+# WORKDIR. Copying the fixtures anywhere else would satisfy the COPY and still
+# fail the run. `opspilot.evals.__main__` reads the same root for its datasets,
+# so one copy satisfies both.
+#
+# `evals/datasets/`, not `evals/`: it is 36 KB against 2.6 MB for the tree, and
+# the difference is `evals/results/` -- generated eval output, which
+# `.dockerignore` already excludes from the build context and which must never
+# be baked into an image. The datasets are the inputs the image needs; the
+# results are what a previous run wrote.
+COPY --chown=opspilot:opspilot evals/datasets/ ./evals/datasets/
 
 # MCP servers write their working JSON store here. Baked as a directory owned by
 # the non-root user so the server can create its file on first write without the

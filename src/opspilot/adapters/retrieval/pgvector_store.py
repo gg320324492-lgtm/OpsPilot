@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Float, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from opspilot.adapters.persistence import db, models
@@ -169,7 +169,17 @@ class PgVectorStore:
         result is deterministic and the two stores' top-k agree.
         """
         with self._scope() as session:
-            distance = models.KnowledgeChunk.embedding.op("<=>")(query_embedding)
+            # ``return_type=Float`` is load-bearing, not decoration. A ``.op()``
+            # binary expression infers its type from its left side, so without it
+            # the `d` label inherits the column's `_Vector` type and SQLAlchemy
+            # runs pgvector's *result* processor over the distance -- which
+            # pgvector parses as a vector literal and crashes on
+            # `TypeError: 'float' object is not subscriptable` in
+            # `Vector._from_text`. pgvector's own `cosine_distance()` comparator
+            # supplies this type; it is unreachable here because `_Vector` is a
+            # TypeDecorator over `JSON` and does not carry pgvector's
+            # comparator_factory. Declaring the result type is the equivalent.
+            distance = models.KnowledgeChunk.embedding.op("<=>", return_type=Float)(query_embedding)
             statement = (
                 select(models.KnowledgeChunk, models.KnowledgeDocument.source, distance.label("d"))
                 .join(

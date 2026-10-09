@@ -115,8 +115,52 @@ Source = "https://github.com/gg320324492-lgtm/OpsPilot"
 Issues = "https://github.com/gg320324492-lgtm/OpsPilot/issues"
 Documentation = "https://github.com/gg320324492-lgtm/OpsPilot/blob/main/docs/architecture.md"
 
+# WHY THE PACKAGE ROOTS ARE DECLARED AS `package-dir`, NOT A SECOND `where`
+# ---------------------------------------------------------------------------
+#
+# `where = ["src", "mcp_servers"]` reads as "discover packages under these two
+# roots", but `find` treats each entry as a *package root* -- the directory whose
+# immediate children are the top-level packages. That maps `mcp_servers/crm` to
+# the top-level name `crm` and never emits a `mcp_servers` package at all, so an
+# installed build exposes `crm`, `billing` and `issues` as top-level names and
+# nothing named `mcp_servers`.
+#
+# The code does not import them that way. `mcp_gateway.py:255-258` does
+# `from mcp_servers._store import Store` and
+# `from mcp_servers.billing import server as billing_server`, and each server
+# module imports its siblings by the same dotted path
+# (`mcp_servers/crm/server.py:35`). Under the `where` form those four imports
+# raise `ModuleNotFoundError: No module named 'mcp_servers'`.
+#
+# It is invisible in development because `pythonpath = ["."]` (pytest) and a
+# `cwd`-of-the-repo-root `python` session put the repository root on `sys.path`,
+# where `mcp_servers/` really is a directory with `__init__.py`. In the image
+# there is no such luck: the worker runs `/app/.venv/bin/opspilot-worker`, whose
+# `sys.path[0]` is `/app/.venv/bin`, not `/app`. The golden path therefore died
+# with `mcp_unavailable` on the first tool call, while every unit test passed.
+#
+# `package-dir` says the same thing without the second root: `mcp_servers` is a
+# *package* that lives at the repository root, exactly as `opspilot` lives under
+# `src/`. Discovery then walks `src` and `.`, and the `mcp_servers/` package --
+# with its name intact -- is what gets installed.
+[tool.setuptools]
+package-dir = { "" = "src", "mcp_servers" = "mcp_servers" }
+
 [tool.setuptools.packages.find]
-where = ["src", "mcp_servers"]
+where = ["src", "."]
+include = ["opspilot*", "mcp_servers*"]
+
+# `mcp_servers/*/seed.json` is product data, not code: each server reads it at
+# startup (`_store.py::_read_document`) to populate its JSON store. setuptools
+# installs only `.py` files by default, so a non-editable install ships the three
+# server modules and none of their seeds, and the first tool call raises
+# `StoreError: seed file not found`. It is invisible to an editable install,
+# which resolves the modules back to the source tree where the JSON sits
+# alongside them.
+[tool.setuptools.package-data]
+"mcp_servers.crm" = ["*.json"]
+"mcp_servers.billing" = ["*.json"]
+"mcp_servers.issues" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "evals"]

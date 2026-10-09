@@ -3187,7 +3187,81 @@ are named.
      `[project.optional-dependencies]`, so `anthropic` and `openai` are both
      absent from the built image. A run against the live stack failed with
      `failure_reason: "interrupted"` and `ModuleNotFoundError: No module named
-     'anthropic'` in the worker log.
+     'anthropic'` in the worker log. Fixed by installing both extras in the
+     image — `MODEL_PROVIDER` is a runtime setting, so a build-time choice of
+     one provider would ship the same defect under the other module name.
+  3. **The worker reported itself healthy while its startup had already
+     failed.** It logged a traceback and then printed `booted; marked 1
+     interrupted run(s) failed; polling`. `_run` did eventually exit non-zero, but
+     only *after* `poll_forever` had claimed and relabelled the run, so the log
+     line and the exit code disagreed about the same event. Now the provider SDK
+     is checked at composition time, before any run is touched.
+
+  **What still does not complete, and why it is not a repo defect.** With the
+  SDK present, a run now reaches the network and fails with `APIConnectionError`.
+  `ANTHROPIC_BASE_URL` is `http://127.0.0.1:15742` — the *host's* loopback. Inside
+  a container that address is the container itself, and the upstream gateway
+  listens only on `127.0.0.1` (verified with `netstat`: `127.0.0.1:15742
+  LISTENING`, not `0.0.0.0`). `host.docker.internal:15742` accepts a TCP
+  handshake from the container but returns an empty `502` for the proxied HTTP
+  request. The same request from the host succeeds and returns a real completion
+  (`stop_reason: end_turn`, `usage: 161 in / 3 out`). So the container path is
+  blocked by an upstream that is not reachable from outside the host, which is an
+  environment property, not something this repository controls. Binding the
+  gateway to a non-loopback address would resolve it and is an operator decision.
+
+  **D13 — the golden path now completes end to end, and the last three defects
+  were all invisible to a green suite.** With `MODEL_PROVIDER=fake` (the shipped
+  default), the run below reaches `COMPLETED`. Three more defects stood between
+  the stack and that result, none of which any test could have caught, because
+  each one lives in the space between the repository and the image:
+  4. **The fixtures were not in the image.** `Dockerfile` copied `src/`,
+     `mcp_servers/`, `alembic.ini`, `migrations/` and `knowledge/` and never
+     `evals/datasets/`, so `MODEL_PROVIDER=fake` — the default a clone gets with
+     no API key and no `.env` — died in its first step with
+     `UnmatchedFixtureError: no recorded generate_structured response matched
+     scenario 'duplicate_charge'` and `failure_reason: "interrupted"`. The
+     asymmetry that made it an oversight rather than a decision: `knowledge/`,
+     the *other* data directory, was copied, and the Dockerfile comment above
+     the copy already claimed to be copying "the eval fixtures".
+  5. **Postgres retrieval could not run at all.** `PgVectorStore.search` built
+     its distance expression as `embedding.op("<=>")(query_embedding)`, and a
+     binary expression infers its type from its left side — so the `d` label
+     inherited the column's `_Vector` type and SQLAlchemy ran pgvector's *result*
+     processor over the distance float, which pgvector parses as a vector
+     literal: `TypeError: 'float' object is not subscriptable` in
+     `Vector._from_text`. The unit tests for this store are
+     `@pytest.mark.postgres` and were skipped. Fixed with `return_type=Float`;
+     pgvector's own `cosine_distance()` comparator would be equivalent but is
+     unreachable, because `_Vector` is a `TypeDecorator` over `JSON` and does
+     not carry pgvector's `comparator_factory`.
+  6. **`mcp_servers` was not importable in the image.** `pyproject.toml` had
+     `where = ["src", "mcp_servers"]`, which setuptools reads as *two package
+     roots* — so it installed `crm`, `billing` and `issues` as top-level names
+     and emitted no `mcp_servers` package at all. Every `from mcp_servers._store
+     import Store` then raised `ModuleNotFoundError`, the gateway reported
+     `mcp_unavailable`, and every run failed at its first tool call. Invisible
+     locally because `pythonpath = ["."]` and a repo-root `python` session find
+     `mcp_servers/` as an ordinary directory. Fixed by declaring it as a package
+     (`package-dir`) rather than a second root.
+
+  Each is the same shape as the ones above: correct in the repository, absent or
+  wrong in the image. The golden path, run against the live stack, is
+  `classifying -> retrieving -> planning -> executing (x4) -> waiting_approval
+  -> executing -> responding -> completed`, with `crm.get_customer`,
+  `billing.get_invoice`, `billing.list_transactions` and `billing.issue_refund`
+  all `executed` — the refund exactly once, under
+  `idempotency_key: refund:<run-id>:TX-88219`, with `replayed: false` from the
+  billing server. `tests/unit/test_compose_default_provider_has_fixtures.py`
+  guards the first of the three, so the shipped default cannot silently lose its
+  fixtures again.
+
+  **What still does not complete, and is not a repository defect.** The
+  scenario script is replayed once per worker boot: `FakeModelProvider` keeps a
+  per-scenario cursor, so the second ticket handled by one worker raises
+  `UnmatchedFixtureError` when the script runs out. That is the replay contract
+  working as written rather than a bug, and it is why the demo above needs a
+  worker restart between runs.
 
   The shape of this is the project's recurring pattern one level out: **every
   verification so far ran on SQLite, against in-process fakes, on a machine with
