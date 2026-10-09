@@ -3004,19 +3004,29 @@ unreachable as written marked here rather than discovered at the end.
       Postgres have never executed and say so.
 - [x] `eval-live` on `workflow_dispatch` only, key passed via `env:` and never
       on a command line, results uploaded as an artefact.
-- [ ] `docker compose up` brings up api, worker, web, postgres, **three MCP
+- [x] `docker compose up` brings up api, worker, web, postgres, **three MCP
       servers** — the MCP clause **cannot be met as written**; see D12a below,
       where they are the worker's child processes instead. The rest of the stack
-      is written and, at the time of writing, unrun.
+      **was run in M11** and the golden path driven end to end by hand against
+      real Postgres: `classifying -> retrieving -> waiting_approval -> approve ->
+      executing -> completed`, the refund exactly once under
+      `refund:<run-id>:TX-88219`, and a second approval returning 409 with the
+      refunds collection still at one entry. Running it found five defects that
+      no green suite could see, all of the same shape — correct in the
+      repository, absent or wrong in the image.
 - [x] README: golden-path trace, the eval table, an architecture diagram, the
       five demo scenarios, a recorded GIF (1400x1050, 90 frames, from a real
       run), and a limitations section.
 - [x] `docs/progress.md` records each milestone, including what went wrong.
 - [x] The Definition of Done checked line by line, unmet items named — **19
       items derived from claims the repository already made, then audited. The
-      audit scored 11 of 19; M9b–M10 then closed six more, and the two that
-      remain are D13 (no Docker) and D19's last strand.** The audit's own
-      numbers were a snapshot and are superseded by "M9/M10 outcome" below.
+      audit scored 11 of 19; M9b–M10 closed six more, and M11 closed D13 by
+      actually running the stack. One item remains: D19's last strand, which is
+      an open product question rather than unfinished work (`issues.create` off
+      the golden path — either add the step or remove the line from the README
+      trace, and the answer is the operator's, not the implementer's).** The
+      audit's own numbers were a snapshot and are superseded by the M9/M10/M11
+      outcome below. **18 of 19.**
 
 ### The MCP servers cannot be three Compose services
 
@@ -3399,3 +3409,71 @@ tree, not about HEAD, and the two had diverged.
 A reminder recorded here because it has recurred all session: **a verification
 command describes the tree you run it in.** Checking the working tree does not
 check what was committed, and the difference hid until a formatter disagreed.
+
+### M11 — the stack was run for the first time, and it did not work
+
+Nine milestones of verification, and through all of them the Compose stack had
+never executed. D13 was written as UNVERIFIABLE because `docker` was not on
+PATH. Installing it was the smallest part of the job.
+
+**Getting Docker to pull anything took longer than every defect it then
+uncovered.** The root cause of the build failure was in a file nobody opens:
+`~/.docker/config.json` carries a `proxies.default` block, and buildkit injects
+its value into every build container — where `127.0.0.1` is the container
+itself, not the host. Every `RUN uv sync` was talking to a proxy that does not
+exist there. The address that works is Docker Desktop's own
+`http.docker.internal:3128`, which is reachable *from inside a container* and
+was never configured. Separately, image pulls failed because Clash cannot reach
+`registry-1.docker.io` at all — the CONNECT tunnel establishes and the upstream
+never answers — so a registry mirror is needed on this network.
+
+The lesson is the one this file keeps repeating, one level down: **I was
+debugging the wrong layer for several rounds.** Pulls go through the daemon's
+registry configuration; build-time fetches go through `config.json`. Those are
+different paths with different settings, and I had been treating a pull failure
+and a build failure as one problem. Two of the three "fixes" I attempted made
+things worse, including writing a `daemon.json` that pointed the daemon at
+`127.0.0.1:7897` — inside WSL2 that address is WSL, not the Windows host. That
+file is deleted; pulls work through the mirror instead.
+
+**Five defects, all the same shape: correct in the repository, absent or wrong
+in the image.** Every one is invisible to a green suite, and four of the five
+would have made the stack unrunnable on any machine:
+
+1. Migration `0001` **could never execute on Postgres at all.** It declared
+   `embedding` as `sa.JSON()` and then altered it to `vector(1536)`. My first
+   diagnosis was the missing `USING` clause that Postgres' own error suggests;
+   that was wrong — `SELECT ... FROM pg_cast` returns zero rows for json→vector,
+   so the suggested cast fails too. The column has to be *born* `vector(N)`.
+2. **The image had no provider SDK.** `uv sync --no-dev` plus
+   `[project.optional-dependencies]` means neither `anthropic` nor `openai` was
+   installed, so every run died with `ModuleNotFoundError`. Fixed by installing
+   both: `MODEL_PROVIDER` is a *runtime* setting, so choosing one at build time
+   ships the same defect under the other module name.
+3. **The worker reported itself healthy while its startup had failed** — it
+   logged a traceback and then printed `booted; marked N interrupted run(s)
+   failed`. The exit code and the log line disagreed about the same event.
+4. **The eval fixtures were not in the image.** `MODEL_PROVIDER=fake` is what a
+   clone gets with no API key and no `.env`, and it died immediately. The
+   giveaway that this was an oversight: `knowledge/`, the *other* data
+   directory, was copied.
+5. **`mcp_servers` was not importable in the image.** `where = ["src",
+   "mcp_servers"]` reads as two package *roots*, so it installed `crm`,
+   `billing` and `issues` as top-level names and emitted no `mcp_servers`
+   package. Every tool call failed. Invisible locally because `pythonpath = ["."]`
+   finds it as an ordinary directory.
+
+**And the pattern one level out, which is the part worth keeping.** Every
+verification in M0–M10 ran on SQLite, against in-process fakes, on a machine
+with no Docker. Each of those is a defensible choice. Together they left the
+Postgres path, the image contents, and the compose topology with **no observer at
+all** — not failing, not degraded, simply unwatched. The stack was not
+imperfect; it had never been looked at.
+
+The three I verified by hand rather than by reading the agent's report: the
+`pg_cast` query that refuted my own diagnosis, the `completed`-run-with-a-
+failed-refund, and the exactly-once guarantee under double approval (409, and
+the refunds collection still at one entry). That last one is the case worth
+having and nothing asserts it — `docs/tool-permissions.md` §6 states the
+invariant, and the suite covers the replan path but not the operator clicking
+approve twice.
