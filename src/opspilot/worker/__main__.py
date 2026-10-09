@@ -26,6 +26,18 @@ loop. Everything that makes it a *service* lives here:
 - ``SIGINT``/``SIGTERM`` stop the loop at the next poll boundary rather than
   killing the process mid-step.
 
+**A worker that cannot call its model does not boot (D16).** Everything a
+deployment needs from ``build_worker`` is checked *before* the loop starts, so a
+worker that comes up can actually serve a run. ``_require_provider_sdk`` is the
+latest of those checks and the reason this paragraph exists: ``MODEL_PROVIDER``
+is a runtime setting, the adapters import their SDK lazily so that the package
+imports without either extra, and nothing until the first ``_classify`` noticed
+that the SDK the deployment selected was not installed. The worker then claimed a
+run, died inside it, was restarted by ``restart: unless-stopped``, and marked the
+run it had already broken as ``FAILED('interrupted')`` -- so a missing SDK
+reported itself as an interruption and the boot message said "booted". Refusing
+to start costs no run and names the extra to install.
+
 Shutdown is deliberately *not* a second sweep. A signal arrives between two
 ``drain_once`` calls at the latest, so the run in flight either finished (its
 status is already durable) or is left in a claim-and-work status -- and the next
@@ -94,6 +106,79 @@ class WorkerConfigError(RuntimeError):
 
     def __init__(self, detail: str, *, how_to_fix: str) -> None:
         super().__init__(f"{detail}. {how_to_fix}")
+
+
+#: Import name -> the pyproject extra that installs it, for the provider SDKs.
+#:
+#: Checked at boot by :func:`_require_provider_sdk`. See that function for why
+#: the check exists at all; this table is only where it reads the mapping from.
+_PROVIDER_SDK_EXTRAS: Final[dict[str, str]] = {
+    "anthropic": "anthropic",
+    "openai": "openai",
+}
+
+
+def _require_provider_sdk(name: str) -> None:
+    """Refuse to start when the selected provider's SDK is not importable.
+
+    The adapters import their SDK lazily, inside ``_client``, so that the package
+    imports cleanly on a machine with neither extra installed -- the property
+    ``pyproject.toml``'s extras exist to protect and that
+    ``tests/unit/test_layering.py::test_provider_sdk_is_imported_lazily``
+    enforces. That is a property about *importing the package*, and it says
+    nothing about what happens when the provider is actually selected.
+
+    Without this check, a missing SDK surfaced where it could not be acted on: the
+    worker claimed a run, drove it to ``_classify``, and died with
+    ``ModuleNotFoundError``. ``poll_forever`` re-raises, so the process exited
+    non-zero -- but only *after* the run had been claimed and rewritten, the
+    container's ``restart: unless-stopped`` started it again, and the next boot's
+    sweep relabelled the run ``FAILED('interrupted')``. The operator's log showed
+    a traceback, then ``booted; marked 1 interrupted run(s) failed``, which reads
+    as a healthy restart of a run that had merely been interrupted. The image was
+    missing ``anthropic``; the run said "interrupted" and pointed at nothing.
+
+    So the check happens here, at composition time, where a refusal costs no run.
+    It is a ``find_spec`` probe rather than an ``import``: nothing is loaded, so
+    a worker that *does* have the SDK pays nothing for the check, and the module
+    still imports without either extra.
+
+    ``ModuleNotFoundError`` for the SDK is the one thing treated as fatal, and it
+    is fatal before any run is touched. Everything else -- a bad key, a refused
+    request, a schema mismatch -- is still the provider's business at call time.
+    A missing *key* deliberately stays non-fatal here for the reason
+    :func:`build_worker_provider` documents: ``MODEL_PROVIDER=anthropic`` with no
+    key is a real configuration, and the adapter's ``MissingAPIKeyError`` on first
+    use names the variable to set.
+
+    Raises:
+        WorkerConfigError: If the SDK ``MODEL_PROVIDER`` names cannot be imported.
+    """
+    extra = _PROVIDER_SDK_EXTRAS.get(name)
+    if extra is None:
+        # `fake` needs no SDK. Returning here is what keeps this function from
+        # being a second, disagreeing copy of the provider dispatch below.
+        return
+
+    import importlib.util
+
+    try:
+        found = importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        # `find_spec` raises rather than returning None when the parent package is
+        # present but its own spec cannot be read. Both answers mean the same
+        # thing to a caller, and both are "not importable".
+        found = False
+
+    if not found:
+        raise WorkerConfigError(
+            f"MODEL_PROVIDER={name!r} needs the {name!r} SDK, which is not installed "
+            f"(the {extra!r} extra was not included in this build)",
+            how_to_fix=(
+                f"rebuild the image with the {extra!r} extra (see Dockerfile), or set "
+                "MODEL_PROVIDER=fake to use the built-in deterministic provider"
+            ),
+        )
 
 
 def _database_build_errors() -> tuple[type[BaseException], ...]:
@@ -222,9 +307,15 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
     the right place, because a worker that refuses to boot would also refuse to
     drain the runs that use the fake provider.
 
+    A missing *SDK*, by contrast, **is** checked here, before the loop starts,
+    by :func:`_require_provider_sdk`. The distinction is the point: a missing key
+    names a variable the operator sets, whereas a missing SDK means the deployment
+    cannot make that provider's calls at all, and finding out by claiming a run
+    costs that run. See that function for the full argument.
+
     Raises:
         WorkerConfigError: If ``MODEL_PROVIDER`` names a provider this build has
-            no adapter for.
+            no adapter for, or names one whose SDK is not installed.
     """
     from opspilot.settings import Settings
 
@@ -239,6 +330,11 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
     # every run with the wrong provider.
     name = str(resolved.model_provider)
     model_name = resolved.model_name or _DEFAULT_MODEL_NAMES.get(name, name)
+
+    # Before the dispatch, so it applies whatever the dispatch would have done --
+    # and so a provider name with no SDK raises this rather than being reported as
+    # "no adapter in this build", which is a different and less useful message.
+    _require_provider_sdk(name)
 
     if name == "fake":
         from opspilot.adapters.models.fake import FakeModelProvider

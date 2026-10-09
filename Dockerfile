@@ -31,13 +31,44 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# WHY THE PROVIDER EXTRAS ARE INSTALLED HERE, AND WHY BOTH
+# ------------------------------------------------------
+#
+# `pyproject.toml` keeps `anthropic` and `openai` in `[project.optional-dependencies]`
+# so that the core workflow, the whole test suite and the golden-path demo run with
+# NEITHER SDK installed. That property is about the *development and test*
+# environment, and it is enforced by `tests/unit/test_layering.py::test_provider_sdk_is_imported_lazily`
+# -- a static check that no module in `src/opspilot` imports either SDK at module
+# scope. Installing the SDKs into a deployment image changes no import statement
+# anywhere in the source, so that guard is untouched by this line.
+#
+# The image still needs them, because `MODEL_PROVIDER` is a RUNTIME setting
+# (`docker-compose.yml` passes it through from the environment) and `fake` is only
+# one of three legal values. An image built from the bare dependencies contains
+# neither SDK, so every run against it died with `ModuleNotFoundError` and
+# `failure_reason: "interrupted"` -- an image that cannot call a model is not a
+# working deployment image.
+#
+# Both, rather than one, because the choice between them is made at runtime by a
+# variable this build cannot see. Pinning `--extra anthropic` would ship the same
+# defect one module name over: set `MODEL_PROVIDER=openai` against an
+# anthropic-only image and it fails with `No module named 'openai'`. The only two
+# values of `MODEL_PROVIDER` that need an SDK are `anthropic` and `openai`, so
+# installing both makes every legal value of the runtime knob work against the
+# image -- and makes it impossible for a build-time decision and a run-time
+# setting to disagree. `fake` needs no SDK and is unaffected.
+#
+# No build ARG selects these on purpose. An ARG would invite an operator to build
+# an image for one provider and then select the other at run time, which is the
+# bug above with extra steps and a layer cache to hide it.
+#
 # The dependency files first, so a source-only edit does not invalidate the
 # (slow) dependency-resolution layer. `pyproject.toml` is copied without the
 # project source so `--no-install-project` can install dependencies alone.
 COPY pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project --no-dev --frozen 2>/dev/null \
-    || uv sync --no-install-project --no-dev
+    uv sync --no-install-project --no-dev --extra anthropic --extra openai --frozen 2>/dev/null \
+    || uv sync --no-install-project --no-dev --extra anthropic --extra openai
 
 # Now the project itself. `src/` and `mcp_servers/` are the two package roots
 # (pyproject `[tool.setuptools.packages.find]`). The MCP servers are imported
@@ -51,9 +82,12 @@ COPY mcp_servers/ ./mcp_servers/
 COPY alembic.ini ./
 COPY migrations/ ./migrations/
 
+# Same extras as the dependency-only layer above, and for the same reason: the
+# `migrate` service runs this image's project install too, and a venv that
+# resolved them once must not resolve a different set the second time.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --frozen 2>/dev/null \
-    || uv sync --no-dev
+    uv sync --no-dev --extra anthropic --extra openai --frozen 2>/dev/null \
+    || uv sync --no-dev --extra anthropic --extra openai
 
 # ---------------------------------------------------------------------------
 # Stage 2 -- runtime

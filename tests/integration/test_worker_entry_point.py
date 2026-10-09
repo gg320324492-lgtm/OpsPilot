@@ -20,12 +20,23 @@ real fault was a misspelled function name three frames up.
 Two defects, then, and the second is the worse one: code that does not work, and
 an error message that points away from the cause.
 
+The third, later: the entry point assembled a worker without checking that the
+selected provider's **SDK** was installed. ``MODEL_PROVIDER`` is a runtime
+setting and the adapters import their SDK lazily, so an image built without the
+extras booted cleanly, printed ``booted``, claimed a run and died inside
+`_classify` with `ModuleNotFoundError`. The claim had already been taken, so the
+run was relabelled `FAILED('interrupted')` by the next boot's sweep and the
+operator saw a traceback immediately above a line saying the worker had booted.
+The SDK check belongs here, before the loop, where a refusal costs no run.
+
 ## What is asserted
 
 ``build_worker`` must assemble a worker from real settings and a real migrated
 SQLite database. The message it raises on a genuine failure must be *true* — so
 these tests also assert that a working database does **not** produce the
 database message, which is the assertion that would have caught the masquerade.
+The SDK guard is asserted in the same spirit: it must fire when the SDK is
+genuinely unimportable, and must *not* fire when it is present or unneeded.
 """
 
 from __future__ import annotations
@@ -368,6 +379,185 @@ def test_importing_the_entry_point_does_not_require_a_database() -> None:
     assert result.returncode == 0, (
         f"importing the worker entry point failed with an empty DATABASE_URL:\n{result.stderr}"
     )
+
+
+# -- a worker whose provider SDK is missing ---------------------------------
+
+
+def _blocker_program(
+    provider: str,
+) -> str:
+    """A runnable program that removes ``provider``'s SDK from the import system.
+
+    Run in a **subprocess** because that is the only honest way to make an SDK
+    absent on a machine that has it. ``tests/unit/test_layering.py`` proves no
+    module imports either SDK at module scope -- this is the property that lets a
+    deployment without the extra work at all -- so the module-level hook below
+    can take effect before anything the project writes is imported.
+
+    The blocker is a ``sys.meta_path`` finder that raises for the named module and
+    everything under it, which is stronger than hiding one attribute: the SDK is
+    genuinely not importable, so ``import anthropic`` produces the *same*
+    ``ModuleNotFoundError`` a machine without the extra produces, and
+    ``find_spec`` genuinely reports it absent. A test that monkeypatched the
+    provider's ``_client`` would prove only that a mock is callable.
+    """
+    return f"""
+import sys
+
+
+class _Blocker:
+    # A finder that makes {provider!r} and its submodules unimportable.
+    def find_spec(self, fullname, path=None, target=None):
+        root = fullname.split(".")[0]
+        if root == {provider!r}:
+            raise ModuleNotFoundError("No module named " + repr(fullname), name=fullname)
+        return None
+
+
+sys.meta_path.insert(0, _Blocker())
+
+from opspilot.worker.__main__ import build_worker_provider, WorkerConfigError
+
+try:
+    build_worker_provider()
+except WorkerConfigError as exc:
+    print("REFUSED:", exc)
+    raise SystemExit(0)
+
+print("STARTED: the worker built a provider without the SDK")
+raise SystemExit(1)
+"""
+
+
+def test_the_worker_refuses_to_start_without_its_providers_sdk(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing SDK stops the worker, before it can claim and ruin a run.
+
+    The defect this guards: with the SDK absent and ``MODEL_PROVIDER`` naming it,
+    the worker booted, printed ``booted``, polled, claimed a run, and died inside
+    ``_classify`` with ``ModuleNotFoundError``. The run it had already claimed was
+    then relabelled ``FAILED('interrupted')`` by the next boot's sweep -- so a
+    deployment missing a package reported itself as an interrupted run and a
+    healthy restart, and pointed the operator at neither.
+
+    The assertion is that ``build_worker`` refuses, i.e. the failure happens at
+    composition time where no run has been touched. It is a subprocess because the
+    SDK has to be genuinely unimportable, and the development venv has it
+    installed -- see :func:`_blocker_program`.
+
+    Both real providers are exercised, because a fix that hard-codes the
+    ``anthropic`` name would pass a single-provider parametrization and still ship
+    the identical defect one module name over.
+    """
+    import subprocess
+    import sys
+
+    # S603: the command is `[sys.executable, "-c", <module-level f-string>]`.
+    # `provider` is one of two literals named in this file, never caller input,
+    # and the program text is the one printed in :func:`_blocker_program`.
+    for provider in ("anthropic", "openai"):
+        db_path = tmp_path / f"{provider}.db"
+        env = {
+            **__import__("os").environ,
+            "DATABASE_URL": f"sqlite+pysqlite:///{db_path}",
+            "MODEL_PROVIDER": provider,
+            # A key the check must NOT treat as fatal -- only the SDK is checked.
+            f"{provider.upper()}_API_KEY": "probe-key-not-real",
+            "EMBEDDING_PROVIDER": "local",
+            "OPSPILOT_OPERATOR_TOKEN": "worker-entry-point-test-token",
+        }
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", _blocker_program(provider)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"the worker built a provider with the {provider} SDK unimportable, so it "
+            "would boot and then die on its first run. stderr:\n" + result.stderr
+        )
+        assert "REFUSED:" in result.stdout, (
+            f"the refusal did not go through WorkerConfigError for {provider}:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+        assert provider in result.stdout, (
+            f"the refusal for {provider} did not name the provider:\n{result.stdout}"
+        )
+
+
+def test_a_worker_with_its_sdk_installed_still_builds(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check does not refuse a build that genuinely has the SDK.
+
+    The negative test above would also pass if ``_require_provider_sdk`` raised
+    unconditionally, which would make the guard unfalsifiable: it would forbid the
+    exact configuration the guard exists to protect. So the same code path is
+    asserted to succeed when the SDK *is* importable -- here, on the development
+    venv, where the ``dev`` extra installs both (this test skips if not).
+    """
+    import subprocess
+    import sys
+
+    program = """
+from opspilot.worker.__main__ import build_worker_provider
+
+provider = build_worker_provider()
+assert provider is not None
+print("STARTED")
+"""
+    db_path = tmp_path / "sdk-present.db"
+    # S603: as above -- `[sys.executable, "-c", <module-level literal>]`, no
+    # caller input anywhere in the command or the program text.
+    env = {
+        **__import__("os").environ,
+        "DATABASE_URL": f"sqlite+pysqlite:///{db_path}",
+        "MODEL_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "probe-key-not-real",
+        "EMBEDDING_PROVIDER": "local",
+        "OPSPILOT_OPERATOR_TOKEN": "worker-entry-point-test-token",
+    }
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=120,
+    )
+    if "ModuleNotFoundError" in result.stderr and "anthropic" in result.stderr:
+        pytest.skip("the anthropic SDK is not installed in this environment")
+    assert result.returncode == 0, (
+        "the worker refused to build with the anthropic SDK installed; the guard "
+        f"is firing on something other than absence.\nstderr:\n{result.stderr}"
+    )
+    assert "STARTED" in result.stdout
+
+
+def test_the_fake_provider_needs_no_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``MODEL_PROVIDER=fake`` still builds with every SDK blocked.
+
+    This is the property ``pyproject.toml`` protects, and the reason the SDK check
+    does not fire for the default provider: a fresh clone, CI and the
+    golden-path demo all run ``fake`` with neither extra installed, and a worker
+    that demanded an SDK to use the deterministic provider would break all three.
+
+    Asserted against a real ``Settings`` rather than the subprocess route, because
+    ``fake`` has no SDK to block -- the provider is constructed locally -- so
+    there is nothing for a meta-path hook to do.
+    """
+    monkeypatch.setenv("MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPSPILOT_OPERATOR_TOKEN", "worker-entry-point-test-token")
+    from opspilot.settings import get_settings
+
+    get_settings.cache_clear()
+    provider = build_worker_provider()
+    assert provider is not None
+    assert get_settings().model_provider == "fake"
 
 
 # -- the fake provider's scenario -------------------------------------------
