@@ -3167,12 +3167,34 @@ are named.
   recorded above.** The servers are stdio and built in-process
   (`mcp_gateway.py:167`); the `MCP_*_COMMAND` settings are read by no code;
   `docker-compose.yml` deliberately declares no such services.
-- **D13 the Compose stack has been run — UNVERIFIABLE, and effectively unmet.**
-  `docker` is not on PATH on this machine (`docker version` → command not found),
-  so `docker compose up` has never executed. The file's own header says so
-  ("NOT VERIFIED"). Naming what would verify it: a machine with a Docker daemon,
-  running `docker compose up -d --wait` — which is exactly what the `docker-build`
-  CI job does, and that job has never run either.
+- **D13 the Compose stack has been run — NOW RUN, and it immediately found two
+  defects that a green suite could not.** Docker (WSL2 backend) works as of M11,
+  so this line is no longer UNVERIFIABLE. `docker compose up` brings up
+  `postgres` → `migrate` → `api` → `worker`/`web`; `/health` returns
+  `{"status":"ok","version":"0.1.0"}`, `/ready` returns
+  `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`, and an
+  unauthenticated `GET /api/runs` returns 401. The golden path does **not** yet
+  complete, because two things were broken on first contact:
+  1. **Migration 0001 could never run on Postgres.** It declared `embedding` as
+     `sa.JSON()` and then altered it to `vector(1536)`. pgvector registers no
+     json→vector cast at all — not the implicit one the error hinted at, and not
+     `USING embedding::vector(1536)` either; `SELECT ... FROM pg_cast` returns
+     zero rows for that pair, verified directly. The column has to be *born*
+     `vector(N)`, via `with_variant`. This never surfaced in M0–M10 because the
+     suite runs on SQLite, where the `Vector` type is not in play.
+  2. **The image cannot call a model.** `Dockerfile` installs with
+     `uv sync --no-dev`, and both provider SDKs live in
+     `[project.optional-dependencies]`, so `anthropic` and `openai` are both
+     absent from the built image. A run against the live stack failed with
+     `failure_reason: "interrupted"` and `ModuleNotFoundError: No module named
+     'anthropic'` in the worker log.
+
+  The shape of this is the project's recurring pattern one level out: **every
+  verification so far ran on SQLite, against in-process fakes, on a machine with
+  no Docker.** Each of those is a reasonable choice, and together they meant the
+  Postgres path, the image contents, and the compose topology were never
+  exercised. The stack being unrunnable was not a missing feature — it was a
+  region of the code that had no observer at all.
 - **D15 the README eval table matches the file it cites — UNMET, narrowly.** The
   metric values in the README table match `evals/results/2026-10-08T05-24-41.json`
   exactly (verified field by field). The `model` does not: the README prints
