@@ -476,6 +476,23 @@ are kept identical by `tests/unit/test_mypy_configuration_is_enforced.py`, so
 `mypy --strict src` — which checks only `src` — is not the project's type check.
 Passing a path on the command line would silently narrow the check to that path.
 
+#### Regenerating `web/package-lock.json`
+
+Do it inside the container, not on your host:
+
+```bash
+docker run --rm -v "$PWD/web:/app" -w /app node:22-slim npm install --package-lock-only
+```
+
+On macOS or Windows this *silently produces a broken lock file*. The wasm
+fallbacks under `@emnapi/*` are reached only through `cpu: ["wasm32"]` optional
+dependencies, so a lock generated on win32-x64 or darwin omits packages that the
+Linux build needs. The symptom is misleading: `npm ci` succeeds on the machine
+that generated the lock, and the Docker build fails with `Missing: @emnapi/core@1.11.3`
+— which reads like a version problem and invites a pointless version bump. It is
+not one. Generating from linux-x64 produces a superset lock (471 packages rather
+than 467) that installs correctly on every platform.
+
 ## Scope
 
 **Phase 1 builds one workflow properly.** It does not include multi-agent
