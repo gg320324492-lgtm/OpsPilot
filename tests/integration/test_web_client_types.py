@@ -33,6 +33,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -69,7 +70,17 @@ def test_client_types_match_the_live_openapi_schema() -> None:
         # The generator reads the token from the environment; give it a
         # placeholder so a developer's unset token cannot fail the guard for an
         # unrelated reason. The value never leaves the process.
-        env={**os.environ, "OPSPILOT_OPERATOR_TOKEN": "openapi-schema-placeholder-token"},
+        # `OPSPILOT_PYTHON` points the generator at *this* interpreter rather
+        # than the `.venv/Scripts/python.exe` path it falls back to: that path
+        # is Windows-only, so on a Linux CI runner (where the package is
+        # `pip install -e`-ed and `sys.executable` is the interpreter that can
+        # `import opspilot`) the default would not exist and the generator would
+        # exit non-zero for an environment reason, not a drift one.
+        env={
+            **os.environ,
+            "OPSPILOT_OPERATOR_TOKEN": "openapi-schema-placeholder-token",
+            "OPSPILOT_PYTHON": sys.executable,
+        },
         check=False,
     )
 
