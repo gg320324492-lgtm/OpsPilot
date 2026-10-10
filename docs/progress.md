@@ -4137,3 +4137,268 @@ A fourth instance of this family is not proven absent — only that all 28 alias
 are read. A setting that is read but whose value is discarded on the way to its
 effect (a parameter accepted and never consulted) is the same shape one level
 further in, and this sweep does not look for it.
+
+---
+
+## The Definition of Done, re-scored after the settings defects
+
+**Date:** 2026-10-10, at `472c09a`, on a clean tree. The previous score was
+**18 of 19** (`c96c289`, D19a recorded as a boundary). This pass re-ran every
+line rather than reading it, and the score is **18 of 19** again — but not for
+the reason it was 18 last time, and with one new fact that changes how D10 must
+be read.
+
+**The new fact first, because it is the one that matters: CI has been red since
+the day it was written, and every commit since has never been pushed.** `gh run
+list` returns exactly two runs, both `failure`, both on 2026-10-08, the last at
+`6ae3d94`. `main` is **17 commits ahead of `origin/main`** — so none of M11,
+M12, D19a, or any of today's settings work has ever executed on a GitHub
+runner. D10's jobs exist and the commands match the README; **no job has ever
+passed.** That was true before today and was not written down.
+
+### 18 of 19
+
+| # | Verdict | This round's evidence | Changed? |
+|---|---|---|---|
+| D1 | met | `ruff check .` -> `All checks passed!` | no |
+| D2 | met | `ruff format --check .` -> `201 files already formatted` | no |
+| D3 | met **locally**, see below | bare `mypy` -> `Success: no issues found in 173 source files` | no |
+| D4 | met | `pytest -q` -> **797 passed, 8 skipped** in 48.69s | yes, 756 -> 797 |
+| D5 | met | `pytest tests/security` -> 30 passed; `test_invariants.py` -> 6 passed | no |
+| D6 | met | `test_permission_immutability.py` + `test_prompt_injection.py` -> 9 passed | no |
+| D7 | met | `-k "issues_create or audit_event or tool_executed"` -> 5 passed | no |
+| D8 | met, wording is wrong | 28/28 `Settings.model_fields` aliases present; 28 keys in `.env.example` | no (see the note below) |
+| D9 | met | `import opspilot` -> `G:\OpsPilot\src\opspilot\__init__.py`; `pip show` 0.1.0 | no |
+| D10 | **met as written, with a standing caveat** | ten job ids in `ci.yml`: `lint typecheck test verify mcp-contract security eval-smoke web-lint web-typecheck docker-build`; README documents bare `ruff check` / `ruff format --check` / `mypy` / `pytest` and each job runs exactly that | **no — but see the CI section below** |
+| D11 | met | `eval-live.yml` triggers on `workflow_dispatch` alone | no |
+| D12 | unmet, as D12a | `docker-compose.yml` declares `postgres, migrate, api, worker, web` and no MCP services | no |
+| D12a | recorded-as-boundary | 40 stdio-transport tests pass; `MCP_TRANSPORT` read at `worker/__main__.py:433` | no |
+| D13 | met, verified live today | stack up 8–31h; `/ready` from inside the api -> `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`; worker `booted; marked 0 interrupted run(s) failed; polling every 1.0s` | no |
+| D14 | met | README sections: golden path (56), five scenarios (157), Architecture (223), Evaluation (292), limitations link (29); `docs/assets/golden-path.gif` = 359,981 bytes | no |
+| D15 | met, divergence documented | every metric value matches `evals/results/2026-10-08T05-24-41.json` (0.750 / 0.500 / 0.110 / 0.600 / 0.067 / 0.634 / 1.000 / 0 / 0.444); the `model` field differs and README:343-360 explains why | no |
+| D16 | met | `limitations.md` §2 now states that no worker-concurrency test exists and that the old citation "never did" | no |
+| D17 | met | M0–M12 all have sections | no |
+| D18 | met | README:21 -> `Status: Phase 1, milestones M0–M9 — the golden path runs end to end.` | no |
+| D19 | unmet (its last strand is D19a) | the fixture proposes four calls — `crm.get_customer`, `billing.get_invoice`, `billing.list_transactions`, `billing.issue_refund` — and none creates an issue | no |
+| D19a | recorded-as-boundary | `README.md:94` states the tool is implemented and tested in isolation but not proposed by the fixture; `limitations.md` §8 item 1 carries the same | no |
+
+**D19a is not the nineteenth point.** It is a recorded boundary, and D19 stays
+unmet because of it. That is unchanged from `c96c289`, and it is the whole
+reason this file reads 18 of 19 rather than 19.
+
+### Two verdicts that are narrower than "met"
+
+**D3 is green on this machine and would be red on the CI runner.** Bare `mypy`
+here says `Success: no issues found in 173 source files`. The same command with
+`--platform linux` says:
+
+```
+tests\integration\test_worker_entry_point.py:289: error: Module has no
+attribute "CREATE_NEW_PROCESS_GROUP"  [attr-defined]
+Found 1 error in 1 file (checked 173 source files)
+```
+
+That is not a hypothetical. It is the exact error, the exact file, from both
+real CI runs: `test_worker_entry_point.py:280: error: Module has no attribute
+"CREATE_NEW_PROCESS_GROUP"` (run 37741225317) and `:278` (run 37815712700).
+`subprocess.CREATE_NEW_PROCESS_GROUP` exists only in the Windows typeshed
+branch, and the line is guarded by `sys.platform == "win32"` at runtime — which
+is precisely why a Windows developer sees a clean `mypy` and a Linux runner does
+not. The line arrived in `d6dac61` and is still at `tests/integration/
+test_worker_entry_point.py:289`. **So D3 is met as a statement about this
+machine and unmet as a statement about the gate the `typecheck` job runs.** It
+is counted met because the DoD line is about the command, and the command is
+clean here; but the honest reading is that the job is red and always has been.
+
+**D8's wording is now wrong, and it has been for a while.** The item reads
+"Every setting the code reads appears in `.env.example` with an empty value."
+The completeness half holds exactly — 28 of 28 aliases present, checked against
+`Settings.model_fields` rather than a grep of `settings.py`, so a field whose
+name and alias differ cannot be missed. The **empty-value** half does not hold
+and was never meant to: only **12 of 28** values are empty
+(`OPSPILOT_OPERATOR_TOKEN`, `MODEL_NAME`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `WORKER_ID`, the three
+`MCP_*_COMMAND`, `OPSPILOT_TOOL_DENYLIST`, `OPSPILOT_REFUND_CEILING`). The other
+16 carry their shipped defaults — `MODEL_PROVIDER=fake`, `EMBEDDING_DIM=1536`,
+`MAX_STEPS=24`, `STORE_FULL_PROMPTS=true`. That is the correct design, and
+`.env.example` is explicit that it documents settings rather than
+silently-everything. D8 is scored met on the half that was ever true.
+
+### The CI standing that should have been in D10 a week ago
+
+`gh run list` — the entire history:
+
+```
+completed  failure  fix: an exception escaped call_tool and killed the worker  37815712700  2026-10-08
+completed  failure  feat: the five demo scenarios, and a GIF that is a real run 37741225317  2026-10-08
+```
+
+Both red, both a week old, both at or before `6ae3d94`. `git rev-list --count
+origin/main..main` -> **17**. What each run failed on, read from the logs:
+
+- **`typecheck` — still red at HEAD.** `CREATE_NEW_PROCESS_GROUP`, reproduced
+  above with `--platform linux`.
+- **`verify` — was red, cause since fixed.** `psycopg.errors.DatatypeMismatch:
+  column "embedding" cannot be cast automatically to type vector`. That is the
+  M11 migration defect, fixed in `531b9f0`. The fix has never been exercised by
+  the job.
+- **`web-lint` / `web-typecheck` — was red, cause since fixed.** `npm ci can
+  only install packages when your package.json and package-lock.json ... are in
+  sync`, naming `@emnapi/*`. Fixed in `cceec90`; `npm ci --dry-run` in `web/`
+  now says `up to date`.
+- **`lint`, `security`, `mcp-contract`, `test`, `eval-smoke`, `docker-build`** —
+  green in the last run.
+
+So: of ten jobs, **one is known-red at HEAD** (`typecheck`), two were red for
+causes since fixed but never re-run, and the seven others passed. That is a
+materially different statement from "the CI jobs exist and run the documented
+commands", which is all D10 claims and all that is met.
+
+**Today's `verify`-job edits have never been executed either.** `661dbdc`
+rewrote that job to name each pgvector test by node id and assert it PASSED,
+assert the marked selection is skip-free, and assert exactly two are collected.
+None of those three assertions has run on GitHub. What *is* verified is that
+they are locally correct against a real pgvector 16:
+
+```
+OPSPILOT_DATABASE_URL=postgresql+psycopg://opspilot:opspilot@localhost:5432/opspilot
+pytest tests/integration/test_citations.py::test_pgvector_and_memory_stores_agree \
+       tests/unit/test_vector_stores.py::test_pgvector_store_satisfies_shared_contract -rA -v
+  -> 2 passed in 10.71s        (both PASSED, neither SKIPPED)
+```
+
+and that the guard's own shell logic does what it claims — replaying the two
+`grep` conditions against that output gives *WOULD MATCH* and *WOULD PASS*.
+Without the URL the same selection is `1 skipped, 14 deselected`, so the guards
+are not vacuous: they turn a skip into a failure. **Local logic correct, CI
+behaviour unverified** — the honest description of every assertion added to CI
+in the last 17 commits.
+
+### The recurrence count for today's defect family
+
+The brief's framing was: M10 is 1, the compose gap is 2, `MAX_STEPS` is 3,
+`STORE_FULL_PROMPTS` is 4, the two skip-stubs are 5. Re-checking the record,
+**the count is 6, and the extra one is `LOG_LEVEL`.**
+
+| # | Instance | Where it was found | Status |
+|---|---|---|---|
+| 1 | `MCP_*_COMMAND` declared, documented, read by nothing | M10 (`d19a6b8`) | fixed `22d7c27` |
+| 2 | **`LOG_LEVEL` documented and templated into both services, read by no code** | M12 (`c8cc1b0`) | fixed `c8cc1b0` |
+| 3 | twelve settings never reached the container | running the stack | fixed `1cc5e13` |
+| 4 | `MAX_STEPS`: three literals, worker passed neither | same sweep | fixed `472c09a` |
+| 5 | `STORE_FULL_PROMPTS`: read by nothing, three docs claimed otherwise | same sweep | fixed `472c09a` |
+| 6 | two `postgres`-marked vector tests: unconditional `pytest.skip`, counted green everywhere | reading the suite | fixed `661dbdc` |
+
+Number 2 is the one the count missed, and it belongs: the `c8cc1b0` message says
+it outright — "LOG_LEVEL was a documented setting no code read, so changing it
+in docker-compose.yml changed nothing: **a knob that turns nothing is worse than
+a missing one because it looks like control**". Same sentence, same commit day,
+one commit earlier than the compose sweep that found the other two. It is worth
+counting separately because it was found by *reading* rather than by running,
+which is the tell for what number 6 also was.
+
+Number 6 is a different shape and arguably should not share the count. It is
+not a setting that fails to reach its effect; it is a **test that cannot fail**,
+and it was reported as a pass. The reason it belongs in the same tally is the
+one `661dbdc` records: the failure ADR-0004's cost items exist to prevent
+occurred *inside its own mitigation* — the CI comment said out loud that the
+tests were stubs, and the step that followed existed only to count them.
+
+**And the pattern is still not closed.** The last section above ends honestly:
+"A fourth instance of this family is not proven absent — only that all 28 aliases
+are read. A setting that is read but whose value is discarded on the way to its
+effect … is the same shape one level further in, and this sweep does not look for
+it." Six findings did not produce a rule that prevents a seventh.
+
+### The gap: what the DoD could not have caught
+
+**Yes — and it is the same gap three times over, which is the reason it is worth
+naming rather than filing.**
+
+D8 says "every setting the code reads appears in `.env.example`". It is a
+completeness check on **one artifact**. It cannot see `docker-compose.yml`, so
+instance 3 was invisible to it; it cannot see `RunContext`, so instance 4 was
+invisible; it cannot see `TraceRecorder`, so instance 5 was invisible. Every
+one of the three new families would have been caught by a D8 that had said
+"…**and is read by the thing that acts on it**", because each was a setting
+that existed, was documented, and had no reader at the far end. The `.env.example`
+side of D8 was not the problem — it was right all along, which is what made the
+compose divergence easy to miss: both files were self-consistent and the
+deployment was the odd one out.
+
+Two things DoD has **no row at all** for, which is why they survived six
+instances:
+
+1. **No row covers "a guard that cannot fail."** D4 asks that pytest be green
+   with a non-zero skip count. A skip-stub is green with a non-zero skip count.
+   Instance 6 satisfies D4 and violates the *intent* of D4 completely. Nothing
+   in the 19 rows asks whether a test can fail.
+2. **No row covers "the CI gate is red."** D10 asks whether the jobs exist and
+   run the documented commands. All ten exist; all ten run those commands; the
+   `typecheck` job has failed every time it has run. D10 is satisfied by a
+   correct-looking YAML file over a codebase that does not type-check on Linux.
+
+**Recommended — for the operator's decision, not taken here.** The DoD is
+derived from claims the repository already makes about itself, and inventing rows
+is a project decision. Three candidates, in the order I would rank them:
+
+- **Strengthen D8 in place** rather than add a row: "Every setting the code
+  reads appears in `.env.example` **and reaches the process that acts on it**,
+  and is read by that process." One row, retargeted, and it would have caught
+  3, 4 and 5 of the six. The guard for it already exists
+  (`test_compose_settings_are_wired.py`, `test_worker_honours_max_steps.py`,
+  `test_store_full_prompts_is_wired.py`) — the DoD would be catching up to tests
+  that exist, not asking for new work.
+- **Add a row: "Every marked test can fail."** A `skip` that is unconditional, or
+  a stub with a body of `...`, is a green that means nothing. This is the only
+  proposed row with no existing guard, and it is the one that would have caught
+  instance 6.
+- **Add a row: "The CI gates are green on the platform CI runs."** Distinct from
+  D10 because D10 is about the file and this is about the run. It would have
+  caught the `CREATE_NEW_PROCESS_GROUP` failure five days before it was found —
+  and, honestly, it may not have: nobody has pushed in 17 commits, so the row
+  cannot help until pushing is routine. **That is the real first fix and it is
+  not a DoD row.**
+
+### Commands run
+
+All on `472c09a`, clean tree, `.venv\Scripts\python.exe`, PowerShell.
+
+```
+ruff check .                       All checks passed!
+ruff format --check .              201 files already formatted
+mypy  (bare)                       Success: no issues found in 173 source files
+mypy --platform linux              1 error  <- CREATE_NEW_PROCESS_GROUP, reproduces CI
+pytest -q                          797 passed, 8 skipped, 9 warnings in 48.69s
+pytest tests/security              30 passed
+pytest tests/security/test_invariants.py                     6 passed
+pytest tests/security/test_permission_immutability.py
+                       test_prompt_injection.py              9 passed
+pytest tests/integration/test_mcp_stdio_transport.py        40 passed
+pytest -k "issues_create or audit_event or tool_executed"    5 passed
+pytest -m postgres --collect-only -q   5 collected; grep -c test_pgvector -> 2  (CI's guard number)
+  + the four new test files            41 passed
+python -c "import opspilot"        G:\OpsPilot\src\opspilot\__init__.py
+Settings.model_fields vs .env.example     28 aliases, 0 missing, 28 keys, 12 empty
+docker compose config --quiet      exit 0
+docker compose ps                  api healthy / postgres healthy / web healthy / worker Up 8h
+  printenv MCP_TRANSPORT           inprocess
+  get_settings() in worker         max_steps 24, timeout 60.0, store_full_prompts True
+  /ready from inside api           {"status":"ready","checks":{"database":"ok","migrations":"ok"}}
+OPSPILOT_DATABASE_URL=... pytest <both pgvector node ids> -rA -v   2 passed, both PASSED
+(cd web) npm ci --dry-run          up to date
+gh run list                        2 runs, both failure, both 2026-10-08
+git rev-list --count origin/main..main    17
+```
+
+### What this changes, and what it does not
+
+- **Unchanged:** the score. 18 of 19, D19's last strand a recorded boundary.
+- **Newly established:** D13 was verified a second time, against a stack that
+  has been up for eight hours, rather than once by hand.
+- **Newly established:** the two `postgres`-marked tests are real and pass
+  against a live pgvector 16. Before today they were two `pytest.skip` lines
+  that reported green on every machine including CI's.
+- **Newly established:** the `typecheck` job is red at HEAD, and D3 is green
+  only because this machine is Windows.
+- **Still not established:** that any CI job passes. It has never happened.
