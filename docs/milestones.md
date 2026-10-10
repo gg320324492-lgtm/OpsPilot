@@ -249,21 +249,30 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 
 **Acceptance criteria**
 
-- [ ] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
+- [x] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
       (pgvector container: migrations, vector differential, worker concurrency),
       `mcp-contract`, `security`, `eval-smoke`, `web-lint`, `web-typecheck`,
-      `docker-build`.
-- [ ] `eval-live` on `workflow_dispatch` only.
+      `docker-build`. (All ten ids exist in `ci.yml`, and Actions run
+      38076989911 at `0144d83` had all 11 jobs pass — `test` is the 3.12/3.13
+      matrix — the first green run in the project's history.)
+- [x] `eval-live` on `workflow_dispatch` only.
 - [ ] `docker compose up` brings up api, worker, web, postgres, and the three
       MCP servers (as child processes of the worker under
       `MCP_TRANSPORT=stdio`; the default `inprocess` runs them inside it).
-- [ ] README: the golden-path trace, the honest-numbers eval table, an
+      (The Compose half is verified: the four services came up on this machine's
+      WSL Docker daemon on 2026-10-11, `api` / `web` / `postgres` healthy and
+      `worker` up. The MCP half is not: the running worker reports
+      `MCP_TRANSPORT=inprocess`, so the three servers are constructed inside the
+      worker, and the `stdio` child-process form has been exercised by tests
+      only, never through `docker compose up`.)
+- [x] README: the golden-path trace, the honest-numbers eval table, an
       architecture diagram, the five demo scenarios, a recorded GIF from the
       deterministic path, and a limitations section that links
-      `docs/limitations.md`.
-- [ ] `docs/progress.md` records each milestone's outcome, including what went
+      `docs/limitations.md`. (The GIF is on disk — `docs/assets/golden-path.gif`,
+      359,981 bytes — and every other item is a README section that exists.)
+- [x] `docs/progress.md` records each milestone's outcome, including what went
       wrong.
-- [ ] The repository's own Definition of Done checked line by line, with any
+- [x] The repository's own Definition of Done checked line by line, with any
       unmet item named rather than omitted.
 
 ### Definition of Done
@@ -286,7 +295,7 @@ what got built rather than what was promised.
 | D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. **The call was deliberately not added to the golden path — see D19a below.** | `milestones.md` §M3; `architecture.md` §7. |
 | D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 28 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
 | D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
-| D10 | The CI jobs §M9 names exist and run the commands the README documents. **This line is about the workflow file, not about a green run: as of 2026-10-10 no CI job has ever passed, and `main` was 17 commits ahead of `origin/main`.** | `milestones.md` §M9; README "Tests". |
+| D10 | The CI jobs §M9 names exist and run the commands the README documents. **This line is about the workflow file, not about a green run: as of GitHub Actions run 38076989911 (HEAD `0144d83`) all 11 jobs passed for the first time, and `main` is level with `origin/main`.** | `milestones.md` §M9; README "Tests". |
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
 | D12 | `docker compose up` brings up api, worker, web, postgres, three MCP servers. | `milestones.md` §M9. |
 | D12a | The three MCP servers exist and are reachable, but as **child processes of the worker**, not as Compose services. A stdio server has no port to expose, so a Compose service for one would be a container that starts, blocks on stdin and serves nothing. `MCP_TRANSPORT=stdio` is what brings them up as subprocesses; the default `inprocess` runs them inside the worker with no process boundary at all. Both are real; only the first exercises the transport. | `mcp-contracts.md` §"Why stdio and not HTTP/SSE"; `docker-compose.yml` footer. |

@@ -21,13 +21,15 @@ once. Every model call, tool call and retrieval is recorded and replayable.
 > **Status: Phase 1, milestones M0–M9 — the golden path runs end to end.**
 > The system is built: the agent loop, the five gates, the persisted approval
 > gate, idempotent refunds, retrieval with citations, the dashboard, the eval
-> harness and CI all exist and are tested (665 tests, 6 skipped). What is
+> harness and CI all exist and are tested (814 tests, 11 skipped). What is
 > **not** done is listed honestly — `issues.create` is implemented and tested in
-> isolation but the golden path does not call it (see the trace below), the
-> golden path needs PostgreSQL for retrieval (SQLite is a tests-only path), and
-> `docker compose up` has never been run on a machine with a Docker daemon. The
-> full list is in [`docs/limitations.md`](docs/limitations.md), and each
-> milestone's outcome is in [`docs/progress.md`](docs/progress.md).
+> isolation but the golden path does not call it (see the trace below), and the
+> golden path needs PostgreSQL for retrieval (SQLite is a tests-only path).
+> `docker compose up` has now been run on a machine with a Docker daemon: the
+> four services (api, worker, web, postgres) come up on this machine's WSL
+> Docker daemon, `api`, `web` and `postgres` healthy and `worker` up. The full
+> list is in [`docs/limitations.md`](docs/limitations.md), and each milestone's
+> outcome is in [`docs/progress.md`](docs/progress.md).
 
 ---
 
@@ -430,9 +432,12 @@ docker compose up
 ```
 
 > `docker compose up` is the intended entry point and the Compose file is
-> committed, but **it has never been run on a machine with a Docker daemon** —
-> the development machine has no Docker. The `docker-build` CI job runs it on a
-> runner. See [limitations.md](docs/limitations.md) §6.
+> committed, and **it has now been run on a machine with a Docker daemon**: the
+> four services (api, worker, web, postgres) came up on this machine's WSL
+> Docker daemon — `api`, `web` and `postgres` healthy, `worker` up, which
+> carries no healthcheck because it serves no HTTP endpoint. The `docker-build`
+> CI job still builds the images on a Linux runner. See
+> [limitations.md](docs/limitations.md) §6.
 
 The default `MODEL_PROVIDER=fake` replays recorded responses, so the golden path
 runs with no API key. Retrieval needs PostgreSQL: SQLite is a tests-only path

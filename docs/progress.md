@@ -4465,3 +4465,95 @@ the recommendation now points at a test that exists and passes, exactly as
 that exist"). The recommendation is promoted from "would have to be written" to
 "already written, awaiting the row"; the row is still the operator's to add.
 
+---
+
+## CI is green: four root causes, one all-green run
+
+**Date:** 2026-10-11, at `0144d83`. The run is stamped `2026-10-10T18:44:22Z`;
+the commit's own timestamp is 02:44 +0800, which is why this section reads as
+the 11th and the one above it as the 10th.
+
+**The oldest standing limitation in this project is closed: "CI has never been
+green" is no longer true.** `cb457f4` wrote the fact down ("CI has been red
+since the day it was written, and every commit since has never been pushed";
+"**no job has ever passed**"), `584ac99` carried it forward as the one thing
+still not established, and `milestones.md` D10 had to narrow itself to a
+statement about the workflow file rather than about a run. GitHub Actions run
+**38076989911** on `main` at HEAD `0144d83` finished `completed` / `success`
+with **11 of 11 jobs green**:
+
+```
+gh run list --limit 100                             5 runs in the repository's history
+38076989911  success  0144d83  2026-10-10T18:44:22Z   <- the first one
+38069532950  failure  5e3a373  2026-10-10T16:54:06Z
+38067117974  failure  d6e1661  2026-10-10T16:18:22Z
+37815712700  failure  6ae3d94  2026-10-08T17:19:50Z
+37741225317  failure  c989ffc  2026-10-08T07:04:33Z
+
+gh run view 38076989911 --json jobs --jq '.jobs | length'
+11
+
+gh run view 38076989911 --json jobs --jq '.jobs[].name'
+lint (ruff)  typecheck (mypy)  test (py3.12)  test (py3.13)  verify (pgvector)
+mcp-contract  security  eval-smoke  web-lint  web-typecheck  docker-build
+```
+
+Four of the five runs are `failure`; this is the only one that is not.
+
+### The four root causes
+
+Four commits, four independent defects — and not one of them could fail on this
+machine. That is the part worth keeping: the suite here was green the whole time
+CI was red, because three of the four were platform-specific and the fourth was
+a job missing a dependency it needed.
+
+| Commit | Root cause | Why every runner was red |
+|---|---|---|
+| `6f4b497` | the stdio spawn/reap tests enumerated processes with a PowerShell / `Win32_Process` helper | A Windows-only helper: those tests passed here and failed on every Linux runner. Now guarded by `skipif(sys.platform != "win32")`. |
+| `732dd42` | `scripts/generate-types.mjs` was pointed at a hardcoded Windows venv interpreter | The cross-stack client-type guard ran the generator through a `python.exe` that exists on one checkout and nowhere else, so on Linux it could not run the guard at all. It now receives `OPSPILOT_PYTHON=sys.executable`, which resolves on any platform. |
+| `5e3a373` | `web/src/app/layout.tsx` typed its props from the build-time-only `LayoutProps` global | That global is injected by the Next.js build, so on a fresh checkout it does not exist and `tsc` had nothing to check the root layout against. Replaced with an explicit `ReactNode` children signature. |
+| `0144d83` | the `test` and `verify` jobs never installed the Node package their own guard needs | The type-drift guard shells out to `openapi-typescript`, which only `web-lint` and `web-typecheck` installed. Both jobs now run `setup-node` and `npm --prefix web ci`. |
+
+`480882b` had already fixed the `typecheck` job's Windows-only
+`CREATE_NEW_PROCESS_GROUP` error, and `584ac99` recorded the correct caveat:
+one job green locally is not a green run. Three of these four were invisible
+here for exactly that reason.
+
+### Measured locally, and why CI's number is not the same number
+
+`pytest` at `0144d83` on this machine: **814 passed, 11 skipped.** That replaces
+the 797 passed / 8 skipped `cb457f4` measured at `472c09a`. The skip count is
+still printed and still non-zero — all 11 are M0 skeletons or documented
+environment gates, per `584ac99` — so a green run is not mistaken for full
+coverage. The README status banner now carries these numbers.
+
+CI's `test` job runs the same suite on 3.12 and 3.13 and is green, but its skip
+count is not necessarily this one: `6f4b497` skips the Windows-only
+process-enum tests on Linux, so the runner skips more than this machine does.
+The two figures should not be quoted interchangeably.
+
+### What this closes
+
+- **Closed: "CI has never been green."** It is why D10 had to narrow itself to
+  the workflow file, and why `cb457f4`'s third recommendation — "the CI gates
+  are green on the platform CI runs" — stayed open. D10 loses its caveat and
+  that recommendation is retired.
+- **Closed: the 17-commit gap.** `main` is level with `origin/main` again
+  (`git rev-list --count origin/main..main` -> `0`). The 10 commits from
+  `472c09a` to `0144d83` produced three runs rather than ten — `d6e1661`,
+  `5e3a373` and `0144d83` — because they went out in batches, so `cb457f4`,
+  `1de657e`, `480882b`, `bbf0dd7`, `584ac99`, `6f4b497` and `732dd42` were never
+  the head of a run and CI has still not seen them individually.
+- **Re-verified live: D13.** The Compose stack is up on this machine's WSL
+  Docker daemon — `api` / `web` / `postgres` healthy, `worker` up, which carries
+  no healthcheck because it serves no HTTP endpoint — and `MCP_TRANSPORT` in the
+  running worker is `inprocess`.
+- **Unchanged: the score, 18 of 19.** D19's last strand is still the recorded
+  boundary D19a.
+- **Unchanged, and outside this round's three files:**
+  `docker-compose.yml`'s header still reads "NOT VERIFIED. Docker is not
+  installed on the machine this was written on", which is now false in fact but
+  is not a file this commit may touch; and M9's third criterion stays unchecked,
+  because the three MCP servers are constructed inside the worker rather than
+  brought up as Compose services. Both are recorded here rather than edited.
+
