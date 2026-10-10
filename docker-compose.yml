@@ -116,7 +116,10 @@ services:
       # The dashboard is served on http://localhost:3000 by the web service.
       # CORS names exactly that origin; a wildcard is refused by the settings
       # validator (settings.py::WildcardCorsOrigin) and would, with
-      # allow_credentials, be rejected by Starlette anyway.
+      # allow_credentials, be rejected by Starlette anyway. The worker gets the
+      # same variable for a different reason: it serves no CORS middleware, but
+      # it builds the same `Settings`, which runs that same validator -- so a
+      # wildcard in .env must stop both services, not just this one.
       OPSPILOT_CORS_ORIGINS: ${OPSPILOT_CORS_ORIGINS:-http://localhost:3000}
       # Provider selection. Defaults to `fake`, which needs no key and replays
       # the recorded golden path -- the same default .env.example documents, so
@@ -131,9 +134,64 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-60.0}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      # Which embedder, and at what width. `text-embedding-3-small`/`1536` are
+      # OpenAI's; under EMBEDDING_PROVIDER=local they describe the lexical
+      # embedder's fixed width instead. EMBEDDING_DIM is also the vector
+      # column's width (models.py::_EMBEDDING_DIM reads it), so changing it
+      # needs a migration -- it is forwarded, not free to retune.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      # Chunks returned per query, and the score below which the run abstains.
+      # Read by this service too: it owns POST /knowledge/reindex, and the
+      # retrieval stack it builds shares these two with the worker
+      # (adapters/wiring.py::build_retrieval_stack).
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      MAX_STEPS: ${MAX_STEPS:-24}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
+      WORKER_ID: ${WORKER_ID:-}
+      # Which recorded scenario the fake provider replays. The api builds no
+      # provider and replays nothing, but the default is the worker's rather
+      # than settings.py's empty one, because the repository's own guard
+      # (tests/unit/test_compose_default_provider_has_fixtures.py) reads the
+      # FIRST `OPSPILOT_FAKE_SCENARIO` default in this file and treats an empty
+      # one as a deployment that cannot complete a run. An empty default here
+      # would make that guard report a working stack as broken, which is the
+      # same class of lie in the other direction.
+      OPSPILOT_FAKE_SCENARIO: ${OPSPILOT_FAKE_SCENARIO:-duplicate_charge}
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-inprocess}
+      # Blank is NOT an error and NOT the same as "absent": `default_factory`
+      # fills in `this interpreter -m mcp_servers.<name>.server`, and
+      # mcp_gateway.py::_command_for rebuilds exactly that from "" (an empty
+      # line in .env arrives as "", not as unset). So `${VAR:-}` is the value
+      # that preserves the shipped behaviour.
+      MCP_CRM_COMMAND: ${MCP_CRM_COMMAND:-}
+      MCP_BILLING_COMMAND: ${MCP_BILLING_COMMAND:-}
+      MCP_ISSUES_COMMAND: ${MCP_ISSUES_COMMAND:-}
+      # Tool policy. Removes capability, never grants it (ADR-0003); blank
+      # denies nothing, which is settings.py's default.
+      OPSPILOT_TOOL_DENYLIST: ${OPSPILOT_TOOL_DENYLIST:-}
+      OPSPILOT_REFUND_CEILING: ${OPSPILOT_REFUND_CEILING:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      STORE_FULL_PROMPTS: ${STORE_FULL_PROMPTS:-true}
+      #
+      # WHY THE WORKER-ONLY KNOBS APPEAR HERE AT ALL
+      # -------------------------------------------
+      # MODEL_TIMEOUT_SECONDS, MAX_STEPS, WORKER_POLL_INTERVAL, WORKER_ID,
+      # OPSPILOT_FAKE_SCENARIO, MCP_TRANSPORT, MCP_*_COMMAND,
+      # OPSPILOT_TOOL_DENYLIST, OPSPILOT_REFUND_CEILING and STORE_FULL_PROMPTS
+      # are inert in THIS service: it issues no model call, never polls the run
+      # table, builds no tool gateway and evaluates no policy. They are here
+      # because both services construct the same Settings object, and a value
+      # present in one service's environment and absent from the other's is a
+      # deployment whose two halves disagree about its own configuration --
+      # which is exactly the defect this block previously had, in reverse.
+      # Two defaults deliberately differ from the worker's, each for a reason
+      # stated on the line: WORKER_ID (a claimed run is the worker's to
+      # attribute; the api claims none) and nothing else -- OPSPILOT_FAKE_SCENARIO
+      # matches so `docker compose config` reads identically for both.
       # Bind all interfaces inside the container. The entry point defaults to
       # 127.0.0.1, which would be unreachable through a published port.
       API_HOST: 0.0.0.0
@@ -208,6 +266,12 @@ services:
       # the same Settings object. Passed through for the same reason as in
       # `migrate`: one settings object, one place a value is missing.
       OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+      # The worker serves no CORS middleware and never calls `cors_origins`,
+      # but it constructs the same `Settings`, which runs the same
+      # `WildcardCorsOrigin` validator. So a wildcard in .env has to stop this
+      # container too: an api that refuses to start on a value its worker
+      # accepts is two deployments, not one.
+      OPSPILOT_CORS_ORIGINS: ${OPSPILOT_CORS_ORIGINS:-http://localhost:3000}
       MODEL_PROVIDER: ${MODEL_PROVIDER:-fake}
       MODEL_NAME: ${MODEL_NAME:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -215,19 +279,70 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      # Seconds one model call may take before the SDK gives up. This is the
+      # setting whose absence from this file was the reason the planner looped:
+      # MODEL_TIMEOUT_SECONDS was written to .env and never reached the
+      # container, so the worker silently ran settings.py's default. The
+      # fallback is that default (60.0) rather than a number chosen here, so
+      # compose is not a second source of truth for the same knob.
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-60.0}
       # Which golden-path scenario the fake provider replays. Without it, a
       # `MODEL_PROVIDER=fake` worker dies at `classifying` with
       # UnmatchedFixtureError (settings.py::fake_scenario). This default is what
       # makes `docker compose up` actually complete a run on a fresh clone.
       OPSPILOT_FAKE_SCENARIO: ${OPSPILOT_FAKE_SCENARIO:-duplicate_charge}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      # Which embedder, at what width. See the api service's note: EMBEDDING_DIM
+      # is also the vector column's width and changing it needs a migration.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      # Chunks per query and the abstention threshold. The same two the api
+      # reads; both services build the same retrieval stack
+      # (adapters/wiring.py::build_retrieval_stack).
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      # Plan/execute rounds before the run is failed with `max_steps_exceeded`
+      # (agents/runtime.py). Also unset-but-silent before this line existed: a
+      # budget set in .env did not reach the loop that spends it.
+      MAX_STEPS: ${MAX_STEPS:-24}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
       # Unique per worker process. A named value rather than the pid fallback,
       # so a run claimed in this deployment is attributable to *this* container
       # rather than to a bare `worker-1234` that says nothing about which host.
       WORKER_ID: ${WORKER_ID:-worker-compose}
+      # Which transport the tool gateway dispatches over. This is the service
+      # that reads it (worker/__main__.py::build_worker_gateway), and until this
+      # line existed MCP_TRANSPORT=stdio could not be selected from a .env at
+      # all -- the setting was documented, read, and unreachable from the one
+      # place a deployment configures it.
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-inprocess}
+      # Full command lines for the three servers, consulted only under
+      # MCP_TRANSPORT=stdio. Blank is NOT an error and NOT the same as "absent":
+      # `default_factory` fills in `this interpreter -m mcp_servers.<name>.server`
+      # and mcp_gateway.py::_command_for rebuilds exactly that from "" (an empty
+      # line in .env arrives as "", not as unset). `${VAR:-}` preserves the
+      # shipped behaviour and lets an operator override it from .env.
+      MCP_CRM_COMMAND: ${MCP_CRM_COMMAND:-}
+      MCP_BILLING_COMMAND: ${MCP_BILLING_COMMAND:-}
+      MCP_ISSUES_COMMAND: ${MCP_ISSUES_COMMAND:-}
+      # Comma-separated tool names to refuse, and the largest refund allowed to
+      # reach the approval gate. Both can only REMOVE capability, never grant it
+      # (docs/adr/0003); blank denies nothing and sets no ceiling, which is
+      # settings.py's default and .env.example's shipped value. The gate itself
+      # (docs/risks.md R3) is code, not configuration.
+      OPSPILOT_TOOL_DENYLIST: ${OPSPILOT_TOOL_DENYLIST:-}
+      OPSPILOT_REFUND_CEILING: ${OPSPILOT_REFUND_CEILING:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Whether full prompts and model responses are written to agent_steps.
+      # Declared so it can be set per deployment; Phase 1 ships it on and
+      # production redaction is Phase 3 (docs/limitations.md).
+      STORE_FULL_PROMPTS: ${STORE_FULL_PROMPTS:-true}
+      # Note on what is NOT here and why: DATABASE_URL is the one setting that
+      # is NOT `${...}`-templated, in every service. It names the `postgres`
+      # service on the compose network, which is unreachable from a host .env --
+      # an operator's `localhost:5432` is their machine, not this container.
+      # Templating it would let a valid host value silently break every
+      # container; the compose topology decides it.
       OPSPILOT_MCP_DATA_DIR: /data/mcp
     volumes:
       # The same store volume the api mounts. The worker is the process that

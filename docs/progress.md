@@ -3804,3 +3804,169 @@ python mt_report.py                  OFFLINE. aggregates every raw artifact
 - **Unchanged:** the structural guarantee is still absent, and the `fake`
   provider's fixture still asserts the refund. Neither is touched by anything
   here.
+
+---
+
+## Every setting the code reads now reaches the container
+
+**Date:** 2026-10-10. Third recurrence of the M10 defect family, found by
+running the Compose stack end to end for the first time. Fixes
+`docker-compose.yml`; adds `tests/unit/test_compose_settings_are_wired.py`.
+
+### The defect
+
+`settings.py` declared and read `MODEL_TIMEOUT_SECONDS` (60.0) and `MAX_STEPS`
+(24). `.env.example` documented both. `docker-compose.yml` passed neither to
+`api` nor to `worker`, so a value written to `.env` was read by no process, and
+the container ran `settings.py`'s default. No log line, no warning, no failure:
+the operator had configured a value and the deployment had ignored it.
+
+It surfaced as the recorded blocker in the section above. A real-model run spent
+all 24 steps on reads (`get_invoice` x12, `list_transactions` x9,
+`issues.create` x3), never proposed `billing.issue_refund`, and ended
+`max_steps_exceeded` - a budget the `.env` had already tried to raise.
+
+### The sweep
+
+`Settings.model_fields` is the list of truth: 28 aliases, read from the model
+rather than from a grep of `settings.py`, so a field whose name and alias differ
+cannot be missed. Crossed against `.env.example` and against the `environment`
+block of each compose service:
+
+| | found | missing |
+|---|---|---|
+| `.env.example` | 28/28 | - |
+| `api` | 16/28 | `OPSPILOT_CORS_ORIGINS`, `MODEL_TIMEOUT_SECONDS`, `OPSPILOT_FAKE_SCENARIO`, `EMBEDDING_MODEL`, `EMBEDDING_DIM`, `RETRIEVAL_TOP_K`, `MAX_STEPS`, `WORKER_POLL_INTERVAL`, `WORKER_ID`, `MCP_TRANSPORT`, `MCP_*_COMMAND` (3), `OPSPILOT_TOOL_DENYLIST`, `OPSPILOT_REFUND_CEILING`, `STORE_FULL_PROMPTS` |
+| `worker` | 13/28 | `OPSPILOT_CORS_ORIGINS`, `MODEL_TIMEOUT_SECONDS`, `EMBEDDING_MODEL`, `EMBEDDING_DIM`, `RETRIEVAL_TOP_K`, `MAX_STEPS`, `MCP_TRANSPORT`, `MCP_*_COMMAND` (3), `OPSPILOT_TOOL_DENYLIST`, `OPSPILOT_REFUND_CEILING`, `STORE_FULL_PROMPTS` |
+
+Twelve settings were missing from **both** services. `.env.example` was not the
+incomplete artifact - it documents all 28 - which is the point: the documentation
+was right and the deployment disagreed with it.
+
+Three things asked about specifically, and the answer for each:
+
+- **`AnthropicProvider` timeout / retries.** `timeout` comes from
+  `MODEL_TIMEOUT_SECONDS`, one setting for both adapters; it was missing. There
+  is no `retries` setting anywhere - neither adapter passes `max_retries` - so
+  there was nothing to forward. Not an omission.
+- **DB pool.** `db.py:57` hardcodes `pool_pre_ping=True` and
+  `connect_timeout=5`. No setting exists for pool size, overflow or recycle, so
+  compose has nothing to pass. Not an omission.
+- **Embedding provider parameters.** `EMBEDDING_PROVIDER` was wired;
+  `EMBEDDING_MODEL` and `EMBEDDING_DIM` were missing and are now passed.
+
+`web` is unaffected: it runs Next.js, never imports `opspilot.settings`, and its
+three variables (`OPSPILOT_OPERATOR_TOKEN`, `NEXT_PUBLIC_API_BASE_URL`,
+`API_INTERNAL_BASE_URL`) are its own. `migrate` builds a `Settings` but reads one
+field from it, and widening what a one-shot migration can be affected by is the
+wrong trade - so it is excluded from the sweep and gets its own assertion on
+`DATABASE_URL` instead.
+
+### What changed
+
+Both services now receive all 28, with the compose fallback equal to
+`settings.py`'s default in every case. Two settings are deliberately non-empty in
+compose (`OPSPILOT_FAKE_SCENARIO`, `WORKER_ID`) and are recorded as
+`(service, variable)` pairs with their reasons rather than as blanket
+exemptions. `DATABASE_URL` is still not templated anywhere: it must name the
+`postgres` service on the compose network, and templating it would let a valid
+host value silently break every container.
+
+### Verified
+
+Against a running stack, with a non-default probe value written to `.env` for
+each new setting, `.env` backed up to `.scratch/compose_env/.env.backup` first.
+
+- `docker compose config --quiet` exit 0; all 15 probe values render into both
+  services. `up -d --force-recreate` only - environment changes are not in the
+  image, and no build was needed or performed.
+- `printenv`: all 15 present in both containers. Then `get_settings()` **inside**
+  both containers: all 15 read correctly, including the derived properties
+  (`tool_denylist == ['probe.denied.tool']`, `cors_origins ==
+  ('http://probe.example:3000',)`). The env var existing is not the claim being
+  made; the settings layer reading it is.
+- **Behaviour, actually observed.** `WORKER_ID`/`WORKER_POLL_INTERVAL` from the
+  worker's boot line (`opspilot-worker[probe-worker-id]: ... polling every
+  2.5s`). `MODEL_TIMEOUT_SECONDS` through the production builder with nothing
+  hand-passed: `build_worker_provider()` gave an adapter whose
+  `AsyncOpenAI(...).timeout` is 17.5, not the default 60.0; a call with a 1ms
+  timeout raised `APITimeoutError`. `EMBEDDING_DIM=256` crashed the api with
+  `DimensionMismatch ... dim=256 does not match ... 1536` - an error only
+  constructible when `settings.embedding_dim` is 256, so the crash is itself
+  the proof.
+- `.env` restored, `--force-recreate`, four services healthy, worker back to
+  `worker-compose` / `1.0s`, and the settings layer back to 60.0 / 24 / 1536.
+
+### Two more of the same defect, and they are not in compose
+
+The sweep found two settings that compose now passes correctly and that **nothing
+reads anyway**. Same shape as M10, one layer further in: declared, documented,
+and consumed by no code.
+
+**`MAX_STEPS` is read by nothing.** The chain is intact right up to the settings
+object - compose passes it, `get_settings().max_steps == 7` inside the container
+- and then stops:
+
+```
+settings.max_steps = 7
+RunContext.max_steps built by the worker = 24
+```
+
+`worker/loop.py::_build_context` constructs `RunContext(...)` without a
+`max_steps=` argument, so the dataclass default in `agents/state.py:62` always
+applies and `agents/runtime.py:985` reads `ctx.max_steps`. The budget is a
+literal `24` in a second file - exactly the shape `RETRIEVAL_MIN_SCORE` was in
+before M6a.
+
+**This means the compose fix does not unblock the recorded end-to-end run.**
+`MAX_STEPS=40` in `.env` still yields a 24-step budget. The fix is one argument
+in `_build_context`, which is in `src/` and outside this task's scope; it is
+recorded here rather than made.
+
+**`STORE_FULL_PROMPTS` is read by nothing.** `grep -rn store_full_prompts
+src/` returns only the declaration. `TraceRecorder.record_step` writes
+`input=input_payload` unconditionally, so `STORE_FULL_PROMPTS=false` changes
+nothing.
+
+### The guard
+
+`tests/unit/test_compose_settings_are_wired.py` makes "a setting is configured
+but unreachable" a red build. Five assertions: every alias reaches `api` **and**
+`worker`; every `${VAR:-x}` fallback equals `settings.py`'s default; the
+per-process `MCP_*_COMMAND` fallbacks stay blank; the token keeps its `:?` form;
+`migrate` still points at the compose Postgres. Failures name **every** missing
+variable, because the twelve were missing together.
+
+Both, not either, is deliberate. Each service constructs the same `Settings`, so
+a variable present for one and absent for the other is a deployment whose halves
+disagree - which is this defect running in reverse, and is how
+`OPSPILOT_CORS_ORIGINS` reached the api alone until now. The worker's copy is
+inert (it serves no CORS middleware) but its `Settings` runs the same
+`WildcardCorsOrigin` validator, so a wildcard in `.env` now stops both
+containers rather than only the api.
+
+The YAML is parsed with a regex: `PyYAML` is installed in the venv and is **not**
+declared in `pyproject.toml`, so importing it would pass here and fail in a clean
+CI environment - the "a dependency only the author's machine happens to have is
+a dependency the package does not really have" defect this repository has already
+recorded once, on `pgvector`.
+
+Six mutations were run against it and all six went red: deleting a variable from
+the worker; changing a fallback to disagree with `settings.py`; replacing the
+token's `:?` with a `:-`; dropping `OPSPILOT_CORS_ORIGINS` from one service
+only; hardcoding a fallback for a per-process setting; and making a recorded
+exemption stale (which fails on its own, so an exemption cannot outlive the
+decision it describes).
+
+### Quality gates
+
+`ruff check` clean, `ruff format --check` clean (199 files), bare `mypy` clean
+(171 files), `docker compose config --quiet` exit 0, **777 passed / 8 skipped**
+(up from 756).
+
+One existing test failed during this work and the fix belongs in compose, not in
+the test: `test_compose_default_provider_has_fixtures.py` reads the *first*
+`${OPSPILOT_FAKE_SCENARIO:-...}` in the file and fails on an empty one. An empty
+default in the `api` - correct on its own terms, since the api builds no provider
+- made that guard report a working stack as broken. It is the same class of lie
+in the other direction, so both services now default to `duplicate_charge`.
