@@ -226,9 +226,15 @@ jobs:
             echo "::error::a postgres-marked vector-store test skipped in the pgvector job. Both of them do real work now; a skip means the environment did not reach pytest."
             exit 1
           fi
-          count=$(pytest -m postgres --collect-only -q 2>&1 | grep -c "test_pgvector")
-          echo "postgres-marked pgvector tests collected: $count"
-          [ "$count" -eq 2 ] || { echo "::error::expected exactly 2 pgvector tests under -m postgres (the differential in test_citations.py + the shared-contract test in test_vector_stores.py); got $count. A second copy of the differential was deleted from test_vector_stores.py precisely so that one property has one home -- if this number changed, the ADR-0004 text and this guard must change with it."; exit 1; }
+          # The match is anchored on `::` so it counts *test names*, not
+          # collected lines. The refusal-guard file
+          # (test_pgvector_target_is_never_destroyed.py) is named for pgvector
+          # but proves a safety property, not a store behaviour, and a pattern
+          # that matched file paths counted its three tests as pgvector
+          # behaviour tests and turned this guard red on a file that belongs.
+          count=$(pytest -m postgres --collect-only -q 2>&1 | grep -c "::test_pgvector")
+          echo "postgres-marked pgvector behaviour tests collected: $count"
+          [ "$count" -eq 2 ] || { echo "::error::expected exactly 2 pgvector behaviour tests under -m postgres (the differential in test_citations.py + the shared-contract test in test_vector_stores.py); got $count. A second copy of the differential was deleted from test_vector_stores.py precisely so that one property has one home -- if this number changed, the ADR-0004 text and this guard must change with it."; exit 1; }
       - name: Worker and integration tests against the configured database
         # The worker-claim tests build their own SQLite factory
         # (test_worker_claim.py), so they pass without Postgres and are already
