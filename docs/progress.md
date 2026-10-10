@@ -4402,3 +4402,66 @@ git rev-list --count origin/main..main    17
 - **Newly established:** the `typecheck` job is red at HEAD, and D3 is green
   only because this machine is Windows.
 - **Still not established:** that any CI job passes. It has never happened.
+
+---
+
+## The Definition of Done, re-scored after the guard commits
+
+**Date:** 2026-10-10, at `584ac99`, on a clean tree. The previous pass was
+`cb457f4` ("after the settings defects", measured at `472c09a`, 18 of 19). This
+pass re-reads the two lines the four guard commits since then could move, and
+records one recommendation from `cb457f4` that has since been *built*. The score
+is unchanged: **18 of 19**, D19's last strand still the recorded boundary D19a.
+
+### What moved, and only what moved
+
+`cb457f4` scored **D3** as "green on this machine, red on the runner" — the
+single narrowest verdict in the table, because bare `mypy` here said `Success`
+while the same command with `--platform linux` reproduced the exact
+`CREATE_NEW_PROCESS_GROUP` error both real CI runs had failed on. That verdict
+is now obsolete, and the commit that made it so is `480882b`: the ternary in
+`test_worker_entry_point.py` became a statement-level `if sys.platform ==
+"win32"`, because mypy's platform narrowing only applies to statements, not to
+expressions. Re-run here:
+
+```
+mypy                 (bare)         Success: no issues found in 177 source files
+mypy --platform linux                Success: no issues found in 177 source files
+```
+
+**D3 is now met as a statement about the gate, not just about this machine.**
+It is the one line in the table that was less than "met" for a reason other than
+D8's wording, and the reason is gone. This is also the honest answer to
+`cb457f4`'s third recommendation — "the CI gates are green on the platform CI
+runs" — for the `typecheck` job specifically: that job's only known cause of
+redness was this one error, and it is fixed. The recommendation is *not* retired
+in general (see below); one job going green locally is not a green run.
+
+### The recommendation that was built, not just recorded
+
+`cb457f4` listed three candidate DoD rows "for the operator's decision, not
+taken here." Its second candidate — **"Every marked test can fail"** — is the one
+it flagged as having no existing guard and as the one that would have caught
+instance 6 (the skip-stubs that satisfied D4 while violating its intent). That
+guard now exists, in `584ac99`:
+
+```
+pytest tests/unit/test_marked_tests_can_fail.py     13 passed
+```
+
+It scans every marked test under `tests/` by AST and rejects an unconditional
+`skip`, a `...` body or a `pass` body, while allowing a conditional skip
+(`if not X: pytest.skip(...)`) as a legitimate environment gate. It was proved
+able to fail before it was trusted: injecting one unconditional-skip stub and
+one `...` stub turned it red on both `file:line`, and it returned to green when
+they were removed. No real stub exists in the tree today — the 11 skips are all
+M0 skeletons (`test_refund_idempotency.py`, `test_schemas.py`) or documented
+environment gates (`test_vector_stores.py:418`, ADR-0004).
+
+**This does not add a row to the DoD.** `cb457f4` was explicit that inventing
+rows is the operator's decision, and that has not changed. What changed is that
+the recommendation now points at a test that exists and passes, exactly as
+`cb457f4` said its first candidate would ("the DoD would be catching up to tests
+that exist"). The recommendation is promoted from "would have to be written" to
+"already written, awaiting the row"; the row is still the operator's to add.
+
