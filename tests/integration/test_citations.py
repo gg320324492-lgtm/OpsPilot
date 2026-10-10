@@ -26,6 +26,21 @@ Two bodies of work live here:
 below ingest first (which writes the chunk rows through
 ``SqlKnowledgeDocumentStore`` + the vector store) and cite second, which is the
 order retrieval produces naturally: a hit only exists because a chunk row does.
+
+**The postgres-marked test writes to ``OPSPILOT_DATABASE_URL``, and this file
+used to destroy whatever that named.** The differential test finished with
+``Base.metadata.drop_all(engine)`` -- every table the ORM declares, in whatever
+database the variable points at. Nothing checked that the database was
+disposable, and this module docstring did not warn, unlike
+``test_migration_schema.py``'s. A session pointed the variable at the stack's own
+``opspilot`` database, the suite ran, and every application table in it was
+deleted; the worker crash-looped with ``relation "agent_runs" does not exist``
+until the schema was rebuilt. The teardown is now
+:func:`tests._pgvector_target.guarded_pg_schema`, which refuses to run against a
+database that holds rows and drops only the schema the test itself created. The
+same guard covers ``tests/unit/test_vector_stores.py``, which is where the rule
+lives, and ``tests/integration/test_pgvector_target_is_never_destroyed.py``
+asserts both tests refuse -- against a scratch database, never this one.
 """
 
 from __future__ import annotations
@@ -51,6 +66,7 @@ from opspilot.adapters.retrieval.pgvector_store import PgVectorStore
 from opspilot.ports.stores import CitationRecord
 from opspilot.ports.vector_store import ChunkRecord
 from opspilot.settings import Settings
+from tests._pgvector_target import guarded_pg_schema
 
 _DOC_SOURCE = "refund-policy.md"
 _DOC_BODY = (
@@ -392,58 +408,63 @@ async def test_pgvector_and_memory_stores_agree() -> None:
     Skipped where no Postgres is reachable (local, no Docker). It passes as
     *skipped*, never as *passed*; the summary line reports the skip count so a
     green local run is not read as full coverage (ADR-0004).
+
+    **It cannot destroy a database that holds anything.** The teardown is
+    :func:`tests._pgvector_target.guarded_pg_schema`: it refuses to run against a
+    database that holds rows, and otherwise drops only the schema this test
+    created. See that module for the incident and for the rule.
     """
     factory = _postgres_session_factory()
     if factory is None:
         pytest.skip("no PostgreSQL configured (set OPSPILOT_DATABASE_URL); ADR-0004")
 
-    from sqlalchemy import text
+    from opspilot.adapters.persistence import models
 
     engine = factory.kw["bind"]
     try:
-        Base.metadata.create_all(engine)
-        # pgvector's extension must exist for the vector(1536) column.
-        with engine.begin() as connection:
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            connection.execute(text("DELETE FROM citations"))
-            connection.execute(text("DELETE FROM knowledge_chunks"))
-            connection.execute(text("DELETE FROM knowledge_documents"))
+        # The schema comes from the guard, which also creates the `vector`
+        # extension it needs to render, and only in the branch where it is the
+        # one creating tables. Doing it here instead was a no-op against an
+        # already-migrated database and a `type "vector" does not exist` against
+        # a fresh one -- the case the guard's fresh-database branch takes.
+        with guarded_pg_schema(engine, owner=__name__ + "::test_pgvector_and_memory_stores_agree"):
+            chunks, embeddings, query = _differential_chunks()
+            slugs = {
+                UUID("00000000-0000-0000-0000-0000000000aa"): "refund-policy.md",
+                UUID("00000000-0000-0000-0000-0000000000bb"): "duplicate-charge-sop.md",
+            }
 
-        chunks, embeddings, query = _differential_chunks()
-        slugs = {
-            UUID("00000000-0000-0000-0000-0000000000aa"): "refund-policy.md",
-            UUID("00000000-0000-0000-0000-0000000000bb"): "duplicate-charge-sop.md",
-        }
+            # The pgvector store needs the document rows the chunks' FK requires.
+            with db.session_scope(factory) as session:
+                from opspilot.adapters.persistence import models
 
-        # The pgvector store needs the document rows the chunks' FK requires.
-        with db.session_scope(factory) as session:
-            from opspilot.adapters.persistence import models
-
-            for document_id, source in slugs.items():
-                session.add(
-                    models.KnowledgeDocument(
-                        id=document_id,
-                        title=source,
-                        source=source,
-                        content="",
-                        doc_metadata={},
-                        content_hash="differential",
+                for document_id, source in slugs.items():
+                    session.add(
+                        models.KnowledgeDocument(
+                            id=document_id,
+                            title=source,
+                            source=source,
+                            content="",
+                            doc_metadata={},
+                            content_hash="differential",
+                        )
                     )
-                )
 
-        pg_store = PgVectorStore(session_factory=factory, slug_lookup=slugs.__getitem__)
-        memory_store = InMemoryVectorStore(slug_lookup=slugs.__getitem__)
+            pg_store = PgVectorStore(session_factory=factory, slug_lookup=slugs.__getitem__)
+            memory_store = InMemoryVectorStore(slug_lookup=slugs.__getitem__)
 
-        await memory_store.upsert(chunks, embeddings)
-        await pg_store.upsert(chunks, embeddings)
+            await memory_store.upsert(chunks, embeddings)
+            await pg_store.upsert(chunks, embeddings)
 
-        memory_hits = await memory_store.search(query, top_k=5)
-        pg_hits = await pg_store.search(query, top_k=5)
+            memory_hits = await memory_store.search(query, top_k=5)
+            pg_hits = await pg_store.search(query, top_k=5)
 
-        assert len(memory_hits) == len(pg_hits) == 5
-        for memory_hit, pg_hit in zip(memory_hits, pg_hits, strict=True):
-            assert memory_hit.chunk_id == pg_hit.chunk_id
-            assert round(memory_hit.score, 4) == round(pg_hit.score, 4)
+            assert len(memory_hits) == len(pg_hits) == 5
+            for memory_hit, pg_hit in zip(memory_hits, pg_hits, strict=True):
+                assert memory_hit.chunk_id == pg_hit.chunk_id
+                assert round(memory_hit.score, 4) == round(pg_hit.score, 4)
     finally:
-        Base.metadata.drop_all(engine)
+        # A `finally`, not a statement after the block: a refusal from the guard
+        # raises straight through here, and an undisposed engine would hold a
+        # connection open against the database that just refused to be touched.
         engine.dispose()

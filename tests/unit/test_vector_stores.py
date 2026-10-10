@@ -17,6 +17,17 @@ rules here are asserted rather than left to the implementation.
   normal case (no Docker -- ADR-0004); in CI the ``verify`` job sets it and
   asserts the test *PASSED*, so there the skip is the failure being caught.
 
+  **Where that URL points is now checked, not assumed.** Both postgres-marked
+  tests used to tear down with ``Base.metadata.drop_all(engine)`` -- every table
+  the ORM declares, in whatever database the variable named, with no warning in
+  either file. A session pointed it at the stack's own ``opspilot`` database and
+  deleted that database's application tables; the worker crash-looped with
+  ``relation "agent_runs" does not exist`` until the schema was rebuilt. Both
+  tests now run inside :func:`tests._pgvector_target.guarded_pg_schema`, which
+  refuses to run against a database that holds rows, and ``tests/integration/
+  test_pgvector_target_is_never_destroyed.py`` asserts the refusal -- by running
+  these tests against a scratch database and checking what survived.
+
 The *differential* claim -- the two stores return the same ids and scores -- is
 asserted in exactly one place, ``tests/integration/test_citations.py::
 test_pgvector_and_memory_stores_agree``. A second copy of that test used to sit
@@ -36,15 +47,14 @@ from collections.abc import Callable
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from opspilot.adapters.persistence import db, models
-from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.retrieval.memory_store import InMemoryVectorStore
 from opspilot.adapters.retrieval.pgvector_store import PgVectorStore
 from opspilot.ports.vector_store import ChunkRecord, SearchHit
 from opspilot.settings import Settings
+from tests._pgvector_target import guarded_pg_schema
 
 # The dimension the pgvector column is declared at (docs/data-model.md §2).
 COLUMN_DIM = 1536
@@ -332,45 +342,51 @@ def _postgres_session_factory() -> sessionmaker[Session] | None:
 async def _run_pgvector_shared_contract(factory: sessionmaker[Session]) -> None:
     """Assert the shared contract on a real ``PgVectorStore``.
 
-    Creates the pgvector schema, writes the document rows the ``search`` join
-    and the chunks' foreign key require, then runs the very same assertions the
-    in-memory store is held to. Teardown drops what this function created, so
-    the test leaves the database as it found it.
+    Writes the document rows the ``search`` join and the chunks' foreign key
+    require, then runs the very same assertions the in-memory store is held to.
+
+    What it no longer does is drop the schema on the way out. It used to finish
+    with ``Base.metadata.drop_all(engine)``, which drops every table the ORM
+    declares in *whatever* database ``OPSPILOT_DATABASE_URL`` named -- which is
+    how a session pointed at the stack's own ``opspilot`` database deleted that
+    database's application tables and crash-looped the worker. The teardown is
+    now :func:`tests._pgvector_target.guarded_pg_schema`: it refuses to run
+    against a database that holds rows, and on a database that already has the
+    schema it deletes only the rows this function wrote, leaving the schema for
+    whoever else is using it.
+
+    Note what is no longer in here: the unconditional ``DELETE FROM citations /
+    knowledge_chunks / knowledge_documents`` that preceded the inserts. They
+    existed so a leftover row from an earlier run could not make "5 chunks" read
+    as "6" -- but they were also, in a populated database, a silent deletion of
+    somebody's data before any assertion ran. The guard refuses in that case
+    instead, and the teardown cleans up after itself, so there is nothing left to
+    defend against. Removing them also means that if the guard were ever deleted,
+    this test would fail on a duplicate key rather than quietly emptying a table.
     """
     engine = factory.kw["bind"]
     try:
-        # The extension first, then the schema. ``create_all`` renders the
-        # ``vector(1536)`` column natively, which does not exist until the
-        # extension does -- unlike the migration path, where ``alembic upgrade
-        # head`` has already created both and this call is a no-op.
-        with engine.begin() as connection:
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(engine)
-        # The DELETEs are so a leftover row from an earlier run cannot make
-        # "5 chunks" read as "6".
-        with engine.begin() as connection:
-            connection.execute(text("DELETE FROM citations"))
-            connection.execute(text("DELETE FROM knowledge_chunks"))
-            connection.execute(text("DELETE FROM knowledge_documents"))
-
-        slugs = {_DOC_A: "refund-policy.md", _DOC_B: "duplicate-charge-sop.md"}
-        with db.session_scope(factory) as session:
-            for document_id, source in slugs.items():
-                session.add(
-                    models.KnowledgeDocument(
-                        id=document_id,
-                        title=source,
-                        source=source,
-                        content="",
-                        doc_metadata={},
-                        content_hash="shared-contract",
+        with guarded_pg_schema(engine, owner=__name__ + "::_run_pgvector_shared_contract"):
+            # The schema comes from the guard, extension included: it creates
+            # `vector` where it is the one creating tables, which it must do
+            # before `create_all` renders the vector(1536) column natively.
+            slugs = {_DOC_A: "refund-policy.md", _DOC_B: "duplicate-charge-sop.md"}
+            with db.session_scope(factory) as session:
+                for document_id, source in slugs.items():
+                    session.add(
+                        models.KnowledgeDocument(
+                            id=document_id,
+                            title=source,
+                            source=source,
+                            content="",
+                            doc_metadata={},
+                            content_hash="shared-contract",
+                        )
                     )
-                )
 
-        store = PgVectorStore(session_factory=factory, slug_lookup=slugs.__getitem__)
-        await _assert_shared_contract(lambda: store)
+            store = PgVectorStore(session_factory=factory, slug_lookup=slugs.__getitem__)
+            await _assert_shared_contract(lambda: store)
     finally:
-        Base.metadata.drop_all(engine)
         engine.dispose()
 
 
@@ -390,6 +406,12 @@ async def test_pgvector_store_satisfies_shared_contract() -> None:
     Postgres. The CI ``verify`` job sets it and asserts this test PASSED
     (see ``.github/workflows/ci.yml``), so there a skip is the failure the job
     exists to catch rather than a green light.
+
+    Where that URL points, this test used to be a permission slip: it dropped
+    every table the ORM declares, there. It now runs inside
+    :func:`tests._pgvector_target.guarded_pg_schema`, which refuses to run
+    against a database that holds rows and otherwise leaves the database with
+    the tables it had and none of the data.
     """
     factory = _postgres_session_factory()
     if factory is None:
