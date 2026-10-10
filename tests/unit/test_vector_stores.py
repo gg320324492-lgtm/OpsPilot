@@ -5,23 +5,46 @@ top-k ids and scores. That is what ``docs/adr/0004`` names as the mitigation for
 the SQLite-vs-pgvector divergence, and it is why the ordering and tie-breaking
 rules here are asserted rather than left to the implementation.
 
-``InMemoryVectorStore`` runs everywhere. Every ``PgVectorStore`` test carries
-``@pytest.mark.postgres`` and is skipped where no Postgres is reachable (the
-development machine has no Docker -- ADR-0004). Tests that *can* run without a
-database -- the dimension guard, the slug-resolution guard -- are not marked.
+``InMemoryVectorStore`` runs everywhere. ``PgVectorStore`` is split in two:
+
+* **Construction guards.** They fail on a misconfiguration rather than on I/O,
+  so they run on every machine and carry no marker.
+* **Behaviour on a real pgvector.** Marked ``@pytest.mark.postgres`` and driven
+  by ``OPSPILOT_DATABASE_URL``, the same variable
+  ``tests/integration/test_citations.py`` reads, so one setting configures every
+  Postgres-marked test in the suite: with a Postgres URL the test connects and
+  runs, without one it skips and names the variable to set. Locally that is the
+  normal case (no Docker -- ADR-0004); in CI the ``verify`` job sets it and
+  asserts the test *PASSED*, so there the skip is the failure being caught.
+
+The *differential* claim -- the two stores return the same ids and scores -- is
+asserted in exactly one place, ``tests/integration/test_citations.py::
+test_pgvector_and_memory_stores_agree``. A second copy of that test used to sit
+at the bottom of this module as an unconditional ``pytest.skip``: it was
+collected on every machine and executed on none, CI included, which read as
+coverage while providing zero. It is deleted (``docs/adr/0004`` records the
+decision). Two tests asserting one property drift apart about what "the same
+chunks" means; the shared-contract test below covers what the differential
+cannot -- dense ranks, and upsert-as-replacement against the real store.
 """
 
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
 
+from opspilot.adapters.persistence import db, models
+from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.retrieval.memory_store import InMemoryVectorStore
 from opspilot.adapters.retrieval.pgvector_store import PgVectorStore
 from opspilot.ports.vector_store import ChunkRecord, SearchHit
+from opspilot.settings import Settings
 
 # The dimension the pgvector column is declared at (docs/data-model.md §2).
 COLUMN_DIM = 1536
@@ -197,9 +220,15 @@ _DOC_A = UUID("00000000-0000-0000-0000-0000000000aa")
 _DOC_B = UUID("00000000-0000-0000-0000-0000000000bb")
 
 
-def _contract_chunks() -> tuple[list[ChunkRecord], list[list[float]]]:
-    """A small fixture: 3 chunks in doc A, 2 in doc B, on one-hot axes."""
-    dim = 8
+def _contract_chunks(dim: int = COLUMN_DIM) -> tuple[list[ChunkRecord], list[list[float]]]:
+    """A small fixture: 3 chunks in doc A, 2 in doc B, on one-hot axes.
+
+    ``dim`` defaults to the pgvector column's declared dimension so one fixture
+    drives both stores. ``PgVectorStore`` rejects any other dimension at
+    construction, so an 8-dimensional fixture -- which only the in-memory store
+    accepts -- would make "the shared contract" a claim about one store with the
+    other arguing past it.
+    """
     chunks = [
         _record(_DOC_A, 0, "intro", "alpha intro"),
         _record(_DOC_A, 1, "limits", "beta limits"),
@@ -211,21 +240,23 @@ def _contract_chunks() -> tuple[list[ChunkRecord], list[list[float]]]:
     return chunks, embeddings
 
 
-async def _assert_shared_contract(store_factory: Callable[[], object]) -> None:
+async def _assert_shared_contract(
+    store_factory: Callable[[], object], dim: int = COLUMN_DIM
+) -> None:
     """The behaviours both stores must share, asserted identically."""
     store = store_factory()
-    chunks, embeddings = _contract_chunks()
+    chunks, embeddings = _contract_chunks(dim)
     await store.upsert(chunks, embeddings)  # type: ignore[attr-defined]
 
-    hits: list[SearchHit] = await store.search(_one_hot(0, 8), top_k=5)  # type: ignore[attr-defined]
+    hits: list[SearchHit] = await store.search(_one_hot(0, dim), top_k=5)  # type: ignore[attr-defined]
     assert [hit.rank for hit in hits] == [1, 2, 3, 4, 5]
     assert hits[0].score == pytest.approx(1.0, abs=1e-4)
 
     # Upsert is a replacement keyed on (document_id, ordinal).
     await store.upsert(  # type: ignore[attr-defined]
-        [_record(_DOC_A, 0, "intro", "alpha intro v2")], [_one_hot(0, 8)]
+        [_record(_DOC_A, 0, "intro", "alpha intro v2")], [_one_hot(0, dim)]
     )
-    after = await store.search(_one_hot(0, 8), top_k=5)  # type: ignore[attr-defined]
+    after = await store.search(_one_hot(0, dim), top_k=5)  # type: ignore[attr-defined]
     assert len(after) == 5
     assert after[0].content == "alpha intro v2"
 
@@ -277,22 +308,100 @@ def test_pgvector_store_accepts_the_column_dimension() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# PgVectorStore -- real Postgres (CI only)
+# PgVectorStore -- real Postgres, where a Postgres is configured
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.postgres
-async def test_pgvector_store_satisfies_shared_contract() -> None:  # pragma: no cover - CI only
-    pytest.skip("Postgres differential coverage runs in the CI verify job (ADR-0004)")
+def _postgres_session_factory() -> sessionmaker[Session] | None:
+    """A sessionmaker over ``OPSPILOT_DATABASE_URL``, if it names a Postgres.
 
-
-@pytest.mark.postgres
-async def test_pgvector_and_memory_stores_agree() -> None:  # pragma: no cover - CI only
-    """Same chunks, same query, identical top-5 ids and scores to 4 dp.
-
-    This is the M5 differential test named in ``docs/milestones.md``. It needs a
-    real pgvector and is written here, in the store's own test module, so the
-    contract lives next to both implementations. It is skipped locally (no
-    Docker -- ADR-0004) and must not be read as a pass.
+    Returns ``None`` when the variable is unset or is not a ``postgresql`` URL,
+    which is the local case (no Docker -- ADR-0004). It is the same variable, and
+    the same "skip when absent" contract, that
+    ``tests/integration/test_citations.py`` uses for its differential test: one
+    environment setting configures every Postgres-marked test in the suite, so a
+    developer with a server points one variable at it and the whole marked set
+    runs.
     """
-    pytest.skip("requires a reachable PostgreSQL with pgvector")
+    url = os.environ.get("OPSPILOT_DATABASE_URL", "")
+    if not url.startswith("postgresql"):
+        return None
+    return db.session_factory(Settings(DATABASE_URL=url))
+
+
+async def _run_pgvector_shared_contract(factory: sessionmaker[Session]) -> None:
+    """Assert the shared contract on a real ``PgVectorStore``.
+
+    Creates the pgvector schema, writes the document rows the ``search`` join
+    and the chunks' foreign key require, then runs the very same assertions the
+    in-memory store is held to. Teardown drops what this function created, so
+    the test leaves the database as it found it.
+    """
+    engine = factory.kw["bind"]
+    try:
+        # The extension first, then the schema. ``create_all`` renders the
+        # ``vector(1536)`` column natively, which does not exist until the
+        # extension does -- unlike the migration path, where ``alembic upgrade
+        # head`` has already created both and this call is a no-op.
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        Base.metadata.create_all(engine)
+        # The DELETEs are so a leftover row from an earlier run cannot make
+        # "5 chunks" read as "6".
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM citations"))
+            connection.execute(text("DELETE FROM knowledge_chunks"))
+            connection.execute(text("DELETE FROM knowledge_documents"))
+
+        slugs = {_DOC_A: "refund-policy.md", _DOC_B: "duplicate-charge-sop.md"}
+        with db.session_scope(factory) as session:
+            for document_id, source in slugs.items():
+                session.add(
+                    models.KnowledgeDocument(
+                        id=document_id,
+                        title=source,
+                        source=source,
+                        content="",
+                        doc_metadata={},
+                        content_hash="shared-contract",
+                    )
+                )
+
+        store = PgVectorStore(session_factory=factory, slug_lookup=slugs.__getitem__)
+        await _assert_shared_contract(lambda: store)
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+@pytest.mark.postgres
+async def test_pgvector_store_satisfies_shared_contract() -> None:
+    """The shared contract, against the real store on a reachable Postgres.
+
+    This is the half of the contract the differential test in
+    ``tests/integration/test_citations.py`` cannot see: ranks that are dense
+    from one, a perfect score first, and ``upsert`` as a *replacement* keyed on
+    ``(document_id, ordinal)`` -- a second ingest rewriting the row rather than
+    appending a duplicate of the same chunk. ``InMemoryVectorStore`` is held to
+    exactly these assertions by
+    ``test_memory_store_satisfies_shared_contract``; this is pgvector's turn.
+
+    It reads ``OPSPILOT_DATABASE_URL`` and skips where that does not name a
+    Postgres. The CI ``verify`` job sets it and asserts this test PASSED
+    (see ``.github/workflows/ci.yml``), so there a skip is the failure the job
+    exists to catch rather than a green light.
+    """
+    factory = _postgres_session_factory()
+    if factory is None:
+        pytest.skip("no PostgreSQL configured (set OPSPILOT_DATABASE_URL); ADR-0004")
+    await _run_pgvector_shared_contract(factory)
+
+
+# The differential claim -- same chunks, same query, identical top-5 ids and
+# scores -- has one home: the ``test_pgvector_and_memory_stores_agree`` test in
+# ``tests/integration/test_citations.py``. A second copy of it lived here as an
+# unconditional ``pytest.skip``, collected on every machine and executed on none,
+# CI included; it was deleted rather than left to read as coverage (ADR-0004
+# records the decision). Nothing in this module compares the two stores, and
+# nothing else should: asserting one property in two places is how the two
+# places come to disagree about what the property is.

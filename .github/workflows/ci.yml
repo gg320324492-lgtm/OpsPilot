@@ -121,7 +121,7 @@ jobs:
 
   # ------------------------------------------------------------------------- #
   # verify — the Postgres path (docs/adr/0004, docs/milestones.md §M9):
-  # migrations and the vector differential test.
+  # migrations, the vector differential test and the vector shared contract.
   #
   # §M9 also names "worker concurrency" for this job. There is no such test:
   # `claim_next` is exercised on SQLite by tests/integration/test_worker_claim.py
@@ -135,13 +135,13 @@ jobs:
   # "a migration valid in SQLite but not Postgres" a risk this job is the only
   # mitigation for.
   #
-  # A skip here must not read as a pass. The differential test skips when no
-  # Postgres is reachable (so the local suite is green without one), which means
-  # a misconfigured DATABASE_URL would produce a green *skipped* run that proved
-  # nothing. The job therefore selects that test by node id and asserts it
-  # PASSED, rather than running `-m postgres` and accepting whatever exit code
+  # A skip here must not read as a pass. Both postgres-marked vector store tests
+  # skip when no Postgres is reachable (so the local suite is green without one),
+  # which means a misconfigured URL would produce a green *skipped* run that
+  # proved nothing. Each is therefore named by node id and asserted PASSED,
+  # rather than run under `-m postgres` and accepted with whatever exit code
   # pytest gives an all-skip run. This is the property ADR-0004 names the
-  # differential test as the mitigation for.
+  # differential test as the mitigation for, held for both of them.
   # ------------------------------------------------------------------------- #
   verify:
     name: verify (pgvector)
@@ -192,26 +192,43 @@ jobs:
         # when no Postgres is reachable -- which is the whole reason this job
         # exists -- so a green run is only meaningful if it PASSED.
         #
-        # It is named by node id, NOT selected with `-m postgres`, because the
-        # two `@pytest.mark.postgres` tests in tests/unit/test_vector_stores.py
-        # are deliberate hardcoded skip-stubs (they say so in their bodies) and
-        # would always report SKIPPED, making a "no skips" assertion impossible
-        # and a "-m postgres" run unable to distinguish the real test from them.
+        # It is named by node id, NOT selected with `-m postgres`, because there
+        # are exactly two postgres-marked pgvector tests and each is asserted to
+        # have *run* by its own step. Naming them keeps a skip in one from
+        # hiding behind a pass in the other -- which is what used to happen:
+        # tests/unit/test_vector_stores.py carried two hardcoded `pytest.skip`
+        # stubs that reported SKIPPED on every machine, CI included. Both of its
+        # postgres tests now do real work; the duplicated differential one was
+        # deleted rather than left to read as coverage (ADR-0004).
         run: |
           set -o pipefail
           pytest tests/integration/test_citations.py::test_pgvector_and_memory_stores_agree -rA -v 2>&1 | tee /tmp/diff.txt
           echo "--- assertion ---"
           grep -qE "test_pgvector_and_memory_stores_agree .*PASSED" /tmp/diff.txt \
             || { echo "::error::the vector differential test did not PASS. A SKIPPED result here means OPSPILOT_DATABASE_URL did not reach pytest, or the pgvector service was unreachable -- which is exactly the failure this job must not read as green (ADR-0004)."; exit 1; }
-      - name: Postgres-marked tests are selectable and the stubs are honest
-        # A cheap guard: the mark still selects the differential test (so a
-        # renamed marker is caught), and the two test_vector_stores.py postgres
-        # tests are still present. It deliberately does not assert "no skips"
-        # across `-m postgres`, because those two are skip-stubs by design.
+      - name: PgVectorStore shared-contract test against the real pgvector store
+        # The other half of the pgvector coverage ADR-0004 names: the *shared
+        # contract* -- ranks dense from one, and `upsert` as a replacement keyed
+        # on (document_id, ordinal) -- asserted on a real PgVectorStore and not
+        # only on the in-memory one. It reads OPSPILOT_DATABASE_URL exactly as
+        # the differential test does, so a SKIP here means the variable did not
+        # reach pytest or the service was unreachable -- the failure this job
+        # must not read as green. It is asserted PASSED, and the whole marked
+        # selection is asserted skip-free, because both postgres-marked vector
+        # store tests now do real work and neither has a local-only excuse.
         run: |
+          set -o pipefail
+          pytest tests/unit/test_vector_stores.py -m postgres -rA -v 2>&1 | tee /tmp/vs.txt
+          echo "--- assertion ---"
+          grep -qE "test_pgvector_store_satisfies_shared_contract .*PASSED" /tmp/vs.txt \
+            || { echo "::error::the PgVectorStore shared-contract test did not PASS. A SKIPPED result here means OPSPILOT_DATABASE_URL did not reach pytest, or the pgvector service was unreachable -- which is exactly the failure this job must not read as green (ADR-0004)."; exit 1; }
+          if grep -q "SKIPPED" /tmp/vs.txt; then
+            echo "::error::a postgres-marked vector-store test skipped in the pgvector job. Both of them do real work now; a skip means the environment did not reach pytest."
+            exit 1
+          fi
           count=$(pytest -m postgres --collect-only -q 2>&1 | grep -c "test_pgvector")
-          echo "postgres-marked vector tests collected: $count"
-          [ "$count" -ge 3 ] || { echo "::error::expected at least 3 pgvector tests under -m postgres (1 real differential + 2 stubs); got $count -- the marker or the tests changed"; exit 1; }
+          echo "postgres-marked pgvector tests collected: $count"
+          [ "$count" -eq 2 ] || { echo "::error::expected exactly 2 pgvector tests under -m postgres (the differential in test_citations.py + the shared-contract test in test_vector_stores.py); got $count. A second copy of the differential was deleted from test_vector_stores.py precisely so that one property has one home -- if this number changed, the ADR-0004 text and this guard must change with it."; exit 1; }
       - name: Worker and integration tests against the configured database
         # The worker-claim tests build their own SQLite factory
         # (test_worker_claim.py), so they pass without Postgres and are already

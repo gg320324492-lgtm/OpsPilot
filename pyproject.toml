@@ -168,10 +168,12 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
 markers = [
-  # Requires a real PostgreSQL with pgvector. Skipped locally where the
-  # development machine has no Docker; the suite prints the skip count so a green
-  # run is not mistaken for full coverage.
-  "postgres: requires a real PostgreSQL with pgvector (see docs/adr/0004)",
+  # Requires a real PostgreSQL with pgvector, configured by OPSPILOT_DATABASE_URL:
+  # the tests read it, connect where it names a Postgres and skip -- naming the
+  # variable to set -- where it does not. No Docker locally means the normal
+  # local outcome is a skip (docs/adr/0004). In CI the `verify` job sets the
+  # variable and asserts these tests PASSED, so there a skip is a failure.
+  "postgres: requires a real PostgreSQL with pgvector, configured by OPSPILOT_DATABASE_URL (see docs/adr/0004)",
   # Requires a real model provider and an API key. Never runs in CI's default
   # job -- `eval-live` is manual, because cost and non-determinism do not belong
   # on every push.
