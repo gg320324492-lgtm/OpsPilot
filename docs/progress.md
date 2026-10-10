@@ -3970,3 +3970,170 @@ the test: `test_compose_default_provider_has_fixtures.py` reads the *first*
 default in the `api` - correct on its own terms, since the api builds no provider
 - made that guard report a working stack as broken. It is the same class of lie
 in the other direction, so both services now default to `duplicate_charge`.
+
+---
+
+## The two settings compose delivers and the code ignores
+
+**Date:** 2026-10-10. Fourth and fifth recurrence of the M10 defect family, and
+the two the previous section recorded as "found but not fixed" because they sit
+in `src/` rather than in compose. Fixes `worker/loop.py`, `agents/state.py`,
+`agents/runtime.py` and `tracing/recorder.py`; adds two test files.
+
+### Why these two, and not the twelve
+
+The compose sweep proved a value can reach the container and still change
+nothing. Compose was fixed and made unfixable-in-silence. These two are the
+remaining instances *below* that layer, and both had the same signature: the
+setting is declared, documented, templated into both services, and consulted by
+no code.
+
+### `MAX_STEPS` was three copies of a number, and the worker read none of them
+
+The brief described two copies of `24`. There were **three**:
+
+```
+settings.py:235          max_steps: int = Field(default=24, alias="MAX_STEPS")
+agents/state.py:62       max_steps: int = 24                    <- dataclass default
+agents/runtime.py:72     _DEFAULT_MAX_STEPS: Final[int] = 24
+```
+
+and the worker read none of them, because `_build_context` built a
+`RunContext(...)` without `max_steps=`, so the dataclass default always applied.
+That is the whole chain, and it is why compose being fixed did not unblock the
+run recorded above: `MAX_STEPS=40` now reaches the container and is read by
+nothing.
+
+**The single definition, and why it is a function.** `settings.py` keeps the only
+definition; `agents/state.py` exposes `default_max_steps()`, and both
+`RunContext.max_steps` (via `field(default_factory=...)`) and
+`runtime._DEFAULT_MAX_STEPS` reference it.
+
+The obvious version of this fix — a module constant
+`DEFAULT_MAX_STEPS: Final[int] = _settings_max_steps()` — is *wrong*, and the
+first draft of this work was that version. It reads the environment once, at
+import, and keeps that number for the life of the process: a deployment or a test
+that sets `MAX_STEPS` after the module loads gets the earlier value. That is the
+same stale-copy defect wearing a different hat, so `default_max_steps()` is a
+function and the dataclass field uses a `default_factory`, resolving per
+construction. `test_the_default_follows_the_setting_after_import` exists only to
+pin that, and it fails against the constant version.
+
+`worker/loop.py::_build_context` now passes `max_steps=` on **both** of its
+return paths. The missing-ticket fallback constructs a second, different
+`RunContext`; wiring only the happy path would leave the malformed-row branch on
+the stale literal, which is this defect one branch in. Mutations 1a and 1b below
+drop one branch each and each turns exactly the corresponding test red.
+
+### `STORE_FULL_PROMPTS`: the docstring described an unimplemented idea
+
+`tracing/recorder.py` claimed, in its module docstring, that "Phase 1 stores the
+full prompt and response in `agent_steps.input`/`output` by design
+(`STORE_FULL_PROMPTS`)". **No prompt was ever stored.** Every `record_step`
+payload in the codebase is structured metadata:
+
+```
+{provider, model}  {category, confidence}  {count, document_slugs}
+{tool_name, done}  {from_status, to_status}  {escalated, chars, body}
+```
+
+The single verbatim model string in the entire trace is the `response` step's
+`body`. So the docstring was not describing a decision that had gone unimplemented
+— it was asserting a behaviour that did not exist, and in doing so it
+mis-described the present as well. `docs/data-model.md` and
+`docs/limitations.md` repeated the same claim in the same way, and
+`.env.example` documented "stores full prompts".
+
+That judgment decided the fix. The alternatives were to implement prompt storage
+so the sentence became true, or to wire the switch to what is actually stored and
+correct the sentence. Storing prompts is a privacy regression invented to satisfy
+a comment; the switch is wired to the reply, and the docs now say what they mean.
+
+`record_step` is the single place the redaction is applied, so a caller added
+later cannot start recording prompts without passing through it.
+
+**Scope is a named list, not a heuristic.** `_FULL_TEXT_KEYS = {"body",
+"prompt"}`. A blanket "strip every string" rule would empty exactly the fields
+the trace exists for — `{from_status, to_status}` is the state machine,
+`{tool_name, done}` is the plan — leaving a trace that cannot answer a question.
+That is the same failure `limitations.md` describes from the other side: a trace
+you cannot read is not a trace. Mutation B below does precisely this and is
+caught.
+
+**The key is replaced, not dropped.** `repositories.get_customer_reply` reads
+`output["body"]` to serve `RunDetail.customer_reply` (`docs/api-contract.md`
+§3). Dropping the key breaks a documented reader; replacing it with
+`[not stored: STORE_FULL_PROMPTS=false]` says "a reply happened and was
+withheld", which is the same reasoning `_record_model_call` already applies by
+writing `None` rather than `0`. Every other field survives — `chars`,
+`escalated`, `latency_ms`, `step_type` — so a withheld step is still a countable
+step. Mutation C below drops the key and is caught.
+
+**`record_audit` is deliberately outside the switch.** No audit payload carries
+model text: `reason` and `risk_explanation` come from `domain/policies.py`, which
+is static code by construction. The one free-text field is
+`approval_requested`'s `arguments` — the exact payload a human approves
+(`docs/tool-permissions.md` §3.2), mirrored into the ledger so the record of
+*what was authorised* survives. Redacting the evidence of an approval is not a
+privacy control; it is the loss of the control's audit trail.
+
+### The third hole: a full sweep of all 28 aliases
+
+Every alias was taken from `Settings.model_fields` (not from a grep of
+`settings.py`, so a field whose name and alias differ cannot be missed) and
+crossed against every read under `src/`, resolving property indirection
+(`tool_denylist`, `cors_origins`) and dynamic `getattr` dispatch. A first pass
+reported six zero-read settings; four were false positives reachable only through
+a `@property` or a computed `getattr` key. **The true zero-read list was exactly
+the two fixed here**, and is now empty.
+
+The narrower moral is that the naive scan was wrong twice over — it missed
+`STORE_FULL_PROMPTS` in plain sight would have been caught by grepping the name,
+and it produced four false positives that a less careful pass would have
+"reported" as defects. A sweep that has not resolved indirection is not a sweep.
+
+### The guard
+
+`tests/unit/test_worker_honours_max_steps.py` (11 tests) and
+`tests/unit/test_store_full_prompts_is_wired.py` (9 tests).
+
+The MAX_STEPS file pins four things: the worker *passes* the configured budget on
+both paths; the default is still 24; exactly one module under `src/` holds a
+literal for it (parsed with `ast`, so `0x18` is caught too); and `run_loop`
+enforces the context's budget rather than the default, since it computes
+`ctx.max_steps or _DEFAULT_MAX_STEPS()` and a stale context wins *silently*.
+
+Recording what the worker hands the `RunContext` constructor, rather than only
+reading `ctx.max_steps` afterwards, is not incidental. After the
+`default_factory` fix both paths produce the correct value, so an assertion on
+the result alone **passed with the argument removed** — the first mutation run
+caught this, and it is why the test spies on the constructor call.
+
+### Verified
+
+`ruff check` clean, `ruff format --check` clean (164 files), bare `mypy` clean
+(72 files), **797 passed / 8 skipped** (up from 777; the 20 new tests, no
+regressions).
+
+Seven mutations, all red, then green on restore:
+
+| # | mutation | caught by |
+|---|---|---|
+| 1a | drop `max_steps=` from the missing-ticket branch | `...[ticket_missing]` (2) |
+| 1b | drop `max_steps=` from the happy-path branch | `...[ticket_found]` (2) + default test |
+| 2 | restore the literal `24` in `RunContext` | `test_state_does_not_redefine...` |
+| 3 | `runtime._DEFAULT_MAX_STEPS` re-freezes its own `24` | `test_runtime_does_not_redefine...` |
+| 4 | `default_max_steps()` resolves to a hardcoded `24` | `test_the_default_follows_the_setting...` |
+| A | remove the `STORE_FULL_PROMPTS` gate entirely | withheld + prompt (2) |
+| B | blanket "strip every string" instead of named keys | non-text untouched + 2 |
+| C | drop the `body` key instead of replacing it | withheld + complete + prompt (3) |
+
+Mutation 4 is the one worth remembering: it is the only one that does not remove
+a wiring, and it is what forced the `default_factory` design in the first place.
+
+### Still not done
+
+A fourth instance of this family is not proven absent — only that all 28 aliases
+are read. A setting that is read but whose value is discarded on the way to its
+effect (a parameter accepted and never consulted) is the same shape one level
+further in, and this sweep does not look for it.

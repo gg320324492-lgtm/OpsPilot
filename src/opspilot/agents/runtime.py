@@ -37,7 +37,7 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
-from opspilot.agents.state import RunContext, ToolCallRecord
+from opspilot.agents.state import RunContext, ToolCallRecord, default_max_steps
 from opspilot.domain.approvals import ApprovalRequest
 from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
 from opspilot.domain.policies import (
@@ -67,9 +67,15 @@ from opspilot.ports.tool_gateway import ToolGateway, ToolResult
 from opspilot.ports.vector_store import SearchHit
 from opspilot.tracing.recorder import TraceRecorder
 
-# The step budget defaults to the state-machine document's ``MAX_STEPS = 24``; a
-# context may carry its own.
-_DEFAULT_MAX_STEPS: Final[int] = 24
+# The step budget for a context that carries none. It calls
+# ``agents.state.default_max_steps`` rather than holding a literal: this line used
+# to be ``Final[int] = 24``, which put a third copy of the number next to the one
+# in ``settings.py`` and the one in ``agents/state.py``. Three copies of a value an
+# operator can move in ``.env`` is a value that can be moved in one place and not
+# the others -- the defect M6a fixed for ``RETRIEVAL_MIN_SCORE``, and the one
+# ``MAX_STEPS`` had here. One definition, referenced, and resolved when used rather
+# than frozen at import.
+_DEFAULT_MAX_STEPS: Final[Callable[[], int]] = default_max_steps
 
 logger = logging.getLogger(__name__)
 
@@ -982,7 +988,7 @@ async def run_loop(
         MaxStepsExceeded: The plan/execute budget was exhausted.
     """
     _ = orchestrator
-    max_steps = ctx.max_steps or _DEFAULT_MAX_STEPS
+    max_steps = ctx.max_steps or _DEFAULT_MAX_STEPS()
     trace = recorder if recorder is not None else TraceRecorder(run_id=ctx.run.id)
     # The production path always supplies the real lookup (``executed_lookup_for``
     # over the store). The test-friendly ``_no_executed_lookup`` is only the

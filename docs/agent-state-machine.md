@@ -284,9 +284,10 @@ to exclude a parked state causes duplicate work, and the integration test
 
 ## 6. Step budget
 
-A run may execute at most `MAX_STEPS = 24` plan/execute rounds. Exceeding it
-transitions to `FAILED` with `max_steps_exceeded`. This exists because the
-failure mode of an agent loop is not a crash, it is a loop — and an unbounded
-loop against a tool that mutates state is the expensive kind. Phase 1 has no
-retry logic, so the budget is generous on purpose; Phase 2's retry work will
-revisit it.
+A run may execute at most `MAX_STEPS` plan/execute rounds (`24` by default —
+`MAX_STEPS` in `settings.py`, which is the only definition; the worker passes it
+onto every `RunContext` it builds). Exceeding it transitions to `FAILED` with
+`max_steps_exceeded`. This exists because the failure mode of an agent loop is
+not a crash, it is a loop — and an unbounded loop against a tool that mutates
+state is the expensive kind. Phase 1 has no retry logic, so the budget is
+generous on purpose; Phase 2's retry work will revisit it.

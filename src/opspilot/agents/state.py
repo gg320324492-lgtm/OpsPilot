@@ -5,7 +5,9 @@ the run, the ticket, what has been retrieved, the conversation-with-the-model so
 far, and the step budget. It is *runtime* state, distinct from the persisted
 ``AgentRun`` (domain) and from the ``AgentStep`` trace rows.
 
-Layer: ``agents``. Imports ``opspilot.domain`` and ``opspilot.ports`` only.
+Layer: ``agents``. Imports ``opspilot.domain``, ``opspilot.ports`` and
+``opspilot.settings`` -- the last one only to keep a *default* from becoming a
+second definition (see :data:`DEFAULT_MAX_STEPS`).
 
 Note that no field here can widen a permission or bypass a gate: the context
 holds data, not authority. The gates read the static registry, not the context.
@@ -19,6 +21,30 @@ from uuid import UUID
 from opspilot.agents.schemas import ProposedAction, TicketClassification
 from opspilot.domain.runs import AgentRun
 from opspilot.ports.vector_store import SearchHit
+
+
+def default_max_steps() -> int:
+    """``Settings.max_steps``, so the step budget has one definition.
+
+    The budget used to be a literal ``24`` here *and* another literal ``24`` in
+    ``agents/runtime.py``, both duplicating ``settings.py``. That is the defect
+    M6a fixed for ``RETRIEVAL_MIN_SCORE``: a deployment that wrote ``MAX_STEPS=40``
+    got a 24-step budget, and the run that demonstrated it exhausted its steps
+    and ended ``max_steps_exceeded`` with no way to say why. Three copies of a
+    number an operator can move in ``.env`` is two too many, so the definition
+    lives in ``settings.py`` and every other module *references* it.
+
+    A function rather than a module constant, on purpose. A ``Final[int] =
+    _settings_max_steps()`` evaluated at import reads the environment once, for
+    the life of the process -- so a deployment (or a test) that set ``MAX_STEPS``
+    after this module was first imported would still get the earlier value, which
+    is the same stale-copy defect wearing a different hat. The dataclass field
+    below therefore takes this as a ``default_factory``: each ``RunContext``
+    resolves the budget when it is constructed.
+    """
+    from opspilot.settings import get_settings
+
+    return get_settings().max_steps
 
 
 @dataclass
@@ -59,7 +85,11 @@ class RunContext:
     proposed_actions: list[ProposedAction] = field(default_factory=list)
     executed_tool_calls: list[ToolCallRecord] = field(default_factory=list)
     steps_taken: int = 0
-    max_steps: int = 24
+    # Resolved per construction rather than once at import -- see
+    # ``default_max_steps``. The worker passes this explicitly on every context
+    # it builds, so this default is the fallback for tests and any future
+    # builder, not the production path.
+    max_steps: int = field(default_factory=default_max_steps)
     response_body: str = ""
     escalated: bool = False
 

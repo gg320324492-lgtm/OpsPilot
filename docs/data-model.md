@@ -90,11 +90,16 @@ as the step insert (`SELECT COALESCE(MAX(sequence),0)+1 ... FOR UPDATE`), so two
 writers on one run cannot race — and there is only ever one writer per run
 anyway, because the claim query takes the row with `FOR UPDATE SKIP LOCKED`.
 
-**A note on the `input`/`output` JSONB columns.** They store the *entire* prompt
-sent to the model and the entire response in Phase 1. That is a deliberate
-debugging affordance with a real privacy cost, recorded in
-[limitations.md](limitations.md) and slated for redaction in Phase 3. Storing
-them now is what makes the eval suite and the trace view possible at all.
+**A note on the `input`/`output` JSONB columns.** In Phase 1 they hold structured
+per-step metadata — `{provider, model}`, `{category, confidence}`,
+`{count, document_slugs}`, `{tool_name, done}`, `{from_status, to_status}` — plus,
+on the `response` step, the model's **composed reply** in full. That reply is a
+deliberate debugging affordance with a real privacy cost, recorded in
+[limitations.md](limitations.md) and slated for redaction in Phase 3; it is what
+makes the eval suite and the trace view possible at all. `STORE_FULL_PROMPTS=false`
+withholds it. The model *prompt* is not stored: no step writes prompt text, which
+is worth stating because the setting is named for it and older revisions of this
+file claimed otherwise.
 
 ### `tool_calls`
 

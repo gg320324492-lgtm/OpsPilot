@@ -90,6 +90,22 @@ def _settings_retrieval_min_score() -> float:
     return get_settings().retrieval_min_score
 
 
+def _settings_max_steps() -> int:
+    """``Settings.max_steps``, so the step budget has one definition.
+
+    Same shape and same reason as :func:`_settings_retrieval_min_score` above:
+    ``MAX_STEPS`` was declared in ``settings.py`` and threaded through compose,
+    and then :func:`_build_context` built a ``RunContext`` without passing it, so
+    the dataclass literal in ``agents/state.py`` was the budget a deployment
+    actually got. An operator who wrote ``MAX_STEPS=40`` watched a run exhaust 24
+    steps and end ``max_steps_exceeded`` -- the value was configured, reachable,
+    and consulted by nothing.
+    """
+    from opspilot.settings import get_settings
+
+    return get_settings().max_steps
+
+
 # The abstention threshold used when a caller does not supply one. It used to be
 # a literal ``0.35`` here, duplicating ``settings.py``; that was a defect, because
 # the number then lived in three places -- here, ``agents/runtime.py`` and
@@ -359,7 +375,23 @@ async def _build_context(
     The ticket is read through the port, not the ORM: a missing ticket is a
     wiring bug, so an empty subject/body is used rather than crashing the whole
     worker on one malformed row.
+
+    ``max_steps`` is read from settings here because this is the one place the
+    worker constructs a ``RunContext``. It used to be omitted entirely, and
+    ``RunContext``'s dataclass default supplied a literal ``24`` -- so
+    ``MAX_STEPS`` reached no ``RunContext`` the worker ever built, and the budget
+    a run got was fixed in ``src/`` regardless of the deployment. The recorded
+    consequence was a real end-to-end run that spent all 24 steps on read calls
+    (``get_invoice`` x12, ``list_transactions`` x9, ``issues.create`` x3), never
+    proposed ``billing.issue_refund``, and ended ``max_steps_exceeded`` while
+    ``MAX_STEPS=40`` sat unread in the ``.env``.
+
+    Both return paths pass it, deliberately: the empty-ticket fallback returns a
+    different ``RunContext``, so wiring only the happy path would leave the
+    malformed-row path on the stale literal, which is the same defect one branch
+    in.
     """
+    max_steps = _settings_max_steps()
     ticket = await ticket_store.get(run.ticket_id)
     if ticket is None:
         return RunContext(
@@ -368,6 +400,7 @@ async def _build_context(
             ticket_body="",
             customer_email="",
             ticket_id=run.ticket_id,
+            max_steps=max_steps,
         )
     return RunContext(
         run=run,
@@ -375,6 +408,7 @@ async def _build_context(
         ticket_body=ticket.body,
         customer_email=ticket.customer_email,
         ticket_id=ticket.id,
+        max_steps=max_steps,
     )
 
 

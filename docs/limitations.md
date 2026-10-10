@@ -34,11 +34,16 @@ would be caught by the test, not by a cryptographic guarantee.
 management. `.env` is gitignored and `.env.example` has empty values; CI uses the
 fake provider and needs no keys at all.
 
-**Prompt bodies are stored unredacted.** `agent_steps.input` and `output` hold
-the full prompt and response, which may include customer PII from the ticket and
-from CRM tool results. This is a deliberate debugging affordance for Phase 1 and
-it is a genuine privacy liability. Phase 3 does field-level redaction with a
-documented retention policy.
+**Model responses are stored unredacted by default.** The `response` step's
+`output.body` holds the composed reply in full, which may include customer PII
+echoed from the ticket and from CRM tool results. This is a deliberate debugging
+affordance for Phase 1 and it is a genuine privacy liability. `STORE_FULL_PROMPTS=false`
+now withholds it (the value is replaced with an explicit marker; every other field
+survives), so a deployment that does not want it has a switch — but the *default*
+is still to store it. Note that Phase 1 records the model's **response**, not its
+prompt: no step writes the prompt text, so despite the setting's name there is
+less here than that name suggests. Field-level redaction of what remains, and a
+retention policy, is Phase 3.
 
 **Rate limiting and abuse controls: absent.** There is no limit on tickets per
 minute, no cap on tokens per hour, and no circuit breaker on the model provider.
