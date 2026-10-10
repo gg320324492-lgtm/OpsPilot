@@ -116,6 +116,27 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
+      # The web-client drift guard (tests/integration/test_web_client_types.py
+      # ::test_client_types_match_the_live_openapi_schema) is a *cross-stack*
+      # check: it shells out to `node web/scripts/generate-types.mjs --check`,
+      # which does `import "openapi-typescript"`. That package is a devDependency
+      # of web/, so it exists only after `npm ci` in web/. Without this step the
+      # guard fails with ERR_MODULE_NOT_FOUND on the runner -- `node` is
+      # preinstalled, so the test's own `_node_is_available()` does not skip it,
+      # but the package it imports is not there. Installing here is what makes
+      # the guard's docstring true ("cheap enough to run on every test
+      # invocation"): the test stays in the pytest tree and genuinely runs,
+      # instead of being moved to a web job or skipped into a vacuous green.
+      # `npm --prefix web ci` keeps every Python step at the repo root (no
+      # job-level working-directory), and the cache reuses the same
+      # web/package-lock.json the web jobs key on -- one lockfile, one source.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dev dependencies (openapi-typescript, for the drift guard)
+        run: npm --prefix web ci
       - name: pytest
         run: pytest
 
@@ -180,6 +201,20 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install -e ".[dev]"
+      # Same cross-stack drift guard as the `test` job: the final step below
+      # runs `pytest tests/integration tests/agent`, which collects
+      # test_web_client_types.py; its schema-drift check needs the
+      # `openapi-typescript` devDependency of web/. Installing the web deps here
+      # (before any test runs) is what lets that guard execute against the real
+      # dialect instead of dying on a missing Node package. See the `test` job
+      # for the full rationale.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dev dependencies (openapi-typescript, for the drift guard)
+        run: npm --prefix web ci
       - name: Migrations (alembic upgrade head)
         run: alembic upgrade head
       - name: Verify migrations reached head
