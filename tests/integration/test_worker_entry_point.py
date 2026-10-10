@@ -279,17 +279,57 @@ def test_main_runs_and_stops_cleanly(migrated_db: pathlib.Path) -> None:
         "OPSPILOT_OPERATOR_TOKEN": "worker-entry-point-test-token",
         "WORKER_POLL_INTERVAL": "0.2",
     }
+    # The process-group keyword is chosen in a *statement* branch, not a
+    # conditional expression, and that is the whole fix.
+    #
+    # `subprocess.CREATE_NEW_PROCESS_GROUP` is declared in typeshed only under
+    # `sys.platform == "win32"`, so reading it on any other platform is a type
+    # error -- and the conditional expression this used to be hid the fact from
+    # mypy, which platform-narrows an `if` statement but not a ternary. The
+    # symptom was the shape this repository keeps producing: the `typecheck`
+    # CI job has been red since the day it was written with
+    # `Module has no attribute "CREATE_NEW_PROCESS_GROUP"`, and every
+    # developer saw it green, because mypy infers the platform from the host
+    # and every developer here runs Windows. The code below is the same shape
+    # this test already uses for the signal further down (a statement-level
+    # `if sys.platform == "win32"`), which is why it never had the error.
+    #
+    # `# type: ignore[attr-defined]` was rejected rather than used: with
+    # `warn_unused_ignores = true` in pyproject.toml the ignore is itself an
+    # error on the platform where the attribute *does* exist, so it would have
+    # traded a red Linux gate for a red Windows one. `getattr` would silence
+    # the error without that, at the cost of a `0` default that is a lie in
+    # the branch that serves it, and of hiding the fact -- which is the part
+    # worth reading -- that the constant is Windows-only.
+    #
+    # Both keywords are passed on both platforms and only one carries a value,
+    # rather than splatting a dict. A `**dict[str, object]` cannot pick between
+    # `Popen.__init__`'s three overloads (they differ on `text`), so the dict
+    # form needs `Any` to compile; naming both keywords keeps the call typed.
+    # The values are safe by CPython's own rules: on POSIX only a *non-zero*
+    # `creationflags` raises, and on Windows `start_new_session` is destructured
+    # into `unused_start_new_session` and ignored (subprocess.py, `_execute_child`).
+    creationflags: int
+    start_new_session: bool
+    if sys.platform == "win32":
+        # CTRL_BREAK_EVENT below reaches a process in its own group, and a
+        # process group is what a Windows console control event is addressed to.
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+        start_new_session = False
+    else:
+        # setsid, so the SIGINT below is delivered to the child and not to
+        # pytest's own terminal.
+        creationflags = 0
+        start_new_session = True
+
     proc = subprocess.Popen(
         [sys.executable, "-m", "opspilot.worker"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         env=env,
-        **(
-            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-            if sys.platform == "win32"
-            else {"start_new_session": True}
-        ),
+        creationflags=creationflags,
+        start_new_session=start_new_session,
     )
 
     try:
