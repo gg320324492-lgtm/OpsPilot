@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { ApiStatus } from "@/components/api-status";
 import { Nav } from "@/components/nav";
 import "./globals.css";
@@ -22,7 +23,20 @@ export const metadata: Metadata = {
   description: "A reliable AI operations agent for B2B support and billing.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/**
+ * The root layout's props are written explicitly rather than through Next's
+ * generated `LayoutProps<"/">` global on purpose. That global type is emitted
+ * into `.next/types` by `next dev`/`next build`, so it exists only after a
+ * build has run: CI's `web-typecheck` job runs `tsc --noEmit` on a fresh
+ * checkout with no `.next`, where the global is undefined and the root layout
+ * fails with `TS2304: Cannot find name 'LayoutProps'`. Typing the one prop the
+ * root layout actually takes keeps the check independent of whether a build has
+ * happened on this machine, matching the rest of the app (every `page.tsx`
+ * spells out its own props). `params` is deliberately omitted: the root layout
+ * has no route segment to receive, and the build accepts the signature without
+ * it.
+ */
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
