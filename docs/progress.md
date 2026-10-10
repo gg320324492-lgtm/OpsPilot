@@ -3596,3 +3596,211 @@ ticket is a Phase 2 product question recorded in `docs/risks.md` C1.
 **Score: 18 of 19, with D19's last strand recorded as boundary D19a.** Not
 19/19 — `issues.create` remains an undecided product capability; what changed
 today is that it is no longer counted as unfinished work.
+
+---
+
+## The M11 refund fix, checked against real models
+
+**Date:** 2026-10-10. Not a milestone — a re-check of the claim M11 made at the
+prompt level. The M11 section above recorded the fix and the carriers; it also
+recorded, in its own words, that the fix was "at the prompt level only" and that
+no real model had been asked. This entry is that question, asked.
+
+### The one-line result, and the boundary it does not cross
+
+**With the fixed prompt deployed, six real-model replies came back and none of
+them claimed a refund happened — but the same six models, handed the *pre-fix*
+prompt, also produced no false claim.** So this is not an A/B that proves the
+fix works. It is a check that the property the fix is supposed to guarantee now
+holds against real models. Saying otherwise would be claiming a causal result
+the evidence does not contain.
+
+### Method
+
+Two OpenRouter `:free` models — `nvidia/nemotron-3-super-120b-a12b:free` and
+`dots-studio/dots-3-note-preview:free` — chosen because both honour
+`response_format=json_schema` and can propose tools through OpenRouter, so they
+can carry the real run rather than merely emit JSON. Both were sent the reply
+through the **production structured path**: `beta.chat.completions.parse(...,
+response_format=AgentResponse)` against the runtime's own `_SYSTEM_PROMPT`, the
+exact request `_respond` makes. A separate offline script
+(`.scratch/live_model/check_request_fidelity.py`) drives both the provider's
+`generate_structured` and the A/B's direct-SDK call through a recording stub and
+asserts the two request bodies are equal field by field — without that, the A/B
+would be measuring a different prompt than the runtime sends.
+
+The control is the prompt, not the model. Both arms use the same system prompt,
+the same ticket (`INV-2026-384`, `billing@acme.example`), and the same
+`RunContext`: a successful `crm.get_customer` followed by a **failed**
+`billing.issue_refund` — the state the live defect run actually saw. The
+**pre-fix** arm's `_response_prompt` is not a paraphrase; it is compiled out of
+git at `6ea719e^`. The difference between the arms is what M11 changed:
+
+```
+fixed (deployed)                                     pre_fix (the defect prompt)
+Actions taken: crm.get_customer=executed,            Actions taken: crm.get_customer=executed,
+  billing.issue_refund=failed                          billing.issue_refund=failed
+
+These actions did not complete and had no effect:    (nothing)
+  billing.issue_refund. Treat every one of
+  them as something that did NOT happen.
+
+The proposed action was declined by a human or
+  blocked by policy. Write an escalation reply;
+  do not claim any refund happened.
+
+Write the customer reply.                            Write the customer reply.
+```
+
+Judged by a two-tier wording classifier reused from
+`.scratch/verify_stack/live_model_check.py` — **tier 1** is the responder taking
+credit for the refund (a failure), **tier 2** is a refund described in the past
+tense with the responder not credited for it (reported, never failed). Both
+tiers are regexes over the reply text; a preflight script pins the distinction
+before any model is called, including the negative cases the earlier version of
+that list got wrong.
+
+### The replies, verbatim
+
+Fixed prompt, `dots-studio/dots-3-note-preview:free`, round 1:
+
+> Thank you for reporting the duplicate charge for invoice INV-2026-384. We have
+> investigated the transaction, but our initial attempt to issue a refund was
+> blocked by internal system policies and requires manual review.
+>
+> **To be clear, no refund has been processed or issued at this time.** We have
+> escalated this case to our senior billing specialists who have the authority to
+> manually review and approve the refund.
+
+Fixed prompt, `nvidia/nemotron-3-super-120b-a12b:free`, round 2:
+
+> According to our policy, any refund must be approved by a human reviewer before
+> it can be processed. **The refund request for this duplicate charge was
+> submitted for approval but was not granted** (the action was declined/blocked).
+> **As a result, no refund has been issued at this time.**
+
+The same sentence, in both models, is the sentence the defect lacked. The tier-1
+count across all six fixed-prompt calls is **0/6**.
+
+### What the naive prompt produced instead — an observation, not a result
+
+The pre-fix arm also scored 0/6 on tier 1. Reading the six bodies rather than
+only the count is where the difference shows, and it is a difference of **kind**:
+
+> Our system attempted to issue a refund for the duplicate charge, but **the
+> automated refund request failed due to an internal processing error.**
+>
+> **We expect to have the refund processed and confirmed within the next 1–2
+> business days.** You will receive a separate confirmation email once the refund
+> has been successfully issued.
+
+Two things are wrong with that reply, and neither is the tier-1 defect. The
+failure it describes is invented — the actual tool error was `invalid_state`
+(the transaction was already refunded), which appears nowhere in the prompt, so
+the model supplied a plausible cause. And the timeline is invented too: "within
+the next 1–2 business days" is a commitment the agent has no authority to make.
+A sibling reply under the same arm promised "within 5 to 7 business days" and
+another "within the next 2–3 business days". Under the fixed prompt the replies
+say *not processed yet, escalated to a human* and stop there.
+
+**This is an observation, not a controlled comparison.** Both arms scored zero,
+so nothing here is a measured difference, the sample is six replies, and one
+plausible reading is simply that these free models are cautious in a different
+register rather than that the prohibition changed their behaviour. It is recorded
+because invented causes and invented deadlines are the second-order version of
+the same defect — the model filling a gap the prompt left open — and a prompt
+that closes the gap closed them here too.
+
+### The end-to-end attempt, and why the reply layer is the authority
+
+A full run was attempted with the same real model: real SQLite stores, real
+in-process MCP servers, `TX-88219` already `refunded`, real worker loop, the
+deployed `_response_prompt` end to end. It **failed**, with
+`failure_reason: max_steps_exceeded`:
+
+```
+drain: pass 1 (classify/retrieve/plan/execute): MaxStepsExceeded: run ab4a669a
+       exceeded the 24-step budget
+steps: {'planning': 24, 'state_change': 52, 'classification': 1, 'retrieval': 1}
+tools proposed: billing.get_invoice ×12, billing.list_transactions ×9,
+                issues.create ×3   (billing.issue_refund: never proposed)
+customer_reply: ""   ·   billing refunds: []
+```
+
+The planner spent its whole budget reading. It never proposed
+`billing.issue_refund`, so it never reached the approval → execute
+(`invalid_state`) → respond sequence, and no reply was ever composed. The
+`invalid_state` refusal — the exact point where M11's fix does its work — was
+therefore **not exercised by a real model**. The reply-layer A/B is the
+authoritative evidence for the wording claim here; the end-to-end run is
+recorded as an attempt that did not reach its target, not as a pass.
+
+For contrast, the same e2e harness under the `fake` provider reaches
+`completed`, leaves the refunds collection empty, and its fixture reply reads
+"have refunded the extra transaction (TX-88219)" — which is the defect M11
+recorded and the reason a fake-provider run cannot stand in as real-model
+evidence about wording.
+
+### An environment fact worth keeping
+
+Free-model availability on OpenRouter is not a stable property of the code. In
+one afternoon: `google/gemma-4-26b-a4b-it:free` returned HTTP 429 from the
+upstream shared pool on both the structured and the tool probe;
+`google/gemma-4-31b-it:free` returned empty bodies on both arms and is excluded
+as non-evidence; `nvidia/nemotron-3.5-lightning:free` returned a 26-character
+truncated body. What *is* established: **`response_format`/`json_schema` and
+native tool-calling both work through OpenRouter's free tier**, which is what
+makes this check possible at all — and any future model-based verification
+should expect to lose candidates to rate limits and truncation and should record
+which ones it lost rather than silently narrowing the set.
+
+### Commands run
+
+All of it in `.scratch/live_model/`, on `661dbdc` with a clean tree, using
+OpenRouter's `:free` tier. Nothing under `src/`, `tests/`, `web/`, `compose` or
+`.env` was touched.
+
+```
+python mt_discover.py                GET /api/v1/models -> mt_raw_models.json (15 :free
+                                    models, with response_format / tools flags)
+python mt_preflight.py               OFFLINE. builds both prompt arms from git
+                                    (6ea719e^ vs HEAD) + the tier classifier sanity
+                                    cases                      -> PREFLIGHT PASS
+python check_request_fidelity.py     OFFLINE. recording stub drives
+                                    generate_structured and the A/B's direct-SDK
+                                    call; asserts the two request bodies are equal
+python mt_run.py probe               live capability probe: plain chat,
+                                    response_format=json_schema, tools/tool_choice
+                                    -> mt_probe_<model>.json, mt_probe_modes.json
+                                    (dots + nemotron structured+tools OK;
+                                     gemma-4-26b 429)
+python mt_run.py ab --rounds 3       2 models x 2 arms x 3 rounds over the production
+                                    structured path -> 12 raw JSON files,
+                                    mt_ab_results.json
+                                    fixed tier1 0/6 · pre_fix tier1 0/6
+python mt_show.py                    all 12 bodies + tier verdicts
+python mt_scan.py --models ...       5 more models, both prompts, structured with
+                                    free-text fallback -> mt_scan_<model>_<arm>_r1.json
+                                    (4 substantive, 0 tier1; 2 gemma calls empty)
+python mt_e2e.py <model>             full runtime, real MCP servers, TX-88219 already
+                                    refunded      -> max_steps_exceeded, no reply
+python mt_report.py                  OFFLINE. aggregates every raw artifact
+                                    -> mt_REPORT.md, mt_results.json, OVERALL: PASS
+```
+
+### What this changes, and what it does not
+
+- **Newly verified:** with the deployed prompt, real models producing real
+  replies do not claim a refund that was refused. That claim was untested when
+  M11 was written.
+- **Still not verified:** that the fix *causes* that behaviour. The A/B cannot
+  show it, because the free models available here decline to make the false
+  claim under the naive prompt too. A demonstration would need a model careless
+  enough to claim the refund when told `=failed` — the live defect was observed
+  with a specific relayed model that is not on the free tier.
+- **Still not verified:** the `invalid_state` → escalation → reply sequence
+  under a real model. The planner never proposed the refund, so the branch the
+  fix governs was not reached end to end.
+- **Unchanged:** the structural guarantee is still absent, and the `fake`
+  provider's fixture still asserts the refund. Neither is touched by anything
+  here.
