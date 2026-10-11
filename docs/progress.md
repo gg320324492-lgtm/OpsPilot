@@ -4674,3 +4674,35 @@ whole reason the file reads 18 of 19. This rule is about the instances *no* row
 names. Neither one moves the score, and they answer different questions — the
 first says why an existing row is red, this one says why a red row does not also
 acquire new ones.
+
+## An error in commit `8c558b1`'s message that cannot be corrected
+
+**Date:** 2026-10-12.
+
+Commit `8c558b1` ("docs: stop describing the orchestrators and the fixtures as
+what they are not") ends its message with:
+
+> four other documents carried the same false sentence and are corrected.
+
+**Four is wrong; five carried it.** `docs/risks.md` stated it twice — in R2's
+mitigation and again in R8 — and once each in `docs/agent-state-machine.md:248`,
+`README.md:551` and `evals/README.md`. The word "other" also miscounts: R2 was
+not an "other" document, it was one of the places making the claim.
+
+The commit is correct; only its message miscounts. Every file it names was
+fixed, and `docs/limitations.md` §8 now records the instance properly.
+
+**This cannot be corrected in place.** A commit message is content-addressed:
+changing `8c558b1` would change its hash and rewrite every commit after it.
+The only alternatives are history rewriting or a `git notes` attachment, and
+both cost more than the error is worth. It stays, and it is recorded here
+instead.
+
+Two things made it persist. The agent doing the work reported the count as
+"four documents", which was right, and the brief it worked from had said
+"five documents", which was wrong — so the number that survived into the
+message was the agent's count with my wording wrapped around it, and nobody
+re-counted the files against the diff. The second is the ordinary failure:
+a figure carried between two conversations is a claim, not a measurement, and
+`06a57c6` set the opposite precedent for this file — every count there was
+taken from the repository at the time of writing.
