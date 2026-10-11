@@ -291,21 +291,22 @@ milestone log.
 2. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
    covers the claim *predicate* on SQLite; nothing starts two workers against one
    database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).
-3. **Neither orchestrator is implemented, and no contract test can exist yet.**
-   Unlike item 1, which is a deliberate operator decision, this is a capability
-   gap with no decision behind it: `LinearOrchestrator.step()` and both
-   `LangGraphOrchestrator.step()` and `.build_graph()` raise
-   `NotImplementedError`. What drives a run is `agents/runtime.py::_pump`;
-   `run_loop` takes an `orchestrator` argument and discards it
-   (`_ = orchestrator`, `runtime.py:990`). `worker/__main__.py`, `evals/runner.py`,
-   `tests/agent/_golden_harness.py` and `scripts/demo_golden_path.py` each
-   construct a `LinearOrchestrator` and pass it, and nothing runs it. No test
-   calls `.step(`, none imports `langgraph_adapter`, and no test asserts the two
-   produce equivalent step results — such a test cannot be written while every
-   method it would compare raises. `langgraph` is declared in `pyproject.toml`
-   and imported by no module in the project. Both rows sit `- [ ]` in
-   `docs/milestones.md` §M4, which carries the same evidence as parentheticals
-   and states the stubs are M0.
+3. **`LangGraphOrchestrator` is implemented by nothing, and no contract test can
+   exist yet.** This item previously read "Neither orchestrator is implemented".
+   `LinearOrchestrator` is now real: `_pump` builds a `StageDriver` (the stage
+   logic extracted from the old inline loop into one function per `StepKind`)
+   binds it to the orchestrator and loops `orchestrator.step`, so `run_loop` no
+   longer discards its orchestrator. `tests/agent/test_linear_orchestrator_drives.py`
+   proves it with a spy that records the stage sequence, and a raising
+   orchestrator now stops the pump. What remains a capability gap, with no
+   decision behind it, is `LangGraphOrchestrator`: both `LangGraphOrchestrator.step()`
+   and `.build_graph()` raise `NotImplementedError`. No test imports
+   `langgraph_adapter`, and no test compares the two executors' step results —
+   such a test cannot be written while one of the two raises on every method it
+   would compare. `langgraph` is declared in `pyproject.toml` and imported by no
+   module in the project. The `LinearOrchestrator` row now sits `- [x]` in
+   `docs/milestones.md` §M4 with that evidence; the `LangGraphOrchestrator` row
+   stays `- [ ]`.
 
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):

@@ -554,11 +554,11 @@ def build_worker(settings: object = None) -> _Worker:
             mcp=build_worker_gateway(resolved),
         ),
         # The linear executor, not LangGraph: deterministic, milliseconds-fast and
-        # dependency-free. ``run_loop`` accepts the orchestrator but does not
-        # dispatch through it today (``agents/runtime.py``) -- the port is what
-        # keeps the two interchangeable, and no test compares them, so
-        # interchangeability is the argument for the boundary and not a fact the
-        # suite establishes.
+        # dependency-free. ``run_loop`` dispatches through it -- ``_pump`` binds
+        # its ``StageDriver`` and loops ``orchestrator.step`` one stage at a time
+        # (``agents/runtime.py``), so this is the executor the worker actually
+        # drives runs with. LangGraph remains unimplemented; the port is what
+        # keeps the two interchangeable.
         orchestrator=LinearOrchestrator(),
         recorder_factory=_recorder_factory,
         retrieval=stack.retrieval,

@@ -365,18 +365,19 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `json_schema_for`, `parse_structured` and `build_usage`; each chooses only
       its transport. `test_anthropic_provider_has_one_mechanism.py` pins that
       the mechanism is read in exactly one place.)
-- [ ] `LinearOrchestrator` drives a run end to end with the fake provider.
-      (The criterion is unmet: `LinearOrchestrator` is an M0 stub that drives
-      nothing. `LinearOrchestrator.step` raises `NotImplementedError` and the
-      runtime never calls it — `run_loop` discards its `orchestrator` argument
-      with `_ = orchestrator` (`runtime.py:990`). What drives the run is
-      `agents/runtime.py::_pump`; `worker/__main__.py`,
-      `evals/runner.py`, `tests/agent/_golden_harness.py` and
-      `scripts/demo_golden_path.py` each construct a `LinearOrchestrator` and
-      pass it, and nothing runs it. No test calls `.step(`. This is a
-      **capability gap, not a boundary** — `docs/limitations.md` §8 records it
-      in its Remaining list, deliberately distinct from `issues.create` (D19a)
-      there, which is an operator decision. The criterion stays unticked.)
+- [x] `LinearOrchestrator` drives a run end to end with the fake provider.
+      (`_pump` now builds a `StageDriver` — the stage logic extracted from the
+      old inline loop into one function per `StepKind` — binds it to the
+      orchestrator and loops `orchestrator.step`, so the orchestrator is
+      consulted rather than discarded (`run_loop` no longer carries
+      `_ = orchestrator`). `tests/agent/test_linear_orchestrator_drives.py`
+      proves it by driving the golden path through a spy whose `step` records
+      the stage sequence: the asserted sequence is `CLASSIFY, RETRIEVE, PLAN,
+      EXECUTE, PLAN, EXECUTE, PLAN, EXECUTE, PLAN, EXECUTE` (four tools, the last
+      EXECUTE parking on the refund), and a companion test asserts a *raising*
+      orchestrator stops the pump dead — the evidence is the recorded stages, not
+      that the run completes. `docs/limitations.md` §8 item 3 is updated: only
+      `LangGraphOrchestrator` remains unimplemented.)
 - [ ] `LangGraphOrchestrator` produces the same transition sequence on the same
       fixture, asserted as a subsequence of the legal set. (The criterion is
       unmet: both `LangGraphOrchestrator.step` and `build_graph` raise
@@ -385,14 +386,16 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       docstring's "exercised by a contract test in CI only" describes a test
       that does not exist. No subsequence assertion exists and none can while
       every method it would compare raises. `langgraph` is declared in
-      `pyproject.toml` and imported by no module. Like the `LinearOrchestrator`
-      row above, this is a **capability gap, not a boundary** —
-      `docs/limitations.md` §8 item 3 records both orchestrators in its
-      Remaining list, deliberately distinct from `issues.create` (D19a) there,
-      which is an operator decision. The criterion stays unticked.)
+      `pyproject.toml` and imported by no module. This is a **capability gap, not
+      a boundary** — `docs/limitations.md` §8 item 3 records it in its Remaining
+      list, deliberately distinct from `issues.create` (D19a) there, which is an
+      operator decision. The criterion stays unticked.)
 - [x] `MAX_STEPS` exceeded → `FAILED(max_steps_exceeded)`.
-      (`_pump` calls `_fail_run(..., reason="max_steps_exceeded")` before raising
-      `MaxStepsExceeded`; `test_runtime_fake.py::test_max_steps_is_enforced`
+      (`agents/runtime.py::StageDriver._plan` calls
+      `_fail_run(..., reason="max_steps_exceeded")` before raising
+      `MaxStepsExceeded`, at the top of the PLAN stage — the same position the
+      old `_pump` loop used, so both the pump and `LinearOrchestrator` inherit the
+      guard; `test_runtime_fake.py::test_max_steps_is_enforced`
       reads `failure_reason` back off the row, and
       `test_gates.py::test_run_loop_fails_the_run_when_the_budget_is_exhausted`
       asserts it through the loop.)

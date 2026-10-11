@@ -492,10 +492,14 @@ def test_the_recording_gateway_is_a_real_spy() -> None:
 
 
 class _UnusedOrchestrator:
-    """A placeholder orchestrator -- the loop takes one but does not use it.
+    """A placeholder orchestrator for the *proposals* path.
 
-    Conforms to ``Orchestrator`` so ``run_loop`` type-checks; a call would raise,
-    which is the point -- the loop must not consult it.
+    Every use here drives ``run_loop`` with an explicit ``proposals`` list, which
+    takes the proposals branch: it advances the chain and calls ``run_step``
+    directly and never reaches ``_pump``. Only the provider-driven pump consults
+    the orchestrator (``_pump`` binds its ``StageDriver`` and loops ``step``), so
+    on this path a raising ``step`` is still a legal argument -- it is proof the
+    proposals branch does not dispatch through the port.
     """
 
     async def step(self, run: AgentRun) -> StepResult:

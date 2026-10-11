@@ -16,14 +16,16 @@ without the library installed and why a graph edit cannot silently widen it.
 That argument is sound and is why the module exists while the class is empty.
 
 What drives a run today is ``agents/runtime.py::_pump``, the
-classify/retrieve/plan/execute/respond loop. The runtime accepts an orchestrator
-and discards it (``_ = orchestrator``), so nothing here is on a live path.
+classify/retrieve/plan/execute/respond loop, dispatched stage by stage through
+``LinearOrchestrator``. This adapter implements no part of that: it is still a
+stub, so nothing here is on a live path.
 
 Coverage note: ``pyproject.toml`` omits this module from the coverage number,
 and no test imports it. Those are two independent facts: the module is untested,
 not tested elsewhere. There is no contract test asserting it agrees with
-``LinearOrchestrator``, and there cannot be one while both raise
-``NotImplementedError``.
+``LinearOrchestrator``, and there cannot be one while this adapter's ``step`` and
+``build_graph`` raise ``NotImplementedError`` -- the linear executor is now real,
+so it is this side of the comparison that has nothing to compare against.
 """
 
 from __future__ import annotations

@@ -1,44 +1,84 @@
-"""``LinearOrchestrator``: the graph-free step executor, and an M0 stub.
+"""``LinearOrchestrator``: the graph-free step executor.
 
 Responsibility: implement ``Orchestrator.step`` as a straight sequence -- no
-graph, no library -- by delegating to the runtime functions. None of that is
-written: ``step`` raises ``NotImplementedError``, so this class runs nothing.
+graph, no library -- by dispatching to the stage functions the runtime owns
+(``agents/runtime.py::classify_stage`` and its four siblings). It is a *thin*
+dispatcher: it holds a ``StageDriver`` (the shared sequencer) and one call to
+``step`` runs exactly one stage. It carries no stage logic of its own, so the
+pump and this executor cannot drift -- there is one copy of the sequence, in
+``StageDriver``.
 
 Layer: ``adapters`` (orchestration). Implements
-``opspilot.ports.orchestrator.Orchestrator``.
+``opspilot.ports.orchestrator.Orchestrator``. It imports ``agents.runtime``, which
+the layering allows: ``adapters`` sits above ``agents``, and the arrow is the
+reason the agent runtime depends on the *port* rather than on this class.
 
-The reason the port exists (``docs/architecture.md`` §4): a test asserting the
-whole workflow must not depend on a graph library. The runtime owns
-``RunStatus``, ``ALLOWED_TRANSITIONS`` and the loop, and an orchestrator is one
-possible executor for it -- which is why the boundary is drawn here even though
-neither executor is implemented yet.
+Why the driver is attached rather than injected at construction
+--------------------------------------------------------------
+``Orchestrator.step`` takes only a ``run`` (``ports/orchestrator.py``) -- the
+port does not carry the ``RunContext`` or the seven collaborators a stage needs,
+and it must not: ``ports/`` cannot import ``agents/``. So a ``LinearOrchestrator``
+built before the run exists (which is how every call site builds it -- the
+golden-path harness, ``worker/__main__.py``, ``evals/runner.py``,
+``scripts/demo_golden_path.py``) is bound to its driver at the moment the pump
+starts, through :meth:`bind_driver`. ``run_loop`` no longer discards its
+``orchestrator`` argument (``_ = orchestrator``): ``_pump`` hands it the driver
+and loops ``step``, so this class is what drives a provider-mode run rather than
+a boundary nothing runs through.
 
-What drives a run today is ``agents/runtime.py::_pump``, the
-classify/retrieve/plan/execute/respond loop. ``worker/__main__.py``,
-``evals/runner.py``, ``tests/agent/_golden_harness.py`` and
-``scripts/demo_golden_path.py`` each construct a ``LinearOrchestrator`` and pass
-it as ``orchestrator=``; ``run_loop`` discards it (``_ = orchestrator``) and
-never calls ``step``. The class is carried by those call sites, not run by them.
-
-No test calls ``step``, and no contract test compares this executor against
-``LangGraphOrchestrator``: one cannot assert equivalence between two methods
-that both raise ``NotImplementedError``.
+``RunParked`` is not caught here. The EXECUTE stage raises it at gate 5; it
+propagates out of ``step`` untouched to the worker, which is the only place that
+owns releasing the row (``worker/loop.py``).
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from opspilot.domain.runs import AgentRun
 from opspilot.ports.orchestrator import StepResult
 
+if TYPE_CHECKING:
+    # ``agents.runtime`` imports this module at run time; the annotation-only
+    # import keeps the cycle broken while ``StageDriver`` is still typed.
+    from opspilot.agents.runtime import StageDriver
+
 
 class LinearOrchestrator:
-    """M0 stub for the graph-free step executor. ``step`` raises."""
+    """The graph-free executor: one ``step`` call runs one runtime stage.
+
+    Deterministic and dependency-free -- no graph, no library -- which is why it
+    is the executor the tests and the golden-path harness use.
+    """
+
+    def __init__(self) -> None:
+        self._driver: StageDriver | None = None
+
+    def bind_driver(self, driver: StageDriver) -> None:
+        """Attach the run's driver, so ``step`` has the context and collaborators.
+
+        Called by ``agents/runtime.py::_pump`` at the start of a provider-mode
+        run. Binding is not part of the ``Orchestrator`` port -- it is how the
+        linear executor is given the state the port signature cannot carry, and
+        the pump reaches it duck-typed so an orchestrator that does not need it
+        (a test spy, or a future graph) is unaffected.
+        """
+        self._driver = driver
 
     async def step(self, run: AgentRun) -> StepResult:
-        """Advance the run by one step, dispatching on its current status.
+        """Advance ``run`` by exactly one stage, dispatching to the runtime stage.
 
-        M0 stub: raises ``NotImplementedError`` and reaches no gate. The
-        approval gate that raises ``RunParked`` lives in
-        ``agents/runtime.py::_park_run``, not here.
+        The stage logic lives in ``StageDriver`` (which calls the extracted
+        ``*_stage`` functions in ``agents/runtime.py``); this method exists to
+        satisfy the port and to be the seam a test can spy on. A step that
+        reaches the approval gate runs the EXECUTE stage, which raises
+        ``RunParked`` -- that propagates out of here untouched, because parking
+        is the workflow working, not a failure.
         """
-        raise NotImplementedError
+        if self._driver is None:
+            msg = (
+                "LinearOrchestrator.step called before bind_driver; a run must be "
+                "driven through the pump, which binds the driver"
+            )
+            raise RuntimeError(msg)
+        return await self._driver.step(run)

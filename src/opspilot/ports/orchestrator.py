@@ -2,11 +2,16 @@
 
 Responsibility: the seam that inverts the dependency on LangGraph. The runtime
 owns the state machine and the loop; an orchestrator is one possible *executor*
-of a single step. LangGraph is the intended implementation behind this Protocol,
-and the linear implementation is the one the golden-path call sites construct.
-Neither is written: both ``step`` methods raise ``NotImplementedError``, the
-runtime discards its ``orchestrator`` argument, and no test calls either, so
-nothing runs through this port yet.
+of a single step. LangGraph is the intended production implementation behind this
+Protocol, and the linear implementation is the one the golden-path call sites
+construct.
+
+``LinearOrchestrator`` is written: it is a thin dispatcher over the runtime's
+stage functions, bound at run time to a ``StageDriver`` and driven by ``_pump``,
+which loops ``orchestrator.step`` one stage at a time
+(``tests/agent/test_linear_orchestrator_drives.py`` proves the stages are
+dispatched through it). ``LangGraphOrchestrator`` remains unwritten -- ``step``
+and ``build_graph`` raise ``NotImplementedError``.
 
 Layer: ``ports``. Imports only ``typing`` and ``opspilot.domain`` -- no
 ``langgraph`` import appears here or anywhere above an adapter.

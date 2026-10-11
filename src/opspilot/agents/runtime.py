@@ -55,7 +55,7 @@ from opspilot.domain.tools import (
     validate_tool_call,
 )
 from opspilot.ports.model_provider import ModelProvider, ModelUsage
-from opspilot.ports.orchestrator import Orchestrator
+from opspilot.ports.orchestrator import Orchestrator, StepKind, StepResult
 from opspilot.ports.stores import (
     ApprovalStore,
     CitationRecord,
@@ -987,7 +987,6 @@ async def run_loop(
             "failed".
         MaxStepsExceeded: The plan/execute budget was exhausted.
     """
-    _ = orchestrator
     max_steps = ctx.max_steps or _DEFAULT_MAX_STEPS()
     trace = recorder if recorder is not None else TraceRecorder(run_id=ctx.run.id)
     # The production path always supplies the real lookup (``executed_lookup_for``
@@ -1042,6 +1041,7 @@ async def run_loop(
         ctx,
         provider=provider,
         gateway=gateway,
+        orchestrator=orchestrator,
         run_store=run_store,
         tool_call_store=tool_call_store,
         approval_store=approval_store,
@@ -1101,11 +1101,334 @@ async def _transition(ctx: RunContext, run_store: RunStore, target: RunStatus) -
     await run_store.set_status(ctx.run.id, target)
 
 
+# ---------------------------------------------------------------------------
+# The stages, extracted from ``_pump``
+# ---------------------------------------------------------------------------
+#
+# ``_pump`` used to hold the whole classify/retrieve/plan/execute/respond body
+# inline. The stage logic now lives in one function per stage -- the members of
+# ``StepKind`` -- so that ``StageDriver`` (the loop) and ``LinearOrchestrator``
+# (``adapters/orchestration/linear.py``) can both *call* it rather than each
+# carrying a copy. A second copy of the ordered stage logic is the defect
+# ``docs/limitations.md`` §8 exists to record: `docs/` would describe one driver
+# while the other ran, and the two would drift without a red test.
+#
+# The split is at the stage boundary, not the status boundary: one call to
+# ``StageDriver.step`` is one stage (PLAN, say), while a *status* transition is a
+# smaller unit inside it. ``StepKind.PLAN`` and ``StepKind.EXECUTE`` are separate
+# members and separate functions for that reason -- a single iteration of the
+# old loop ran PLAN and then EXECUTE, which is why a "step" is a stage and not a
+# transition.
+
+
+async def classify_stage(
+    ctx: RunContext,
+    *,
+    provider: ModelProvider,
+    run_store: RunStore,
+    recorder: TraceRecorder,
+) -> StepResult:
+    """CLASSIFYING: transition, one structured classification call, persist it."""
+    await _transition(ctx, run_store, RunStatus.CLASSIFYING)
+    ctx.classification = await _classify(ctx, provider, run_store, recorder)
+    return StepResult(
+        kind=StepKind.CLASSIFY,
+        to_status=RunStatus.CLASSIFYING,
+        detail={"category": ctx.classification.category.value},
+    )
+
+
+async def retrieve_stage(
+    ctx: RunContext,
+    *,
+    retrieval: RetrievalCallable | None,
+    citation_store: CitationStore | None,
+    run_store: RunStore,
+    recorder: TraceRecorder,
+    retrieval_min_score: float,
+) -> StepResult:
+    """RETRIEVING: transition, run retrieval, persist citations, record the step."""
+    await _transition(ctx, run_store, RunStatus.RETRIEVING)
+    ctx.retrieval_hits = await _retrieve(
+        ctx,
+        retrieval,
+        recorder,
+        citation_store=citation_store,
+        min_score=retrieval_min_score,
+    )
+    return StepResult(
+        kind=StepKind.RETRIEVE,
+        to_status=RunStatus.RETRIEVING,
+        detail={"count": len(ctx.retrieval_hits)},
+    )
+
+
+async def plan_stage(
+    ctx: RunContext,
+    *,
+    provider: ModelProvider,
+    run_store: RunStore,
+    recorder: TraceRecorder,
+) -> StepResult:
+    """PLANNING: one ``choose_tool`` round, appended to ``ctx.proposed_actions``.
+
+    The PLANNING transition itself is the driver's (it is taken before the
+    abstention decision, which can also leave PLANNING for RESPONDING without a
+    plan round ever running).
+    """
+    proposal = await _plan(ctx, provider, run_store, recorder)
+    ctx.proposed_actions.append(proposal)
+    return StepResult(
+        kind=StepKind.PLAN,
+        to_status=RunStatus.PLANNING,
+        detail={"tool_name": proposal.tool_name, "done": proposal.done},
+    )
+
+
+async def execute_stage(
+    ctx: RunContext,
+    proposal: ProposedAction,
+    *,
+    gateway: ToolGateway,
+    run_store: RunStore,
+    tool_call_store: ToolCallStore,
+    approval_store: ApprovalStore,
+    lookup: ExecutedLookup,
+    recorder: TraceRecorder,
+) -> StepResult:
+    """EXECUTING: transition, drive ``proposal`` through the five gates.
+
+    Control returns to PLANNING on success (the old loop's ``_transition(...,
+    PLANNING)`` after ``run_step``). ``run_step`` raises ``RunParked`` at gate 5,
+    which propagates out of here untouched -- the worker's job is to release the
+    row, and catching it anywhere new is the mistake that turns "did its job"
+    into "failed".
+    """
+    await _transition(ctx, run_store, RunStatus.EXECUTING)
+    await run_step(
+        ctx,
+        proposal,
+        gateway=gateway,
+        run_store=run_store,
+        tool_call_store=tool_call_store,
+        approval_store=approval_store,
+        recorder=recorder,
+        executed_lookup=lookup,
+    )
+    await _transition(ctx, run_store, RunStatus.PLANNING)
+    return StepResult(
+        kind=StepKind.EXECUTE,
+        to_status=RunStatus.EXECUTING,
+        detail={"tool_name": proposal.tool_name},
+    )
+
+
+async def respond_stage(
+    ctx: RunContext,
+    *,
+    provider: ModelProvider,
+    run_store: RunStore,
+    recorder: TraceRecorder,
+) -> StepResult:
+    """RESPONDING: compose the reply and complete the run. Terminal."""
+    await _respond(ctx, provider, run_store, recorder)
+    return StepResult(
+        kind=StepKind.RESPOND,
+        to_status=ctx.run.status,
+        detail={"escalated": ctx.escalated},
+    )
+
+
+class StageDriver:
+    """Sequences the stages for one run; the shared driver behind the pump.
+
+    It holds the ``RunContext`` and every collaborator a stage needs -- none of
+    which fit through ``Orchestrator.step(run)`` -- and exposes one stage per
+    call. ``_pump`` drives it by looping ``LinearOrchestrator.step`` (which
+    delegates here); the sequence, the abstention branch and the ``max_steps``
+    check live here once, so both drivers inherit them rather than restating
+    them.
+
+    The ``max_steps`` check is here, at the top of the PLAN stage, rather than in
+    a driver's loop. That is deliberate: ``LinearOrchestrator`` then fails a
+    runaway run *itself* -- it never has to trust a caller to bound the loop --
+    and the pump gets the identical guard because it calls the same stage. It is
+    the position the old loop used (before each ``_plan``), so
+    ``MAX_STEPS`` -> ``FAILED(max_steps_exceeded)`` is unchanged.
+    """
+
+    def __init__(
+        self,
+        ctx: RunContext,
+        *,
+        provider: ModelProvider,
+        gateway: ToolGateway,
+        run_store: RunStore,
+        tool_call_store: ToolCallStore,
+        approval_store: ApprovalStore,
+        lookup: ExecutedLookup,
+        recorder: TraceRecorder,
+        retrieval: RetrievalCallable | None,
+        citation_store: CitationStore | None,
+        retrieval_min_score: float,
+        max_steps: int,
+    ) -> None:
+        self.ctx = ctx
+        self.provider = provider
+        self.gateway = gateway
+        self.run_store = run_store
+        self.tool_call_store = tool_call_store
+        self.approval_store = approval_store
+        self.lookup = lookup
+        self.recorder = recorder
+        self.retrieval = retrieval
+        self.citation_store = citation_store
+        self.retrieval_min_score = retrieval_min_score
+        self.max_steps = max_steps
+        # The next stage to run; ``None`` once RESPOND has completed the run.
+        self._next: StepKind | None = StepKind.CLASSIFY
+        # The proposal the last PLAN produced, waiting for EXECUTE. Held here
+        # (not in the ctx) because it is control flow between two stages, not run
+        # state.
+        self._pending: ProposedAction | None = None
+
+    @property
+    def finished(self) -> bool:
+        """Whether the run has been driven to its terminal ``RESPOND`` stage."""
+        return self._next is None
+
+    async def step(self, run: AgentRun) -> StepResult:
+        """Run exactly one stage, advancing the driver by one ``StepKind``.
+
+        ``run`` is the port's argument; the driver already holds ``ctx`` (and
+        through it the run), so this validates the caller is driving the run it
+        was built for rather than trusting a possibly-stale ``run`` object.
+        """
+        if run.id != self.ctx.run.id:
+            msg = f"driver is bound to run {self.ctx.run.id}, asked to step {run.id}"
+            raise ValueError(msg)
+        kind = self._next
+        if kind is StepKind.CLASSIFY:
+            result = await classify_stage(
+                self.ctx,
+                provider=self.provider,
+                run_store=self.run_store,
+                recorder=self.recorder,
+            )
+            self._next = StepKind.RETRIEVE
+        elif kind is StepKind.RETRIEVE:
+            result = await retrieve_stage(
+                self.ctx,
+                retrieval=self.retrieval,
+                citation_store=self.citation_store,
+                run_store=self.run_store,
+                recorder=self.recorder,
+                retrieval_min_score=self.retrieval_min_score,
+            )
+            self._next = await self._after_retrieve()
+        elif kind is StepKind.PLAN:
+            result = await self._plan()
+        elif kind is StepKind.EXECUTE:
+            result = await self._execute()
+        elif kind is StepKind.RESPOND:
+            result = await respond_stage(
+                self.ctx,
+                provider=self.provider,
+                run_store=self.run_store,
+                recorder=self.recorder,
+            )
+            self._next = None
+        else:  # pragma: no cover - ``_next`` is only ever a StepKind or None
+            msg = f"the run is already finished at {self.ctx.run.status}"
+            raise ValueError(msg)
+        return result
+
+    async def _plan(self) -> StepResult:
+        """The PLAN stage: enforce the budget, enter PLANNING, choose an action."""
+        if self.ctx.steps_taken >= self.max_steps:
+            await _fail_run(
+                self.ctx,
+                self.run_store,
+                recorder=self.recorder,
+                reason="max_steps_exceeded",
+            )
+            raise MaxStepsExceeded(str(self.ctx.run.id), self.max_steps)
+        await _transition(self.ctx, self.run_store, RunStatus.PLANNING)
+        result = await plan_stage(
+            self.ctx,
+            provider=self.provider,
+            run_store=self.run_store,
+            recorder=self.recorder,
+        )
+        # ``plan_stage`` appended the proposal; the last element is it.
+        proposal = self.ctx.proposed_actions[-1]
+        self._pending = proposal
+        if proposal.tool_name is None or proposal.done:
+            self._next = StepKind.RESPOND
+        else:
+            self._next = StepKind.EXECUTE
+        return result
+
+    async def _execute(self) -> StepResult:
+        """The EXECUTE stage: the pending proposal through the gates."""
+        proposal = self._pending
+        if proposal is None:  # pragma: no cover - EXECUTE is only reachable after PLAN
+            msg = "EXECUTE stage reached with no pending proposal"
+            raise ValueError(msg)
+        self._pending = None
+        result = await execute_stage(
+            self.ctx,
+            proposal,
+            gateway=self.gateway,
+            run_store=self.run_store,
+            tool_call_store=self.tool_call_store,
+            approval_store=self.approval_store,
+            lookup=self.lookup,
+            recorder=self.recorder,
+        )
+        self._next = StepKind.PLAN
+        return result
+
+    async def _after_retrieve(self) -> StepKind:
+        """Enter PLANNING, then decide abstention vs. a plan round.
+
+        Abstention: a retrieval backend answered and its top hit is below the
+        threshold (or it returned nothing), so the evidence is too weak to plan a
+        tool call from. This is only an abstention when retrieval was actually
+        wired: with no backend the RETRIEVING step is an honest no-hit step and
+        the run proceeds to planning, exactly as it did before M5 -- an unwired
+        deployment is a configuration fact, not a statement about the corpus.
+
+        There is no ``RETRIEVING -> RESPONDING`` edge, and inventing one would be
+        wrong: the legal route is ``RETRIEVING -> PLANNING -> RESPONDING``, using
+        the same "no tool needed" edge the model takes when it has nothing left to
+        do (``docs/agent-state-machine.md`` §2). The run still reaches ``COMPLETED``
+        through ``RESPONDING`` with ``escalated=True`` -- abstention is a supported
+        outcome, not a failure (§3: "Knowledge insufficient to answer ->
+        ``COMPLETED`` (via ``RESPONDING``)"). Weak hits are dropped from the
+        context so the reply is not composed from evidence below the threshold.
+        """
+        await _transition(self.ctx, self.run_store, RunStatus.PLANNING)
+        if self.retrieval is not None and _is_abstention(
+            self.ctx.retrieval_hits, self.retrieval_min_score
+        ):
+            self.ctx.escalated = True
+            self.ctx.retrieval_hits = []
+            await self.recorder.record_audit(
+                event_type=AUDIT_RETRIEVAL_ABSTAINED,
+                actor="runtime",
+                payload={"min_score": self.retrieval_min_score},
+            )
+            return StepKind.RESPOND
+        return StepKind.PLAN
+
+
 async def _pump(
     ctx: RunContext,
     *,
     provider: ModelProvider,
     gateway: ToolGateway,
+    orchestrator: Orchestrator,
     run_store: RunStore,
     tool_call_store: ToolCallStore,
     approval_store: ApprovalStore,
@@ -1116,79 +1439,55 @@ async def _pump(
     retrieval_min_score: float,
     max_steps: int,
 ) -> RunContext:
-    """The provider-driven classify/retrieve/plan/execute/respond pump."""
-    # -- CLASSIFYING -----------------------------------------------------
-    await _transition(ctx, run_store, RunStatus.CLASSIFYING)
-    classification = await _classify(ctx, provider, run_store, recorder)
-    ctx.classification = classification
+    """Drive the provider-mode run by looping ``orchestrator.step``.
 
-    # -- RETRIEVING ------------------------------------------------------
-    await _transition(ctx, run_store, RunStatus.RETRIEVING)
-    ctx.retrieval_hits = await _retrieve(
+    The stage logic is ``StageDriver``'s; this function builds the driver,
+    hands it to the orchestrator, and advances one stage per ``step`` call until
+    RESPOND. The orchestrator -- ``LinearOrchestrator`` in production, a spy in
+    the test that proves the orchestrator really drives -- is consulted here, not
+    discarded, which is what makes ``Orchestrator.step`` a live path rather than
+    a boundary nothing runs through.
+
+    A ``RunParked`` raised by the EXECUTE stage propagates out of ``step`` and
+    out of here untouched: parking is the workflow working, and the worker owns
+    releasing the row.
+    """
+    driver = StageDriver(
         ctx,
-        retrieval,
-        recorder,
+        provider=provider,
+        gateway=gateway,
+        run_store=run_store,
+        tool_call_store=tool_call_store,
+        approval_store=approval_store,
+        lookup=lookup,
+        recorder=recorder,
+        retrieval=retrieval,
         citation_store=citation_store,
-        min_score=retrieval_min_score,
+        retrieval_min_score=retrieval_min_score,
+        max_steps=max_steps,
     )
+    binder = getattr(orchestrator, "bind_driver", None)
+    if binder is not None:
+        # ``LinearOrchestrator`` is a thin dispatcher: it holds the driver and
+        # dispatches one stage per ``step``. Binding rather than constructing it
+        # here is what the layering requires -- ``agents/`` may not import
+        # ``adapters/`` -- and it is how an orchestrator the caller built before
+        # the context existed becomes the thing that drives.
+        binder(driver)
+    await _drive_until_responded(ctx, orchestrator, driver)
+    return ctx
 
-    # -- PLANNING --------------------------------------------------------
-    await _transition(ctx, run_store, RunStatus.PLANNING)
 
-    # Abstention: a retrieval backend answered and its top hit is below the
-    # threshold (or it returned nothing), so the evidence is too weak to plan a
-    # tool call from. This is only an abstention when retrieval was actually
-    # wired: with no backend the RETRIEVING step is an honest no-hit step and the
-    # pump proceeds to planning, exactly as it did before M5 -- an unwired
-    # deployment is a configuration fact, not a statement about the corpus.
-    #
-    # There is no ``RETRIEVING -> RESPONDING`` edge, and inventing one would be
-    # wrong: the legal route is ``RETRIEVING -> PLANNING -> RESPONDING``, using
-    # the same "no tool needed" edge the model takes when it has nothing left to
-    # do (``docs/agent-state-machine.md`` §2). The run still reaches ``COMPLETED``
-    # through ``RESPONDING`` with ``escalated=True`` -- abstention is a supported
-    # outcome, not a failure (§3: "Knowledge insufficient to answer ->
-    # ``COMPLETED`` (via ``RESPONDING``)"). Weak hits are dropped from the
-    # context so the reply is not composed from evidence below the threshold.
-    if retrieval is not None and _is_abstention(ctx.retrieval_hits, retrieval_min_score):
-        ctx.escalated = True
-        ctx.retrieval_hits = []
-        await recorder.record_audit(
-            event_type=AUDIT_RETRIEVAL_ABSTAINED,
-            actor="runtime",
-            payload={"min_score": retrieval_min_score},
-        )
-        return await _respond(ctx, provider, run_store, recorder)
-
-    # -- PLANNING / EXECUTING -------------------------------------------
-    while True:
-        if ctx.steps_taken >= max_steps:
-            await _fail_run(ctx, run_store, recorder=recorder, reason="max_steps_exceeded")
-            raise MaxStepsExceeded(str(ctx.run.id), max_steps)
-
-        proposal = await _plan(ctx, provider, run_store, recorder)
-        ctx.proposed_actions.append(proposal)
-
-        if proposal.tool_name is None or proposal.done:
-            break
-
-        await _transition(ctx, run_store, RunStatus.EXECUTING)
-        # ``run_step`` raises ``RunParked`` at gate 5, which propagates out of
-        # this loop untouched -- the worker's job is to release the row.
-        await run_step(
-            ctx,
-            proposal,
-            gateway=gateway,
-            run_store=run_store,
-            tool_call_store=tool_call_store,
-            approval_store=approval_store,
-            recorder=recorder,
-            executed_lookup=lookup,
-        )
-        await _transition(ctx, run_store, RunStatus.PLANNING)
-
-    # -- RESPONDING ------------------------------------------------------
-    return await _respond(ctx, provider, run_store, recorder)
+async def _drive_until_responded(
+    ctx: RunContext,
+    orchestrator: Orchestrator,
+    driver: StageDriver,
+) -> None:
+    """Loop ``orchestrator.step`` until the driver reports the RESPOND stage."""
+    while not driver.finished:
+        result = await orchestrator.step(ctx.run)
+        if result.kind is StepKind.RESPOND:
+            return
 
 
 async def _resume(
@@ -1620,9 +1919,15 @@ __all__: list[str] = [
     "GATE_SCHEMA",
     "ExecutedLookup",
     "RetrievalCallable",
+    "StageDriver",
     "ToolCallRef",
+    "classify_stage",
+    "execute_stage",
     "executed_lookup_for",
+    "plan_stage",
     "registered_tool_names",
+    "respond_stage",
+    "retrieve_stage",
     "run_loop",
     "run_step",
     "transition_or_raise",

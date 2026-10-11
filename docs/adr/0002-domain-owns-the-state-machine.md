@@ -66,25 +66,30 @@ walks the golden path on the real `LangGraphOrchestrator` and asserts the
 observed transition sequence is a subsequence of the legal set. The drift is
 possible; it is not silent.
 
-**Correction 1 (found by reading the code, not by running it).** The two
-sentences above — "The golden-path integration suite runs on `LinearOrchestrator`,
-which is deterministic" and "This is caught by a contract test that walks the
-golden path on the real `LangGraphOrchestrator`" — describe executors that do not
-exist yet. Neither is written. `LinearOrchestrator.step` and
-`LangGraphOrchestrator.step` both raise `NotImplementedError`, and
-`LangGraphOrchestrator.build_graph` does too, so the Decision section's "Both
-call `run.transition_to(...)`" is likewise written in the present tense over two
-bodies that call nothing. What drives a run today is `agents/runtime.py::_pump`,
-the classify/retrieve/plan/execute/respond loop, which drives status through the
-domain's `transition_to` directly and never consults an orchestrator: `run_loop`
-accepts the argument and discards it (`_ = orchestrator`). The golden-path
-harness, `worker/__main__.py`, `evals/runner.py` and
-`scripts/demo_golden_path.py` each construct a `LinearOrchestrator` and pass it
-as `orchestrator=`; those call sites carry the class, they do not run it. No test
-calls `step`, no test imports the LangGraph adapter, and no contract test
-compares the two executors — one cannot assert equivalence between two methods
-that both raise. So the drift named in this section is currently neither
-prevented nor caught: it is unmitigated, not silent-but-caught.
+**Correction 1 (partly superseded — see Correction 2).** The two sentences above
+— "The golden-path integration suite runs on `LinearOrchestrator`, which is
+deterministic" and "This is caught by a contract test that walks the golden path
+on the real `LangGraphOrchestrator`" — describe executors that did not exist when
+this correction was written. `LangGraphOrchestrator.step` and
+`.build_graph` still raise `NotImplementedError`, so the second sentence remains
+false and the Decision section's "Both call `run.transition_to(...)`" is still
+written in the present tense over a body that calls nothing. What drove a run
+then was `agents/runtime.py::_pump`, which accepted the orchestrator argument and
+discarded it (`_ = orchestrator`); the golden-path harness, `worker/__main__.py`,
+`evals/runner.py` and `scripts/demo_golden_path.py` each carried a
+`LinearOrchestrator` without running it.
+
+**Correction 2 (the linear executor now drives).** `LinearOrchestrator` is
+implemented: the stage logic was extracted from `_pump` into one function per
+`StepKind`, sequenced by a `StageDriver`, and `LinearOrchestrator` is a thin
+dispatcher over it. `_pump` now binds the driver to the orchestrator and loops
+`orchestrator.step`, so the first sentence above — "the golden-path integration
+suite runs on `LinearOrchestrator`" — is made true by
+`tests/agent/test_linear_orchestrator_drives.py`, which drives the golden path
+through a spy that records the stage sequence rather than merely asserting the run
+completes. `LangGraphOrchestrator` and the cross-executor contract test remain
+unbuilt, so the drift named in this section is now prevented for the executor
+that runs and still uncaught for the one that does not.
 
 What this ADR argues for is unaffected, and that is why it stands. The
 dependency-inversion argument is a reason to draw the boundary now and to decide

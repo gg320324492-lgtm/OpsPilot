@@ -59,6 +59,7 @@ import pytest
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from opspilot.adapters.orchestration.linear import LinearOrchestrator
 from opspilot.adapters.persistence import db, models
 from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.persistence.repositories import (
@@ -69,7 +70,7 @@ from opspilot.adapters.persistence.repositories import (
     SqlToolCallStore,
 )
 from opspilot.adapters.wiring import RetrievalStack
-from opspilot.agents.runtime import RetrievalCallable, run_loop
+from opspilot.agents.runtime import RetrievalCallable, StageDriver, run_loop
 from opspilot.agents.schemas import AgentResponse, TicketCategory, TicketClassification
 from opspilot.agents.state import RunContext
 from opspilot.domain.errors import RunParked
@@ -224,16 +225,24 @@ class RecordingGateway:
 
 
 class _NullOrchestrator:
-    """The pump takes an orchestrator but must not consult it.
+    """The pump *does* consult its orchestrator, so this one must drive.
 
-    ``LinearOrchestrator.step`` is an M0 stub (the golden-path loop lands in M6),
-    so the pump is passed this no-op: the run loop's state machine drives the run,
-    and an orchestrator that raised would prove only that the pump ignored it.
+    It used to raise ``AssertionError("the pump must not consult the
+    orchestrator")``. That assertion is now the opposite of the requirement:
+    ``_pump`` binds its ``StageDriver`` to the orchestrator and loops ``step``,
+    so this delegates to the real ``LinearOrchestrator``. The injection test is
+    the seam where "the pump discarded the orchestrator" would hide, so passing a
+    raising stub here would now be a broken test rather than a passing one.
     """
 
-    async def step(self, run: AgentRun) -> StepResult:  # noqa: ARG002 -- protocol parameter
-        msg = "the pump must not consult the orchestrator"
-        raise AssertionError(msg)
+    def __init__(self) -> None:
+        self._inner = LinearOrchestrator()
+
+    def bind_driver(self, driver: StageDriver) -> None:
+        self._inner.bind_driver(driver)
+
+    async def step(self, run: AgentRun) -> StepResult:
+        return await self._inner.step(run)
 
 
 @pytest.fixture

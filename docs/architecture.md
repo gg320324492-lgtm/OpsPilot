@@ -150,27 +150,28 @@ LangGraph is used, but the dependency is inverted: the runtime owns the state
 machine and LangGraph is one possible executor for it.
 
 ```
-agents/runtime.py          ← owns RunStatus, ALLOWED_TRANSITIONS, the loop
+agents/runtime.py          ← owns RunStatus, ALLOWED_TRANSITIONS, the stages
       │
       │  depends on the port, not the library
       ▼
 ports/orchestrator.py      ← Protocol: Orchestrator.step(run) -> StepResult
       │
       ├── adapters/orchestration/langgraph_adapter.py   (stub, unwritten)
-      └── adapters/orchestration/linear.py             (stub, unwritten)
+      └── adapters/orchestration/linear.py             (the executor in use)
 ```
 
 Why this shape and not "the project *is* LangGraph nodes":
 
 - The allowed-transition table lives in `domain/`, so it is unit-testable without
   installing LangGraph, and so a graph edit cannot silently widen it.
-- Neither executor is built yet, so no golden-path test runs on one: the
-  golden-path suite runs on `agents/runtime.py::_pump`. The golden-path
-  harness does construct a `LinearOrchestrator` and pass it as `orchestrator=`,
-  and `run_loop` discards it (`_ = orchestrator`) without calling `step`, which
-  raises `NotImplementedError`. There is no contract test comparing the two
-  executors, and there cannot be one while both raise. Both are recorded as
-  unimplemented in `docs/milestones.md` §M4.
+- `LinearOrchestrator` is built: a thin dispatcher over the stage functions
+  (`agents/runtime.py`'s `*_stage` functions, sequenced by `StageDriver`). The
+  pump binds its driver to the orchestrator and loops `orchestrator.step`, one
+  stage per call, so the golden path runs *through* the executor rather than
+  alongside it (`tests/agent/test_linear_orchestrator_drives.py`). Only
+  `LangGraphOrchestrator` is unimplemented; no contract test compares the two
+  executors, and none can while one of them raises on every method it would
+  compare. It is recorded as unimplemented in `docs/milestones.md` §M4.
 - Phase 2's likely changes (retries, fallback models, replay) are executor
   concerns and land behind this boundary.
 

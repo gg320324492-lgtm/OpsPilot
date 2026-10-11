@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from opspilot.adapters.orchestration.linear import LinearOrchestrator
 from opspilot.adapters.persistence import db, models
 from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.persistence.repositories import (
@@ -28,7 +29,7 @@ from opspilot.adapters.persistence.repositories import (
     SqlTicketStore,
     SqlToolCallStore,
 )
-from opspilot.agents.runtime import run_loop
+from opspilot.agents.runtime import StageDriver, run_loop
 from opspilot.agents.schemas import (
     AgentResponse,
     ProposedAction,
@@ -147,10 +148,27 @@ class RecordingGateway:
 
 
 class UnusedOrchestrator:
-    """The pump takes an orchestrator but must not consult it."""
+    """A provider-mode orchestrator the pump *does* consult — and that drives.
+
+    This double used to raise ``NotImplementedError``, on the claim that the pump
+    took an orchestrator but did not consult it. That claim was true and is now
+    false: ``_pump`` binds its ``StageDriver`` to the orchestrator and loops
+    ``step``, so an orchestrator must be able to run a stage. It delegates to
+    ``LinearOrchestrator`` exactly as production does, so a test that passes it
+    is a test that would catch the pump going back to discarding it.
+
+    The name is kept because the worker and several integration tests import it
+    by name; it is no longer "unused" but "the orchestrator the pump uses".
+    """
+
+    def __init__(self) -> None:
+        self._inner = LinearOrchestrator()
+
+    def bind_driver(self, driver: StageDriver) -> None:
+        self._inner.bind_driver(driver)
 
     async def step(self, run: AgentRun) -> StepResult:
-        raise NotImplementedError
+        return await self._inner.step(run)
 
 
 @pytest.fixture

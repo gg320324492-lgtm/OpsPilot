@@ -61,6 +61,7 @@ from opspilot.adapters.tools.mcp_gateway import MCPToolGateway, build_in_process
 from opspilot.adapters.wiring import RetrievalStack, build_retrieval_stack
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import ToolSpec
+from opspilot.ports.orchestrator import Orchestrator
 from opspilot.ports.tool_gateway import ToolGateway, ToolResult
 from opspilot.settings import Settings
 from opspilot.tracing.recorder import TraceRecorder
@@ -126,7 +127,22 @@ class Harness:
         # A fresh provider per run is deliberate: the fake advances a per-method
         # cursor, so a replayed scenario from the same instance would answer the
         # second run with the first run's remaining script.
-        self._orchestrator = LinearOrchestrator()
+        #
+        # The orchestrator is what the worker drives the run *through*
+        # (``_pump`` binds its ``StageDriver`` and loops ``step``), so a test can
+        # swap in a spy that records the stage sequence and prove the executor is
+        # genuinely the thing driving rather than a boundary the pump ignores.
+        self._orchestrator: Orchestrator = LinearOrchestrator()
+
+    def use_orchestrator(self, orchestrator: Orchestrator) -> None:
+        """Drive subsequent drains through ``orchestrator`` instead of the default.
+
+        Used by ``test_linear_orchestrator_drives.py`` to install a recording
+        spy. It is a setter rather than a constructor argument because the spy
+        observes the same ``Harness`` the standard fixture builds, so the golden
+        path it records is the identical one the other tests assert end to end.
+        """
+        self._orchestrator = orchestrator
 
     # -- worker -----------------------------------------------------------
 
