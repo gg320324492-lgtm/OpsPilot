@@ -118,15 +118,24 @@ imports with no business logic, and a published GitHub repository.
       details}}` for domain exceptions, `HTTPException` and
       `RequestValidationError`, and attaches `ERROR_RESPONSES` to every guarded
       route. `test_error_envelope_is_in_the_openapi_document.py` pins it.)
-- [ ] Auth rejects a missing or wrong bearer token on every endpoint but
-      `/health`, and the API refuses to start with no token configured. (The
-      second half holds — `create_app` raises `MissingOperatorToken`
-      (`test_app_refuses_to_start_without_a_token`). The first half does not:
-      `/ready` is token-exempt too. Probed with no `Authorization` header:
-      `/health` 200, `/ready` 200, `/api/tickets` `/api/runs` `/api/approvals`
-      `/api/knowledge` all 401. `api-contract.md` §8 contradicts itself here —
-      "All endpoints except `/health` require it" at line 368, "`/health` and
-      `/ready` are token-exempt" at line 410.)
+- [x] Auth rejects a missing or wrong bearer token on every endpoint but the two
+      token-exempt probes (`/health` and `/ready`), and the API refuses to start
+      with no token configured. (Both halves hold, measured against a live
+      instance: with no `Authorization` header `/health` 200, `/ready` 200, and
+      `/api/tickets` `/api/runs` `/api/approvals` `/api/knowledge` all 401; and
+      with `OPSPILOT_OPERATOR_TOKEN` unset `create_app` raises
+      `MissingOperatorToken` — `test_app_refuses_to_start_without_a_token`. The
+      four guarded routers declare `dependencies=[Depends(require_operator)]`;
+      `health.py` declares none. `/ready`'s exemption is deliberate, not an
+      oversight: `docker-compose.yml` keys `api`'s healthcheck and the worker's
+      `depends_on: api: condition: service_healthy` on `/ready`, and a probe
+      that cannot authenticate can never report a container healthy — requiring a
+      token there would force the orchestrator to carry credentials. This entry
+      previously read "every endpoint but `/health`", which could not be
+      satisfied as written; `api-contract.md` §8 said both things at once — "All
+      endpoints except `/health` require it" (line 368) and "`/health` and
+      `/ready` are token-exempt" (line 410) — and the line-368 sentence has been
+      corrected to match the code.)
 - [ ] Repository classes exist with no business logic — `ToolCall`, `Run`,
       `Approval` stores with CRUD only. (The three stores exist —
       `SqlToolCallStore`, `SqlRunStore`, `SqlApprovalStore` — and hold no domain

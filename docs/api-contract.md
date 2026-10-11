@@ -365,8 +365,9 @@ Phase 1: a single operator token.
 Authorization: Bearer $OPSPILOT_OPERATOR_TOKEN
 ```
 
-One token, one role. All endpoints except `/health` require it. This is honest
-about what Phase 1 is: a single-operator local deployment. There is no login
+One token, one role. Every endpoint requires it except the two token-free
+probes, `/health` and `/ready` (§7; §8.1 explains why they stay exempt). This is
+honest about what Phase 1 is: a single-operator local deployment. There is no login
 screen, no session, no password hashing, and no pretense of RBAC. SSO, roles and
 per-user identity are Phase 3, listed in
 [limitations.md §1](limitations.md).
