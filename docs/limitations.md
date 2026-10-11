@@ -307,6 +307,16 @@ legible):
   `tests/integration/test_mcp_stdio_transport.py` proves it by calling
   `crm.get_customer` through a live subprocess and by checking that a server
   process really appeared and was really reaped.
+- `knowledge.search` — `architecture.md` §7 advertises it as an automatic `READ`
+  tool, and `adapters/wiring.py::RetrievalStack` has bound a `KnowledgeTool`
+  since retrieval landed, but no code on the dispatch site could reach it. The
+  runtime's single `gateway.call_tool` (`agents/runtime.py:638`) was handed a bare
+  `MCPToolGateway` at both assembly points, and `mcp_gateway.py::_server_for`
+  returns `None` for any server outside `{crm, billing, issues}` — so a server of
+  `"internal"`, as `domain/tools.py` registers it, came back
+  `server_unavailable` every time. `adapters/tools/composite_gateway.py::CompositeToolGateway`
+  now routes on `TOOL_REGISTRY[name].server` at call time, and
+  `tests/integration/test_composite_gateway.py` proves it at both wiring points.
 
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.

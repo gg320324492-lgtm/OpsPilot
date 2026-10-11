@@ -4574,3 +4574,55 @@ on recorded fixtures, and the cross-stack checks pass on the runner CI actually
 uses, not only on this machine. That was the open question — three of the four
 defects above could not fail here — and it is now answered for all eleven jobs.
 
+---
+
+## `knowledge.search` could never execute — found, fixed, and the score is unchanged
+
+**Date:** 2026-10-12, at `148a87c` (committed 2026-10-11 +0800). Another
+instance of §8's own defect class, and the first one found in the dispatch path
+rather than in a settings line.
+
+### What was wrong
+
+`architecture.md` §7 lists `knowledge.search` in the `READ` row — automatic,
+no approval — and `adapters/wiring.py::RetrievalStack` has bound a `KnowledgeTool`
+since retrieval landed. But neither fact reaches the code that runs tools. The
+runtime has exactly one dispatch call site (`agents/runtime.py:638`), and both
+assembly points handed it a bare `MCPToolGateway` that never referenced
+`KnowledgeTool`. `knowledge.search` is not an MCP server — `mcp-contracts.md` §4
+says so, and `domain/tools.py` registers it as `server="internal"` — so
+`mcp_gateway.py::_server_for` returned `None` for it, `_KNOWN_SERVERS` being
+`{crm, billing, issues}` alone. Every proposal became
+`ToolResult(ok=False, error="server_unavailable")`, on the eval path and in
+production alike.
+
+It was invisible because `tests/integration/test_knowledge_is_not_mcp.py`
+asserts only that the MCP gateway *refuses* `knowledge.search` — correct, and
+still true after the fix — and no test covered what happened when the model
+actually proposed it. The golden-path fixture never does, being the D19a
+boundary.
+
+### What was measured
+
+Live during the 2026-10-11 eval: four `server_unavailable` failures. In the
+committed run `evals/results/2026-10-11T15-39-42.json`, `results[].executed_tool_calls[]`
+filtered to `tool_name == "knowledge.search"` gives **35 proposed, 35 executed,
+0 failed** — counted by `status`, not asserted by a test.
+
+The fix is `adapters/tools/composite_gateway.py::CompositeToolGateway`, which
+routes on `TOOL_REGISTRY[name].server` at call time,
+covered by `tests/integration/test_composite_gateway.py` (9 tests; reverting the
+two call sites to `148a87c^` fails exactly the eval and worker wiring tests).
+
+### What this does not establish
+
+**The Definition-of-Done score is unchanged at 18 of 19, and D19 stays unmet.**
+`knowledge.search` was never recorded as a D19 strand. The score counts DoD rows,
+not §8 entries; D19's only unmet strand remains D19a, the `issues.create` product
+decision of 2026-10-09, which this work does not touch. Fixing an *unrecorded*
+instance of the defect class closes a gap; it does not change a row's verdict.
+There is no D19b.
+
+This is the same conclusion `cb457f4` reached for a different fix: the
+recommendation may point at work that exists, but adding a row is the operator's
+decision, not the code's.
