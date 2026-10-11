@@ -22,7 +22,7 @@ import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ModelProviderName = Literal["fake", "anthropic", "openai"]
@@ -71,6 +71,29 @@ class WildcardCorsOrigin(ValueError):
             "visits read every API response, and this API can move money. To "
             "disable cross-origin browser access entirely, set it empty -- which is "
             "not the same as allowing everything."
+        )
+
+
+class MissingEmbeddingModel(ValueError):
+    """``EMBEDDING_PROVIDER=openai`` was selected with a blank ``EMBEDDING_MODEL``.
+
+    A ``ValueError`` for the reason :class:`WildcardCorsOrigin` is one: that is
+    what pydantic wraps a validator exception in, and naming the failure keeps
+    the deployment's own output readable. It is also the same shape as
+    ``embeddings.UnknownEmbeddingProvider`` -- the other configuration fault in
+    this subsystem, which is refused the same way.
+
+    The message names the variable and the fix, because the reader is an
+    operator looking at a process that refused to start, not a developer with
+    the source open.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "EMBEDDING_PROVIDER=openai needs EMBEDDING_MODEL to name the model to "
+            "call (e.g. text-embedding-3-small). It is blank because the default "
+            "provider is local, and the local embedder has no model to name. Set "
+            "EMBEDDING_MODEL, or leave EMBEDDING_PROVIDER=local."
         )
 
 
@@ -233,7 +256,25 @@ class Settings(BaseSettings):
 
     # -- Embeddings ----------------------------------------------------------
     embedding_provider: EmbeddingProviderName = Field(default="local", alias="EMBEDDING_PROVIDER")
-    embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
+    # The model to call, and consulted only when the provider is ``openai``.
+    # ``build_embedder`` discards it under ``local``: that embedder is a keyed
+    # blake2b hash over the text's stemmed terms, so it has no model behind it
+    # and no name that could describe one.
+    #
+    # Empty is the default because there is no truthful value to put here for
+    # the default provider. It used to be OpenAI's ``text-embedding-3-small``,
+    # which a default deployment never called -- and an eval recorded
+    # ``embedding_provider: "local"`` beside
+    # ``embedding_model: "text-embedding-3-small"``, so the run's retrieval was
+    # attributed to a model that was never asked for anything. That is the
+    # defect ``docs/limitations.md`` §8 describes: a claim that reads as
+    # evidence of something it is not. Unset says what actually happened.
+    #
+    # Set it only for ``EMBEDDING_PROVIDER=openai``, where it becomes the
+    # ``model`` argument of the embeddings request. Blank there is refused at
+    # startup rather than sent as ``model=""``, which fails provider-side with
+    # an error that says nothing about which variable is missing.
+    embedding_model: str = Field(default="", alias="EMBEDDING_MODEL")
     embedding_dim: int = Field(default=1536, alias="EMBEDDING_DIM")
 
     # -- Retrieval -----------------------------------------------------------
@@ -364,6 +405,29 @@ class Settings(BaseSettings):
         if "*" in entries:
             raise WildcardCorsOrigin
         return value
+
+    @model_validator(mode="after")
+    def _require_an_embedding_model_for_the_openai_provider(self) -> Settings:
+        """Refuse ``EMBEDDING_PROVIDER=openai`` without a model to call.
+
+        Deliberately asymmetric rather than blanket: a blank ``EMBEDDING_MODEL``
+        is *correct* under ``local``, which is the default and is what a fresh
+        clone and CI run on. Refusing it there would make the shipped default
+        unusable, so the rule is stated as the pair it actually is.
+
+        Enforced here because this is the earliest point at which both settings
+        are known, and because the empty default made this the likely shape of a
+        real mistake: an operator who switched ``EMBEDDING_PROVIDER`` and not
+        this variable. Without the check that deployment comes up healthy and
+        fails on its first retrieval, sending ``model=""`` to the API and
+        surfacing the provider's rejection of an empty string -- which reads as
+        a key, quota or connectivity problem, and is none of those. A worker
+        that refuses to start and names the variable is the cheaper failure
+        (``docs/mcp-contracts.md``).
+        """
+        if self.embedding_provider == "openai" and not self.embedding_model.strip():
+            raise MissingEmbeddingModel
+        return self
 
     @property
     def tool_denylist(self) -> frozenset[str]:

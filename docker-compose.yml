@@ -141,12 +141,15 @@ services:
       OPENAI_JSON_OBJECT_FALLBACK: ${OPENAI_JSON_OBJECT_FALLBACK:-false}
       MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-60.0}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
-      # Which embedder, and at what width. `text-embedding-3-small`/`1536` are
-      # OpenAI's; under EMBEDDING_PROVIDER=local they describe the lexical
-      # embedder's fixed width instead. EMBEDDING_DIM is also the vector
-      # column's width (models.py::_EMBEDDING_DIM reads it), so changing it
-      # needs a migration -- it is forwarded, not free to retune.
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      # Which embedder, and at what width. EMBEDDING_MODEL has no fallback and
+      # none is wanted: it names the model only under EMBEDDING_PROVIDER=openai,
+      # and the local lexical embedder has no model to name, so a default here
+      # would name a model the container never calls. 1536 is OpenAI's width;
+      # under EMBEDDING_PROVIDER=local it describes the lexical embedder's fixed
+      # width instead. EMBEDDING_DIM is also the vector column's width
+      # (models.py::_EMBEDDING_DIM reads it), so changing it needs a migration --
+      # it is forwarded, not free to retune.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
       # Chunks returned per query, and the score below which the run abstains.
       # Read by this service too: it owns POST /knowledge/reindex, and the
@@ -300,9 +303,10 @@ services:
       # makes `docker compose up` actually complete a run on a fresh clone.
       OPSPILOT_FAKE_SCENARIO: ${OPSPILOT_FAKE_SCENARIO:-duplicate_charge}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
-      # Which embedder, at what width. See the api service's note: EMBEDDING_DIM
-      # is also the vector column's width and changing it needs a migration.
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      # Which embedder, at what width. See the api service's note: EMBEDDING_MODEL
+      # is blank for the same reason, and EMBEDDING_DIM is also the vector
+      # column's width and changing it needs a migration.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
       # Chunks per query and the abstention threshold. The same two the api
       # reads; both services build the same retrieval stack

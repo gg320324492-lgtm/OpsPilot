@@ -49,6 +49,8 @@ import math
 import re
 from typing import Protocol, runtime_checkable
 
+from opspilot.settings import MissingEmbeddingModel
+
 # A fixed personalisation/namespace constant for the deterministic local
 # embedder. It is part of the embedder's identity: two different constants give
 # two different (but each internally consistent) embedding spaces, and changing
@@ -310,10 +312,20 @@ def build_embedder(provider: str, *, api_key: str, model: str, dim: int) -> Embe
         ValueError: If ``provider`` is not one of the accepted values. The
             message names them, so a typo in ``EMBEDDING_PROVIDER`` is a clear
             startup failure rather than a silent fallback to local.
+        MissingEmbeddingModel: If ``provider`` is ``"openai"`` and ``model`` is
+            blank. A second refusal of a fault ``Settings`` already refuses, at
+            the point the value is consumed: the empty ``EMBEDDING_MODEL`` default
+            means ``ProviderEmbedder`` would otherwise put ``model=""`` in an
+            API request and fail provider-side with an error that does not name
+            the setting. Belt and braces for the same reason the wildcard CORS
+            origin is refused in configuration rather than only at the
+            middleware -- a value that cannot work must not reach the call.
     """
     if provider == "local":
         return LocalDeterministicEmbedder(dim=dim)
     if provider == "openai":
+        if not model.strip():
+            raise MissingEmbeddingModel
         return ProviderEmbedder(api_key=api_key, model=model, dim=dim)
     raise UnknownEmbeddingProvider(provider)
 

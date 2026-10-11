@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
-from opspilot.settings import Settings
+from opspilot.settings import MissingEmbeddingModel, Settings
 
 
 def test_sqlite_url_sets_is_sqlite() -> None:
@@ -26,6 +27,85 @@ def test_embedding_dim_defaults_to_1536() -> None:
 def test_embedding_dim_is_configurable() -> None:
     settings = Settings(EMBEDDING_DIM=768)
     assert settings.embedding_dim == 768
+
+
+# -- EMBEDDING_MODEL ---------------------------------------------------------
+# The variable is consulted only by the ``openai`` embedder, and its default is
+# empty. These pin the pair that makes that safe: ``local`` needs nothing, and
+# ``openai`` cannot be selected without it.
+
+
+def test_embedding_model_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default names no model, because the default embedder has none.
+
+    It used to be OpenAI's ``text-embedding-3-small``, a value no code path in a
+    default deployment ever passed to anything -- an eval recorded it beside
+    ``embedding_provider: "local"`` and so attributed that run's retrieval to a
+    model that was never called.
+    """
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    assert Settings(_env_file=None).embedding_model == ""  # type: ignore[call-arg]
+
+
+def test_local_provider_needs_no_embedding_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fresh-clone configuration constructs.
+
+    The asymmetry is the whole point: refusing a blank model everywhere would
+    make the shipped default unusable, so the default provider is the one
+    configuration that must keep working with nothing set.
+    """
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.embedding_provider == "local"
+    assert settings.embedding_model == ""
+
+
+def test_openai_provider_refuses_a_blank_embedding_model() -> None:
+    """``openai`` without a model is refused at startup, not at the first call.
+
+    Without this the deployment comes up healthy and then puts ``model=""`` in
+    an embeddings request, and the failure the operator sees is the provider
+    rejecting an empty string -- which reads as a key or quota problem and is
+    neither.
+
+    ``Settings`` reports a validator failure as pydantic's ``ValidationError``,
+    which is itself a ``ValueError``; the named fault survives in the error's
+    ``ctx`` and is asserted there, so this pins *which* fault fired rather than
+    that some validation failed.
+    """
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(EMBEDDING_PROVIDER="openai", EMBEDDING_MODEL="")
+    context = excinfo.value.errors()[0]["ctx"]
+    assert isinstance(context, dict)
+    assert isinstance(context["error"], MissingEmbeddingModel)
+    assert "EMBEDDING_MODEL" in str(context["error"])
+
+
+def test_openai_provider_refuses_a_whitespace_only_embedding_model() -> None:
+    """A model name of spaces is as unusable as none, and is how it gets typed.
+
+    ``EMBEDDING_MODEL=`` left in ``.env`` next to a provider switch is the
+    realistic shape; so is a stray space picked up by shell quoting.
+    """
+    with pytest.raises(ValidationError):
+        Settings(EMBEDDING_PROVIDER="openai", EMBEDDING_MODEL="   ")
+
+
+def test_openai_provider_accepts_a_named_embedding_model() -> None:
+    """The configuration an operator actually writes still constructs."""
+    settings = Settings(EMBEDDING_PROVIDER="openai", EMBEDDING_MODEL="text-embedding-3-small")
+    assert settings.embedding_model == "text-embedding-3-small"
+
+
+def test_missing_embedding_model_is_a_value_error() -> None:
+    """It is a ``ValueError``, so a caller may catch the broad type.
+
+    Same reason ``WildcardCorsOrigin`` is: that is what pydantic wraps a
+    validator exception in, and an operator-facing handler should not have to
+    enumerate every configuration fault this module can raise.
+    """
+    assert issubclass(MissingEmbeddingModel, ValueError)
 
 
 def test_log_level_is_upper_cased() -> None:

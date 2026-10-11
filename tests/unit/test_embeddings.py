@@ -19,6 +19,7 @@ from opspilot.adapters.retrieval.embeddings import (
     ProviderEmbedder,
     build_embedder,
 )
+from opspilot.settings import MissingEmbeddingModel, Settings
 
 DIM = 64
 
@@ -217,10 +218,55 @@ def test_build_embedder_local() -> None:
     assert embedder.dim == DIM
 
 
+def test_build_embedder_local_accepts_the_blank_default_model() -> None:
+    """The default ``EMBEDDING_MODEL`` is empty, and ``local`` must still build.
+
+    The fresh-clone path, and the one CI takes. ``Settings`` refuses a blank
+    model only for ``openai``, so an empty string here is the value every
+    default deployment actually passes -- if this regressed, every retrieval
+    test in the suite would fail at wiring rather than at the thing under test.
+    """
+    embedder = build_embedder("local", api_key="", model="", dim=DIM)
+    assert isinstance(embedder, LocalDeterministicEmbedder)
+
+
+def test_build_embedder_from_default_settings_is_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings and ``build_embedder`` agree on the default pair, end to end.
+
+    Each half is asserted elsewhere; this is the hand-off, which is where a
+    renamed alias or a provider default that drifts from ``Settings`` would
+    show up as a fresh clone failing to build an embedder at all.
+    """
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    embedder = build_embedder(
+        settings.embedding_provider,
+        api_key=settings.openai_api_key,
+        model=settings.embedding_model,
+        dim=settings.embedding_dim,
+    )
+    assert isinstance(embedder, LocalDeterministicEmbedder)
+
+
 def test_build_embedder_openai() -> None:
     embedder = build_embedder("openai", api_key="key", model="text-embedding-3-small", dim=DIM)
     assert isinstance(embedder, ProviderEmbedder)
     assert embedder.dim == DIM
+
+
+def test_build_embedder_openai_refuses_a_blank_model() -> None:
+    """A blank model cannot become ``client.embeddings.create(model="")``.
+
+    ``Settings`` already refuses this pair; this is the same fault refused at
+    the point the value is consumed, so no route reaches the provider request
+    with an empty model name.
+    """
+    with pytest.raises(MissingEmbeddingModel) as excinfo:
+        build_embedder("openai", api_key="key", model="", dim=DIM)
+    assert "EMBEDDING_MODEL" in str(excinfo.value)
 
 
 def test_build_embedder_unknown_name_raises_and_names_accepted_values() -> None:
