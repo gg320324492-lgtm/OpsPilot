@@ -90,17 +90,21 @@ retried tool call. An idempotency key generated per *call* rather than per
 [tool-permissions.md §4](tool-permissions.md): the key is derived
 deterministically from `(run_id, transaction_id)`; a partial unique index on
 `tool_calls.idempotency_key` makes a second executed call with the same key a
-database error; and the MCP server keeps its own `UNIQUE` constraint on
-`refunds.idempotency_key` and returns `replayed: true`. Each layer alone is
-sufficient for the common case; the test calls the MCP server directly, twice,
-bypassing the agent.
+database error; and the MCP server's `issue_refund` handler scans its stored
+refunds for the key and returns `replayed: true`. That last layer is an
+application-level check, not a store constraint: the billing store is a JSON
+document with no `UNIQUE` constraint, and the check-then-write is not atomic, so
+it protects sequential repeats rather than a race between two concurrent
+callers. Each layer alone is sufficient for the common case; the test calls the
+MCP server directly, twice, bypassing the agent.
 
 **Residual.** None identified for the single-run case. Cross-run idempotency
 (two runs both refunding the same transaction) is handled by the MCP server's
-`invalid_state` check on an already-refunded transaction, but the *concurrent*
-version of that race is only covered because the store serialises writes; with a
-real payment API this would need a conditional write, and that is noted for
-Phase 2.
+`invalid_state` check on an already-refunded transaction. The *concurrent*
+version of that race is not covered: nothing locks the store, so the atomic
+replace only guarantees a reader never sees a torn file, not that one writer
+wins the check-then-write. With a real payment API this would need a conditional
+write, and that is noted for Phase 2.
 
 ---
 
@@ -201,11 +205,12 @@ The specification requires exactly-once refund execution and also permits
 was executed but *before* the `ToolCall` row was committed as `executed`, the run
 is marked interrupted while the money moved.
 
-**Resolution.** The MCP server's `refunds.idempotency_key` unique constraint is
-the authority, and the run's idempotency key is deterministic from
-`(run_id, transaction_id)`. So a resumed retry — whenever Phase 2 adds it — hits
-the server, gets `replayed: true` and the existing `refund_id`, and the trace is
-corrected rather than duplicated. In Phase 1, the interrupted run is simply
+**Resolution.** The MCP server's `issue_refund` handler — its scan over the
+stored refunds for the key, not a store constraint — is the authority, and the
+run's idempotency key is deterministic from `(run_id, transaction_id)`. So a
+resumed retry — whenever Phase 2 adds it — hits the server, gets `replayed: true`
+and the existing `refund_id`, and the trace is corrected rather than duplicated.
+In Phase 1, the interrupted run is simply
 failed and a human re-runs it; the second run produces a *different* `run_id` and
 therefore a *different* idempotency key, so the MCP server's `invalid_state`
 check on the already-refunded transaction is what prevents the double refund.

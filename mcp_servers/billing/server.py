@@ -12,11 +12,16 @@ The tool surface (``docs/mcp-contracts.md`` S2):
 - ``billing.issue_refund``      -- HIGH_RISK_WRITE, mutates. ``idempotency_key``
   is REQUIRED (a parameter with no default, so the generated JSON Schema marks it
   required and the protocol rejects a call without one -- ``mcp-sdk-notes.md`` S4).
-  The key is unique in the store's ``refunds`` collection, so a second call with
-  the same key returns the existing ``refund_id`` with ``replayed: true`` and
-  inserts no second row. The uniqueness lives in the store, not in application
-  logic: the check-and-insert runs against the same in-memory document the store
-  persists, so it holds even for two calls in the same process.
+  The key is unique by the handler's check, not by a store constraint: a second
+  call with the same key returns the existing ``refund_id`` with ``replayed:
+  true`` and inserts no second row. That uniqueness lives in application logic
+  -- the linear scan over ``_rows(store, "refunds")`` in ``issue_refund`` -- and
+  not in the store, which is a plain JSON document with no schema, no index and
+  therefore no ``UNIQUE`` constraint. The guarantee is therefore scoped to one
+  process serving calls one at a time: the check runs against the same in-memory
+  document the store persists, so it holds for sequential calls in the same
+  process, but the check-then-write is not atomic across two concurrent callers
+  (``_store.py``'s concurrency note: the atomic replace is not locking).
 
 Errors are results, never exceptions. A raised exception becomes an opaque
 ``UnexpectedToolError`` with the code lost (``mcp-sdk-notes.md`` S5), which would
@@ -236,8 +241,11 @@ def _issue_refund(
     if amount <= 0:
         return RefundResult(code="validation_error", transaction_id=transaction_id)
 
-    # Idempotency first: the store is the authority. A replay returns the
-    # recorded refund unchanged and never looks at the transaction again.
+    # Idempotency first: this linear scan over the stored refunds is the
+    # authority (there is no store-level constraint to lean on). A replay
+    # returns the recorded refund unchanged and never looks at the transaction
+    # again. It holds for sequential calls in one process; it does not, on its
+    # own, serialise two concurrent callers.
     for refund in _rows(store, "refunds"):
         if refund.get("idempotency_key") == idempotency_key:
             return RefundResult(

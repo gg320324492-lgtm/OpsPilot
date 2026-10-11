@@ -175,16 +175,21 @@ The key is enforced in two places, deliberately:
 1. **At gate 4** (policy): if a `ToolCall` with this key already has status
    `executed` for this run, the gate short-circuits and returns the recorded
    result. This is fast and keeps the trace coherent.
-2. **At the MCP server**: `billing.issue_refund` keeps a `(key -> refund_id)`
-   map in its own store and returns the existing `refund_id` rather than
-   inserting a second refund. This is authoritative. Gate 4 is an optimisation;
-   the MCP server is the guarantee, because it is the only place that can
-   actually prevent a duplicate row.
+2. **At the MCP server**: `billing.issue_refund` scans its stored refunds for
+   the key and returns the existing `refund_id` rather than inserting a second
+   refund. This is authoritative. Gate 4 is an optimisation; the MCP server is
+   the guarantee, because it is the only place that can actually prevent a
+   duplicate row. Note the enforcement is the handler's check, not a store
+   constraint — the billing store is a JSON document with no `UNIQUE`
+   constraint — so it holds for sequential calls in one process and does not
+   serialise two concurrent callers.
 
-The test that matters is `tests/integration/test_refund_idempotency.py`: it
-calls the MCP server directly, twice, with the same key, and asserts one refund
-exists with two audit entries. This test does not go through the agent at all,
-so it holds even if the agent loop is rewritten.
+The test that matters is
+`tests/integration/test_mcp_billing.py::test_same_idempotency_key_twice_creates_one_refund`:
+it calls the MCP server directly, twice, with the same key, and asserts one
+refund exists. This test does not go through the agent at all, so it holds even
+if the agent loop is rewritten. (`tests/integration/test_refund_idempotency.py`
+is the M0 placeholder — a skipped stub — and is not that test.)
 
 ## 5. What the model can and cannot do
 

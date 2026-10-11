@@ -94,8 +94,9 @@ async def test_refund_twice_with_one_key_yields_one_refund(gateway: MCPToolGatew
     """Two identical calls, one ``idempotency_key`` -> one refund side effect.
 
     The count is asserted against the store document the server writes, not only
-    against the two responses: the guarantee lives in the store, so that is where
-    a second refund row would appear if the tool were wrong. The second response
+    against the two responses: a second refund row would appear in the store, so
+    that is where the check belongs. (The idempotency guarantee is the handler's
+    scan, not a store constraint.) The second response
     must also carry ``replayed: true`` and the *same* ``refund_id`` -- without
     that flag a replay would look identical to a fresh refund and the run's audit
     would claim two refunds when one happened (``docs/mcp-contracts.md`` §2).

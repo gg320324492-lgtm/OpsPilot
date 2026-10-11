@@ -36,10 +36,11 @@ imports with no business logic, and a published GitHub repository.
       in `src/opspilot/domain/runs.py` returns nine states and every edge
       identical, the empty successor sets on `COMPLETED` and `FAILED`
       included. Not audited document by document.)
-- [ ] The five core principles are stated with their enforcement mechanism, not
-      as slogans. (Untickable as written: no document in the repository
+- [ ] Core architectural principles are stated with their enforcement mechanism,
+      not as slogans. (Untickable as written: no document in the repository
       enumerates *five* core principles — the phrase appears only here and in
-      `progress.md`, which points at `architecture.md` §1–2, two sections. The
+      `progress.md`, which points at `architecture.md` §1–2, two sections; the
+      word "principle" does not appear in `architecture.md` at all. The
       substance is real: §1 states the CI-enforced `HIGH_RISK_WRITE` invariant as
       a query, §2 defends retrieval structurally and names the injection test,
       §3's layering is enforced by `tests/unit/test_layering.py`. What cannot be
@@ -52,30 +53,35 @@ imports with no business logic, and a published GitHub repository.
       the package.)
 - [x] `ruff check` and `ruff format --check` are clean. (`All checks passed!`
       and `209 files already formatted`.)
-- [ ] `pytest` runs and reports 0 tests collected (no tests yet) without error.
-      (The first half holds, the count never did: at the M0 commit `2613e10`
-      the tree already carried test files — `tests/integration/test_api_tickets.py`
-      is a `"""Placeholder: ... Populated in M1."""` module whose single test is
-      `@pytest.mark.skip(reason="M0 skeleton — implemented in M1")`. `progress.md`
-      §M0 records the run as "26 tests: 6 pass, 20 correctly skip", not 0
-      collected.)
-- [ ] `.env.example` has every setting the code reads, with an empty value.
-      (First clause holds: all 29 `Settings` fields appear in `.env.example`,
-      matching once case is normalised. The "empty value" clause does not — 16 of
-      the 29 carry a shipped value on purpose (`MODEL_PROVIDER=fake`,
-      `MAX_STEPS=24`, `EMBEDDING_DIM=1536`, …). DoD row D8 corrects this clause
-      rather than satisfying it.)
+- [ ] `pytest` runs on the M0 tree without error, reporting what it collects.
+      (The first half holds, the count never did: at the M0 commit `2613e10` the
+      tree already carried a full test tree and pytest collected without error —
+      `progress.md` §M0 records the run as "26 tests: 6 pass, 20 correctly
+      skip", not 0 collected. "0 tests collected" was never true:
+      `tests/integration/test_api_tickets.py` is a
+      `"""Placeholder: ... Populated in M1."""` module whose single test is
+      `@pytest.mark.skip(reason="M0 skeleton — implemented in M1")`, so the tree
+      was deliberately populated with skips, never empty.)
+- [x] `.env.example` has every setting the code reads. (First clause holds: all
+      29 `Settings` fields appear in `.env.example`, matching once case is
+      normalised. The original wording's "empty value" clause is dropped, not
+      softened — 16 of the 29 carry a shipped value on purpose
+      (`MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536`, …). DoD row D8
+      resolves the same clause the same way: corrected, not satisfied.)
 - [x] GitHub repository created, `main` pushed. (`origin` is
       `https://github.com/gg320324492-lgtm/OpsPilot.git`, and local `main` equals
       `origin/main` at `8396f0b`.)
 - [ ] **No business logic.** `domain/`, `agents/`, `adapters/` contain
-      docstrings explaining their responsibility and nothing else. (The bolded
-      claim holds; "and nothing else" does not. At `2613e10` those three trees
-      carry 28 method signatures, not just docstrings, and `domain/runs.py`
-      transcribes the transition table as 118 lines of literals. Every one of
-      those bodies is `raise NotImplementedError`, which is why the milestone
-      log admits "except the transition table which *is* the spec". The tree is
-      no longer a skeleton either — M3 and M4 filled it.)
+      docstrings explaining their responsibility. (The bolded claim holds — every
+      method body in those trees is `raise NotImplementedError`; "and nothing
+      else" did not, so it is dropped rather than softened, and the original
+      criterion is untickable as written. At `2613e10` those three trees carry 28
+      method signatures, not just docstrings, and `domain/runs.py` transcribes
+      the transition table as 118 lines of literals — a table, not logic. That is
+      why the milestone log admits "except the transition table which *is* the
+      spec". The tree is no longer a skeleton either — M3 and M4 filled it. The
+      criterion is left unticked because at the M0 commit it evaluated false; the
+      reworded claim itself would now hold, but a tick would misdate the credit.)
 
 **Explicitly not in M0.** No models, no endpoints, no MCP servers, no agent loop.
 
@@ -136,15 +142,23 @@ imports with no business logic, and a published GitHub repository.
       endpoints except `/health` require it" (line 368) and "`/health` and
       `/ready` are token-exempt" (line 410) — and the line-368 sentence has been
       corrected to match the code.)
-- [ ] Repository classes exist with no business logic — `ToolCall`, `Run`,
-      `Approval` stores with CRUD only. (The three stores exist —
+- [x] Repository classes exist with no business logic — `ToolCall`, `Run`,
+      `Approval` stores whose writes carry no domain decision (the
+      transition table lives in `domain/runs.py`, not in a store). (The three
+      stores exist —
       `SqlToolCallStore`, `SqlRunStore`, `SqlApprovalStore` — and hold no domain
       decisions: the transition table stays in `domain/runs.py`, which
-      `set_status` calls rather than re-deciding. But "CRUD only" no longer
-      describes them. `SqlRunStore.claim_next` issues the
+      `set_status` calls rather than re-deciding. The criterion previously read
+      "CRUD only", which was false and has been dropped: the stores do carry
+      named operations beyond raw reads and writes — `SqlRunStore.claim_next`
+      issues the
       `FOR UPDATE SKIP LOCKED` claim, `SqlToolCallStore.find_executed` is the
       idempotency pre-check, and `SqlApprovalStore.decide` re-queues the run to
-      `EXECUTING` or `RESPONDING`.)
+      `EXECUTING` or `RESPONDING`. Each is a store operation that *executes* a
+      decision made elsewhere: `decide` re-queues through
+      `SqlRunStore.set_status`, which calls the `domain/runs.py` transition
+      table, so no store re-decides the state machine. That is what the
+      reworded criterion now says.)
 - [x] Tests: `tests/unit/test_models.py`, `tests/integration/test_api_tickets.py`.
       (Both present and substantive; 34 tests pass across them and the envelope
       test.)
@@ -177,18 +191,23 @@ imports with no business logic, and a published GitHub repository.
       three `server.py::main`; `Store.reset()` restores the live file from the
       seed, exercised by `test_mcp_store.py::test_reset_restores_after_mutation`
       and the `store` fixture.)
-- [ ] `billing.issue_refund` mutates state and is idempotent on
-      `idempotency_key`, with a `UNIQUE` constraint in its own store. (The first
-      two clauses hold — the tool writes `transactions.status → refunded` plus a
-      `refunds` row, and the key makes a repeat a replay. The `UNIQUE` constraint
-      does not exist: the billing store is a JSON document, not a database, and
+- [x] `billing.issue_refund` mutates state and is idempotent on
+      `idempotency_key`. (The tool writes `transactions.status → refunded` plus a
+      `refunds` row, and the key makes a repeat a replay: a second call with the
+      same key returns the recorded `refund_id` with `replayed: true` and inserts
+      no second row. What enforces it is the handler's check — the linear scan
+      over `_rows(store, "refunds")` in `issue_refund` — not a store constraint:
+      the billing store is a JSON document, not a database, and
       `mcp_servers/_store.py` says so — the financial write "is handled by the
-      caller … not by the storage engine". `docs/mcp-contracts.md` §2 nonetheless
-      states that "the `refunds.idempotency_key` column has a `UNIQUE`
-      constraint", and names `tests/integration/test_refund_idempotency.py` as
-      the test that proves it; that file is still the M0 placeholder, a
-      `pytest.mark.skip` stub with the body `...`, never populated. The only
-      real `UNIQUE` on an idempotency key is M1's
+      caller … not by the storage engine". So the guarantee is scoped to one
+      process serving calls one at a time; nothing serialises two concurrent
+      callers. The checkable claim is proved by the passing integration test
+      `tests/integration/test_mcp_billing.py::test_same_idempotency_key_twice_creates_one_refund`,
+      which asserts `replayed` false then true, the same `refund_id`, and
+      `len(store.data["refunds"]) == 1` against the store document.
+      `tests/integration/test_refund_idempotency.py` is still the M0 placeholder
+      — a `pytest.mark.skip` stub with the body `...`, never populated — and is
+      not evidence. The only real `UNIQUE` on an idempotency key is M1's
       `uq_tool_calls_idempotency_key_executed`, in the application database.)
 - [x] A second call with the same key returns the same `refund_id` with
       `replayed: true` and creates no second refund row.
@@ -297,15 +316,20 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 
 **Acceptance criteria**
 
-- [ ] `RunStatus`, `ALLOWED_TRANSITIONS`, `AgentRun.transition_to()` in
-      `domain/runs.py`, importing only `enum` and Pydantic. (All three are in
+- [x] `RunStatus`, `ALLOWED_TRANSITIONS`, `AgentRun.transition_to()` in
+      `domain/runs.py`, depending on nothing but the standard library, Pydantic
+      and the package's own `domain/` layer — no adapter, ORM or HTTP import.
+      (All three are in
       `domain/runs.py` — `RunStatus:30`, `ALLOWED_TRANSITIONS:51`,
       `AgentRun.transition_to():113` — and the module reaches no adapter, ORM or
-      port, which `tests/unit/test_layering.py` pins. The import clause as
-      written is false, though: the file also imports `__future__`, `datetime`,
-      `typing.Final`, `uuid.UUID`, and lazily `opspilot.domain.errors`
-      (`IllegalTransition`, imported inside the method to keep the graph acyclic).
-      The module's own docstring states the wider set it actually keeps to.)
+      port, which `tests/unit/test_layering.py` pins. The criterion previously
+      read "importing only `enum` and Pydantic", which was false and has been
+      reworded to the property it was protecting: the file imports
+      `__future__`, `datetime`, `enum`, `typing.Final` and `uuid.UUID`, plus
+      Pydantic, plus lazily `opspilot.domain.errors` (`IllegalTransition`,
+      imported inside the method to keep the graph acyclic) — all standard
+      library, Pydantic, or the module's own `domain/` layer. The module's own
+      docstring states the set it actually keeps to.)
 - [x] A test iterating `RunStatus` requires every state to have a transitions
       entry, so adding a state without deciding its edges is red.
       (`test_run_state.py::test_every_state_appears_as_a_key` iterates the enum
@@ -319,19 +343,22 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `generate_text`.
       (`ports/model_provider.py:48`, `runtime_checkable`, all three declared.)
 - [ ] `FakeModelProvider` replays **recorded** responses from
-      `evals/datasets/fixtures/`, not hand-invented scripts. (The replay
-      machinery is real — a scenario name selects a fixture, request-hash
-      matching is the fallback for when none is named, and
-      `UnmatchedFixtureError` rather than a default answer. The *responses* are
-      not recordings: both committed fixtures carry `"recorded": false` and a
-      note reading "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with
-      record_fixture() against a real provider", and neither carries a
-      `request_hash` because the prompts are assembled at runtime. So the
-      criterion's own distinction — recorded, not hand-invented — is not met.
-      `docs/risks.md` R2 said the fixtures hold "recorded provider responses …
-      captured once from a real run and committed", which the fixtures
-      contradict; R2 has since been corrected to say so, and
-      `docs/limitations.md` §8 now carries this instance in its Fixed list.)
+      `evals/datasets/fixtures/`, not hand-invented scripts. (The criterion's
+      own distinction is unmet: the responses replayed are hand-written, not
+      recorded. Both committed fixtures
+      (`evals/datasets/fixtures/already_refunded.json`,
+      `duplicate_charge.json`) carry `"recorded": false` and a note reading
+      "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with
+      record_fixture() against a real provider", and `record_fixture()` has
+      never been run against a real provider. Neither fixture carries a
+      `request_hash`, because the prompts are assembled at runtime. The replay
+      machinery — a scenario name selects a fixture, request-hash matching is
+      the fallback, and `UnmatchedFixtureError` rather than a default answer —
+      is real, but that is the mechanism, not the response, and the response is
+      exactly what the criterion denies. `docs/risks.md` R2 said the fixtures
+      hold "recorded provider responses … captured once from a real run and
+      committed", which the fixtures contradict; R2 has since been corrected,
+      and `docs/limitations.md` §8 carries this instance in its Fixed list.)
 - [x] `AnthropicProvider` and `OpenAIProvider`, sharing one prompt-assembly and
       structured-output path.
       (Both import `adapters/models/_shared.py` and call its `default_system`,
@@ -339,18 +366,30 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       its transport. `test_anthropic_provider_has_one_mechanism.py` pins that
       the mechanism is read in exactly one place.)
 - [ ] `LinearOrchestrator` drives a run end to end with the fake provider.
-      (`LinearOrchestrator.step` is an M0 stub that raises
-      `NotImplementedError`, and the runtime never calls it — `run_loop`
-      discards its `orchestrator` argument with `_ = orchestrator`. What drives
-      the run is `agents/runtime.py::_pump`; the orchestrator is passed to it by
-      `worker/__main__.py` and by the eval runner but is not consulted.)
+      (The criterion is unmet: `LinearOrchestrator` is an M0 stub that drives
+      nothing. `LinearOrchestrator.step` raises `NotImplementedError` and the
+      runtime never calls it — `run_loop` discards its `orchestrator` argument
+      with `_ = orchestrator` (`runtime.py:990`). What drives the run is
+      `agents/runtime.py::_pump`; `worker/__main__.py`,
+      `evals/runner.py`, `tests/agent/_golden_harness.py` and
+      `scripts/demo_golden_path.py` each construct a `LinearOrchestrator` and
+      pass it, and nothing runs it. No test calls `.step(`. This is a
+      **capability gap, not a boundary** — `docs/limitations.md` §8 records it
+      in its Remaining list, deliberately distinct from `issues.create` (D19a)
+      there, which is an operator decision. The criterion stays unticked.)
 - [ ] `LangGraphOrchestrator` produces the same transition sequence on the same
-      fixture, asserted as a subsequence of the legal set. (Both
-      `LangGraphOrchestrator.step` and `build_graph` raise
-      `NotImplementedError`, and no test anywhere in `tests/` names the class —
-      the module is excluded from coverage and the docstring's "exercised by a
-      contract test in CI only" describes a test that does not exist. No
-      subsequence assertion exists.)
+      fixture, asserted as a subsequence of the legal set. (The criterion is
+      unmet: both `LangGraphOrchestrator.step` and `build_graph` raise
+      `NotImplementedError`, so no sequence is produced, and no test anywhere in
+      `tests/` names the class — the module is excluded from coverage and the
+      docstring's "exercised by a contract test in CI only" describes a test
+      that does not exist. No subsequence assertion exists and none can while
+      every method it would compare raises. `langgraph` is declared in
+      `pyproject.toml` and imported by no module. Like the `LinearOrchestrator`
+      row above, this is a **capability gap, not a boundary** —
+      `docs/limitations.md` §8 item 3 records both orchestrators in its
+      Remaining list, deliberately distinct from `issues.create` (D19a) there,
+      which is an operator decision. The criterion stays unticked.)
 - [x] `MAX_STEPS` exceeded → `FAILED(max_steps_exceeded)`.
       (`_pump` calls `_fail_run(..., reason="max_steps_exceeded")` before raising
       `MaxStepsExceeded`; `test_runtime_fake.py::test_max_steps_is_enforced`
@@ -810,7 +849,7 @@ what got built rather than what was promised.
 | D5 | The four CI invariants each return 0 after the whole suite. | `tool-permissions.md` §6; README "Evaluation". |
 | D6 | The four safety properties in `limitations.md` "What is *not* on this list" hold: the permission model is verified; the refund cannot execute twice; retrieved text cannot escalate a permission. | `limitations.md` §"What is not on this list". |
 | D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. **The call was deliberately not added to the golden path — see D19a below.** | `milestones.md` §M3; `architecture.md` §7. |
-| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 28 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
+| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 29 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
 | D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
 | D10 | The CI jobs §M9 names exist and run the commands the README documents. **CI first went fully green on GitHub Actions run 38076989911 at `0144d83` — 11 of 11 jobs — which retires the "no job has ever passed" caveat this line used to carry, and the 17-commit gap to `origin/main` recorded at `472c09a` is closed: `0144d83` is on the remote.** | `milestones.md` §M9; README "Tests". |
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |

@@ -223,14 +223,20 @@ transactions.refund_id = REF-10091
 refunds: INSERT (refund_id, transaction_id, amount, idempotency_key, created_at)
 ```
 
-Both writes are in one transaction. The `refunds.idempotency_key` column has a
-`UNIQUE` constraint — so even under concurrent duplicate delivery, the second
-insert fails and the handler returns the existing row with `replayed: true`
-rather than a 500.
+Both writes are in one `save()`. The key is made unique **by the handler's
+check, not by a store constraint**: `issue_refund` scans the stored `refunds`
+rows for a matching `idempotency_key` and returns the recorded refund with
+`replayed: true` rather than inserting a second row. The billing store is a
+plain JSON document (`mcp_servers/_store.py`) — no schema, no index, and so no
+`UNIQUE` constraint of any kind — and `_store.py` says plainly that it does not
+lock. The guarantee's boundary is therefore one process serving calls one at a
+time: a *sequential* repeat returns the recorded refund, which is what the
+golden path and the tests rely on. The check-then-write is not atomic, so this
+is not a claim about concurrent duplicate delivery.
 
-This uniqueness-in-the-store, not just in application logic, is the reason
-`tests/integration/test_refund_idempotency.py` can call the server directly,
-bypassing the agent, and still be a meaningful test.
+Idempotency here is enforced by the handler rather than inherited from the
+storage engine; that is why `tests/integration/test_mcp_billing.py` can call the
+server directly, bypassing the agent, and still be a meaningful test.
 
 ---
 

@@ -128,8 +128,9 @@ def test_same_idempotency_key_twice_creates_one_refund(store: Store) -> None:
     """Two calls, one key -> one refund row, same id, replayed false then true.
 
     The count is asserted against the store document, not the response: the
-    guarantee lives in the store, so that is where a second row would appear if
-    the tool were wrong.
+    duplicate row would appear in the store, so that is where the check belongs.
+    (The idempotency check itself is the handler's, not a store constraint --
+    the billing store is a JSON document with no ``UNIQUE`` constraint.)
     """
     key = "refund:run-abc:TX-88219"
     args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
