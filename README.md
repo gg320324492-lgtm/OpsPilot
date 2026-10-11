@@ -73,7 +73,8 @@ Ticket    "We were charged twice for invoice INV-2026-384.
               ▼
 Classify      duplicate_charge                      confidence 0.93
 Retrieve      refund-policy.md
-              duplicate-charge-sop.md               2 citations, scored
+              duplicate-charge-sop.md               5 citations across 4 docs;
+              both expected documents among them
 CRM           crm.get_customer      → ACME, enterprise, active        842 ms
 Billing       billing.get_invoice    → INV-2026-384, $129.00, paid    421 ms
               billing.list_transactions

@@ -561,10 +561,12 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       warns a reader about. Note that the README's own "both" is
       `refund-policy.md` **plus** `enterprise-billing.md`, not the expected pair,
       so it is not the evidence for this criterion; the records above are. One
-      test name overstates the pair:
+      test name overstated the pair:
       `test_retrieval_threshold.py::test_the_golden_path_cites_exactly_the_two_expected_documents`
-      asserts only the subset (`missing = expected - slugs`, line 306) over the
-      top 5, so "exactly" there is inherited wording, not a checked condition.)
+      asserted only the subset (`missing = expected - slugs`), so "exactly"
+      there was inherited wording, not a checked condition. It has been renamed
+      to `test_the_golden_path_retrieves_the_two_expected_documents`, and the
+      assertion is unchanged.)
 - [x] Reject path: `WAITING_APPROVAL` → `RESPONDING` → `COMPLETED` with an
       escalation reply and **no refund**.
       (Driven through the real worker by
