@@ -102,9 +102,15 @@ class RetrievalStack:
             ``run_loop`` accepts. Binds ``top_k`` and ``min_score`` from settings
             behind the published ``RetrievalCallable`` shape.
         knowledge_tool: The ``ToolGateway`` that dispatches ``knowledge.search``
-            in-process (``docs/mcp-contracts.md`` §4) for a caller that wants it
-            as a gateway -- the runtime itself does not go through it, because
-            retrieval feeds prompt assembly, not the action step.
+            in-process (``docs/mcp-contracts.md`` §4) -- the ``internal`` half of
+            the composite gateway the worker and the eval harness run on. It used
+            to be carried "for a caller that wants it as a gateway" and used by
+            nobody: the runtime's single dispatch site was handed a bare
+            ``MCPToolGateway``, which refuses ``internal`` by design, so the tool
+            was advertised to the model (``docs/architecture.md`` §7) and could
+            not execute. Both composition roots now pass this one, so retrieval
+            feeds *both* steps -- prompt assembly, and the action step, for a
+            model that proposes the tool.
         reindex_runner: The callable ``POST /api/knowledge/reindex`` invokes. It
             runs ``ingest_directory`` and returns its ``IngestResult``; unchanged
             documents are skipped by content hash, so it is idempotent

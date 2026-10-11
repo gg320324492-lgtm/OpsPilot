@@ -55,6 +55,7 @@ from collections.abc import Awaitable, Callable
 from typing import Final
 
 from opspilot.adapters.retrieval.search import RetrievalOutcome
+from opspilot.domain.tools import ToolSpec
 from opspilot.ports.tool_gateway import ToolResult
 
 __all__ = ["KnowledgeTool"]
@@ -104,14 +105,18 @@ class KnowledgeTool:
     def __init__(self, *, retriever: Retriever | None = None) -> None:
         self._retriever = retriever
 
-    async def list_tools(self) -> list[object]:
+    async def list_tools(self) -> list[ToolSpec]:
         """Return the static registry, not a server-derived list.
 
         The registry is the source of truth for permissions; this deliberately
-        does not build a second registry. Typed as ``list[object]`` because this
-        half only ever dispatches ``knowledge.search`` and has no opinion about
-        the other tools -- a caller wanting the full registry reads
-        ``TOOL_REGISTRY``.
+        does not build a second registry. It is typed as ``list[ToolSpec]`` --
+        the same as the port's, and as the body already returns -- rather than
+        the ``list[object]`` this once declared. That annotation made this class
+        *not* satisfy ``ToolGateway``, which is what let
+        ``CompositeToolGateway`` (which routes ``internal`` tools here through
+        the port) need a cast or a loosened type; the docstring's claim that this
+        is "a drop-in for the run runtime's ``gateway`` argument" was true of
+        the behaviour and false of the type.
         """
         from opspilot.domain.tools import TOOL_REGISTRY
 

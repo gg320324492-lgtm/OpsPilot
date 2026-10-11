@@ -419,6 +419,13 @@ def build_worker_gateway(settings: object = None) -> ToolGateway:
     the entire test suite exercises; this function returns exactly that. The
     stdio branch is taken only when an operator has explicitly asked for it.
 
+    **It returns the MCP half, not the gateway the worker runs on.** The returned
+    object is the transport this deployment chose, and
+    ``test_mcp_stdio_transport.py`` asserts that by type and by reaching into
+    ``_server_factory``. The worker's own gateway is that half composed with the
+    in-process knowledge tool in :func:`build_worker`, which is also where the
+    retrieval stack exists to be passed in.
+
     Raises:
         WorkerConfigError: If ``MCP_TRANSPORT`` names a transport this build has
             no adapter for, or if one of the three commands is unparseable. Both
@@ -460,6 +467,7 @@ def build_worker(settings: object = None) -> _Worker:
     """
     from opspilot.adapters.orchestration.linear import LinearOrchestrator
     from opspilot.adapters.persistence import repositories
+    from opspilot.adapters.tools.composite_gateway import CompositeToolGateway
     from opspilot.adapters.wiring import build_citation_store
     from opspilot.settings import Settings
     from opspilot.tracing.recorder import TraceRecorder
@@ -525,8 +533,26 @@ def build_worker(settings: object = None) -> _Worker:
         # gateway that builds its three servers in this process on first use; under
         # ``stdio`` it reads ``MCP_CRM_COMMAND`` & co. and spawns them as child
         # processes (``tools/mcp_stdio.py``). Either way the worker's shutdown path
-        # closes it, so a stdio deployment leaves no child behind.
-        gateway=build_worker_gateway(resolved),
+        # closes the gateway it is given, and the composite forwards that to the
+        # MCP half, so a stdio deployment leaves no child behind.
+        #
+        # Composed here rather than inside ``build_worker_gateway`` because the
+        # retrieval stack is built here, one per process, and the in-process half
+        # must be *this* stack's -- the same embedder and vector store the run's
+        # citations come from. Two stacks would be two vector spaces, and the tool
+        # would answer ``not_configured`` only if somebody remembered to pass it.
+        #
+        # The reason it is needed at all: ``knowledge.search`` is registered
+        # ``server="internal"`` and dispatched in-process
+        # (``docs/mcp-contracts.md`` §4), so an ``MCPToolGateway`` refuses it with
+        # ``server_unavailable`` -- by design, and asserted by
+        # ``test_knowledge_is_not_mcp.py``. A worker dispatching through the MCP
+        # half alone could not execute a tool ``docs/architecture.md`` §7
+        # advertises to the model as ``READ``.
+        gateway=CompositeToolGateway(
+            internal=stack.knowledge_tool,
+            mcp=build_worker_gateway(resolved),
+        ),
         # The linear executor, not LangGraph: deterministic, milliseconds-fast and
         # dependency-free. ``run_loop`` accepts the orchestrator but does not
         # dispatch through it today (``agents/runtime.py``) -- the port is what

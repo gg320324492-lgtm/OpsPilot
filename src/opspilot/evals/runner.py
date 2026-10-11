@@ -774,6 +774,7 @@ async def run_case(
         SqlTicketStore,
         SqlToolCallStore,
     )
+    from opspilot.adapters.tools.composite_gateway import CompositeToolGateway
     from opspilot.adapters.tools.mcp_gateway import MCPToolGateway, build_in_process_servers
     from opspilot.tracing.recorder import TraceRecorder
     from opspilot.worker import loop as worker_loop
@@ -788,7 +789,18 @@ async def run_case(
             # come from the same documents the run retrieved from.
             await stack.reindex_runner(KNOWLEDGE_DIR)
 
-            gateway = MCPToolGateway(servers=build_in_process_servers(store_dir))
+            # Both halves, not just the MCP one. ``knowledge.search`` is
+            # registered ``server="internal"`` and dispatched in-process
+            # (docs/mcp-contracts.md §4), so a bare ``MCPToolGateway`` refused it
+            # with ``server_unavailable`` and every case whose model proposed it
+            # recorded a failed tool call -- in the harness as much as in
+            # production. The knowledge half is the *case's own* stack, so it
+            # searches the same index the run's citations come from rather than
+            # an unconfigured tool that answers ``not_configured``.
+            gateway = CompositeToolGateway(
+                internal=stack.knowledge_tool,
+                mcp=MCPToolGateway(servers=build_in_process_servers(store_dir)),
+            )
             provider = _build_provider_for_case(case, provider_name)
             orchestrator = LinearOrchestrator()
             run_store = SqlRunStore(factory)  # type: ignore[arg-type]

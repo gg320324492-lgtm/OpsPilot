@@ -71,7 +71,11 @@ def test_list_tools_returns_the_registry() -> None:
     import asyncio
 
     tools = asyncio.run(KnowledgeTool().list_tools())
-    assert {spec.name for spec in tools} == set(TOOL_REGISTRY)  # type: ignore[attr-defined]
+    # No ``type: ignore`` here any more: the method is declared ``list[ToolSpec]``,
+    # so ``spec.name`` is a real attribute rather than one a loose annotation hid.
+    # ``warn_unused_ignores`` is what forced the removal -- the ignore had been
+    # paying for the old ``list[object]`` signature.
+    assert {spec.name for spec in tools} == set(TOOL_REGISTRY)
 
 
 # ---------------------------------------------------------------------------
