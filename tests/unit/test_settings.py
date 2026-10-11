@@ -147,3 +147,46 @@ def test_anthropic_structured_output_refuses_an_unknown_value() -> None:
     """A typo is a configuration error, not a silent fallback to the default."""
     with pytest.raises(ValueError):
         Settings(ANTHROPIC_STRUCTURED_OUTPUT="toool")  # type: ignore[arg-type]
+
+
+# -- the OpenAI json_object retry --------------------------------------------
+
+
+def test_openai_json_object_fallback_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second call is opt-in, because it is a second billable call.
+
+    Same shape of assertion as ``ANTHROPIC_STRUCTURED_OUTPUT``'s, and for the
+    same reason: the entire safety of an opt-in is that the default leaves a
+    real provider alone, and real OpenAI constrains generation so it never needs
+    the retry. An operator must never be silently placed on the path that can
+    spend their money twice.
+    """
+    monkeypatch.delenv("OPENAI_JSON_OBJECT_FALLBACK", raising=False)
+    assert Settings(_env_file=None).openai_json_object_fallback is False  # type: ignore[call-arg]
+
+
+def test_openai_json_object_fallback_accepts_the_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The value an operator actually writes, read the way it reaches the process.
+
+    Set through the environment rather than as a keyword, because that is how the
+    variable arrives in a deployment -- and ``test_the_worker_forwards_it_to_the_openai_adapter``
+    is the case that depends on this being the real reading, not a constructor
+    convenience.
+    """
+    monkeypatch.setenv("OPENAI_JSON_OBJECT_FALLBACK", "true")
+    assert Settings(_env_file=None).openai_json_object_fallback is True  # type: ignore[call-arg]
+
+
+def test_openai_json_object_fallback_does_not_read_a_non_bool_as_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A misspelt or nonsense value is refused, not read as truthy.
+
+    ``OPENAI_JSON_OBJECT_FALLBACK=flase`` is a configuration error the operator
+    would want to hear about: read loosely it would silently leave the retry off
+    and the endpoint that needs it would keep failing every case with no sign of
+    why. Refusing to construct says so at startup instead.
+    """
+    monkeypatch.setenv("OPENAI_JSON_OBJECT_FALLBACK", "flase")
+    with pytest.raises(ValueError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

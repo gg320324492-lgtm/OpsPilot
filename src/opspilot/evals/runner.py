@@ -716,6 +716,11 @@ def _build_provider(provider_name: str) -> object:
             model_name=settings.model_name or _DEFAULT_MODEL_NAMES["openai"],
             timeout_seconds=settings.model_timeout_seconds,
             base_url=settings.openai_base_url,
+            # Forwarded for the reason the anthropic branch above names: two
+            # assembly points for one adapter, and only one of them knowing
+            # about a setting is how a deployment's configuration gets silently
+            # ignored and every case fails instead of one clearly misbehaving.
+            json_object_fallback=settings.openai_json_object_fallback,
         )
     raise DatasetError(
         where="run_dataset",

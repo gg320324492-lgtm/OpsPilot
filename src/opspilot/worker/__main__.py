@@ -390,6 +390,11 @@ def build_worker_provider(settings: object = None) -> ModelProvider:
             # Empty means the SDK's own endpoint; the adapter omits the argument
             # then rather than passing "", which would break plain OpenAI.
             base_url=resolved.openai_base_url,
+            # Whether structured requests ask for json_object with the schema in
+            # the prompt, instead of the json_schema envelope. Never selected
+            # silently: real OpenAI constrains generation and needs neither, and
+            # a deployment should get the request it sent before.
+            json_object_fallback=resolved.openai_json_object_fallback,
         )
 
     raise WorkerConfigError(

@@ -134,6 +134,11 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      # Whether structured requests ask for json_object with the schema in the
+      # prompt instead of the json_schema envelope. False is settings.py's default
+      # and the right value for real OpenAI; see .env.example for the endpoint
+      # that needs it.
+      OPENAI_JSON_OBJECT_FALLBACK: ${OPENAI_JSON_OBJECT_FALLBACK:-false}
       MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-60.0}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
       # Which embedder, and at what width. `text-embedding-3-small`/`1536` are
@@ -279,6 +284,9 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       ANTHROPIC_STRUCTURED_OUTPUT: ${ANTHROPIC_STRUCTURED_OUTPUT:-output_config}
+      # See the api service: settings.py's default is false, and compose is not a
+      # second source of truth for it.
+      OPENAI_JSON_OBJECT_FALLBACK: ${OPENAI_JSON_OBJECT_FALLBACK:-false}
       # Seconds one model call may take before the SDK gives up. This is the
       # setting whose absence from this file was the reason the planner looped:
       # MODEL_TIMEOUT_SECONDS was written to .env and never reached the

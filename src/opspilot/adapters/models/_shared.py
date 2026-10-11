@@ -29,11 +29,19 @@ class StructuredOutputError(RuntimeError):
     ``generate_structured`` validates the model's reply against the Pydantic
     model and raises this rather than returning a partial: a schema-invalid
     result twice fails the run (``docs/agent-state-machine.md`` §3).
+
+    ``decoded`` records whether the reply was JSON at all, keeping a
+    decoded-but-wrong-shape failure and a not-JSON one distinguishable instead
+    of collapsing both into one detail string. Nothing in production branches on
+    it: the retry that read it declined to fire on the prose reply, which is the
+    case it existed for. Tests assert on it, and the two kinds really are
+    different answers to the same question.
     """
 
-    def __init__(self, schema_name: str, detail: str) -> None:
+    def __init__(self, schema_name: str, detail: str, *, decoded: bool) -> None:
         self.schema_name = schema_name
         self.detail = detail
+        self.decoded = decoded
         super().__init__(f"model returned a value invalid for {schema_name}: {detail}")
 
 
@@ -97,13 +105,15 @@ def parse_structured[TModel: BaseModel](raw: str | dict[str, Any], schema: type[
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
     except json.JSONDecodeError as exc:
-        raise StructuredOutputError(schema.__name__, f"not valid JSON: {exc}") from exc
+        raise StructuredOutputError(
+            schema.__name__, f"not valid JSON: {exc}", decoded=False
+        ) from exc
 
     try:
         return schema.model_validate(data)
     except ValidationError as exc:
         detail = f"{exc.error_count()} validation error(s)"
-        raise StructuredOutputError(schema.__name__, detail) from exc
+        raise StructuredOutputError(schema.__name__, detail, decoded=True) from exc
 
 
 def reported_model(response: object, configured: str) -> str:

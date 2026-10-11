@@ -177,6 +177,34 @@ class Settings(BaseSettings):
 
     model_timeout_seconds: float = Field(default=60.0, alias="MODEL_TIMEOUT_SECONDS")
 
+    # Whether structured requests go out asking for ``json_object`` instead of
+    # the ``json_schema`` envelope.
+    #
+    # Some OpenAI-compatible endpoints accept the ``json_schema`` envelope,
+    # answer HTTP 200, and then ignore the schema. Measured against MiniMax with
+    # the eval's own ``TicketClassification``: one reply was valid JSON under
+    # keys the model had invented, the next was Markdown prose, so 0 of 20
+    # classification cases could run. The *same* endpoint honours
+    # ``response_format={"type": "json_object"}``, which only asks for JSON
+    # without constraining its fields -- and with the schema described in the
+    # prompt it then returned exactly the keys the model was asked for.
+    #
+    # So on, the OpenAI adapter's first and only request asks for ``json_object``
+    # with the schema rendered into the system prompt. It does not ask again
+    # after a bad reply: the prose reply was the case that made retrying useless,
+    # since a fallback gated on "the answer was JSON" never fired for it. Off is
+    # the default because real OpenAI constrains generation and needs none of
+    # this, and every deployment should get the request it sent before.
+    #
+    # Validation is unchanged either way: the reply still has to validate against
+    # the same Pydantic model. This widens what the endpoint is *asked*, never
+    # what is accepted.
+    #
+    # The failure is named, not the vendor: this is the defect
+    # ``adapters/models/openai_provider.py``'s ``reasoning_content`` fallback
+    # was measured on, not a special case for one provider.
+    openai_json_object_fallback: bool = Field(default=False, alias="OPENAI_JSON_OBJECT_FALLBACK")
+
     # Which recorded fixture the ``fake`` provider replays, by scenario name.
     #
     # The ``fake`` provider answers a call one of two ways: from a named
