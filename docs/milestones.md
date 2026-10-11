@@ -497,25 +497,74 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       actually emits. The fixtures being hand-written rather than recorded — the
       reason the category had to be read off the run at all — is recorded in
       `docs/limitations.md` §8.)
-- [ ] The trace shows every step with latency, and the citations are the two
-      expected documents.
-      **Left unchecked; the latency half is measured false.** Driving the golden
-      path through the real worker and reading `agent_steps` back: **7 of 21
-      steps carry `latency_ms`** — `classification` 1, `retrieval` 1, `planning`
-      4, `response` 1 — and all **14 `state_change` rows are NULL**, because
-      `TraceRecorder.record_state_change` (`tracing/recorder.py:186`) calls
-      `record_step` without the argument and the column defaults to `None`
-      (`adapters/persistence/repositories.py:676` only writes it when supplied).
-      There is also no tool-execution `agent_steps` row at all: tool latency is
-      measured, but lands on `tool_calls.latency_ms` (4 of 4 populated) and in
-      the `tool_executed` audit payload, which is what
-      `test_the_trace_is_complete_and_ordered` asserts — its docstring declines
-      to assert "every step has a latency" precisely because that would be
-      asserting a change rather than this code. The citations half does hold,
-      and then some: the persisted `Citation` rows for the run are
-      `duplicate-charge-sop.md`, `enterprise-billing.md`, `payment-methods.md`
-      and `refund-policy.md`, so the two expected documents are present as a
-      strict subset of four.
+- [x] The trace reports a latency on every **work** step, `state_change` rows
+      report none by design, and the run cites the two expected documents
+      among its citations.
+      (Measured on the real golden path — driven through the worker, with
+      `agent_steps` and `citations` read back from the database: **7 of 21 steps
+      carry `latency_ms`** — `classification` 1, `retrieval` 1, `planning` 4,
+      `response` 1 — and all **14 remaining rows are `state_change`**, the run's
+      only other step type.
+      `tests/agent/test_step_latency.py::test_every_work_step_persists_a_measured_latency`
+      pins the first half, and
+      `::test_the_golden_path_steps_are_the_types_this_file_asserts` fails if the
+      run ever emits a step type the file neither times nor documents.)
+      *The `state_change` NULL is a decision, not a gap.* Those rows are written
+      by the `AgentStep(step_type="state_change", …)` constructor in
+      `SqlRunStore.set_status` (`adapters/persistence/repositories.py:407-418`),
+      which is the path every transition takes — it writes the step in the same
+      transaction as the `agent_runs.status` update, so the step and the status
+      cannot disagree. An earlier version of this note blamed
+      `TraceRecorder.record_state_change` (`tracing/recorder.py:179`) for
+      omitting the argument. That is true of the source but false of the runs:
+      the method has **no call sites in `src/`** — its only caller anywhere is
+      `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would
+      have changed nothing observable. M7a decided the NULL is correct and
+      recorded why (`docs/progress.md:2375`): between two run statuses there is
+      no external work, so a number there would measure a database UPDATE rather
+      than the agent. The dashboard renders it as a dash and says why —
+      `web/src/lib/format.ts:136` ("a null here is not missing data and is not
+      rendered as zero … a column that showed `0` for fourteen rows would teach
+      a reader that the column measures something when it does not") and
+      `web/src/app/runs/[runId]/page.tsx:255` ("a `0` there would be a regression
+      that this component exists to make visible"). "Every step with latency"
+      therefore could not be satisfied as written; it is ticked as **work** step.
+      *Tool execution.* There is no tool-execution `agent_steps` row, and that is
+      a different design rather than a missing latency: the MCP gateway measures
+      it onto `tool_calls.latency_ms` (4 of 4 populated) and the `tool_executed`
+      audit payload, and tool calls reach the dashboard through their own panel.
+      The run emits five step types — the four timed above plus `state_change` —
+      and no others.
+      *Citations.* The run persists **5 citation rows across 4 documents**:
+      `duplicate-charge-sop.md` (ranks 1–2), `payment-methods.md` (3),
+      `enterprise-billing.md` (4), `refund-policy.md` (5). Both expected
+      documents are among them, and
+      `test_citations_are_the_two_expected_documents` asserts that subset **by
+      design** — every persisted row carries a document, a chunk anchor, a score
+      and a rank. The wording was corrected from "are the two expected documents"
+      to "**among** its citations" because the strict reading is
+      unsatisfiable, not merely unmet: retrieval is configured
+      `RETRIEVAL_TOP_K=5` (`settings.py:281`) over `RETRIEVAL_MIN_SCORE=0.22`
+      (`settings.py:301`), the lowest-scoring hit clears it at 0.2408, and the
+      two extra documents **outrank** the expected `refund-policy.md` (0.2818 and
+      0.2676 against 0.2408), so no cutoff yields the pair. The repo already
+      records this reading: `docs/evals.md:58` pairs
+      `"expected_documents": ["duplicate-charge-sop.md", "refund-policy.md"]`
+      with `"k": 5`, and `docs/progress.md:1549` logged the same five rows with
+      those two "both among them" when citations were first persisted. Stronger
+      still, `evals/datasets/retrieval.jsonl:3` (`ret-003`) asks essentially this
+      question — the $129 enterprise duplicate — and expects **three**
+      documents, `enterprise-billing.md` among them, at `"k": 5`.
+      `enterprise-billing.md` is not a stray — `knowledge/README.md:34` makes it
+      the enterprise override a correct answer needs, and `payment-methods.md`
+      is one of the false-positive-duplicate documents `knowledge/README.md:39`
+      warns a reader about. Note that the README's own "both" is
+      `refund-policy.md` **plus** `enterprise-billing.md`, not the expected pair,
+      so it is not the evidence for this criterion; the records above are. One
+      test name overstates the pair:
+      `test_retrieval_threshold.py::test_the_golden_path_cites_exactly_the_two_expected_documents`
+      asserts only the subset (`missing = expected - slugs`, line 306) over the
+      top 5, so "exactly" there is inherited wording, not a checked condition.)
 - [x] Reject path: `WAITING_APPROVAL` → `RESPONDING` → `COMPLETED` with an
       escalation reply and **no refund**.
       (Driven through the real worker by
