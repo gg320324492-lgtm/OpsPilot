@@ -449,25 +449,42 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 
 **Acceptance criteria**
 
-- [ ] The exact ticket from the README drives the exact documented sequence:
+- [x] The exact ticket from the README drives the exact documented sequence:
       `duplicate_charge` → retrieve → `crm.get_customer` → `billing.get_invoice`
       → `billing.list_transactions` → duplicate detected → propose refund →
       `HIGH_RISK_WRITE` → `WAITING_APPROVAL` → approve → refund executed once →
       customer reply → `COMPLETED`.
-      (An earlier wording of this criterion ended "→ issue created →", but the
-      committed `duplicate_charge` fixture proposes no `issues.create` call, so
-      the workflow does not perform that step. The criterion was corrected to
-      match what runs rather than the fixture changed to match the criterion --
-      `issues.create` is a real `SAFE_WRITE` tool, exercised in isolation by the
-      gateway and gate tests, and whether the golden path *should* file an issue
-      is an open product decision recorded in `docs/limitations.md` §8.)
+      (The three reads execute in exactly that order, the refund carries
+      `high_risk_write` and parks, the server reports one refunded transaction
+      (`TX-88219`) and one refund row, and the run ends `COMPLETED` —
+      `test_duplicate_charge_run_waits_then_refunds_exactly_once`. Two
+      corrections got the wording here to match what runs. The first token: the
+      run has always classified as `duplicate_charge`, 0.93, while this
+      criterion and the README's trace both read `billing_dispute`, 0.94. The
+      committed fixture
+      (`evals/datasets/fixtures/duplicate_charge.json:15`) emits
+      `"category": "duplicate_charge"`, a real worker measured over the indexed
+      corpus agrees (`docs/limitations.md` §3), and
+      `tests/evals/test_golden_ticket_agreement.py` (3 passed) guards it;
+      `docs/progress.md` §M6e records the decision behind it, widening
+      `TicketCategory` to carry `BILLING_DISPUTE` and relabelling `cls-001` —
+      the README's ticket — so the dataset and the fixture agree. §M6 and the
+      README were the stale side and now carry what the run emits. The second:
+      an earlier wording ended "→ issue created →", and the fixture proposes no
+      `issues.create` call, so the criterion was corrected to match what runs
+      rather than the fixture changed to match it. `issues.create` is a real
+      `SAFE_WRITE` tool exercised in isolation by the gateway and gate tests,
+      and whether the golden path *should* file an issue is an open product
+      decision recorded in `docs/limitations.md` §8 as D19a.)
       **Left unchecked on a second, unrecorded mismatch.** Every other token in
       the sequence is what runs — the three reads execute in exactly that order,
       the refund carries `high_risk_write` and parks, the server reports one
       refunded transaction (`TX-88219`) and one refund row
-      (`test_duplicate_charge_run_waits_then_refunds_exactly_once`). The first
-      token did not: the run classifies as **`duplicate_charge`, 0.93**, not
-      `billing_dispute`, 0.94. The committed fixture
+      (`test_duplicate_charge_run_waits_then_refunds_exactly_once`). Every token
+      in the sequence is now what the run does. The first one was the exception:
+      the run has always classified as **`duplicate_charge`, 0.93**, while §M6
+      and the README's trace both read `billing_dispute`, 0.94. The committed
+      fixture
       (`evals/datasets/fixtures/duplicate_charge.json:15`) emits
       `"category": "duplicate_charge"`, and a real worker measured over the
       indexed corpus does the same (`docs/limitations.md` §3). `docs/progress.md`
@@ -475,10 +492,11 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       relabelling `cls-001` — the README's golden-path ticket — to
       `duplicate_charge` so the dataset and the fixture agree;
       `tests/evals/test_golden_ticket_agreement.py` (3 passed) guards that
-      agreement. `docs/milestones.md` §M6 and the README's trace were the
-      stale side of a decision the repo had already made; both now carry the
-      category and confidence the run actually emits, `duplicate_charge`, 0.93.
-      Unlike D19a this mismatch is not recorded in `docs/limitations.md` §8.
+      agreement. §M6 and the README were the stale side of a decision the repo
+      had already made, and now carry the category and confidence the run
+      actually emits. The fixtures being hand-written rather than recorded — the
+      reason the category had to be read off the run at all — is recorded in
+      `docs/limitations.md` §8.)
 - [ ] The trace shows every step with latency, and the citations are the two
       expected documents.
       **Left unchecked; the latency half is measured false.** Driving the golden
