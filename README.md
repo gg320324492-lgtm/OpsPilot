@@ -21,15 +21,24 @@ once. Every model call, tool call and retrieval is recorded and replayable.
 > **Status: Phase 1, milestones M0–M9 — the golden path runs end to end.**
 > The system is built: the agent loop, the five gates, the persisted approval
 > gate, idempotent refunds, retrieval with citations, the dashboard, the eval
-> harness and CI all exist and are tested (814 tests, 11 skipped). What is
+> harness and CI all exist and are tested — 814 passed, 11 skipped locally;
+> CI's green run 38076989911 is 11 of 11 jobs, its `test` job 810 passed,
+> 15 skipped. What is
 > **not** done is listed honestly — `issues.create` is implemented and tested in
 > isolation but the golden path does not call it (see the trace below), and the
 > golden path needs PostgreSQL for retrieval (SQLite is a tests-only path).
-> `docker compose up` has now been run on a machine with a Docker daemon: the
-> four services (api, worker, web, postgres) come up on this machine's WSL
-> Docker daemon, `api`, `web` and `postgres` healthy and `worker` up. The full
-> list is in [`docs/limitations.md`](docs/limitations.md), and each milestone's
-> outcome is in [`docs/progress.md`](docs/progress.md).
+> The compose services have been run on a machine with a Docker daemon:
+> `api`, `worker`, `web` and `postgres` come up on this machine's WSL Docker
+> daemon, `api`, `web` and `postgres` healthy and `worker` up. Since run
+> 38076989911 the same stack also comes up on CI's runner: the
+> `docker-build` job builds every image, runs `docker compose up -d --wait`,
+> and checks `/ready`. What is still *not* met is M9's criterion in full: the
+> three MCP servers are not Compose services at all. They are spawned on
+> demand by the worker as stdio subprocesses (boundary D12a), and the worker
+> here reports the default `MCP_TRANSPORT=inprocess`, which builds them
+> inside the process instead. The full list is in
+> [`docs/limitations.md`](docs/limitations.md), and each milestone's outcome is
+> in [`docs/progress.md`](docs/progress.md).
 
 ---
 

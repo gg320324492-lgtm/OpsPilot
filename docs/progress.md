@@ -4538,9 +4538,10 @@ The two figures should not be quoted interchangeably.
   the workflow file, and why `cb457f4`'s third recommendation — "the CI gates
   are green on the platform CI runs" — stayed open. D10 loses its caveat and
   that recommendation is retired.
-- **Closed: the 17-commit gap.** `main` is level with `origin/main` again
-  (`git rev-list --count origin/main..main` -> `0`). The 10 commits from
-  `472c09a` to `0144d83` produced three runs rather than ten — `d6e1661`,
+- **Closed: the 17-commit gap** as measured at `472c09a` (see the 2026-10-10
+  audit above). The 10 commits from `472c09a` to `0144d83` are all on
+  `origin/main`, so `0144d83` — the head that produced the green run — is
+  published. They produced three runs rather than ten — `d6e1661`,
   `5e3a373` and `0144d83` — because they went out in batches, so `cb457f4`,
   `1de657e`, `480882b`, `bbf0dd7`, `584ac99`, `6f4b497` and `732dd42` were never
   the head of a run and CI has still not seen them individually.
@@ -4556,4 +4557,20 @@ The two figures should not be quoted interchangeably.
   is not a file this commit may touch; and M9's third criterion stays unchecked,
   because the three MCP servers are constructed inside the worker rather than
   brought up as Compose services. Both are recorded here rather than edited.
+
+### What this does not establish
+
+A green run is not a live-model run, and the two are easy to conflate, so the
+difference is worth writing down. Every job in 38076989911 either ran a static
+check or ran the suite on `MODEL_PROVIDER=fake`: `eval-smoke` is a plumbing check
+by design, and `limitations.md` §5 already records that the fake provider's
+numbers are not results. The twelve-metric table for a real provider is therefore
+still not available — the OpenRouter free tier is exhausted, recorded earlier in
+this log — and `eval-live`, the only thing that would produce it, is
+`workflow_dispatch`-only and deliberately outside the automatic gate (D11).
+
+What the run does establish is narrower and still real: the gates, the golden path
+on recorded fixtures, and the cross-stack checks pass on the runner CI actually
+uses, not only on this machine. That was the open question — three of the four
+defects above could not fail here — and it is now answered for all eleven jobs.
 
