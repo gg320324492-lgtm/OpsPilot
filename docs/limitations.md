@@ -131,9 +131,13 @@ questions — which is what lets a fresh clone and the CI suite run the golden
 path with no API key. What it is not is semantic: **there is no synonymy**. A
 question whose answer is worded entirely differently from the question will not
 match it, and the stopword list and the two suffix rules are hand-written rather
-than derived from a corpus. Any number quoted in the README comes from a run
-that used a real embedding provider, and the run's config is recorded with the
-result.
+than derived from a corpus. Every number quoted in the README comes from a run
+whose *model* provider was a real endpoint but whose *embeddings* were this local
+lexical embedder — `evals/results/2026-10-11T15-39-42.json` records
+`embedding_provider: "local"` — so that run's retrieval rows measure the lexical
+retriever, not a provider's. Each run records the config it ran under alongside
+its results, which is what makes that distinction checkable instead of a claim
+taken on trust.
 
 **`RETRIEVAL_MIN_SCORE` is calibrated against the default embedder, and only
 against it.** The default is `0.22`, chosen by measuring

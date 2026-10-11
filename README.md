@@ -379,10 +379,12 @@ cost      $0.0000 mean per run
   answer is worded differently from the question will not match it
   (`docs/limitations.md` §3). The file's `embedding_model:
   "text-embedding-3-small"` is a default that does not apply to the local
-  provider — `settings.py` and `.env.example` set it unconditionally and have
-  done so since before either run. It is a pre-existing labelling defect, not
-  something this run introduced, and nothing of OpenAI's ran. The two retrieval
-  rows above are therefore a measurement of the lexical retriever.
+  provider — it was the unconditional default in `settings.py` and
+  `.env.example` from before either run, and this run inherited it. It has since
+  been changed to empty (`959855d`), which is why the run recorded it and the
+  current default no longer does. It is a labelling defect the run inherited,
+  not something the run introduced, and nothing of OpenAI's ran. The two
+  retrieval rows above are therefore a measurement of the lexical retriever.
 - **Latency is the endpoint's, and neither run's p95 is a benchmark.** p95 276.7s
   is 4.7× the earlier run's 58.3s, but that was a different endpoint. Per-dataset
   medians track how much work a case is: classification 6.9s, retrieval 17.9s,
