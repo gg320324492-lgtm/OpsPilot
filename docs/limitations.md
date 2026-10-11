@@ -217,7 +217,7 @@ all.
 no scheduled regression tracking, no stored baseline, and no alert when a metric
 moves. Phase 2.
 
-**The fake provider's numbers are not results.** `runner.py` refuses to print a
+**The fake provider's numbers are not results.** `__main__.py` refuses to print a
 metric table for `--provider fake` unless `--allow-fake-scores` is passed. The
 smoke job in CI is a plumbing check.
 

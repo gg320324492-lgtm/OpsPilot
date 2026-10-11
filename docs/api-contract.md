@@ -90,7 +90,7 @@ The payload the dashboard's run-detail screen renders.
     { "sequence": 1, "step_type": "state_change", "output": {"to": "classifying"},
       "latency_ms": 0, "started_at": "…" },
     { "sequence": 2, "step_type": "classification",
-      "output": {"category": "billing_dispute", "confidence": 0.94,
+      "output": {"category": "duplicate_charge", "confidence": 0.93,
                  "reasoning_summary": "Customer reports a duplicate charge on a named invoice."},
       "latency_ms": 612, "started_at": "…" }
     // …

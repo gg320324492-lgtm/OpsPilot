@@ -448,7 +448,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 **Acceptance criteria**
 
 - [ ] The exact ticket from the README drives the exact documented sequence:
-      `billing_dispute` → retrieve → `crm.get_customer` → `billing.get_invoice`
+      `duplicate_charge` → retrieve → `crm.get_customer` → `billing.get_invoice`
       → `billing.list_transactions` → duplicate detected → propose refund →
       `HIGH_RISK_WRITE` → `WAITING_APPROVAL` → approve → refund executed once →
       customer reply → `COMPLETED`.
@@ -464,18 +464,19 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       the refund carries `high_risk_write` and parks, the server reports one
       refunded transaction (`TX-88219`) and one refund row
       (`test_duplicate_charge_run_waits_then_refunds_exactly_once`). The first
-      token does not: the run classifies as **`duplicate_charge`, 0.93**, not
+      token did not: the run classifies as **`duplicate_charge`, 0.93**, not
       `billing_dispute`, 0.94. The committed fixture
       (`evals/datasets/fixtures/duplicate_charge.json:15`) emits
       `"category": "duplicate_charge"`, and a real worker measured over the
-      indexed corpus does the same (`docs/limitations.md` §2). `docs/progress.md`
+      indexed corpus does the same (`docs/limitations.md` §3). `docs/progress.md`
       §M6e records widening `TicketCategory` to carry `BILLING_DISPUTE` and then
       relabelling `cls-001` — the README's golden-path ticket — to
       `duplicate_charge` so the dataset and the fixture agree;
       `tests/evals/test_golden_ticket_agreement.py` (3 passed) guards that
-      agreement. So `docs/milestones.md` §M6 and the README's trace are the
-      stale side of a decision the repo already made, and unlike D19a this
-      mismatch is not recorded in `docs/limitations.md` §8.
+      agreement. `docs/milestones.md` §M6 and the README's trace were the
+      stale side of a decision the repo had already made; both now carry the
+      category and confidence the run actually emits, `duplicate_charge`, 0.93.
+      Unlike D19a this mismatch is not recorded in `docs/limitations.md` §8.
 - [ ] The trace shows every step with latency, and the citations are the two
       expected documents.
       **Left unchecked; the latency half is measured false.** Driving the golden
@@ -635,7 +636,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       case and disposes them in a `finally`; pinned by
       `tests/evals/test_runner.py::test_run_case_isolation_two_runs_do_not_share_a_refund`,
       which passes.)
-- [x] `runner.py` refuses to print scores for `--provider fake` without
+- [x] `__main__.py` refuses to print scores for `--provider fake` without
       `--allow-fake-scores`. (The refusal is in the CLI, not `runner.py`, which
       has no print path at all: `__main__.py:814` prints `_FAKE_REFUSAL` in place
       of the table unless the flag is set. Both directions pinned by

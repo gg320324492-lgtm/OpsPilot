@@ -50,7 +50,7 @@ Two properties of the datasets matter more than their size:
 ## Running
 
 The provider is a flag. `--provider fake` replays scripted responses so the
-harness itself can be tested without a model; `runner.py` refuses to print a
+harness itself can be tested without a model; `__main__.py` refuses to print a
 metric table for a fake provider unless `--allow-fake-scores` is passed, and
 prints `fake provider — harness check only, not a model result` instead.
 

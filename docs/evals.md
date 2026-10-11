@@ -40,7 +40,7 @@ call, and nothing is self-reported by the system under test.
 
 ```json
 {"id": "cls-001", "input": "We were charged twice for invoice INV-2026-384.",
- "expected_category": "billing_dispute"}
+ "expected_category": "duplicate_charge"}
 {"id": "cls-002", "input": "I can't log into the admin console after the password reset.",
  "expected_category": "account_access"}
 {"id": "cls-003", "input": "The API returns 503 on the bulk export endpoint.",
@@ -140,7 +140,7 @@ Three properties of the runner:
   scripted responses so the *harness* can be tested without a model.
 - **The fake provider's accuracy is not a result.** Running the classification
   dataset against a fake provider that answers from a lookup table would report
-  100% and prove nothing. `runner.py` **refuses to print a metric table for
+  100% and prove nothing. `__main__.py` **refuses to print a metric table for
   `--provider fake`** unless `--allow-fake-scores` is passed, and prints
   `fake provider — harness check only, not a model result` instead. The README's
   numbers come from a live run and state the model and date.

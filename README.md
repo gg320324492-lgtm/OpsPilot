@@ -71,7 +71,7 @@ Ticket    "We were charged twice for invoice INV-2026-384.
            Please investigate and fix it."
               │
               ▼
-Classify      billing_dispute                       confidence 0.94
+Classify      duplicate_charge                      confidence 0.93
 Retrieve      refund-policy.md
               duplicate-charge-sop.md               2 citations, scored
 CRM           crm.get_customer      → ACME, enterprise, active        842 ms
