@@ -4626,3 +4626,51 @@ There is no D19b.
 This is the same conclusion `cb457f4` reached for a different fix: the
 recommendation may point at work that exists, but adding a row is the operator's
 decision, not the code's.
+
+---
+
+## A §8 instance no row names does not move the score
+
+**Date:** 2026-10-12.
+
+**The rule, now standing rather than re-derived per instance:** an instance of
+`limitations.md` §8's defect class — a capability a document advertises that no
+code performs — that was never recorded as a Definition-of-Done row does not
+generate one **by itself**, and does not move the score. Adding a row to the DoD
+remains an operator's decision; the rule only says the finding does not make that
+decision for anyone. `docs/milestones.md` now states this in the paragraph under
+the DoD table.
+
+### Why it was written down
+
+D19's cell ends "**Its last strand is recorded as boundary D19a**", and *last
+strand* is a negative nobody re-derives: it asserts that no other documented
+capability is unimplemented. That was true when it was written and is true now,
+but §8 is precisely the class most likely to produce the exception, and it has
+repeatedly produced instances that were never recorded as rows — three in
+M2–M5, more in M9's Definition-of-Done audit, and `knowledge.search` at `148a87c`
+most recently. A row that rests on a negative about that class is one discovery
+away from being wrong, so the score's stability needed to be stated rather than
+assumed.
+
+The reasoning is short. §8 is a catalogue; the DoD is a scored checklist. Adding
+an entry to one is not adding a line to the other. And a row exists because its
+audit re-verifies it — a §8 instance that no row names has no audit to re-run, so
+it has nothing to move. Stating that once means the next instance is recorded
+rather than re-litigated.
+
+### The worked example, and the D19a convention beside it
+
+`knowledge.search` was found, fixed in `148a87c`, recorded in §8's Fixed list, and
+measured in the committed run `evals/results/2026-10-11T15-39-42.json` at 35
+proposed, 35 executed, 0 failed — the same run and the same counting as the
+section above. The score was **18 of 19**, D19 stayed unmet, and there is no
+D19b.
+
+That is a different claim from the one already recorded at the 2026-10-10 audit,
+and the two sit next to each other without merging. **D19a is not the nineteenth
+point** is about *that* row: a recorded boundary that leaves D19 unmet and is the
+whole reason the file reads 18 of 19. This rule is about the instances *no* row
+names. Neither one moves the score, and they answer different questions — the
+first says why an existing row is red, this one says why a red row does not also
+acquire new ones.

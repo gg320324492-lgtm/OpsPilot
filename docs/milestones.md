@@ -313,6 +313,20 @@ what got built rather than what was promised.
 The audit result for each line, with the unmet and unverifiable ones named, is
 recorded in `docs/progress.md` under §M9.
 
+**The score counts rows, and each row is scored by re-running that row's own
+audit.** A row exists because its audit re-verifies it. `limitations.md` §8
+catalogues a separate defect class — a capability a document advertises that no
+code performs — so an instance of it that no row names has no audit to re-run and
+nothing to move. Finding one changes what §8 says: it is added to §8's "Fixed" or
+"Remaining" list. It does not generate a row by itself, and the score does not
+move: adding a row to the DoD remains an operator's decision, and the rule here
+only says the finding does not make that decision for anyone.
+`knowledge.search` is the worked example — found by a live eval run rather than by
+a test, fixed in `148a87c`, recorded in §8's Fixed list, and measured in the
+committed run `evals/results/2026-10-11T15-39-42.json` at 35 proposed, 35
+executed, 0 failed; the score was still 18 of 19, and the reasoning is recorded in
+`docs/progress.md` at `062a604`.
+
 ---
 
 ## Risk to the schedule
