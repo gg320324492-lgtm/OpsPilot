@@ -66,6 +66,38 @@ walks the golden path on the real `LangGraphOrchestrator` and asserts the
 observed transition sequence is a subsequence of the legal set. The drift is
 possible; it is not silent.
 
+**Correction 1 (found by reading the code, not by running it).** The two
+sentences above — "The golden-path integration suite runs on `LinearOrchestrator`,
+which is deterministic" and "This is caught by a contract test that walks the
+golden path on the real `LangGraphOrchestrator`" — describe executors that do not
+exist yet. Neither is written. `LinearOrchestrator.step` and
+`LangGraphOrchestrator.step` both raise `NotImplementedError`, and
+`LangGraphOrchestrator.build_graph` does too, so the Decision section's "Both
+call `run.transition_to(...)`" is likewise written in the present tense over two
+bodies that call nothing. What drives a run today is `agents/runtime.py::_pump`,
+the classify/retrieve/plan/execute/respond loop, which drives status through the
+domain's `transition_to` directly and never consults an orchestrator: `run_loop`
+accepts the argument and discards it (`_ = orchestrator`). The golden-path
+harness, `worker/__main__.py`, `evals/runner.py` and
+`scripts/demo_golden_path.py` each construct a `LinearOrchestrator` and pass it
+as `orchestrator=`; those call sites carry the class, they do not run it. No test
+calls `step`, no test imports the LangGraph adapter, and no contract test
+compares the two executors — one cannot assert equivalence between two methods
+that both raise. So the drift named in this section is currently neither
+prevented nor caught: it is unmitigated, not silent-but-caught.
+
+What this ADR argues for is unaffected, and that is why it stands. The
+dependency-inversion argument is a reason to draw the boundary now and to decide
+the question of executors at all: the transition table lives in `domain/` and is
+unit-testable today without any graph library, and that is verified —
+`tests/unit/` iterates `RunStatus` against `ALLOWED_TRANSITIONS` as the Decision
+section states. Replacing LangGraph will touch `adapters/orchestration/` and
+nothing else *because of where the table is placed*, which is the property this
+ADR is actually about, and it holds whether or not an executor exists yet. The
+contract test named above is still the right mitigation for that risk and is
+still unbuilt; it is recorded as an acceptance criterion in `docs/milestones.md`
+§M4, where both orchestrator rows are still unchecked.
+
 **Sequencing consequence.** The runtime and the linear orchestrator are built in
 M4 before the LangGraph adapter. Building the adapter first would make the graph
 the de facto design and the domain table a transcription of it — the outcome

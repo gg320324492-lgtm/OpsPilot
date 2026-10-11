@@ -34,12 +34,24 @@ plumbing works with a cooperative model. It proves nothing about whether a real
 model will propose the right tools. Worst case, the tests encode the fake's
 script and become a mirror.
 
-**Mitigation.** Two things. First, the fake provider is a *replay* of recorded
-real interactions, not invented scripts: `evals/datasets/fixtures/` holds
-recorded provider responses for the golden path, captured once from a real run
-and committed. Second, `tool_selection` and `classification` datasets are run
-against a real provider in the manual `eval-live` job, and the README quotes that
-run. The fake is for determinism in CI, not as evidence of quality.
+**Mitigation.** Two things, and the first is weaker than this document claimed.
+The replay *mechanism* is real and is what `FakeModelProvider` uses: a fixture is
+selected by scenario name, its calls are handed back by `method` in file order,
+and a request that runs past the end of the script raises
+`UnmatchedFixtureError` naming the request hash rather than returning a default
+answer. The two committed fixtures are not recordings, though. Both
+`duplicate_charge.json` and `already_refunded.json` carry the flag
+`"recorded": false` and the note "HAND-WRITTEN PLACEHOLDER, not a recording",
+and neither carries a `request_hash` — so in scenario mode they are hand-written
+scripts served by position, and no prompt the model actually sends selects them.
+`record_fixture()` exists to capture a real provider's responses into a fixture
+file and has not been run against one, so no recording is committed and the
+protection this mitigation claimed — that the fixtures could not encode the
+fake's own script — does not currently hold. Second, `tool_selection` and
+`classification` run against a real provider in the manual `eval-live` job, and
+the README quotes two such runs, `evals/results/2026-10-08T05-24-41.json` and
+`2026-10-11T15-39-42.json`. The fake is for determinism in CI, not as evidence
+of quality.
 
 **Residual.** CI cannot detect a real-model regression. That is by design (cost,
 non-determinism) and is stated in [evals.md §5](evals.md).
@@ -155,10 +167,10 @@ it depends on a seeded database, an API key, or a machine-specific state.
 
 **Mitigation.** Seed data is committed JSON. `docker compose up` plus
 `opspilot-seed` produces the exact database the demo ran against. The
-deterministic path (`--provider fake` with recorded responses) reproduces the
-*same timeline* with no API key at all and is what the GIF is generated from — so
-the artifact a reviewer sees is regenerable. The live-model path is documented
-and optional.
+deterministic path (`--provider fake` with hand-written fixture responses)
+reproduces the *same timeline* with no API key at all and is what the GIF is
+generated from — so the artifact a reviewer sees is regenerable. The live-model
+path is documented and optional.
 
 **Residual.** The live run's exact wording will differ (model non-determinism).
 The README shows the recorded path for the screenshot and says which is which.

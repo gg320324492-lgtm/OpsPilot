@@ -156,17 +156,21 @@ agents/runtime.py          ← owns RunStatus, ALLOWED_TRANSITIONS, the loop
       ▼
 ports/orchestrator.py      ← Protocol: Orchestrator.step(run) -> StepResult
       │
-      ├── adapters/orchestration/langgraph_adapter.py   (production)
-      └── adapters/orchestration/linear_adapter.py      (tests, no LangGraph)
+      ├── adapters/orchestration/langgraph_adapter.py   (stub, unwritten)
+      └── adapters/orchestration/linear.py             (stub, unwritten)
 ```
 
 Why this shape and not "the project *is* LangGraph nodes":
 
 - The allowed-transition table lives in `domain/`, so it is unit-testable without
   installing LangGraph, and so a graph edit cannot silently widen it.
-- The golden-path integration tests run on `linear_adapter`, which is
-  deterministic and milliseconds fast. LangGraph is exercised in its own
-  contract test, not by every test in the suite.
+- Neither executor is built yet, so no golden-path test runs on one: the
+  golden-path suite runs on `agents/runtime.py::_pump`. The golden-path
+  harness does construct a `LinearOrchestrator` and pass it as `orchestrator=`,
+  and `run_loop` discards it (`_ = orchestrator`) without calling `step`, which
+  raises `NotImplementedError`. There is no contract test comparing the two
+  executors, and there cannot be one while both raise. Both are recorded as
+  unimplemented in `docs/milestones.md` §M4.
 - Phase 2's likely changes (retries, fallback models, replay) are executor
   concerns and land behind this boundary.
 

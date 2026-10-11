@@ -1,8 +1,10 @@
-"""``LangGraphOrchestrator``: the production executor, behind the port.
+"""``LangGraphOrchestrator``: the LangGraph executor, and an M0 stub.
 
 Responsibility: implement ``Orchestrator.step`` as a LangGraph graph whose nodes
-correspond to the state machine's stages. This is the only module in the project
-that imports ``langgraph``.
+correspond to the state machine's stages. None of that is written: ``step`` and
+``build_graph`` both raise ``NotImplementedError``. Nothing constructs or calls
+this class, and no ``langgraph`` import appears anywhere in the project yet --
+this is the only module permitted to add one.
 
 Layer: ``adapters`` (orchestration).
 
@@ -11,10 +13,17 @@ owns ``RunStatus``, ``ALLOWED_TRANSITIONS`` and the loop, and LangGraph is one
 possible executor for it. Building the graph here -- rather than making the
 project "be" the graph -- is why the allowed-transition table is unit-testable
 without the library installed and why a graph edit cannot silently widen it.
+That argument is sound and is why the module exists while the class is empty.
 
-Coverage note: this module is omitted from the coverage number
-(``pyproject.toml``) and exercised by a contract test in CI only, because
-covering it with a mock of LangGraph would measure the mock.
+What drives a run today is ``agents/runtime.py::_pump``, the
+classify/retrieve/plan/execute/respond loop. The runtime accepts an orchestrator
+and discards it (``_ = orchestrator``), so nothing here is on a live path.
+
+Coverage note: ``pyproject.toml`` omits this module from the coverage number,
+and no test imports it. Those are two independent facts: the module is untested,
+not tested elsewhere. There is no contract test asserting it agrees with
+``LinearOrchestrator``, and there cannot be one while both raise
+``NotImplementedError``.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ from opspilot.ports.orchestrator import StepResult
 
 
 class LangGraphOrchestrator:
-    """Executes one run step as a LangGraph node."""
+    """M0 stub for the LangGraph executor. ``step`` and ``build_graph`` raise."""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self._config = (args, kwargs)

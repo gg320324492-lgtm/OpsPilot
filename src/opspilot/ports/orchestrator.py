@@ -2,8 +2,11 @@
 
 Responsibility: the seam that inverts the dependency on LangGraph. The runtime
 owns the state machine and the loop; an orchestrator is one possible *executor*
-of a single step. LangGraph is a production implementation behind this Protocol,
-and the linear implementation is what the golden-path tests run on.
+of a single step. LangGraph is the intended implementation behind this Protocol,
+and the linear implementation is the one the golden-path call sites construct.
+Neither is written: both ``step`` methods raise ``NotImplementedError``, the
+runtime discards its ``orchestrator`` argument, and no test calls either, so
+nothing runs through this port yet.
 
 Layer: ``ports``. Imports only ``typing`` and ``opspilot.domain`` -- no
 ``langgraph`` import appears here or anywhere above an adapter.

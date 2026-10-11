@@ -313,9 +313,11 @@ source = ["opspilot", "mcp_servers"]
 omit = [
   # Alembic's environment file is configuration, not logic.
   "migrations/*",
-  # The LangGraph adapter is exercised by its contract test in CI only; it is
-  # omitted from the coverage number rather than covered by a mock of LangGraph,
-  # which would measure the mock.
+  # No test exercises the LangGraph adapter; `step` and `build_graph` both raise
+  # NotImplementedError, so nothing is runnable through it. It is omitted from the
+  # coverage number rather than covered by a mock of LangGraph, which would measure
+  # the mock. `langgraph` is kept as a dependency so the module can import it when
+  # it is implemented; this is the only place permitted to add that import.
   "src/opspilot/adapters/orchestration/langgraph_adapter.py",
 ]
 

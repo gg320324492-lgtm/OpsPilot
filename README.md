@@ -548,11 +548,11 @@ docker compose up
 > CI job still builds the images on a Linux runner. See
 > [limitations.md](docs/limitations.md) §6.
 
-The default `MODEL_PROVIDER=fake` replays recorded responses, so the golden path
-runs with no API key. Retrieval needs PostgreSQL: SQLite is a tests-only path
-([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md)), and on SQLite
-the API and worker do not share vectors, so a two-process run abstains. Set
-`MODEL_PROVIDER=anthropic` or `openai` for a live model run.
+The default `MODEL_PROVIDER=fake` replays hand-written fixture responses, so the
+golden path runs with no API key. Retrieval needs PostgreSQL: SQLite is a
+tests-only path ([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md)),
+and on SQLite the API and worker do not share vectors, so a two-process run
+abstains. Set `MODEL_PROVIDER=anthropic` or `openai` for a live model run.
 
 ### Tests
 

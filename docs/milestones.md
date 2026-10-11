@@ -318,9 +318,10 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       record_fixture() against a real provider", and neither carries a
       `request_hash` because the prompts are assembled at runtime. So the
       criterion's own distinction — recorded, not hand-invented — is not met.
-      `docs/risks.md` R2 nonetheless states the fixtures hold "recorded provider
-      responses … captured once from a real run and committed", which the
-      fixtures contradict; `docs/limitations.md` §8 does not list this.)
+      `docs/risks.md` R2 said the fixtures hold "recorded provider responses …
+      captured once from a real run and committed", which the fixtures
+      contradict; R2 has since been corrected to say so.
+      `docs/limitations.md` §8 does not list this.)
 - [x] `AnthropicProvider` and `OpenAIProvider`, sharing one prompt-assembly and
       structured-output path.
       (Both import `adapters/models/_shared.py` and call its `default_system`,

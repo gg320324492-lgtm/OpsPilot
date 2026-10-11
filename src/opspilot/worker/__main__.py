@@ -556,7 +556,9 @@ def build_worker(settings: object = None) -> _Worker:
         # The linear executor, not LangGraph: deterministic, milliseconds-fast and
         # dependency-free. ``run_loop`` accepts the orchestrator but does not
         # dispatch through it today (``agents/runtime.py``) -- the port is what
-        # keeps the two interchangeable, and the contract test is what proves it.
+        # keeps the two interchangeable, and no test compares them, so
+        # interchangeability is the argument for the boundary and not a fact the
+        # suite establishes.
         orchestrator=LinearOrchestrator(),
         recorder_factory=_recorder_factory,
         retrieval=stack.retrieval,

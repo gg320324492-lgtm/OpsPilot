@@ -245,7 +245,7 @@ it as terminal.
 
 **What this does not fix.** The prompt tells the model not to claim an effect
 that did not happen; it cannot make a provider obey. On the default `fake`
-provider the reply is a recorded fixture replayed verbatim
+provider the reply is a hand-written fixture replayed verbatim
 (`evals/datasets/fixtures/duplicate_charge.json`), so it still asserts the refund
 regardless of what the prompt says — verified live after this change. The
 correctness of a live reply therefore depends on the model *composing* from a

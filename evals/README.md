@@ -11,7 +11,7 @@ Full specification: `docs/evals.md`.
 ```
 evals/
 ├── datasets/          classification, retrieval, tool_selection, safety (JSONL)
-│   └── fixtures/      recorded provider responses (M4)
+│   └── fixtures/      provider responses, hand-written placeholders (M4)
 ├── results/           one JSON per run; only the README-quoted run is committed
 ├── runner.py          drives each case in an isolated run (M8)
 ├── metrics.py         reduces recorded records to the metric table (M8)

@@ -1,9 +1,16 @@
 """Orchestration adapters: the linear executor and the LangGraph executor.
 
 Responsibility: two implementations of ``opspilot.ports.orchestrator.Orchestrator``.
-``LinearOrchestrator`` is deterministic and milliseconds-fast and is what the
-golden-path tests run on; ``LangGraphOrchestrator`` is the production executor
-and is exercised by its own contract test rather than by every test.
+Both are M0 stubs: ``step`` raises ``NotImplementedError`` in each, and
+``LangGraphOrchestrator.build_graph`` does too. Nothing runs through this
+package. ``LinearOrchestrator`` is what the golden-path call sites construct
+and hand to ``run_loop``, which discards it; ``LangGraphOrchestrator`` nothing
+constructs at all. There is no contract test comparing the two, and there
+cannot be one while both raise.
+
+What drives a run today is ``agents/runtime.py::_pump``, the
+classify/retrieve/plan/execute/respond loop, which does not consult either
+executor. Both are recorded as unimplemented in ``docs/milestones.md`` §M4.
 
 Layer: ``adapters``. Only this package may import ``langgraph``.
 
