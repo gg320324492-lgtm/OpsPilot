@@ -311,7 +311,8 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       (`ports/model_provider.py:48`, `runtime_checkable`, all three declared.)
 - [ ] `FakeModelProvider` replays **recorded** responses from
       `evals/datasets/fixtures/`, not hand-invented scripts. (The replay
-      machinery is real — scenario-name then request-hash matching, and
+      machinery is real — a scenario name selects a fixture, request-hash
+      matching is the fallback for when none is named, and
       `UnmatchedFixtureError` rather than a default answer. The *responses* are
       not recordings: both committed fixtures carry `"recorded": false` and a
       note reading "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with
@@ -320,8 +321,8 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       criterion's own distinction — recorded, not hand-invented — is not met.
       `docs/risks.md` R2 said the fixtures hold "recorded provider responses …
       captured once from a real run and committed", which the fixtures
-      contradict; R2 has since been corrected to say so.
-      `docs/limitations.md` §8 does not list this.)
+      contradict; R2 has since been corrected to say so, and
+      `docs/limitations.md` §8 now carries this instance in its Fixed list.)
 - [x] `AnthropicProvider` and `OpenAIProvider`, sharing one prompt-assembly and
       structured-output path.
       (Both import `adapters/models/_shared.py` and call its `default_system`,

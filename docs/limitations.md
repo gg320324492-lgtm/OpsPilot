@@ -291,6 +291,21 @@ milestone log.
 2. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
    covers the claim *predicate* on SQLite; nothing starts two workers against one
    database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).
+3. **Neither orchestrator is implemented, and no contract test can exist yet.**
+   Unlike item 1, which is a deliberate operator decision, this is a capability
+   gap with no decision behind it: `LinearOrchestrator.step()` and both
+   `LangGraphOrchestrator.step()` and `.build_graph()` raise
+   `NotImplementedError`. What drives a run is `agents/runtime.py::_pump`;
+   `run_loop` takes an `orchestrator` argument and discards it
+   (`_ = orchestrator`, `runtime.py:990`). `worker/__main__.py`, `evals/runner.py`,
+   `tests/agent/_golden_harness.py` and `scripts/demo_golden_path.py` each
+   construct a `LinearOrchestrator` and pass it, and nothing runs it. No test
+   calls `.step(`, none imports `langgraph_adapter`, and no test asserts the two
+   produce equivalent step results — such a test cannot be written while every
+   method it would compare raises. `langgraph` is declared in `pyproject.toml`
+   and imported by no module in the project. Both rows sit `- [ ]` in
+   `docs/milestones.md` §M4, which carries the same evidence as parentheticals
+   and states the stubs are M0.
 
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
@@ -317,6 +332,32 @@ legible):
   `server_unavailable` every time. `adapters/tools/composite_gateway.py::CompositeToolGateway`
   now routes on `TOOL_REGISTRY[name].server` at call time, and
   `tests/integration/test_composite_gateway.py` proves it at both wiring points.
+- `evals/datasets/fixtures/` — `docs/risks.md` R2 claimed the fake provider "is
+  a *replay* of recorded real interactions, not invented scripts:
+  `evals/datasets/fixtures/` holds recorded provider responses for the golden
+  path, captured once from a real run and committed," and the same sentence
+  stood in R8, `docs/agent-state-machine.md:248`, `README.md:551` and
+  `evals/README.md`. Both committed fixtures carry `"recorded": false` and the
+  note "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with
+  record_fixture() against a real provider"; `grep -c request_hash` returns **0**
+  in each. They are hand-written, which is the "invented scripts" the sentence
+  denied.
+
+  The mechanism makes the claim worse rather than merely unmet.
+  `FakeModelProvider._call_for` (`adapters/models/fake.py:148`) prefers scenario
+  mode: given a scenario name it returns calls by `method`, in file order, off a
+  per-method cursor, without ever inspecting the request. `request_hash` is read
+  only on the no-scenario fallback path and only to name the
+  `UnmatchedFixtureError` raised when the script runs out. So a fixture with no
+  `request_hash` — which is both of them — is served strictly by position and
+  never sees what the model actually sent: less protection than R2 claimed, not
+  more. `record_fixture()` exists (`fake.py:275`) and has never been run against
+  a real provider, so no recording is committed. All four documents now say so.
+
+  **This entry is here because the claims were corrected, not because the
+  fixtures became recordings.** They did not, and R2's underlying risk — a
+  scripted provider proving nothing about a real model — stands closer to open
+  than R2 claimed.
 
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.
