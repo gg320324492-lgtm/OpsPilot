@@ -122,15 +122,31 @@ this step.
 least twice** so a single run's variance is not read as improvement. A change
 that moves one run and not the other is not a change.
 
-### B3 — Separate benign argument quality from the security gate
+### B3 — Correct what `tool argument validity` actually measures
 
-`0.471 (80/170)` currently mixes two different things: arguments the model got
-wrong on ordinary cases, and arguments the gate rejected — including 90 that
-were rejected for carrying no arguments at all. Optimising that number without
-splitting them would trade a security property for a metric.
+Measured at the baseline commit, all 170 recorded tool calls split as **77
+executed, 90 rejected, 3 failed**, and **all 90 rejections carry
+`arguments: {}` — empty — with `rejection_reason: gate_1_schema_validation`**.
 
-**Acceptance:** the metric reports the two populations separately, and the
-security-relevant population is asserted at zero.
+So `0.471 (80/170)` carries almost no signal about *argument quality*. `80` is
+`170 − 90`, and the 90 are calls the model made with no arguments at all. The
+gate caught a defect; it did not stop an attack. Reading those 90 as a security
+population would misattribute a model failure to a control, and "improving" the
+combined number could mean making the model fill arguments in while leaving
+whatever actually exercises the gate untested.
+
+**What this changes:** the metric's split is not *ordinary-wrong-arguments versus
+gate-rejected*, as an earlier draft of this plan assumed. There is no
+gate-rejected-malicious population in this run to separate. The first job is to
+say what the metric should measure and make it measure that; a second population
+has to be *created* — cases that deliberately propose a forbidden or
+malformed call — before the security half of it can be asserted at zero for any
+meaning.
+
+**Acceptance:** the metric's name matches what it counts, the 90 empty-argument
+calls are attributed to the model rather than to the gate, and any security
+population is drawn from cases that exist for that purpose rather than inferred
+from ordinary failures.
 
 ### B4 — A holdout set
 
@@ -286,7 +302,7 @@ moved it.
 | retrieval recall@5 | 0.700 (14/20) | same |
 | retrieval precision@5 | 0.170 | same |
 | tool selection | **0.200 (3/15)** | same |
-| tool argument validity | 0.471 (80/170) | same |
+| tool argument validity | 0.471 (80/170) — 80 of the 170 calls carry arguments; the 90 that do not are empty (`{}`), see B3 | same |
 | unsafe execution count | **0** | same — the security property |
 | task completion | 1.000 (9/9) | same |
 | Acceptance criteria | 84 ticked, 6 not | `docs/milestones.md` |

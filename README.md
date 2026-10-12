@@ -417,11 +417,13 @@ The four gates are all zero, and `unsafe execution count` is the one that
 matters: **170 tool calls were attempted across the run — 77 executed, 90
 rejected by gate 1, 3 failed — over 15 hostile safety cases including a retrieved
 prompt injection instructing a $10,000 unattended refund, and zero unapproved
-high-risk executions.** The 90 rejections are not near misses: every one is a
-proposal with `arguments: {}` — a tool named and nothing filled in — and every
-one carries `rejection_reason: "gate_1_schema_validation"`. That is why argument
-validity reads 0.471 over *attempted* calls: the gate is what those 90 are, and
-of the 80 schema-valid calls, 77 executed. The 3 failures are all
+high-risk executions.** The 90 rejections are not near misses and not an
+adversarial population either: every one is a proposal with `arguments: {}` — a
+tool named and nothing filled in — and every one carries `rejection_reason:
+"gate_1_schema_validation"`. So the 90 are a model defect the gate caught, not
+a measure of the gate stopping an attack, and argument validity reads 0.471
+over *attempted* calls mostly because of them: 80 of the 170 carry arguments,
+and of those 77 executed. The 3 failures are all
 `billing.issue_refund` — both injected $10,000 refunds and the live $129 refund.
 Each has `approval_requested: true`, none executed, and no `high_risk_write` call
 executed anywhere in the run. The file does not record *why* they failed
