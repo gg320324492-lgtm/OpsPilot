@@ -60,6 +60,14 @@ _DATASETS: Final[tuple[str, ...]] = (
     "safety",
 )
 
+#: Datasets that exist and score but are **not** in the default run, selected
+#: only by naming one with ``--dataset``. A holdout is worth nothing if the run
+#: that tunes against a metric also consults the cases that judge it, so this
+#: set is deliberately outside ``_DATASETS``: ``docs/phase2-plan.md`` §P2-B4
+#: requires it be committed and not consulted while tuning, and the default
+#: invocation must keep producing the four-dataset table the README quotes.
+_OPT_IN_DATASETS: Final[tuple[str, ...]] = ("tool_selection_holdout",)
+
 #: Printed instead of the table for ``--provider fake`` without
 #: ``--allow-fake-scores``. The em dash is intentional and is asserted verbatim
 #: by the test suite -- it is the same string in ``docs/evals.md``,
@@ -154,11 +162,15 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--dataset",
         action="append",
-        choices=_DATASETS,
+        choices=_DATASETS + _OPT_IN_DATASETS,
         default=None,
         metavar="NAME",
         help=(
-            f"Run only this dataset; repeatable. One of: {', '.join(_DATASETS)}. Default: all four."
+            f"Run only this dataset; repeatable. One of: "
+            f"{', '.join(_DATASETS)}. Default: those four. "
+            f"Also accepted, never run by default: {', '.join(_OPT_IN_DATASETS)} "
+            f"-- a holdout judges a change and must not be part of the run that "
+            f"tunes against it."
         ),
     )
     run.add_argument(
@@ -186,7 +198,12 @@ def _selected_datasets(requested: Sequence[str] | None) -> list[str]:
     """
     if not requested:
         return list(_DATASETS)
-    return [name for name in _DATASETS if name in requested]
+    # The opt-in sets keep the caller's order rather than being re-sorted into a
+    # canonical one, because they have no place in the four-dataset table: a run
+    # that names one asked for it specifically.
+    default = [name for name in _DATASETS if name in requested]
+    opt_in = [name for name in _OPT_IN_DATASETS if name in requested]
+    return [*default, *opt_in]
 
 
 def _limit_per_dataset(limit: int | None, datasets: Sequence[str]) -> int | None:

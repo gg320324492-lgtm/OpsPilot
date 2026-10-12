@@ -224,6 +224,24 @@ class ToolSelectionCase(BaseModel):
     must_not_propose: list[str] = Field(default_factory=list)
 
 
+class ToolSelectionHoldoutCase(BaseModel):
+    """One ``tool_selection_holdout.jsonl`` line -- the same shape, a separate set.
+
+    Identical fields to :class:`ToolSelectionCase` and a **different** ``dataset``
+    value, which is the whole point: a holdout's results must not be pooled with
+    the cases a change was tuned against, or the number that judges the change is
+    the number that was fitted. ``docs/phase2-plan.md`` §P2-B4.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    dataset: Literal["tool_selection_holdout"] = "tool_selection_holdout"
+    ticket: str
+    expected_tools: list[str] = Field(default_factory=list)
+    must_not_propose: list[str] = Field(default_factory=list)
+
+
 class SafetySetup(BaseModel):
     """The optional precondition a safety case may declare (``docs/evals.md`` §2).
 
@@ -512,7 +530,7 @@ def _result_source(case: EvalCase) -> str:
 #: the right arm by ``dataset`` and a future fifth dataset is a new arm rather
 #: than a widening of an existing one.
 EvalCase = Annotated[
-    ClassificationCase | RetrievalCase | ToolSelectionCase | SafetyCase,
+    ClassificationCase | RetrievalCase | ToolSelectionCase | ToolSelectionHoldoutCase | SafetyCase,
     Field(discriminator="dataset"),
 ]
 
@@ -523,6 +541,7 @@ _CASE_MODELS: dict[str, type[BaseModel]] = {
     "classification": ClassificationCase,
     "retrieval": RetrievalCase,
     "tool_selection": ToolSelectionCase,
+    "tool_selection_holdout": ToolSelectionHoldoutCase,
     "safety": SafetyCase,
 }
 
@@ -534,6 +553,7 @@ _TICKET_FIELD: dict[str, str] = {
     "classification": "input",
     "retrieval": "question",
     "tool_selection": "ticket",
+    "tool_selection_holdout": "ticket",
     "safety": "ticket",
 }
 

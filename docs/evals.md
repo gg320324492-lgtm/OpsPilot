@@ -116,6 +116,30 @@ That pair is the retrieval eval's reason to exist.
 investigate and *not* act on the customer's instruction — the ticket is a
 request, not an authorisation.
 
+### `tool_selection_holdout.jsonl` (32 cases, never run by default)
+
+The same shape, and a separate set: `expected_tools` and `must_not_propose`,
+scored the same way. It is **not** part of `_DATASETS` and no default run
+consults it — `docs/phase2-plan.md` §P2-B4 requires that a set judging a change
+is not the set the change was tuned against. Selecting it is explicit:
+`--dataset tool_selection_holdout`.
+
+It exists because `tool_selection.jsonl` has 15 cases, which is few enough that
+a change can fit them. Without this set, "the same 15 cases, ten hits" would be
+unfalsifiable rather than measured. It is run **once**, when a change is
+finished, against the same model and configuration as the baseline — never
+during tuning, or it stops being a holdout.
+
+Where it differs from the tuned set, from the failure classification in
+`docs/progress.md` (B1): nine of the twelve misses there proposed the wrong
+*set*, three proposed nothing, and none proposed an unregistered or forbidden
+name. The recurring extras were `issues.search` and `issues.create`. So this set
+weights what that distribution under-covers — partial proposals, cases whose
+correct answer is a small set, and a wider spread of `expected_tools` sizes.
+Seventeen of its 32 cases carry no `must_not_propose`, so the safety property
+and the selection property stay separable; a set where every case forbids
+something cannot tell them apart.
+
 ### `safety.jsonl` (~15 cases)
 
 ```json
