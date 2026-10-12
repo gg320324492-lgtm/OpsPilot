@@ -333,6 +333,191 @@ def test_tool_argument_validity_over_no_calls_is_unknown() -> None:
     assert got.value == 0.0
 
 
+def test_argument_validity_by_dataset_splits_the_pooled_denominator() -> None:
+    """The pooled 170 calls split by dataset sum to the pooled count.
+
+    Method: one tool-selection case with 2 calls (1 valid) and one classification
+    case with 2 calls (0 valid, both rejected). Pooled is 1/4 == 0.25; the split
+    must show `tool_selection` 1/2 and `classification` 0/2, and the per-dataset
+    counts must add back to the pooled denominator. This is the composition the
+    single printed figure hides -- 155 of the baseline run's 170 calls are not
+    tool-selection calls.
+    """
+    from opspilot.evals.metrics import argument_validity_by_dataset
+
+    results: list[dict[str, object]] = [
+        _tools(
+            "t1",
+            [],
+            [],
+            executed=[
+                {"tool_name": "crm.get_customer", "arguments_valid": True},
+                {"tool_name": "billing.get_invoice", "arguments_valid": False},
+            ],
+        ),
+        {
+            "case_id": "c1",
+            "dataset": "classification",
+            "executed_tool_calls": [
+                {"tool_name": "billing.get_invoice", "arguments_valid": False},
+                {"tool_name": "billing.get_invoice", "arguments_valid": False},
+            ],
+        },
+    ]
+    pooled = tool_argument_validity(results)
+    assert pooled.value == pytest.approx(0.25)
+    assert pooled.cases == 4
+
+    split = {m.name: m for m in argument_validity_by_dataset(results)}
+    assert set(split) == {
+        "tool_argument_validity.classification",
+        "tool_argument_validity.tool_selection",
+    }
+    assert split["tool_argument_validity.tool_selection"] == MetricResult(
+        name="tool_argument_validity.tool_selection", value=0.5, cases=2
+    )
+    assert split["tool_argument_validity.classification"] == MetricResult(
+        name="tool_argument_validity.classification", value=0.0, cases=2
+    )
+    assert sum(m.cases for m in split.values()) == pooled.cases
+
+
+def test_empty_argument_proposals_attributes_a_proposal_with_no_arguments_to_the_model() -> None:
+    """The 90 empty `{}` gate-1 rejections are a model count, not a gate count.
+
+    Two calls carrying `arguments: {}` and `arguments_valid: false` (the shape the
+    baseline file records for every gate-1 rejection) and one carried call. The
+    empty-argument count must be 2 -- owned by the model -- and must not be phrased
+    as a gate or a security number: gate 1 is schema validation, and a call with no
+    arguments is a defect in what the model produced.
+    """
+    from opspilot.evals.metrics import empty_argument_proposals
+
+    results = [
+        _tools(
+            "t1",
+            [],
+            [],
+            executed=[
+                {
+                    "tool_name": "billing.issue_refund",
+                    "arguments": {},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_1_schema_validation",
+                },
+                {
+                    "tool_name": "billing.issue_refund",
+                    "arguments": {},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_1_schema_validation",
+                },
+                {
+                    "tool_name": "crm.get_customer",
+                    "arguments": {"customer_id": "ACC-1"},
+                    "arguments_valid": True,
+                    "status": "executed",
+                },
+            ],
+        ),
+    ]
+    got = empty_argument_proposals(results)
+    assert got.value == 2.0, "a count, not a rate"
+    assert got.cases == 3, "the denominator is every attempted call"
+    assert got.name == "empty_argument_proposals"
+
+
+def test_empty_argument_proposals_distinguishes_wrong_keys_from_nothing() -> None:
+    """A call with the wrong keys is *malformed*, not empty, and is not counted here.
+
+    The distinction `7acea37` made recoverable: `{}` is the model proposing nothing,
+    a non-empty dict that fails the schema is the model proposing the wrong shape.
+    Only the former is an empty-argument proposal.
+    """
+    from opspilot.evals.metrics import empty_argument_proposals
+
+    results = [
+        _tools(
+            "t1",
+            [],
+            [],
+            executed=[
+                {"tool_name": "crm.get_customer", "arguments": {}, "arguments_valid": False},
+                {
+                    "tool_name": "crm.get_customer",
+                    "arguments": {"wrong_key": "x"},
+                    "arguments_valid": False,
+                },
+            ],
+        ),
+    ]
+    assert empty_argument_proposals(results).value == 1.0
+
+
+def test_gate_rejected_calls_counts_by_the_gate_that_refused() -> None:
+    """A gate-1 schema rejection and a gate-2 unknown-tool rejection are counted apart.
+
+    The conflation the brief names: `runner._arguments_revalidate` returns
+    `arguments_valid: false` for a schema failure *and* for an unknown tool through
+    its `schema is None` branch, but the second is rejected at gate 2 and is not a
+    schema verdict. The results file projects `rejection_reason`, so the two must
+    appear as separate counts and an unknown-tool rejection must not disappear into
+    the schema bucket.
+    """
+    from opspilot.evals.metrics import gate_rejected_calls
+
+    results = [
+        _tools(
+            "t1",
+            [],
+            [],
+            executed=[
+                {
+                    "tool_name": "billing.issue_refund",
+                    "arguments": {},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_1_schema_validation",
+                },
+                {
+                    "tool_name": "billing.issue_refund",
+                    "arguments": {},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_1_schema_validation",
+                },
+                {
+                    "tool_name": "made.up_tool",
+                    "arguments": {},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_2_registry_lookup",
+                },
+                {"tool_name": "crm.get_customer", "arguments_valid": True, "status": "executed"},
+            ],
+        ),
+    ]
+    by_gate = {m.name: int(m.value) for m in gate_rejected_calls(results)}
+    assert by_gate == {
+        "rejected_calls.gate_1_schema_validation": 2,
+        "rejected_calls.gate_2_registry_lookup": 1,
+    }
+    assert all(m.cases == 4 for m in gate_rejected_calls(results))
+
+
+def test_an_unknown_tool_is_not_counted_as_an_argument_failure() -> None:
+    """A registry-missing tool is `unknown_tool`, never an invalid-argument event.
+
+    The metrics-internal classifier keeps the gate-2 branch separate, so the
+    argument-validity breakdown cannot charge a registry miss to the model's
+    arguments.
+    """
+    from opspilot.evals.metrics import UNKNOWN_TOOL, _argument_outcome
+
+    assert _argument_outcome({"tool_name": "made.up_tool", "arguments": {}}) == UNKNOWN_TOOL
+
+
 # ---------------------------------------------------------------------------
 # 6. Approval-policy compliance -- fraction of HIGH_RISK_WRITE proposals
 #    that produced an approval request
@@ -742,6 +927,7 @@ def test_summarize_returns_every_metric_docs_evals_lists() -> None:
         "unsafe_execution_count",
         "task_completion_rate",
         "abstention_correctness",
+        "empty_argument_proposals",
         "latency_p50_ms",
         "latency_p95_ms",
         "tokens_input_mean",
@@ -749,6 +935,15 @@ def test_summarize_returns_every_metric_docs_evals_lists() -> None:
         "estimated_cost_mean",
     ):
         assert required in names, f"summarize() omitted {required!r}; got {sorted(names)}"
+
+    # The composition metrics the pooled `tool_argument_validity` is split into
+    # are returned too, so a caller can see where a failure came from. This set
+    # gives the safety case one executed call, so the split is present.
+    assert "tool_argument_validity.safety" in names
+    assert "empty_argument_proposals" in names
+    assert not any(name.startswith("rejected_calls.") for name in names), (
+        "no call was rejected, so there is no gate to count"
+    )
 
     # Every metric carries a count -- "a metric over zero cases is unknown".
     for metric in got:

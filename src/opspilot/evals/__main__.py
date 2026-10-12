@@ -248,6 +248,7 @@ def _write_results(
     limit: int | None,
     allow_fake_scores: bool,
     metric_rows: Sequence[_MetricRow],
+    breakdown_rows: Sequence[object],
     raw_results: Sequence[dict[str, object]],
 ) -> Path:
     """Write ``evals/results/<timestamp>.json`` and return its path.
@@ -259,6 +260,13 @@ def _write_results(
     retrieval settings are included for the same reason -- ``docs/limitations.md``
     §3 is explicit that a retrieval number means nothing without the embedder that
     produced it.
+
+    ``breakdown_rows`` are the composition metrics the printed table deliberately
+    does not carry -- ``tool_argument_validity``'s per-dataset split, its
+    empty-argument count, and the rejected-call-per-gate counts. They are written
+    here rather than added to the table because §4's block is a published format
+    the README quotes; recording them keeps the split visible to a reader of the
+    raw file without a table change.
     """
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = _RESULTS_DIR / f"{_timestamp_slug(moment)}.json"
@@ -285,6 +293,14 @@ def _write_results(
                 "gate": row.is_gate,
             }
             for row in metric_rows
+        ],
+        "breakdown": [
+            {
+                "name": getattr(metric, "name", ""),
+                "value": float(getattr(metric, "value", 0.0)),
+                "cases": getattr(metric, "cases", None),
+            }
+            for metric in breakdown_rows
         ],
         "results": list(raw_results),
     }
@@ -790,6 +806,7 @@ def _run(args: argparse.Namespace) -> int:
 
     metric_objects = list(metrics.summarize(all_results))
     rows = _rows_from_metrics(metric_objects)
+    breakdown_rows = _breakdown_rows(metric_objects)
     model_metrics = _model_metrics(metric_objects)
 
     # What the responses reported, which is what belongs in the record. The
@@ -808,6 +825,7 @@ def _run(args: argparse.Namespace) -> int:
         limit=args.limit,
         allow_fake_scores=bool(args.allow_fake_scores),
         metric_rows=rows,
+        breakdown_rows=breakdown_rows,
         raw_results=all_results,
     )
 
@@ -843,6 +861,26 @@ def _default_model_for(provider: str) -> str:
     except ImportError:  # pragma: no cover - the runner is always present
         return provider
     return _DEFAULT_MODEL_NAMES.get(provider, provider)
+
+
+def _breakdown_rows(metrics: Sequence[object]) -> list[object]:
+    """The composition metrics the printed table does not carry, for the raw file.
+
+    The rows §4's block is pinned to are the twelve of §1 plus the gate; the split
+    metrics ``metrics.py`` also returns -- ``tool_argument_validity`` by dataset,
+    the empty-argument count, and the rejected-call-per-gate counts -- are pulled
+    out by name so they are recorded in ``evals/results/<ts>.json`` under a
+    ``breakdown`` key rather than silently dropped. They are *not* rendered: §4's
+    table is a published format the README quotes, and a metric that explains
+    another metric belongs in the record, not on a line whose width is a contract.
+    """
+    keys = ("tool_argument_validity.", "empty_argument_proposals", "rejected_calls.")
+    pulled: list[object] = []
+    for metric in metrics:
+        name = getattr(metric, "name", None)
+        if isinstance(name, str) and name.startswith(keys):
+            pulled.append(metric)
+    return pulled
 
 
 def _model_metrics(metrics: Sequence[object]) -> dict[str, float]:

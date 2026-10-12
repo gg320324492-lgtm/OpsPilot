@@ -441,6 +441,28 @@ def test_results_filename_matches_the_spec_timestamp_format(
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json", name), name
 
 
+def test_results_file_carries_the_breakdown_the_table_does_not_print(
+    cli_env: _Cli,
+) -> None:
+    """The raw file records the composition the printed table deliberately omits.
+
+    ``tool argument validity`` pools every dataset that records a call, and §4's
+    table is a published format the README quotes, so the per-dataset split, the
+    empty-argument count and the rejected-call-per-gate counts are written under a
+    ``breakdown`` key rather than added as table rows. The key must exist even when
+    the double emits none of those metrics -- it is the record's shape, not the
+    double's contents, that this pins.
+    """
+    result = _run_cli(cli_env, "run", "--provider", "fake", "--allow-fake-scores")
+    assert result.returncode == 0, result.stderr
+    raw = _latest_results_file()
+    assert "breakdown" in raw, "the results file must carry the composition metrics"
+    assert isinstance(raw["breakdown"], list)
+    # The printed table is unchanged: the pooled row still reads from the metric
+    # the double supplies, and no breakdown metric is rendered as a row.
+    assert "tool argument validity" in result.stdout
+
+
 def test_unknown_provider_is_a_usage_error(cli_env: _Cli) -> None:
     """argparse rejects an unknown provider with its own exit code 2."""
     result = _run_cli(cli_env, "run", "--provider", "acme")
