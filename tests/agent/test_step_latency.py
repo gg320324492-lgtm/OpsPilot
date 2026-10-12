@@ -188,10 +188,14 @@ async def test_a_retrieval_latency_reflects_how_long_retrieval_actually_took(
     assert slow_ms is not None and fast_ms is not None
 
     # The slow retrieval slept 250ms; the recorded number must reflect that.
-    # The bound is deliberately loose (>=150ms) because it must survive a loaded
-    # CI machine while still being unreachable by a constant: the fast run's
-    # recorded latency is tens of milliseconds at most, so no single hard-coded
-    # value satisfies both halves of this comparison.
+    # This floor is safe under load and is deliberately not the 250 the sleep
+    # asked for: it is a *one-sided lower* bound on a value the test itself made
+    # large, so a busier machine only pushes the measurement further above it and
+    # can never fail it. The 100ms of slack absorbs the accounting between the
+    # sleeper and the timed call site. The bound is what makes a constant
+    # unreachable, and the delta below is the assertion that actually tracks the
+    # sleep: both runs are measured under the same load, so their difference --
+    # unlike either absolute number -- does not move when the host is busy.
     assert slow_ms >= 150, (
         f"a retrieval that slept 250ms recorded {slow_ms}ms; the persisted "
         "latency is not the elapsed time the retriever actually spent"
@@ -416,15 +420,49 @@ async def test_a_tool_call_latency_is_the_measurement_not_a_constant(harness: Ha
     ``latency_ms is not None`` cannot tell a real measurement from a hard-coded
     ``42`` -- the mistake this file was written to prevent. So the measurement
     is forced apart: the run executes four calls, and the gateway is wrapped so
-    that the *second* call (``billing.get_invoice``, a name the run knows it
-    will ask for) sleeps a known 250ms inside the dispatch the gateway times.
+    that one of them (``billing.get_invoice``, a name the run knows it will ask
+    for) sleeps a known, deliberate amount inside the dispatch the gateway
+    times, while reporting a ``latency_ms`` that is its own inner measurement
+    plus that amount.
 
     The wrapper is a real ``ToolGateway`` that delegates to the real
-    ``MCPToolGateway`` and then rewrites only the ``latency_ms`` it reports, so
-    the row still comes from the real store, the real runtime and the real MCP
+    ``MCPToolGateway`` and then rewrites the ``latency_ms`` it reports, so the
+    row still comes from the real store, the real runtime and the real MCP
     servers. If the runtime forwarded something other than
-    ``ToolResult.latency_ms`` -- its own ``perf_counter`` reading, a constant,
-    or nothing at all -- the slowed call could not come back as the large one.
+    ``ToolResult.latency_ms`` -- a constant, or nothing at all -- the persisted
+    row could not carry the wrapper's number.
+
+    Why the two assertions are equalities against the wrapper's own numbers
+    ----------------------------------------------------------------------
+    An earlier version of this test asserted ``slowed.latency_ms >= 250`` and
+    ``all(other < 250 for other in others)``: one real dispatch compared to a
+    fixed millisecond bound, and a control that bounded *every other* real
+    dispatch by that same fixed number. The control's intent was right -- a
+    hard-coded constant would satisfy an unbounded "the slowed call is large" --
+    but the bound was wall-clock, and on a loaded machine any honest in-process
+    dispatch (GC, scheduling, the SQLite write behind ``set_status``) can cross
+    250ms. That is a failure mode unrelated to what the test exists to prove, and
+    it is exactly the flake that was observed.
+
+    The replacement removes the fixed bound entirely, and it is the same shape as
+    the retrieval test above (``test_a_retrieval_latency_reflects_how_long_
+    retrieval_actually_took``): that one compares the slowed retrieval to a fast
+    one in the same test, so both move with the machine's load and the difference
+    between them does not. Here the wrapper already knows the inner measurement
+    it built the reported number from, so the "fast run" is in hand without a
+    second run: the persisted row must equal the number its own dispatch
+    reported. That is the delta taken all the way to an identity -- a pure
+    arithmetic check over numbers the test controls, immune to how long any
+    dispatch actually took and to how busy the machine is. A constant cannot
+    satisfy it for four different reported values, and the control is no longer a
+    second live measurement racing a bound.
+
+    The deliberate delay is widened from 250ms to 1000ms so the slowed row is
+    unmistakably the largest in the run. The delay now serves only that
+    readable "the slowed call is the big one" property, not the equality -- the
+    equality holds whatever the delay is. The cost is a fixed 0.75s on a suite
+    that already sleeps 250ms twice in this file; paid once per run, it is worth
+    a control that cannot flake.
     """
     import asyncio
 
@@ -432,25 +470,35 @@ async def test_a_tool_call_latency_is_the_measurement_not_a_constant(harness: Ha
 
     inner = harness.gateway
     slowed_name = "billing.get_invoice"
+    injected_ms = 1000
 
     class SlowedDispatchGateway:
-        """Delegates every call to the real gateway; makes one dispatch slow."""
+        """Delegates every call to the real gateway; delays and inflates one.
+
+        ``reported`` maps each dispatched tool name to the exact ``latency_ms``
+        this wrapper handed the runtime -- for the delayed call, its own inner
+        measurement plus ``injected_ms``; for every other call, the real
+        gateway's measurement, unchanged. The test compares the persisted rows
+        against these numbers, so it never has to bound a measurement.
+        """
 
         def __init__(self) -> None:
-            self.slow_calls: list[int] = []
+            self.reported: dict[str, int] = {}
 
         async def call_tool(self, name: str, arguments: dict[str, object]) -> ToolResult:
             result = await inner.call_tool(name, arguments)
             if name != slowed_name:
+                self.reported[name] = result.latency_ms
                 return result
-            await asyncio.sleep(0.25)
-            self.slow_calls.append(result.latency_ms)
+            await asyncio.sleep(injected_ms / 1000)
+            reported_ms = result.latency_ms + injected_ms
+            self.reported[name] = reported_ms
             return ToolResult(
                 tool_name=result.tool_name,
                 ok=result.ok,
                 result=result.result,
                 error=result.error,
-                latency_ms=result.latency_ms + 250,
+                latency_ms=reported_ms,
             )
 
         async def list_tools(self) -> object:
@@ -463,30 +511,61 @@ async def test_a_tool_call_latency_is_the_measurement_not_a_constant(harness: Ha
     await harness.decide(approval.id, approved=True)
     assert await harness.drain_with(gateway, worker_id="w-2") is True  # type: ignore[arg-type]
 
-    assert gateway.slow_calls, f"the run never dispatched {slowed_name!r}"
+    assert slowed_name in gateway.reported, f"the run never dispatched {slowed_name!r}"
 
     rows = {c.tool_name: c for c in harness.tool_calls(run.id)}
     assert slowed_name in rows, f"the run never persisted a {slowed_name!r} row"
     slowed = rows[slowed_name]
     assert slowed.latency_ms is not None
-    assert slowed.latency_ms >= 250, (
-        f"the only dispatch the gateway deliberately delayed by 250ms recorded "
-        f"{slowed.latency_ms}ms on its {slowed_name!r} row; the runtime is not "
-        "persisting the gateway's measured latency"
+
+    # The delayed call's row must be the number the wrapper reported, which is
+    # its own inner measurement plus the deliberate delay. The wrapper measured
+    # the inner dispatch itself; the runtime must persist *that* number plus the
+    # injected delay, not a number it chose. An equality, so machine load cannot
+    # move it: however long the inner dispatch took, both sides move together.
+    assert slowed.latency_ms == gateway.reported[slowed_name], (
+        f"the {slowed_name!r} row recorded {slowed.latency_ms}ms but the gateway "
+        f"reported {gateway.reported[slowed_name]}ms to the runtime; the runtime "
+        "is not persisting the latency the gateway measured"
     )
 
-    # The control: an undelayed call in the same run must NOT also read >= 250ms.
-    # Without this half, a constant of 250+ would satisfy the assertion above.
-    others = [
-        c.latency_ms
-        for name, c in rows.items()
-        if name != slowed_name and c.status == "executed" and c.latency_ms is not None
-    ]
+    # The control, and it no longer bounds anything: every executed row must
+    # carry exactly the latency its own dispatch reported. One call cannot be
+    # told from a constant in isolation, but four rows that each equal four
+    # different gateway-reported numbers cannot all be a constant -- and unlike
+    # the previous `all(value < 250)`, this compares each measurement to the
+    # number that produced it rather than to a wall-clock bound.
+    executed = {
+        name: row
+        for name, row in rows.items()
+        if row.status == "executed" and row.latency_ms is not None
+    }
+    assert len(executed) >= 2, (
+        f"expected several executed calls to compare against; got {sorted(executed)}"
+    )
+    for name, row in executed.items():
+        assert name in gateway.reported, f"no dispatch was recorded for {name!r}"
+        assert row.latency_ms == gateway.reported[name], (
+            f"the {name!r} row recorded {row.latency_ms}ms but its dispatch "
+            f"reported {gateway.reported[name]}ms; the persisted latency is not "
+            "the value the gateway measured for that call"
+        )
+
+    # A readability guard on the same fact the equalities already prove: the
+    # deliberately-delayed call is the largest in the run. No fixed bound -- it
+    # is compared only to the other measured rows, and the widened delay makes
+    # this margin generous enough that a loaded machine cannot close it.
+    others: list[int] = []
+    for name, row in executed.items():
+        if name == slowed_name:
+            continue
+        assert row.latency_ms is not None
+        others.append(row.latency_ms)
     assert others, "expected other executed calls in the run to compare against"
-    assert all(value < 250 for value in others), (
-        f"undelayed tool calls recorded latencies {others}, all >= the 250ms the "
-        "one deliberately-slowed call was given; a constant cannot distinguish "
-        "them, so this assertion is what makes the one above a measurement"
+    assert slowed.latency_ms is not None and slowed.latency_ms > max(others), (
+        f"the delayed call recorded {slowed.latency_ms}ms, not larger than the "
+        f"undelayed calls' {others}; the recorded latency does not track the "
+        "delay the gateway applied"
     )
 
 
