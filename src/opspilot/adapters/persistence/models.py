@@ -179,6 +179,15 @@ class AgentRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
+    # The claim lease. ``claimed_until`` is the moment the lease expires and
+    # ``claimed_by`` is the ``WORKER_ID`` holding it; both NULL means the run has
+    # never been leased and is claimable now. ``claim_next`` takes a row only
+    # when the lease is absent or expired and sets these in the same transaction;
+    # ``renew_lease`` extends ``claimed_until`` while the same worker still holds
+    # the row. See ``migrations/versions/0002_claim_lease.py`` for why this is a
+    # lease and not a status change (``EXECUTING`` must stay claimable).
+    claimed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         # The worker's claim predicate. Partial so completed and failed runs --
@@ -188,6 +197,15 @@ class AgentRun(Base):
             "created_at",
             postgresql_where=text(_CLAIM_PREDICATE),
             sqlite_where=text(_CLAIM_PREDICATE),
+        ),
+        # The lease half of the claim predicate, partial over rows that carry a
+        # lease. Mirrors ``0002_claim_lease.py``; the two must agree or the
+        # migration and the ORM describe different schemas.
+        Index(
+            "ix_agent_runs_claimed_until",
+            "claimed_until",
+            postgresql_where=text("claimed_until IS NOT NULL"),
+            sqlite_where=text("claimed_until IS NOT NULL"),
         ),
     )
 

@@ -307,6 +307,34 @@ class Settings(BaseSettings):
     worker_poll_interval: float = Field(default=1.0, alias="WORKER_POLL_INTERVAL")
     worker_id: str = Field(default="", alias="WORKER_ID")
 
+    # The claim lease: how long a claimed run stays out of every other worker's
+    # hands before the lease expires and the run becomes claimable again. It is
+    # the mechanism that lets two workers share one database (docs/adr/0005):
+    # ``claim_next`` takes a row only when its lease is absent or expired and
+    # sets the lease forward in the same transaction, so a *live* worker's run
+    # is not handed to a second worker, while a run whose worker *died* becomes
+    # claimable once the lease runs out (``docs/limitations.md`` §2, C1).
+    #
+    # The default is justified against a measurement, not picked round. A live
+    # eval measured a run's p95 drive duration at **276 seconds** (the figure
+    # ``limitations.md`` §2 and the p95 note in ``docs/progress.md``'s latency
+    # work carry). A default of **300 seconds** therefore exceeds a p95 run with
+    # no renewal at all: for the common case the lease is longer than the work,
+    # and renewal (below) is a safety net for the tail rather than load-bearing
+    # for every run. Choosing the lease to *also* cover the tail would mean a
+    # lease of many minutes, and the cost of an over-long lease is worse than the
+    # cost of renewal: a worker that dies strands its run for the whole lease
+    # before anyone may recover it. A lease somewhat above the p95 keeps that
+    # recovery window bounded while renewal keeps a genuinely long run alive.
+    #
+    # The worker renews at lease/3 (``worker/loop.py``), so a run survives a
+    # single missed renewal and any run shorter than the lease needs none. When a
+    # run outlives an *unrenewed* lease -- the worker stalled past the lease
+    # without the renewer running -- the lease expires and another worker claims
+    # the same run; that failure mode is pinned by a test rather than assumed
+    # away (``tests/integration/test_worker_claim_lease.py``).
+    worker_claim_lease_seconds: float = Field(default=300.0, alias="WORKER_CLAIM_LEASE_SECONDS")
+
     # -- MCP servers ---------------------------------------------------------
     # Which transport the tool gateway dispatches over.
     #

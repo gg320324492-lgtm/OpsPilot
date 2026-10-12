@@ -95,7 +95,7 @@ async def test_claim_returns_received_run(factory: sessionmaker[Session]) -> Non
     with db.session_scope(factory) as session:
         _, run = await _make_ticket_and_run(session)
     with db.session_scope(factory) as session:
-        claimed = await SqlRunStore(session).claim_next(worker_id="w1")
+        claimed = await SqlRunStore(session).claim_next(worker_id="w1", lease_seconds=300.0)
     assert claimed is not None
     assert claimed.id == run.id
     assert claimed.status is RunStatus.RECEIVED
@@ -106,12 +106,12 @@ async def test_waiting_approval_is_not_claimed(factory: sessionmaker[Session]) -
         await _make_ticket_and_run(session)
     with db.session_scope(factory) as session:
         store = SqlRunStore(session)
-        claimed = await store.claim_next(worker_id="w1")
+        claimed = await store.claim_next(worker_id="w1", lease_seconds=300.0)
         assert claimed is not None
         await store.set_status(claimed.id, RunStatus.WAITING_APPROVAL)
 
     with db.session_scope(factory) as session:
-        assert await SqlRunStore(session).claim_next(worker_id="w1") is None
+        assert await SqlRunStore(session).claim_next(worker_id="w1", lease_seconds=300.0) is None
 
 
 async def test_set_status_writes_state_change_step(factory: sessionmaker[Session]) -> None:

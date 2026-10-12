@@ -191,6 +191,9 @@ services:
       MAX_STEPS: ${MAX_STEPS:-24}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
       WORKER_ID: ${WORKER_ID:-}
+      # The claim lease (docs/adr/0005; docs/limitations.md §2). Inert in the
+      # api -- it never claims -- but passed so both halves agree on it.
+      WORKER_CLAIM_LEASE_SECONDS: ${WORKER_CLAIM_LEASE_SECONDS:-300.0}
       # Which recorded scenario the fake provider replays. The api builds no
       # provider and replays nothing, but the default is the worker's rather
       # than settings.py's empty one, because the repository's own guard
@@ -219,7 +222,7 @@ services:
       # WHY THE WORKER-ONLY KNOBS APPEAR HERE AT ALL
       # -------------------------------------------
       # MODEL_TIMEOUT_SECONDS, MAX_STEPS, WORKER_POLL_INTERVAL, WORKER_ID,
-      # OPSPILOT_FAKE_SCENARIO, MCP_TRANSPORT, MCP_*_COMMAND,
+      # WORKER_CLAIM_LEASE_SECONDS, OPSPILOT_FAKE_SCENARIO, MCP_TRANSPORT, MCP_*_COMMAND,
       # OPSPILOT_TOOL_DENYLIST, OPSPILOT_REFUND_CEILING and STORE_FULL_PROMPTS
       # are inert in THIS service: it issues no model call, never polls the run
       # table, builds no tool gateway and evaluates no policy. They are here
@@ -362,6 +365,12 @@ services:
       # so a run claimed in this deployment is attributable to *this* container
       # rather than to a bare `worker-1234` that says nothing about which host.
       WORKER_ID: ${WORKER_ID:-worker-compose}
+      # The claim lease, in seconds: how long a claimed run stays out of every
+      # other worker's hands before the lease expires and the run becomes
+      # claimable again (docs/adr/0005; docs/limitations.md §2). 300s is above
+      # the measured p95 run duration (276s); the worker renews it every 100s
+      # while it drives a run. See settings.py for the argument.
+      WORKER_CLAIM_LEASE_SECONDS: ${WORKER_CLAIM_LEASE_SECONDS:-300.0}
       # Which transport the tool gateway dispatches over. This is the service
       # that reads it (worker/__main__.py::build_worker_gateway), and until this
       # line existed MCP_TRANSPORT=stdio could not be selected from a .env at

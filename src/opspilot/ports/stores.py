@@ -80,10 +80,16 @@ class TicketStore(Protocol):
 class RunStore(Protocol):
     """Reads and writes agent runs.
 
-    ``claim_next`` is the worker's queue primitive: ``SELECT ... FOR UPDATE SKIP
-    LOCKED LIMIT 1`` over the claimable statuses, ordered by ``created_at``.
-    SQLite cannot express ``SKIP LOCKED`` and degrades to a single-threaded
-    claim (see ``docs/data-model.md`` §6).
+    ``claim_next`` is the worker's queue primitive: ``SELECT ... WHERE status IN
+    (claimable) AND (claimed_until IS NULL OR claimed_until < now()) ORDER BY
+    created_at FOR UPDATE SKIP LOCKED LIMIT 1``, which in the same transaction
+    sets the row's lease (``claimed_until``/``claimed_by``) forward. The lease is
+    what keeps a claimed run out of a second worker's hands for the duration of
+    the drive; ``renew_lease`` extends it while the holder is alive, and a lease
+    that expires makes the run claimable again (``docs/adr/0005``,
+    ``docs/limitations.md`` §2). SQLite cannot express ``SKIP LOCKED`` and
+    degrades to a single-threaded claim, but the lease predicate still holds (see
+    ``docs/data-model.md`` §6).
     """
 
     async def create(self, *, ticket_id: UUID, model_provider: str, model_name: str) -> AgentRun:
@@ -94,8 +100,16 @@ class RunStore(Protocol):
         """Fetch a run by id."""
         ...
 
-    async def claim_next(self, *, worker_id: str) -> AgentRun | None:
-        """Atomically claim the oldest claimable run, or return ``None``."""
+    async def claim_next(self, *, worker_id: str, lease_seconds: float) -> AgentRun | None:
+        """Claim the oldest run whose lease is absent or expired, or ``None``.
+
+        Sets the lease forward in the same transaction as the read; a row held
+        by a live worker (lease in the future) is not returned.
+        """
+        ...
+
+    async def renew_lease(self, run_id: UUID, *, worker_id: str, lease_seconds: float) -> bool:
+        """Extend a held run's lease; ``False`` if this worker no longer holds it."""
         ...
 
     async def set_status(

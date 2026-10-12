@@ -30,15 +30,17 @@ the store itself uses: while one claim holds a row, a real
 It is important to be exact about what that is **not**. ``SqlRunStore.claim_next``
 bound to a ``sessionmaker`` opens its own transaction, runs the ``SELECT``,
 returns, and commits -- so it holds the row lock only for the duration of the
-``SELECT`` and never changes the row's status. The worker is expected, per
-``docs/adr/0005`` and ``docs/architecture.md``, to hold the row while the runtime
-drives the run to a terminal or parked state; the shipped implementation does
-not, because the lock closes with the claim. Two workers polling a moment apart
-therefore both see the run as claimable and both receive it. That is characterised
-in ``test_a_released_claim_is_reclaimable_by_a_second_worker`` and reported as a
-defect in the change that added this file; it is *not* fixed here, and this file
-does not pretend the clause covers it. What this file proves is the narrower
-property the clause really has: **overlapping claims take different rows.**
+``SELECT``. What it *now* holds across the drive is the **lease**
+(``agent_runs.claimed_until``), written in the same transaction as the read. So
+the clause this file exercises is no longer what keeps two workers from *sharing*
+a run -- the lease is -- and the two are separable properties:
+``SKIP LOCKED``'s narrow, tested guarantee is that **overlapping claims take
+different rows without blocking**, and the lease's guarantee is that a
+*non-overlapping* second claim is withheld, asserted by
+``test_a_leased_claim_is_withheld_from_a_second_worker`` here and by the SQLite
+regression test that reproduces the 30/30 measurement. This file still proves the
+clause's own property, which the lease did not make obsolete: a second claimant
+must **skip**, not **wait**, on a row another claim transaction is holding.
 
 ## Why a held lock, not a bare thread race
 
@@ -204,7 +206,7 @@ async def _claim_without_blocking(
     store = SqlRunStore(factory)
 
     async def claim() -> AgentRun | None:
-        return await store.claim_next(worker_id=worker_id)
+        return await store.claim_next(worker_id=worker_id, lease_seconds=300.0)
 
     try:
         return await asyncio.wait_for(claim(), timeout=_CLAIM_GRACE_SECONDS)
@@ -381,7 +383,7 @@ async def test_an_overlapping_claim_takes_the_locked_run_once(
         )
 
         holder.rollback()
-        recovered = await SqlRunStore(second).claim_next(worker_id="worker-b")
+        recovered = await SqlRunStore(second).claim_next(worker_id="worker-b", lease_seconds=300.0)
         assert recovered is not None and recovered.id == run.id, (
             "the run was not reclaimable after the holder released it, so the "
             "earlier None did not mean what this test claims it meant."
@@ -434,44 +436,39 @@ async def test_two_claimants_racing_over_one_locked_row_never_share_it(
 
 
 @pytest.mark.postgres
-async def test_a_released_claim_is_reclaimable_by_a_second_worker(
+async def test_a_leased_claim_is_withheld_from_a_second_worker(
     pg_factories: list[sessionmaker[Session]],
 ) -> None:
-    """Two claims a moment apart both receive an unchanged run -- the known gap.
+    """Two claims a moment apart do **not** both receive the run -- the fix.
 
-    This is **not** the promised property; it is its boundary, asserted so the
-    boundary is visible in code rather than only in prose. ``claim_next`` bound to
-    a ``sessionmaker`` opens its own transaction, runs the ``SELECT``, returns and
-    commits. The lock is gone the instant the claim returns, and the claim does
-    not change the row's status, so a second worker whose poll runs *after* the
-    first claim has finished sees the same ``RECEIVED`` row as claimable and
-    receives it too. Two workers therefore share one run unless something holds
-    the row across the claim.
-
-    ``docs/adr/0005`` and ``docs/architecture.md`` both describe the worker
-    holding the row while the runtime drives the run to a terminal or parked
-    state; the shipped claim does not, because its lock closes with the
-    statement. So the concurrency guarantee those documents advertise ("scaling
-    out is adding replicas") does not hold as implemented. This test records the
-    real behaviour; fixing the implementation would make it fail, which is the
-    prompt to delete it and record the fix, not to loosen it.
+    This test replaces ``test_a_released_claim_is_reclaimable_by_a_second_worker``,
+    whose docstring named exactly this as the prompt to delete it: it asserted
+    that a second, non-overlapping claim received the run the first had already
+    returned, and said that if the claim came to hold (or mark) its row across the
+    drive, that test should be deleted and the fix recorded. The claim now writes
+    a lease (``agent_runs.claimed_until``) in the same transaction as the read,
+    so a second worker whose poll runs *after* the first claim finished sees a
+    lease in the future and gets ``None`` -- the property ``docs/adr/0005`` and
+    ``docs/architecture.md`` advertise. The 30/30 measurement in
+    ``docs/limitations.md`` §2 recorded its absence; the SQLite regression test
+    (``test_worker_claim_lease.py``) reproduces that shape, and this asserts the
+    same property on the dialect production runs.
     """
     first, second = pg_factories
     run = await _make_run(first)
 
-    worker_a = await SqlRunStore(first).claim_next(worker_id="worker-a")
-    # Bounded, because a claim that *waited* here would be the fix this test
-    # documents the absence of -- and a wait is not what a green run should take.
-    worker_b = await _claim_without_blocking(second, worker_id="worker-b")
-
+    worker_a = await SqlRunStore(first).claim_next(worker_id="worker-a", lease_seconds=300.0)
     assert worker_a is not None and worker_a.id == run.id
-    assert worker_b is not None and worker_b.id == run.id, (
-        "the second, non-overlapping claim did NOT receive the run the first "
-        "claim already returned. That is a change in behaviour: if the claim now "
-        "holds its row (or marks it claimed) across the worker's driving of the "
-        "run, the `SKIP LOCKED` guarantee is stronger than this test records -- "
-        "delete this test and record that the two-worker property now holds end "
-        "to end."
+
+    # A *non-overlapping* claim: worker_a's transaction has committed and its
+    # lease is set. It must be withheld -- no lock is held now, only the lease.
+    worker_b = await _claim_without_blocking(second, worker_id="worker-b")
+    assert worker_b is None, (
+        "the second, non-overlapping claim received the run the first claim "
+        "already returned. The lease is what withholds it: worker_a holds a "
+        "300s lease, so worker_b's predicate (`claimed_until IS NULL OR "
+        "claimed_until < now()`) must exclude the row. A returned run here means "
+        "the lease predicate was dropped or the lease was not written."
     )
 
 
@@ -495,7 +492,7 @@ async def test_a_waiting_approval_run_is_not_claimable_on_postgres(
     first, _ = pg_factories
     parked = await _make_run(first, status=RunStatus.WAITING_APPROVAL)
 
-    claimed = await SqlRunStore(first).claim_next(worker_id="worker-a")
+    claimed = await SqlRunStore(first).claim_next(worker_id="worker-a", lease_seconds=300.0)
     assert claimed is None, (
         f"a WAITING_APPROVAL run ({parked.id}) was claimed. The parked run is "
         "what the human decision is waiting on; claiming it re-drives work nobody "

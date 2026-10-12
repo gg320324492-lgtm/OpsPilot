@@ -90,6 +90,18 @@ def _settings_retrieval_min_score() -> float:
     return get_settings().retrieval_min_score
 
 
+def _settings_claim_lease_seconds() -> float:
+    """``Settings.worker_claim_lease_seconds``, so the lease has one definition.
+
+    Same shape and same reason as the two helpers around it: the lease duration
+    is configuration, and a literal here would be a second copy that an operator
+    moving ``WORKER_CLAIM_LEASE_SECONDS`` never reaches.
+    """
+    from opspilot.settings import get_settings
+
+    return get_settings().worker_claim_lease_seconds
+
+
 def _settings_max_steps() -> int:
     """``Settings.max_steps``, so the step budget has one definition.
 
@@ -331,16 +343,24 @@ async def claim_next(
     *,
     worker_id: str,
     run_store: RunStore,
+    lease_seconds: float | None = None,
 ) -> AgentRun | None:
-    """Atomically claim the oldest claimable run, or ``None``.
+    """Atomically claim the oldest claimable run whose lease is absent or expired.
 
-    The claim predicate is the store's business: ``SqlRunStore.claim_next`` uses
-    ``FOR UPDATE SKIP LOCKED`` on Postgres and a plain single-threaded ``SELECT``
-    on SQLite, and it claims only ``CLAIMABLE`` from ``domain/runs.py`` -- so
-    ``WAITING_APPROVAL`` is never claimed, and a new state cannot be picked up
-    without a deliberate edit to that table.
+    The claim predicate is the store's business: ``SqlRunStore.claim_next`` takes
+    only ``CLAIMABLE`` from ``domain/runs.py`` -- so ``WAITING_APPROVAL`` is never
+    claimed -- **and** only rows whose lease is absent or expired, setting the
+    lease forward in the same transaction. The lease is what a claim holds for
+    the duration of the drive; ``EXECUTING`` is deliberately still claimable
+    (``db.mark_interrupted_runs`` explains why), and the lease is the mechanism
+    that tells a *live* ``EXECUTING`` run apart from one orphaned by a dead
+    worker.
+
+    ``lease_seconds`` defaults to ``WORKER_CLAIM_LEASE_SECONDS``; it is a
+    parameter so a test can claim with a short lease and let it lapse.
     """
-    return await run_store.claim_next(worker_id=worker_id)
+    lease = _settings_claim_lease_seconds() if lease_seconds is None else lease_seconds
+    return await run_store.claim_next(worker_id=worker_id, lease_seconds=lease)
 
 
 def sleep(seconds: float) -> Awaitable[None]:
@@ -449,6 +469,64 @@ async def _resolve_resume(
     return None, False
 
 
+async def _renew_lease_while_driving(
+    *,
+    run_store: RunStore,
+    run_id: UUID,
+    worker_id: str,
+    lease_seconds: float,
+    interval_seconds: float,
+) -> None:
+    """Renew a claimed run's lease on a timer until cancelled.
+
+    Run as a background task for the duration of one ``drain_once`` drive, so a
+    run that takes longer than its lease (the live eval's p95 was 276s, against a
+    300s default, but the tail is longer) does not lose its lease mid-drive and
+    get stolen by a second worker. The interval is a third of the lease, so a
+    single missed renewal still leaves a third of the lease in hand -- the run
+    survives one slow database round-trip without becoming claimable.
+
+    **Where renewal happens, and why here.** Not a heartbeat inside ``run_loop``:
+    that would thread a database concern through ``agents/``, the layer the
+    worker drives and which must not know about leases, and it would need a hook
+    at every ``await`` boundary in the pump. Not "a lease long enough to cover the
+    longest run" alone: a lease sized for the worst tail is a lease sized for the
+    worst tail *every* time a worker dies -- a dead worker strands its run for
+    that whole period. A background task keeps the common lease short (bounded
+    recovery) while a genuinely long run stays alive. It is cancelled in the
+    ``finally`` of the drive, so a parked, terminal, or failed run stops renewing
+    the instant the drive ends.
+
+    **Renewal does not revive a lost run.** ``renew_lease`` is conditional on
+    ``claimed_by``: once another worker holds the run, this call affects zero
+    rows and the task stops -- a stalled worker waking after its lease lapsed
+    cannot extend a run it no longer owns. What this does **not** do is abort the
+    in-flight drive when renewal fails: the worker keeps finishing the run it has
+    in memory. That is a deliberate boundary, not an oversight -- aborting
+    mid-step is Phase 2 resume work, and the refund's idempotency key is the
+    money's backstop if both workers reach the same write. The failure mode when
+    a run outlives an *unrenewed* lease is therefore a second worker claiming the
+    same run; it is pinned by a test
+    (``tests/integration/test_worker_claim_lease.py``), not assumed away.
+
+    A ``CancelledError`` here is the ordinary end of a drive, not a fault: the
+    ``finally`` cancels this the moment the run reaches a terminal, parked or
+    failed state. It propagates rather than being swallowed, because swallowing
+    it would leave a task renewing a lease nobody is watching.
+    """
+    while True:
+        await sleep(interval_seconds)
+        held = await run_store.renew_lease(run_id, worker_id=worker_id, lease_seconds=lease_seconds)
+        if not held:
+            # Lost to another worker (or the run is gone). Stop renewing the
+            # run we no longer hold; the drive finishes and the second worker
+            # owns the row from here.
+            logger.warning(
+                "lease not renewed: run=%s worker=%s no longer holds it", run_id, worker_id
+            )
+            return
+
+
 async def drain_once(
     *,
     worker_id: str,
@@ -463,6 +541,7 @@ async def drain_once(
     retrieval: RetrievalCallable | None = None,
     citation_store: CitationStore | None = None,
     retrieval_min_score: float | None = None,
+    lease_seconds: float | None = None,
 ) -> bool:
     """Claim and drive a single run; ``True`` if one was processed.
 
@@ -470,6 +549,16 @@ async def drain_once(
     without sleeping. Side-effect-free beyond the run itself: it claims one run,
     drives it, and returns. If nothing is claimable it returns ``False`` and
     touches nothing.
+
+    **The claim is leased, and the lease is renewed while the run is driven.**
+    ``claim_next`` takes only a run whose lease is absent or expired and sets the
+    lease forward in the same transaction; a background task renews it every
+    ``lease/3`` seconds for the duration of the drive and is cancelled in the
+    ``finally`` below. Without the renewal, a run longer than the lease would
+    have its lease lapse mid-drive and be claimed by a second worker -- the same
+    duplicate the lease exists to prevent, reintroduced by a slow run.
+    ``lease_seconds`` overrides ``WORKER_CLAIM_LEASE_SECONDS`` (a test uses a
+    short lease to watch it lapse).
 
     ``recorder_factory`` builds the ``TraceRecorder`` for the claimed run. It is
     a factory rather than an instance because the run id is not known until the
@@ -492,7 +581,8 @@ async def drain_once(
     escapes, by design: a worker running with a broken in-memory state is worse
     than a worker that stopped, and the pin on that is a test.
     """
-    run = await claim_next(worker_id=worker_id, run_store=run_store)
+    claim_lease = _settings_claim_lease_seconds() if lease_seconds is None else lease_seconds
+    run = await claim_next(worker_id=worker_id, run_store=run_store, lease_seconds=claim_lease)
     if run is None:
         return False
 
@@ -503,6 +593,19 @@ async def drain_once(
     )
 
     min_score = retrieval_min_score if retrieval_min_score is not None else _DEFAULT_MIN_SCORE
+
+    # The lease renewer: a background task, so the drive below is not charged for
+    # it and a slow model call cannot starve the heartbeat. Started before the
+    # drive and cancelled in the ``finally``, so it spans exactly the drive.
+    renewal = asyncio.create_task(
+        _renew_lease_while_driving(
+            run_store=run_store,
+            run_id=run.id,
+            worker_id=worker_id,
+            lease_seconds=claim_lease,
+            interval_seconds=claim_lease / 3,
+        )
+    )
 
     # ``RunParked`` is suppressed: parking is the workflow working, and the
     # point here is to release the row. ``MCPUnavailable`` is suppressed too,
@@ -518,41 +621,53 @@ async def drain_once(
     # fail and no reason to write, so a loop-level catch could only log
     # "something went wrong" and re-claim the same broken run.
     try:
-        with contextlib.suppress(RunParked, MCPUnavailable):
-            await run_loop(
-                ctx,
-                provider=provider,
-                gateway=gateway,
-                orchestrator=orchestrator,
-                run_store=run_store,
-                tool_call_store=tool_call_store,
-                approval_store=approval_store,
-                recorder=recorder,
-                executed_lookup=executed_lookup_for(tool_call_store),
-                resume_tool_call_id=resume_tool_call_id,
-                retrieval=retrieval,
-                citation_store=citation_store,
-                retrieval_min_score=min_score,
-                responded_without_tool=responded_without_tool,
+        try:
+            with contextlib.suppress(RunParked, MCPUnavailable):
+                await run_loop(
+                    ctx,
+                    provider=provider,
+                    gateway=gateway,
+                    orchestrator=orchestrator,
+                    run_store=run_store,
+                    tool_call_store=tool_call_store,
+                    approval_store=approval_store,
+                    recorder=recorder,
+                    executed_lookup=executed_lookup_for(tool_call_store),
+                    resume_tool_call_id=resume_tool_call_id,
+                    retrieval=retrieval,
+                    citation_store=citation_store,
+                    retrieval_min_score=min_score,
+                    responded_without_tool=responded_without_tool,
+                )
+        except _model_failure_errors() as error:
+            # A function call in the ``except`` clause, not a module constant: the
+            # SDKs are optional extras, and importing them to build one would charge
+            # every deployment -- ``fake`` included -- for a client it never builds
+            # (see ``_import_provider_sdk``). It is evaluated only when an exception
+            # actually arrives here.
+            reason = _model_failure_reason(error)
+            # Logged *before* the failing write, for the runtime's own reason
+            # (``agents/runtime.py``: a line logged after a database write "is a line
+            # that write can destroy"). The stakes are the same here and were worse:
+            # the worker's log for the entire incident held exactly one line -- the
+            # boot line.
+            logger.exception(
+                "model call failed: run=%s failure_reason=%s",
+                run.id,
+                reason,
             )
-    except _model_failure_errors() as error:
-        # A function call in the ``except`` clause, not a module constant: the
-        # SDKs are optional extras, and importing them to build one would charge
-        # every deployment -- ``fake`` included -- for a client it never builds
-        # (see ``_import_provider_sdk``). It is evaluated only when an exception
-        # actually arrives here.
-        reason = _model_failure_reason(error)
-        # Logged *before* the failing write, for the runtime's own reason
-        # (``agents/runtime.py``: a line logged after a database write "is a line
-        # that write can destroy"). The stakes are the same here and were worse:
-        # the worker's log for the entire incident held exactly one line -- the
-        # boot line.
-        logger.exception(
-            "model call failed: run=%s failure_reason=%s",
-            run.id,
-            reason,
-        )
-        await _mark_failed(run, run_store=run_store, reason=reason, recorder=recorder)
+            await _mark_failed(run, run_store=run_store, reason=reason, recorder=recorder)
+    finally:
+        # The drive is over -- terminal, parked, failed, or a programming error
+        # the outer catch does not swallow -- so stop renewing the lease. Cancel
+        # and await: an un-awaited cancelled task would still be scheduled when
+        # ``drain_once`` returns, and on the error path it would be renewed for a
+        # run nobody is driving. ``suppress`` is not used, and the task swallows
+        # its own ``CancelledError`` (see ``_renew_lease_while_driving``), so the
+        # await returns cleanly rather than raising cancellation into here.
+        renewal.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await renewal
     return True
 
 
@@ -571,8 +686,14 @@ async def poll_forever(
     retrieval: RetrievalCallable | None = None,
     citation_store: CitationStore | None = None,
     retrieval_min_score: float | None = None,
+    lease_seconds: float | None = None,
 ) -> None:
-    """Loop: claim, drive, sleep. Never returns under normal operation."""
+    """Loop: claim, drive, sleep. Never returns under normal operation.
+
+    ``lease_seconds`` is threaded to ``drain_once`` (``None`` reads
+    ``WORKER_CLAIM_LEASE_SECONDS``); it exists so a test can run the loop with a
+    short lease, not because a deployment sets it here.
+    """
     while True:
         processed = await drain_once(
             worker_id=worker_id,
@@ -587,6 +708,7 @@ async def poll_forever(
             retrieval=retrieval,
             citation_store=citation_store,
             retrieval_min_score=retrieval_min_score,
+            lease_seconds=lease_seconds,
         )
         if not processed:
             await sleep(poll_interval)

@@ -160,13 +160,40 @@ class FakeRunStore:
         """Fetch a run by id."""
         return self.rows.get(run_id)
 
-    async def claim_next(self, *, worker_id: str) -> AgentRun | None:
-        """Claim the oldest claimable run."""
+    async def claim_next(
+        self,
+        *,
+        worker_id: str,
+        # The port's signature. The fake keeps no lease -- see the docstring.
+        lease_seconds: float,  # noqa: ARG002
+    ) -> AgentRun | None:
+        """Claim the oldest claimable run.
+
+        The fake keeps no lease: it is an in-memory double for the *routes* and
+        the runtime, not for the claim's concurrency semantics, which are tested
+        against a real store (``tests/integration/test_worker_claim_lease.py``).
+        It accepts and ignores ``lease_seconds`` so it still satisfies the port.
+        """
         self.worker_spy.record("claim_next", worker_id=worker_id)
         for run in sorted(self.rows.values(), key=lambda r: r.created_at):
             if run.status is RunStatus.RECEIVED:
                 return run
         return None
+
+    async def renew_lease(
+        self,
+        run_id: UUID,
+        *,
+        worker_id: str,  # noqa: ARG002 -- the port's signature; the fake holds no lease
+        lease_seconds: float,  # noqa: ARG002
+    ) -> bool:
+        """No-op lease renewal: the fake holds no lease to renew.
+
+        Returns ``True`` -- "still held" -- so the worker's renewal task keeps
+        its ordinary shape against the fake; the conditional semantics that make
+        ``False`` meaningful live in ``SqlRunStore.renew_lease``.
+        """
+        return run_id in self.rows
 
     async def set_status(
         self,

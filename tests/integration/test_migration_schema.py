@@ -69,7 +69,12 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # The revision under test. A future schema change gets a new revision, and this
 # test follows it there -- it is about *the migration*, not about one file name.
-_HEAD = "0001"
+_HEAD = "0002"
+
+#: The revision the claim-lease migration is applied on top of. Named so the
+#: populated-table test can migrate *to* it, insert a row the way a deployment
+#: would have, and then run the lease migration over real data.
+_PRE_LEASE = "0001"
 
 
 def _postgres_url() -> str | None:
@@ -103,6 +108,17 @@ def migrated_engine() -> Iterator[Engine]:
     # `migrations/env.py` overwrites sqlalchemy.url from settings, which reads
     # this variable; set it so the migration cannot fall back to a default.
     os.environ["DATABASE_URL"] = url
+    # ...and clear the settings cache, without which that is a lie. `get_settings`
+    # is `lru_cache`'d process-wide, so a `get_settings()` call made by an earlier
+    # test -- the whole suite constructs Settings -- leaves the cache holding the
+    # default SQLite URL, and `alembic upgrade head` then migrates *that* database.
+    # The migration still "succeeds", so the failure is silent: the fixture's
+    # engine points at Postgres, the migration ran against SQLite, and every
+    # assertion below reads an empty Postgres and reports the migration broken.
+    # Found by running this file after the rest of the suite.
+    from opspilot.settings import get_settings
+
+    get_settings.cache_clear()
 
     engine = create_engine(url)
     try:
@@ -161,6 +177,86 @@ def test_migration_runs_to_head(migrated_engine: Engine) -> None:
         f"alembic_version is {current!r} after `upgrade head`, expected {_HEAD!r}. The "
         "migration did not run to completion."
     )
+
+
+@pytest.mark.postgres
+def test_claim_lease_migration_applies_to_a_populated_table() -> None:
+    """``0002`` adds the lease columns to ``agent_runs`` carrying real rows.
+
+    The migration's own question, and the one a fresh-database test cannot ask:
+    a deployment upgrades with **existing runs**. ``0002`` adds ``claimed_until``
+    and ``claimed_by`` as nullable with no default, so existing rows get ``NULL``
+    -- "never leased, claimable now", which is the only default that leaves the
+    meaning of a populated table unchanged. A non-null default would either
+    strand a run for a lease period or misdate a lease nobody took.
+
+    Runs the migration the way a deployment does and reads the row back: migrate
+    to ``0001``, insert a run the way ``POST /api/tickets`` would have under the
+    old schema, migrate to head, and assert the row survived with both columns
+    ``NULL`` and that the claim predicate accepts it.
+    """
+    url = _postgres_url()
+    if url is None:
+        pytest.skip("no PostgreSQL configured (set OPSPILOT_DATABASE_URL); ADR-0004")
+
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    os.environ["DATABASE_URL"] = url
+    # ``migrations/env.py`` reads ``get_settings().database_url``, and
+    # ``get_settings`` is ``lru_cache``'d process-wide. Without clearing it, an
+    # earlier test that already built settings makes ``alembic upgrade`` run
+    # against *that* database -- the default SQLite URL -- so the migration
+    # silently applies to the wrong engine and this test checks nothing. Clearing
+    # the cache is what makes ``DATABASE_URL`` above authoritative.
+    from opspilot.settings import get_settings
+
+    get_settings.cache_clear()
+
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DROP SCHEMA public CASCADE"))
+            connection.execute(text("CREATE SCHEMA public"))
+            connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        # The pre-lease schema, exactly as a deployment had it before upgrading.
+        command.upgrade(config, _PRE_LEASE)
+        with engine.begin() as connection:
+            ticket_id = connection.execute(
+                text(
+                    "INSERT INTO tickets (subject, body, customer_email, created_at) "
+                    "VALUES ('s', 'b', 'a@example.com', now()) RETURNING id"
+                )
+            ).scalar_one()
+            conn = connection.execute(
+                text(
+                    "INSERT INTO agent_runs "
+                    "(ticket_id, status, model_provider, model_name, created_at) "
+                    "VALUES (:t, 'received', 'fake', 'fake-1', now()) RETURNING id"
+                ),
+                {"t": ticket_id},
+            )
+            run_id = conn.scalar_one()
+
+        # The upgrade a deployment runs, over a populated table.
+        command.upgrade(config, "head")
+
+        with engine.connect() as connection:
+            lease = connection.execute(
+                text("SELECT claimed_until, claimed_by FROM agent_runs WHERE id = :id"),
+                {"id": run_id},
+            ).one()
+        assert lease.claimed_until is None and lease.claimed_by is None, (
+            "the existing run did not come out of the claim-lease migration with "
+            f"NULL lease columns (got claimed_until={lease.claimed_until!r}, "
+            f"claimed_by={lease.claimed_by!r}). A run with no lease is claimable; "
+            "the migration must leave existing rows that way rather than stranding "
+            "them for a lease period."
+        )
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.postgres

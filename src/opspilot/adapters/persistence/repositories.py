@@ -28,11 +28,11 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -351,30 +351,112 @@ class SqlRunStore(_SessionBound):
                 return None
             return CustomerReplyRow(body=body, escalated=bool(output.get("escalated")))
 
-    async def claim_next(self, *, worker_id: str) -> AgentRun | None:  # noqa: ARG002
-        """Claim the oldest claimable run, or return ``None``.
+    async def claim_next(self, *, worker_id: str, lease_seconds: float) -> AgentRun | None:
+        """Claim the oldest claimable run whose lease is absent or expired, or ``None``.
 
-        On Postgres this is ``SELECT ... WHERE status IN (<claimable>) ORDER BY
-        created_at FOR UPDATE SKIP LOCKED LIMIT 1`` -- ``SKIP LOCKED`` lets two
-        workers take different rows without blocking. SQLite has no ``SKIP
-        LOCKED``, so the same statement runs without the locking clause and the
-        claim is single-threaded only; the two-worker concurrency test is
-        ``@pytest.mark.postgres`` and runs in CI (ADR-0004).
+        **The lease is what makes two workers safe; the lock only lets them
+        share the poll.** The claim takes a row only when its status is claimable
+        *and* its lease is absent or expired, and sets ``claimed_until`` (and
+        ``claimed_by``) forward **in the same transaction that reads the row** --
+        this one, which ends when the method returns. That is the whole fix:
+        whereas the old claim changed nothing and so handed the same still-
+        ``RECEIVED`` run to two workers whose polls did not overlap (measured:
+        30/30 concurrent pairs, ``docs/limitations.md`` §2), a claimed row now
+        carries a lease in the future that a second worker's predicate excludes.
+        A worker that is alive renews the lease (``renew_lease``); a worker that
+        dies leaves a lease that expires, and the run becomes claimable again by
+        the existing recovery path.
 
-        ``worker_id`` is part of the port signature; the claim does not need to
-        store it, since the row's holder is the open transaction.
+        **``SKIP LOCKED`` stays, and it is not decoration.** With the lease, the
+        *predicate* already excludes a row another claim has taken -- even
+        without ``SKIP LOCKED``, a plain ``FOR UPDATE`` in ``READ COMMITTED``
+        re-checks the row's ``WHERE`` clause after the lock wait (Postgres's
+        ``EvalPlanQual``), sees the now-future lease, and skips the row. So the
+        clause is no longer what keeps two workers from *sharing* a run. It is
+        what keeps the second claim from *waiting*: without it, a second
+        claimant blocks on the row the first is updating for the life of that
+        transaction, turning a non-blocking poll into one that queued behind
+        every in-flight claim. The lease makes the claim *correct*; ``SKIP
+        LOCKED`` keeps it *non-blocking*, which is the property
+        ``test_worker_claim_postgres.py`` exercises. SQLite has no ``SKIP
+        LOCKED``, so the same statement runs there without the locking clause and
+        the claim is single-threaded -- but the lease predicate still holds
+        (ADR-0004), which is what makes the defect's regression test runnable on
+        SQLite.
+
+        ``worker_id`` is now stored (``claimed_by``), not ignored: renewal is
+        conditional on it, so a worker whose lease expired and was stolen cannot
+        extend the thief's lease by renewing a run it no longer holds. See
+        ``renew_lease``.
         """
+        now = _now()
+        deadline = now + timedelta(seconds=lease_seconds)
         with self._scope() as session:
             statement = (
                 select(models.AgentRun)
                 .where(models.AgentRun.status.in_(_CLAIMABLE_VALUES))
+                .where(
+                    # Claimable when the lease is absent (never claimed) or has
+                    # expired (the holder died or stalled). A live, unexpired
+                    # lease excludes the row -- this is the clause that stops the
+                    # 30/30 duplicate.
+                    or_(
+                        models.AgentRun.claimed_until.is_(None),
+                        models.AgentRun.claimed_until < now,
+                    )
+                )
                 .order_by(models.AgentRun.created_at)
                 .limit(1)
             )
             if session.bind is not None and session.bind.dialect.name == "postgresql":
                 statement = statement.with_for_update(skip_locked=True)
             row = session.execute(statement).scalars().first()
-            return _to_agent_run(row) if row is not None else None
+            if row is None:
+                return None
+            # The lease write is in the same transaction as the read above, which
+            # is the point: a claim that read without writing would be the old
+            # defect. ``expire_on_commit=False`` keeps the returned object valid
+            # after ``session_scope`` commits.
+            row.claimed_until = deadline
+            row.claimed_by = worker_id
+            session.flush()
+            return _to_agent_run(row)
+
+    async def renew_lease(self, run_id: UUID, *, worker_id: str, lease_seconds: float) -> bool:
+        """Extend ``run_id``'s lease if ``worker_id`` still holds it; say whether it did.
+
+        A run driven for longer than one lease must be kept alive, or its lease
+        expires mid-drive and another worker steals it (``worker/loop.py`` runs
+        this on a timer while the runtime drives the run). Renewal is a
+        **conditional** ``UPDATE ... WHERE id = ? AND claimed_by = ?``: it
+        affects a row only while the named worker is still the holder, so a
+        worker whose lease expired and whose run was taken by somebody else
+        renews **zero rows** and learns it lost the run. Without that condition
+        the lease alone would be insufficient -- a stalled worker waking after
+        its lease lapsed would extend the *new* holder's lease, keeping a run it
+        no longer owns out of everyone else's hands. That is why ``claimed_by``
+        exists as a second column (``0002_claim_lease.py``).
+
+        Returns ``False`` when the worker no longer holds the run (or the run is
+        gone), so the caller can stop renewing; the caller does not abort the
+        drive on ``False`` -- the refund idempotency key is the money's backstop
+        and aborting mid-step is Phase 2 resume work -- but the boundary is
+        stated rather than assumed.
+        """
+        deadline = _now() + timedelta(seconds=lease_seconds)
+        with self._scope() as session:
+            result = cast(
+                CursorResult[tuple[object, ...]],
+                session.execute(
+                    update(models.AgentRun)
+                    .where(
+                        models.AgentRun.id == run_id,
+                        models.AgentRun.claimed_by == worker_id,
+                    )
+                    .values(claimed_until=deadline)
+                ),
+            )
+            return result.rowcount > 0
 
     async def set_status(
         self,
@@ -403,6 +485,19 @@ class SqlRunStore(_SessionBound):
                 row.started_at = _now()
             if status in {RunStatus.COMPLETED, RunStatus.FAILED}:
                 row.completed_at = completed_at or _now()
+            # Release the lease on the transitions that hand the row back. A run
+            # parked in ``WAITING_APPROVAL``, or one that reached a terminal
+            # state, is not being driven by anybody, so its lease is cleared --
+            # the row is then excluded from the claim by its status, and a
+            # re-queued run (approve flips ``WAITING_APPROVAL`` back to
+            # ``EXECUTING``) is claimable *immediately* rather than after the
+            # old lease lapses. ``EXECUTING`` and the earlier mid-step states are
+            # deliberately *not* cleared: the worker holds the row across them
+            # and its lease must survive, or the drive it is halfway through
+            # becomes claimable by a second worker.
+            if status in {RunStatus.WAITING_APPROVAL, RunStatus.COMPLETED, RunStatus.FAILED}:
+                row.claimed_until = None
+                row.claimed_by = None
 
             session.add(
                 models.AgentStep(

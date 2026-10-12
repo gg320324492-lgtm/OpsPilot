@@ -185,7 +185,7 @@ async def test_boot_marks_interrupted_runs_and_spares_waiting_approval(
     # A preserved EXECUTING run is claimable, so a restarted worker picks it up
     # rather than stranding it. This is what makes preservation useful rather
     # than merely safe.
-    claimed = await SqlRunStore(factory).claim_next(worker_id="w-after-boot")
+    claimed = await SqlRunStore(factory).claim_next(worker_id="w-after-boot", lease_seconds=300.0)
     assert claimed is not None
     assert claimed.id == executing.id
 
