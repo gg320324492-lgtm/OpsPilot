@@ -562,6 +562,17 @@ tests-only path ([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md)),
 and on SQLite the API and worker do not share vectors, so a two-process run
 abstains. Set `MODEL_PROVIDER=anthropic` or `openai` for a live model run.
 
+> **The database password is a local-development default, not a secret.** The
+> `postgres` service ships with `POSTGRES_PASSWORD` falling back to `opspilot`
+> (`docker-compose.yml`), so a fresh clone comes up with no `.env` at all — but
+> a deployment that inherits it out of the box is exactly what you must not
+> expose. Before running this anywhere reachable, set `POSTGRES_PASSWORD` in
+> `.env` **and** change the password in `DATABASE_URL` to match; the two are not
+> linked, and setting one without the other fails every `migrate`/`api`/`worker`
+> authentication. The published ports are bound to `127.0.0.1` too, so the
+> default is not LAN-reachable — see
+> [limitations.md](docs/limitations.md).
+
 ### Tests
 
 ```bash

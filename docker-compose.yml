@@ -26,7 +26,29 @@ services:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: opspilot
-      POSTGRES_PASSWORD: opspilot
+      # THE PASSWORD IS A LOCAL-DEVELOPMENT DEFAULT, NOT A CREDENTIAL. `:-`
+      # rather than a fixed value so the fallback is *stated* in `.env.example`
+      # and overridable, and so `docker compose up` on a fresh clone still comes
+      # up with no `.env` at all (milestones.md D8: "a fresh clone is meant to
+      # work").
+      #
+      # WHY NOT `:?` HERE, the form OPSPILOT_OPERATOR_TOKEN uses. A required
+      # password would make every documented entry point fail on its first
+      # command -- a fresh clone, and the README's `git clone ... && docker
+      # compose up` -- and both CI jobs that start this same stack (`docker-build`
+      # and `web-e2e`, which set OPSPILOT_OPERATOR_TOKEN and rely on Postgres
+      # coming up). It would break the standing "a fresh clone runs out of the
+      # box" requirement to fix a credential that A1 already keeps off the
+      # network: the port below is published on 127.0.0.1 and nowhere else, so
+      # this password is not reachable from off the host.
+      #
+      # The hole that leaves is that a deployment inherits `opspilot` silently.
+      # That is closed by the two facts a reader can now check rather than
+      # discover: the fallback is a visible string (not a fixed value dressed as
+      # one) and `.env.example` documents POSTGRES_PASSWORD and the
+      # DATABASE_URL that must change with it. A real deployment sets it; the
+      # guard is tests/unit/test_compose_postgres_password_is_configurable.py.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opspilot}
       POSTGRES_DB: opspilot
     volumes:
       - postgres-data:/var/lib/postgresql/data
