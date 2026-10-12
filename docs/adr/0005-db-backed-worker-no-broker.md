@@ -47,10 +47,18 @@ it back inside the claim predicate, and the worker's next poll picks it up.
 
 **Good.** No second datastore. The queue's state is the run's state, so there is
 no possibility of "the job is in Redis but the run says completed" — a class of
-bug that costs real debugging time. `SKIP LOCKED` gives safe concurrent claiming
-with more than one worker, so scaling out is adding replicas. The whole mechanism
-is one SQL statement that a reviewer can read in five seconds, and it works
-without any process running at all — a parked approval survives the worker being
+bug that costs real debugging time. `SKIP LOCKED` lets two claims that overlap in
+time take different rows without blocking. **Corrected:** this ADR said that made
+"scaling out is adding replicas" true. It does not, as implemented — the lock
+lasts only for the claim's own `SELECT`, and the claim does not change the run's
+status, so two workers whose polls do not overlap both receive the same run
+(measured: 30/30 concurrent pairs). The clause is tested
+(`tests/integration/test_worker_claim_postgres.py`) and is real; the end-to-end
+guarantee is not, and `docs/limitations.md` §2 records the boundary. Run one
+worker per database until a claim that holds its row is written. The whole
+mechanism is one SQL statement that a reviewer can read in five seconds, and it
+works without any process running at all — a parked approval survives the worker
+being
 down for a day.
 
 **Cost.** Polling means up to `WORKER_POLL_INTERVAL` (default 1s) of added
@@ -64,9 +72,13 @@ fails fails. Phase 2's retry work will likely still not need a broker — a
 reindex, a cost rollup), the decision should be revisited rather than
 accumulated onto this one.
 
-**Cost.** `FOR UPDATE SKIP LOCKED` does not exist in SQLite, so the concurrency
-property is not tested locally (see ADR-0004). The worker's claim code is
-dialect-aware and the two-worker test is Postgres-only.
+**Cost.** `FOR UPDATE SKIP LOCKED` does not exist in SQLite, so the locking
+clause is not exercised locally (see ADR-0004). The worker's claim code is
+dialect-aware and the test that covers the clause is Postgres-only
+(`tests/integration/test_worker_claim_postgres.py`, run by the `verify` CI job).
+It asserts the clause's properties — overlapping claims take different rows —
+and not the end-to-end two-worker guarantee, which the implemented claim does not
+provide (see the correction above).
 
 ## Alternatives rejected
 

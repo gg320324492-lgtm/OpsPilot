@@ -202,8 +202,15 @@ POST /api/tickets ──> INSERT ticket, INSERT agent_run(status=RECEIVED)
 Consequences of this choice, stated honestly:
 
 - **The queue is the run table.** No Redis, no Celery, no RabbitMQ, no Temporal.
-  `FOR UPDATE SKIP LOCKED` gives us safe concurrent claiming, which is the only
-  queueing primitive Phase 1 needs.
+  `FOR UPDATE SKIP LOCKED` lets two claims that overlap in time take different
+  rows without blocking — the only queueing primitive Phase 1 needs. *Corrected:*
+  it does **not** guarantee two workers on one database never drive the same run.
+  The claim releases its lock with its own `SELECT` and does not change the run's
+  status, so two workers whose polls do not overlap both receive the same
+  `RECEIVED` run (measured: 30/30 concurrent pairs). The clause is tested against
+  a real PostgreSQL (`tests/integration/test_worker_claim_postgres.py`); the
+  end-to-end guarantee is not, and `docs/limitations.md` §2 records it. Run one
+  worker per database until a claim that holds its row is written.
 - **`WAITING_APPROVAL` is not a busy-wait.** The worker parks the run and moves
   on. Approval is an *edge-triggered* event: `POST /approvals/{id}/approve`
   flips the run back to a claimable state, and the worker picks it up again.

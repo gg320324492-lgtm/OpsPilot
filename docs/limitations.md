@@ -62,23 +62,40 @@ fails fails the run. An MCP server that is down fails the run. There is a single
 attempt and the failure is recorded honestly. This makes the eval numbers clean
 and the demo fragile — both are intentional at this stage.
 
-**One worker, and the concurrency claim is tested only at the predicate.** The
-claim query uses `FOR UPDATE SKIP LOCKED` on Postgres
+**One worker, and the concurrency claim is tested at the predicate and at the
+lock — but the end-to-end two-worker guarantee does not hold.** The claim query
+uses `FOR UPDATE SKIP LOCKED` on Postgres
 (`repositories.py::SqlRunStore.claim_next`; SQLite has no equivalent, so the
 same statement runs there without the locking clause — ADR-0004). The claim
 *predicate* is tested on SQLite: `tests/integration/test_worker_claim.py` drives
 `claim_next` and `drain_once` and asserts a `RECEIVED` run is claimed, a
-`WAITING_APPROVAL` run is **not**, and boot preserves the states it must. What is
-**not** tested — at any concurrency, on any machine — is the locking clause
-itself, because there is no test that starts two workers against one database.
-An earlier revision of this section named a
-`test_two_workers_do_not_claim_the_same_run` marked `@pytest.mark.postgres`; no
-such test exists in the repository and none ever did. It was removed rather than
-written, because a Postgres-only test that cannot run locally would ship as
-unverified and would repeat the very defect (a claim backed by evidence that does
-not exist) this correction exists to remove. Writing it is real work that needs a
-Docker daemon or a Postgres service — the same thing §6 below says is untested.
-§6 is the honest statement; this section now agrees with it.
+`WAITING_APPROVAL` run is **not**, and boot preserves the states it must. The
+**locking clause** is now tested too, against a real PostgreSQL:
+`tests/integration/test_worker_claim_postgres.py` (`@pytest.mark.postgres`, run
+by the `verify` CI job and asserted *PASSED* there) asserts the two properties
+the clause actually has — a claim whose transaction **overlaps** another's takes
+a *different* row rather than blocking on the locked one, and a fully-overlapping
+claim of a single locked run gets `None`. An earlier revision of this section
+named a `test_two_workers_do_not_claim_the_same_run` that did not exist; the test
+that does exist is named above.
+
+What that test deliberately does **not** claim is the property ADR-0005 and
+`docs/architecture.md` advertise — that two workers on one database cannot claim
+the same run, "scaling out is adding replicas". They cannot, as implemented,
+because `claim_next` holds its row lock only for the duration of its own
+`SELECT`: it opens a transaction, reads the oldest claimable row, returns a
+domain object, and commits. Nothing is held across the run's drive, and the
+claim does not change the row's status. The lock therefore excludes another
+claim only while a claim transaction is *open*; two workers whose polls do not
+overlap both receive the same still-`RECEIVED` run, and both drive it. This is
+not theoretical: thirty pairs of concurrent `claim_next` calls on one row
+returned that row to both, thirty times out of thirty. It is characterised in
+code (`test_a_released_claim_is_reclaimable_by_a_second_worker`) and recorded
+here rather than papered over. The fix — holding the row (or marking it claimed)
+across the drive, which is what the ADR describes — is a production change with
+its own decision, and is **Phase 2 C1's open half**, not something a test can
+assert into existence. The practical consequence: **run one worker per
+database.**
 
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.
@@ -288,9 +305,18 @@ milestone log.
    than by neglect**: whether the workflow **should** file an issue is still
    open, and adding it to the golden path remains a possible Phase 2 product
    decision.
-2. **No worker-concurrency test exists.** `tests/integration/test_worker_claim.py`
-   covers the claim *predicate* on SQLite; nothing starts two workers against one
-   database, so `FOR UPDATE SKIP LOCKED` is untested (see §2 and §6 above).
+2. **The two-worker guarantee is untested at the level it is claimed — now
+   partly closed.** `tests/integration/test_worker_claim.py` covers the claim
+   *predicate* on SQLite. `tests/integration/test_worker_claim_postgres.py` now
+   covers the **locking clause** against a real PostgreSQL: two overlapping
+   claimants on one locked run take different rows, and a claim of a single
+   locked run is withheld. What remains open is the *end-to-end* promise — two
+   workers, one database, no run driven twice — which the shipped `claim_next`
+   does not provide, because its lock closes with its own `SELECT` and it does not
+   change the run's status. See §2 for the measured statement (30/30 concurrent
+   pairs both received the one row) and the fix that is C1's open half. The test
+   that closes the clause half is named above; the guarantee the ADR advertises is
+   still not what the code does.
 3. **`LangGraphOrchestrator` is implemented by nothing, and no contract test can
    exist yet.** This item previously read "Neither orchestrator is implemented".
    `LinearOrchestrator` is now real: `_pump` builds a `StageDriver` (the stage

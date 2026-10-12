@@ -142,14 +142,17 @@ jobs:
 
   # ------------------------------------------------------------------------- #
   # verify — the Postgres path (docs/adr/0004, docs/milestones.md §M9):
-  # migrations, the vector differential test and the vector shared contract.
+  # migrations, the vector differential test, the vector shared contract and the
+  # worker claim's locking clause.
   #
-  # §M9 also names "worker concurrency" for this job. There is no such test:
-  # `claim_next` is exercised on SQLite by tests/integration/test_worker_claim.py
-  # (which the `test` job already runs), and no test starts two workers against
-  # one database. This comment previously asserted the tests existed; it now
-  # says what runs, per docs/limitations.md §2. The gap is real and is listed
-  # there rather than papered over with a test that cannot run locally.
+  # §M9 also names "worker concurrency". The claim's *locking clause* runs here:
+  # `tests/integration/test_worker_claim_postgres.py` starts two claimants against
+  # the service container and asserts `FOR UPDATE SKIP LOCKED` separates them (the
+  # step below, named by node id and asserted PASSED like the vector tests). What
+  # still does *not* hold is the end-to-end guarantee the ADR advertises -- two
+  # workers, one database, no run driven twice -- because `claim_next` releases its
+  # lock with its own `SELECT`; that boundary is characterised in the same file and
+  # recorded in docs/limitations.md §2 and §8, not asserted here as if it held.
   #
   # A real pgvector service container. `alembic upgrade head` runs first because
   # the differential test asserts against the migrated schema, and ADR-0004 makes
@@ -270,6 +273,39 @@ jobs:
           count=$(pytest -m postgres --collect-only -q 2>&1 | grep -c "::test_pgvector")
           echo "postgres-marked pgvector behaviour tests collected: $count"
           [ "$count" -eq 2 ] || { echo "::error::expected exactly 2 pgvector behaviour tests under -m postgres (the differential in test_citations.py + the shared-contract test in test_vector_stores.py); got $count. A second copy of the differential was deleted from test_vector_stores.py precisely so that one property has one home -- if this number changed, the ADR-0004 text and this guard must change with it."; exit 1; }
+      - name: Two-worker claim test against the real PostgreSQL
+        # The `FOR UPDATE SKIP LOCKED` claim, exercised where it matters. SQLite
+        # has no such clause, so `tests/integration/test_worker_claim.py` can only
+        # cover the claim *predicate* (which the `test` job already does); the
+        # locking clause that makes two workers take different rows is a
+        # Postgres-only property and until this test existed it had never been
+        # executed anywhere (docs/limitations.md §2 and §8, ADR-0004's divergence
+        # table). `claim_next`'s own docstring used to name a two-worker
+        # `@pytest.mark.postgres` test that did not exist; this step is the job
+        # that makes that sentence true and keeps it true.
+        #
+        # It reads OPSPILOT_DATABASE_URL exactly as the two pgvector tests above
+        # do, so the service container and the env block already set for this job
+        # are the whole requirement -- no second database, no second source. It
+        # is named by node id and asserted PASSED for the same reason the vector
+        # tests are: it skips cleanly where no Postgres is reachable (ADR-0004),
+        # and a SKIPPED result here means the environment did not reach pytest or
+        # the service was unreachable -- a green *skip* would read as coverage the
+        # run did not have. The `needs-empty` caveat the pgvector tests carry
+        # applies here too: the test lays the schema down through the same guard
+        # (`tests/_pgvector_target.guarded_pg_schema`) and refuses a database that
+        # holds rows, so pointing this job at a populated database fails loudly
+        # rather than destroying it.
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_worker_claim_postgres.py -rA -v 2>&1 | tee /tmp/claim.txt
+          echo "--- assertion ---"
+          grep -qE "test_a_held_claim_makes_the_next_claimant_skip_to_another_row .*PASSED" /tmp/claim.txt \
+            || { echo "::error::the two-worker claim test did not PASS. A SKIPPED result here means OPSPILOT_DATABASE_URL did not reach pytest, or the pgvector service was unreachable -- which is exactly the failure this job must not read as green (ADR-0004). A FAILED result means the FOR UPDATE SKIP LOCKED claim no longer separates two workers."; exit 1; }
+          if grep -q "SKIPPED" /tmp/claim.txt; then
+            echo "::error::a postgres-marked worker-claim test skipped in the pgvector job. They do real work against the service container; a skip means the environment did not reach pytest."
+            exit 1
+          fi
       - name: Worker and integration tests against the configured database
         # The worker-claim tests build their own SQLite factory
         # (test_worker_claim.py), so they pass without Postgres and are already

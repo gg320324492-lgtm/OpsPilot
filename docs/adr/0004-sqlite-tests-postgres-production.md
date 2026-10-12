@@ -84,7 +84,7 @@ uncovered rather than as tested:
 
 | Divergence | Handling |
 |---|---|
-| `FOR UPDATE SKIP LOCKED` | SQLite has no equivalent. The worker's claim uses a dialect-aware construct; on Postgres it takes the lock, on SQLite the same statement runs without it. **No test covers the locking clause** — `tests/integration/test_worker_claim.py` drives the claim predicate on SQLite, and no test starts two workers against one database, so the clause that makes two workers safe is unverified everywhere (`docs/limitations.md` §2, §6). This ADR used to name a `@pytest.mark.postgres` two-worker concurrency test as running in CI. No such test exists and none ever did; that sentence is corrected rather than repeated. |
+| `FOR UPDATE SKIP LOCKED` | SQLite has no equivalent. The worker's claim uses a dialect-aware construct; on Postgres it takes the lock, on SQLite the same statement runs without it. **The locking clause is now covered, on a real PostgreSQL**, by `tests/integration/test_worker_claim_postgres.py` (`@pytest.mark.postgres`, run by the `verify` job and asserted PASSED there): two *overlapping* claimants on one locked run take different rows, and a claim of a single locked run is withheld. What is still **not** provided — by the code, not by a missing test — is the end-to-end two-worker guarantee: `claim_next` releases its lock with its own `SELECT` and does not change the run's status, so two workers whose polls do not overlap both receive the same run. That boundary is characterised in the same test file and recorded in `docs/limitations.md` §2 and §8. The earlier name for the missing test — a `@pytest.mark.postgres` two-worker concurrency test — is now a test that exists and runs in CI; the clause half is closed, the guarantee half is not. |
 | pgvector `vector(1536)` column | Replaced by a JSON column in tests, with `ports/vector_store.py` providing an in-memory cosine implementation. A differential test loads the same chunks into both stores (in the Postgres CI job) and asserts identical top-5 results and scores to 4 dp. That test has one home — `tests/integration/test_citations.py::test_pgvector_and_memory_stores_agree` — and the `verify` job selects it by node id and asserts it PASSED. The other pgvector behaviour worth its own test is the *shared contract* (ranks dense from one, upsert as a replacement keyed on `(document_id, ordinal)`), asserted on the real store by `tests/unit/test_vector_stores.py`; both used to be unconditional `pytest.skip` stubs in that module, executing nowhere at all (Correction 2). **This is not a clean swap.** The in-memory store keeps embeddings in process memory, so it is correct only in a *single* process: two processes over one SQLite database do not share vectors, and a deployment that reindexes in the API and retrieves in the worker gets zero hits. The differential test compares what the two stores *return* within one process and cannot see this; SQLite is a tests-only path (one process), not a supported runtime configuration. |
 | `JSONB` | Maps to SQLite's `JSON`. Same SQLAlchemy type; no application-visible difference for the queries used. |
 | Partial indexes, `gen_random_uuid()` | Emulated for SQLite; native in Postgres. The claim-predicate index exists only in Postgres by design — SQLite is single-threaded in tests anyway. |
@@ -99,11 +99,13 @@ dialect, and the only `if dialect ==` branches in the codebase are the four abov
 whole suite — unit, integration, agent, security, eval-smoke — is runnable in
 under a minute and by anyone who clones the repository. This is what makes the
 "run the tests" instruction in the README true. CI still exercises the Postgres
-path for migrations and for the two vector-store tests, both of which the
-`verify` job asserts *PASSED* rather than accepting as skipped. It does not
-exercise `SKIP LOCKED`: there is no worker-concurrency test at any concurrency,
-on any machine (`docs/limitations.md` §2, §6), and this list no longer implies
-otherwise.
+path for migrations and for the two vector-store tests, and now for the worker
+claim's `SKIP LOCKED` clause, each of which the `verify` job asserts *PASSED*
+rather than accepting as skipped. What it does not, and cannot, test in is the
+end-to-end two-worker guarantee, because the shipped `claim_next` does not
+provide it (see the divergence table above and `docs/limitations.md` §2): the
+test exercises the clause, and the clause is real, but the claim releases its
+lock before the run's status changes.
 
 **Cost, stated plainly.** Local development does not test the production
 database. Three specific risks follow. The first and the third have a named
@@ -114,13 +116,19 @@ version of a sentence that used to claim a test existed:
    Mitigated by the differential test and by the shared-contract test; both run
    in the CI `verify` job, which asserts they PASSED, and both are skipped
    locally with a reason that names the variable which would let them run.
-2. *The `SKIP LOCKED` claim is broken.* **Not mitigated.** There is no
-   concurrency test, Postgres-marked or otherwise; the claim predicate is tested
-   on SQLite and the locking clause is not tested at all. The local `pytest`
-   output prints the number of skipped postgres tests so a developer can see
-   what was not checked, rather than reading a clean run as full coverage — and
-   in CI, where those tests do run, the `verify` job fails on a skip instead of
-   accepting one.
+2. *The `SKIP LOCKED` claim is broken.* **Half mitigated.** The clause itself is
+   covered by `tests/integration/test_worker_claim_postgres.py`, run by the
+   `verify` job against the service container and asserted PASSED: it shows two
+   overlapping claims taking different rows and a claim of a single locked run
+   being withheld. What is *not* mitigated is the broader property the clause is
+   advertised for — that two workers on one database never drive the same run.
+   The shipped `claim_next` releases its lock with its own `SELECT` and does not
+   change the run's status, so two workers whose polls do not overlap both
+   receive the same run; that is characterised in the same test file, not fixed.
+   The local `pytest` output prints the number of skipped postgres tests so a
+   developer can see what was not checked, rather than reading a clean run as
+   full coverage — and in CI, where those tests do run, the `verify` job fails on
+   a skip instead of accepting one.
 3. *A migration is valid in SQLite but not Postgres.* Migrations are not run
    against SQLite at all — schema for tests is created via
    `Base.metadata.create_all`. The `verify` CI job runs `alembic upgrade head`
