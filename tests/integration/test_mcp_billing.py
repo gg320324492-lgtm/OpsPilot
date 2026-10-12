@@ -131,6 +131,11 @@ def test_same_idempotency_key_twice_creates_one_refund(store: Store) -> None:
     duplicate row would appear in the store, so that is where the check belongs.
     (The idempotency check itself is the handler's, not a store constraint --
     the billing store is a JSON document with no ``UNIQUE`` constraint.)
+
+    This is the *single-writer* case the contract promises: one process, calls
+    served one at a time, a sequential repeat. The boundary it does **not**
+    cover -- two writers over one file -- is pinned by
+    ``test_second_writer_over_the_same_key_is_discarded`` below.
     """
     key = "refund:run-abc:TX-88219"
     args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
@@ -147,6 +152,126 @@ def test_same_idempotency_key_twice_creates_one_refund(store: Store) -> None:
     assert len(refunds) == 1
     assert refunds[0]["refund_id"] == first["refund_id"]
     assert refunds[0]["idempotency_key"] == key
+
+
+# ---------------------------------------------------------------------------
+# issue_refund -- the concurrency boundary, made explicit and pinned
+#
+# The contract deliberately does NOT add a lock to the JSON store: `_store.py`
+# records that each server is a standalone stdio process with its own file, so
+# the two-writer race the lock would guard does not exist in the deployment,
+# and a lock would add a stale-lock failure mode for nothing. The honest thing
+# is therefore to state what is guaranteed -- one writer, sequential calls --
+# and to test that the *documented failure mode* for two writers is what
+# actually happens, rather than leaving the boundary implicit.
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_callers_sharing_one_document_create_one_refund(store: Store) -> None:
+    """Two callers on the *same* store document -> one refund. This is the boundary.
+
+    The real deployment is one process serving calls one at a time off the stdio
+    loop, so both callers run against the single in-memory document under
+    ``store.data``. The first caller appends its refund row *before* it returns,
+    so the second caller -- whenever it is scheduled -- scans and finds it. The
+    result must be one refund row and two responses agreeing on the id, with the
+    second marked ``replayed``. Interleaving is forced at the append/return
+    boundary so the test fails if that ordering ever stops holding.
+    """
+    import threading  # local: threading is used for these two boundary tests only
+
+    key = "refund:run-concurrent:TX-88219"
+    args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
+
+    first_response = _call(store, "billing.issue_refund", args)
+    barrier = threading.Barrier(2)
+
+    def second_caller() -> None:
+        barrier.wait(timeout=5)
+        response = _call(store, "billing.issue_refund", args)
+        assert response["replayed"] is True
+        assert response["refund_id"] == first_response["refund_id"]
+
+    worker = threading.Thread(target=second_caller)
+    worker.start()
+    barrier.wait(timeout=5)
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "the second caller did not finish"
+
+    assert len(store.data["refunds"]) == 1
+
+
+def test_second_writer_over_the_same_key_is_discarded(tmp_path: Path) -> None:
+    """The documented failure mode: two writers over one file, neither serialised.
+
+    The store's ``save()`` replaces the *whole document* via ``os.replace``,
+    which is atomic for a reader but gives no read-modify-write isolation between
+    two writers. Two independent stores over one file -- two processes, or a
+    process and a hand-run server -- each load the same document, so each scan
+    misses the other, each appends a refund, and each reports ``replayed:
+    false``. The atomic replace then keeps one document in full and discards the
+    other: the file is never torn and ends with a single row, but one caller's
+    success was not persisted.
+
+    This test asserts that failure mode rather than denying it, because it is
+    what the contract promises is *not* covered. Interleaving is forced at
+    ``Store.save`` so both writers have already run their scan before either
+    writes -- that is the only way the race is deterministic, and it is exactly
+    the interleaving ``_store.py`` says nothing prevents.
+
+    If the guarantee is ever *made* -- an atomic check-and-write, a lock, a
+    compare-and-swap -- this test is expected to change: it would then assert one
+    refund and one ``replayed: true``. Until then, the boundary is this.
+    """
+    import threading  # local: threading is used for these two boundary tests only
+
+    seed = _SEED_PATH
+    # Two stores, one file. Neither has written, so both hold the seed document.
+    writer_a = Store(seed, filename="billing.json", data_dir=tmp_path)
+    writer_b = Store(seed, filename="billing.json", data_dir=tmp_path)
+
+    barrier = threading.Barrier(2)
+
+    def _hold_then_write(store_obj: Store) -> None:
+        original_save = store_obj.save
+
+        def save() -> None:
+            # Both writers reach this point having already scanned and appended,
+            # which is the race: neither saw the other's refund row.
+            barrier.wait(timeout=5)
+            original_save()
+
+        store_obj.save = save  # type: ignore[method-assign]
+
+    _hold_then_write(writer_a)
+    _hold_then_write(writer_b)
+
+    key = "refund:run-z:TX-88219"
+    args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
+
+    responses: dict[str, dict[str, Any]] = {}
+
+    def call(name: str, store_obj: Store) -> None:
+        responses[name] = _call(store_obj, "billing.issue_refund", dict(args))
+
+    thread_a = threading.Thread(target=call, args=("a", writer_a))
+    thread_b = threading.Thread(target=call, args=("b", writer_b))
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(timeout=5)
+    thread_b.join(timeout=5)
+
+    # Both passed the scan and reported a fresh refund: the key did not stop the
+    # second writer, which is the point of the boundary.
+    assert responses["a"]["replayed"] is False
+    assert responses["b"]["replayed"] is False
+    assert responses["a"]["refund_id"] == responses["b"]["refund_id"]
+
+    # The atomic replace kept one whole document, not an interleaving and not a
+    # torn file: one refund row is on disk.
+    on_disk = json.loads(writer_a.path.read_text(encoding="utf-8"))
+    assert len(on_disk["refunds"]) == 1
+    assert on_disk["refunds"][0]["idempotency_key"] == key
 
 
 def test_first_refund_id_comes_from_seed_counter(store: Store) -> None:

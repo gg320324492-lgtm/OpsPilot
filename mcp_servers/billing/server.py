@@ -23,6 +23,23 @@ The tool surface (``docs/mcp-contracts.md`` S2):
   process, but the check-then-write is not atomic across two concurrent callers
   (``_store.py``'s concurrency note: the atomic replace is not locking).
 
+  What that boundary means in practice, stated rather than left implicit: the
+  store's ``save()`` replaces the *whole document*, and ``os.replace`` is
+  atomic for a reader but gives no read-modify-write isolation between two
+  writers. So if two callers each hold their own in-memory document over the
+  same file -- two processes against one store file, or a process and a
+  hand-run server -- both scans can miss each other, both append a refund, and
+  both report ``replayed: false`` with the same ``refund_id``. The atomic
+  replace then keeps one document in full and discards the other: the file is
+  never torn, and it ends with a single refund row, but one caller's success was
+  not persisted and its transaction-status write is gone. The key does **not**
+  protect that case; nothing here serialises two writers. The contract is
+  therefore one writer per store file -- which ``docs/architecture.md`` §8 makes
+  the deployment (each server is a standalone stdio process with its own store
+  file) and which
+  ``tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded``
+  pins as the documented failure mode rather than a hypothetical one.
+
 Errors are results, never exceptions. A raised exception becomes an opaque
 ``UnexpectedToolError`` with the code lost (``mcp-sdk-notes.md`` S5), which would
 break the "already refunded -> do not refund again" scenario: the agent has to be
@@ -245,7 +262,12 @@ def _issue_refund(
     # authority (there is no store-level constraint to lean on). A replay
     # returns the recorded refund unchanged and never looks at the transaction
     # again. It holds for sequential calls in one process; it does not, on its
-    # own, serialise two concurrent callers.
+    # own, serialise two concurrent callers. Two callers on *one* in-memory
+    # document (one stdio process, calls served one at a time) are safe, because
+    # the first appends its row before returning; two callers on *separate*
+    # documents over one file are not, and the atomic replace keeps one document
+    # and discards the other rather than interleaving them. See the module
+    # docstring and ``_store.py``'s concurrency note.
     for refund in _rows(store, "refunds"):
         if refund.get("idempotency_key") == idempotency_key:
             return RefundResult(

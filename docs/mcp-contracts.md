@@ -236,7 +236,14 @@ is not a claim about concurrent duplicate delivery.
 
 Idempotency here is enforced by the handler rather than inherited from the
 storage engine; that is why `tests/integration/test_mcp_billing.py` can call the
-server directly, bypassing the agent, and still be a meaningful test.
+server directly, bypassing the agent, and still be a meaningful test. The
+boundary above is pinned, not merely asserted: the sequential single-writer case
+is `test_same_idempotency_key_twice_creates_one_refund`, and the *documented
+failure mode* for two writers over one file — both scans miss, both report
+`replayed: false`, and the atomic replace keeps one whole document and discards
+the other — is
+`test_second_writer_over_the_same_key_is_discarded`. That test is expected to
+change if the guarantee is ever made.
 
 ---
 
