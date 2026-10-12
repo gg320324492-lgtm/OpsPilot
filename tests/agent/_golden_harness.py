@@ -4,11 +4,11 @@ Why a harness rather than a fixture
 -----------------------------------
 The M6 tests must make one assertion that cannot be satisfied by a
 self-consistent implementation: **ask the MCP server whether the money moved.**
-``.scratch/verify_m4.py`` states why, and it is the single most important habit
-in this repository: three times a green suite agreed with the implementation and
-disagreed with reality. A run's own ``COMPLETED`` status proves nothing about
-whether a refund row exists; the billing server's transaction row is what
-happened.
+That is the single most important habit in this repository: three times a green
+suite agreed with the implementation and disagreed with reality. A run's own
+``COMPLETED`` status proves nothing about whether a refund row exists; the
+billing server's transaction row is what happened. (It was argued at length in
+a scratch script, since deleted; the argument is this paragraph.)
 
 So every scenario in this package is built the same way:
 
