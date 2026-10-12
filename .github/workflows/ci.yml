@@ -453,3 +453,86 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  # ------------------------------------------------------------------------- #
+  # web-e2e — the golden path, walked in a real browser against the real stack
+  # (docs/milestones.md §M7: "The golden path is walkable in a browser start to
+  # finish").
+  #
+  # `web/e2e/golden-path.spec.ts` drives postgres + migrate + api + worker
+  # (Compose) plus the Next.js dashboard, and clicks through the walkthrough:
+  # reindex on Knowledge, submit the README's ticket on Tickets, follow the run
+  # to its trace screen, click Approve on Approvals, and assert the terminal
+  # status and that exactly one transaction (TX-88219) was refunded -- asked of
+  # the billing MCP server, not of the run's own status. Nothing here calls the
+  # API directly; a `fetch` would defeat the criterion.
+  #
+  # WHY THIS JOB IS ON PUSH, UNLIKE eval-live
+  # -----------------------------------------
+  # eval-live is dispatch-only because it costs money and is non-deterministic.
+  # This job spends nothing (MODEL_PROVIDER=fake, no key, no network model) and
+  # is deterministic (a scripted replay, a fixed seed), so it belongs on every
+  # push: it is the regression guard for the one M7 criterion no other job could
+  # reach. `docker-build` proves the stack comes up but drives no run; this
+  # drives one, through the UI.
+  #
+  # IT CANNOT RED AN INFRASTRUCTURE ABSENCE. `web/e2e/stack.ts` skips cleanly
+  # when `docker info` fails (ADR-0004's habit: the skip names Docker as the
+  # reason) -- so a runner with no working Docker reports SKIPPED, not FAILED.
+  # A stack that Docker was reachable enough to attempt and then could not bring
+  # up is a real failure (a green skipped run there would prove nothing), which
+  # is the one red this job is allowed to produce beyond a genuine assertion
+  # failure. The runner's Docker is already exercised by `docker-build` above,
+  # so the image pulls are not a new source of flakiness.
+  #
+  # The dashboard is run with `node .next/standalone/server.js` (web/next.config.ts
+  # sets `output: "standalone"`) rather than as the compose `web` service: the
+  # compose `web` container cannot reach the API from inside itself, because
+  # `web/src/lib/api/client.ts` reads `NEXT_PUBLIC_API_BASE_URL` for server-side
+  # fetches too and `localhost:8000` inside the container is the container. See
+  # `web/e2e/stack.ts`'s module docstring for the full diagnosis. That is a
+  # product wiring defect this test reports rather than fixes.
+  # ------------------------------------------------------------------------- #
+  web-e2e:
+    name: web-e2e (browser golden path)
+    runs-on: ubuntu-latest
+    env:
+      # A disposable token, only to satisfy Compose's `:?` render guard. Not a
+      # secret: the stack is reached over loopback on a disposable runner.
+      OPSPILOT_OPERATOR_TOKEN: ci-disposable-token-not-a-secret
+      # The deterministic provider the golden path runs on. No key, no network.
+      MODEL_PROVIDER: fake
+      OPSPILOT_FAKE_SCENARIO: duplicate_charge
+      EMBEDDING_PROVIDER: local
+      RETRIEVAL_MIN_SCORE: "0.22"
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Install the Playwright chromium (with OS deps)
+        run: npx playwright install --with-deps chromium
+      - name: Walk the golden path in a browser
+        # The spec starts the stack itself (compose down -v, up postgres/migrate/
+        # api/worker, next build, node .next/standalone/server.js) and tears it
+        # down after, so no step here manages Docker. A failure leaves the
+        # Playwright trace/screenshot under web/test-results/ for the upload.
+        run: npm run e2e
+      - name: Upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-report
+          path: web/test-results/
+          if-no-files-found: ignore
+      - name: Tear down any stack the run left behind
+        if: always()
+        working-directory: .
+        run: docker compose down -v || true
