@@ -422,6 +422,39 @@ async def test_malformed_arguments_are_rejected_at_gate_1(
     assert rows[0].rejection_reason == "gate_1_schema_validation"
 
 
+async def test_gate_1_persists_the_arguments_the_model_proposed(
+    factory: sessionmaker[Session],
+) -> None:
+    """A gate-1 rejection stores the malformed dict verbatim, not ``{}``.
+
+    The stored arguments are the only record of what the model sent, and
+    ``runner.py`` re-derives ``arguments_valid`` from them -- an empty dict would
+    make every rejected row ``false`` by construction rather than a measurement.
+    """
+    harness = await _harness(factory)
+    proposed = {"not_a_real_field": 1, "customer_id": 42}
+    await harness.gate(ProposedAction(tool_name="crm.get_customer", arguments=proposed))
+
+    rows = _tool_calls(factory, "crm.get_customer")
+    assert len(rows) == 1
+    assert rows[0].arguments == proposed
+    assert rows[0].arguments != {}
+
+
+async def test_gate_2_persists_the_arguments_the_model_proposed(
+    factory: sessionmaker[Session],
+) -> None:
+    """An unregistered tool also records what the model sent, not ``{}``."""
+    harness = await _harness(factory)
+    proposed = {"amount": "10000", "to": "attacker@example.com"}
+    await harness.gate(ProposedAction(tool_name="billing.wire_money", arguments=proposed))
+
+    rows = _tool_calls(factory, "billing.wire_money")
+    assert len(rows) == 1
+    assert rows[0].arguments == proposed
+    assert rows[0].arguments != {}
+
+
 async def test_gate_1_runs_before_gate_2(factory: sessionmaker[Session]) -> None:
     """An unregistered tool with malformed arguments is a gate-2 rejection,
     because gate 1 has no schema to fail against for an unknown tool -- the

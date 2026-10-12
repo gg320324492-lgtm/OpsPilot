@@ -340,6 +340,20 @@ async def _reject(
     then no ``ToolSpec`` and the permission column is written at the *least*
     privileged level, so a row that never executed can never look like a
     high-risk execution to the CI invariant.
+
+    ``arguments`` is the proposal's own dict, stored verbatim -- not an empty
+    placeholder. A rejected call must record what the model actually proposed, or
+    the rejection is unreadable: ``runner.py`` re-derives ``arguments_valid`` by
+    re-validating the stored dict against the schema, and a literal ``{}`` would
+    make every rejected row ``false`` by construction rather than a measurement
+    of the model. This is a decision to store the full arguments even though they
+    carry third-party values (invoice ids, amounts, customer emails): the row is
+    the only record of *why* gate 1 refused, and ``error`` alone ("which rule")
+    cannot reconstruct the offending values. Note that this column is not
+    governed by ``STORE_FULL_PROMPTS`` (``tracing/recorder.py``); that control
+    governs the model **response** text, and tool arguments are neither the
+    prompt nor the response. Adding a redaction of this column would be a new
+    decision, not a reading of that setting.
     """
     call_id = await tool_call_store.record_proposed(
         run_id=ctx.run.id,
@@ -411,6 +425,9 @@ async def _gate_and_execute(
     # here and gate 2 reports the unknown name; malformed arguments for a
     # registered tool are a *result* (a rejected call), not a crash. A model
     # whose output does not fit the schema never reaches the gateway.
+    # The rejection persists ``proposal.arguments`` in full -- see ``_reject``
+    # for why the model's actual (malformed) dict is stored, and the note there
+    # that this column sits outside ``STORE_FULL_PROMPTS``.
     try:
         spec, parsed_arguments = validate_tool_call(tool_name, proposal.arguments)
     except InvalidArgumentsError as exc:
@@ -419,7 +436,7 @@ async def _gate_and_execute(
             recorder,
             tool_call_store,
             tool_name=tool_name,
-            arguments={},
+            arguments=proposal.arguments,
             permission=Permission.READ.value,
             gate=GATE_SCHEMA,
             reason=str(exc),
@@ -437,7 +454,7 @@ async def _gate_and_execute(
             recorder,
             tool_call_store,
             tool_name=tool_name,
-            arguments={},
+            arguments=proposal.arguments,
             permission=Permission.READ.value,
             gate=GATE_REGISTRY,
             reason="unknown_tool",
