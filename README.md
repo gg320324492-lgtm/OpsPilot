@@ -21,18 +21,23 @@ once. Every model call, tool call and retrieval is recorded and replayable.
 > **Status: Phase 1, milestones M0–M9 — the golden path runs end to end.**
 > The system is built: the agent loop, the five gates, the persisted approval
 > gate, idempotent refunds, retrieval with citations, the dashboard, the eval
-> harness and CI all exist and are tested — 814 passed, 11 skipped locally;
-> CI's green run 38076989911 is 11 of 11 jobs, its `test` job 810 passed,
+> harness and CI all exist and are tested — 865 passed, 11 skipped locally;
+> CI's green run 38208652155 is 12 of 12 jobs, its `test` job 861 passed,
 > 15 skipped. What is
 > **not** done is listed honestly — `issues.create` is implemented and tested in
 > isolation but the golden path does not call it (see the trace below), and the
 > golden path needs PostgreSQL for retrieval (SQLite is a tests-only path).
 > The compose services have been run on a machine with a Docker daemon:
 > `api`, `worker`, `web` and `postgres` come up on this machine's WSL Docker
-> daemon, `api`, `web` and `postgres` healthy and `worker` up. Since run
-> 38076989911 the same stack also comes up on CI's runner: the
+> daemon, `api`, `web` and `postgres` healthy and `worker` up. The same stack
+> also comes up on CI's runner: the
 > `docker-build` job builds every image, runs `docker compose up -d --wait`,
-> and checks `/ready`. What is still *not* met is M9's criterion in full: the
+> and checks `/ready`. The golden path is also walked in a real browser on
+> every push: `web-e2e` brings up postgres, migrate, api and worker through
+> Compose and clicks through the dashboard — reindex, submit the ticket,
+> follow the run to its trace, approve the parked refund — asserting against
+> PostgreSQL, so retrieval is cross-process the way the terminal recording
+> never was. What is still *not* met is M9's criterion in full: the
 > three MCP servers are not Compose services at all. They are spawned on
 > demand by the worker as stdio subprocesses (boundary D12a), and the worker
 > here reports the default `MCP_TRANSPORT=inprocess`, which builds them
