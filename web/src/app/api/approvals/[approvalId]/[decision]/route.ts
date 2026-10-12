@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ApiError, api } from "@/lib/api/client";
+import { foreignOriginRefusal } from "@/lib/request-origin";
 
 /**
  * `POST /api/approvals/{id}/approve` and `/reject`, proxied from the browser.
@@ -9,6 +10,18 @@ import { ApiError, api } from "@/lib/api/client";
  * bundle is a refund-capable credential published to anyone who can fetch the
  * bundle. So the browser posts here, same-origin, and this handler calls the API
  * with the token it reads from the server environment.
+ *
+ * **The origin check is the first thing this handler does, and that position is
+ * the point.** Holding the token means this handler grants the capability the
+ * token carries to whoever reaches it, so "was this request made by the page
+ * that was served alongside it?" has to be answered before anything else
+ * happens -- not after the body is parsed, and certainly not after the API has
+ * been called and its answer discarded. `@/lib/request-origin` is where that
+ * question and the absent-`Origin` decision are argued; here it is one early
+ * return. Two properties follow, and both are asserted in
+ * `web/e2e/write-origin.spec.ts`: a foreign `Origin` gets 403, and it gets it
+ * **without a single call to the API**, because nothing below this line has
+ * run yet.
  *
  * **The 409 is forwarded with its own status, verbatim.** This is the single
  * most important line in the file. `POST .../approve` answers 409
@@ -28,6 +41,15 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ approvalId: string; decision: string }> },
 ) {
+  // Before the token is spent. See the module comment.
+  const refusal = foreignOriginRefusal(request);
+  if (refusal !== null) {
+    return NextResponse.json(
+      { error: { code: refusal.code, message: refusal.message, details: null } },
+      { status: refusal.status },
+    );
+  }
+
   const { approvalId, decision } = await params;
 
   if (decision !== "approve" && decision !== "reject") {

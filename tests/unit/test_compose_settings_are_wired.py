@@ -67,6 +67,31 @@ is the one YAML shape that is unambiguous to read without a parser -- and a
 change that breaks that shape (list syntax, anchors, a merge key) makes this
 guard fail loudly rather than silently skipping a block.
 
+## The one place a real parser is used, and why that is not a contradiction
+
+The port-binding guard at the bottom of this file (``ports:``) parses the file
+with ``PyYAML`` instead. That is a deliberate exception to the section above,
+on the reasoning that section itself states: a regex is acceptable only for the
+shape it was written against, and ``ports:`` is not that shape.
+
+``ports:`` entries are polymorphic by design. Docker's *short* syntax is a
+string whose fields are separated by colons -- ``HOST:CONTAINER``,
+``IP:HOST:CONTAINER``, each optionally suffixed ``/protocol``, with ranges
+allowed -- and its *long* syntax is a mapping with ``target``/``published``/
+``host_ip``/``protocol``/``mode`` keys. A guard written as "does this line
+contain ``127.0.0.1:``" answers a different question than the one being asked: it
+passes a mapping it cannot parse, and passes a ``ports:`` block it silently
+skipped. A guard that reports green on the thing it exists to catch is worse
+than no guard, so this one parses.
+
+``PyYAML`` is now declared in the ``dev`` extra of ``pyproject.toml``. The
+objection recorded above -- an undeclared parser is a dependency only the
+author's machine has -- is the reason it is declared, and it would have been a
+reason not to parse the file at all if declaring it had not been available.
+``docker compose config`` would parse it too, and would be a worse choice: the
+pytest tree runs in jobs that do not all have a Docker daemon, and a guard that
+skips without one proves nothing (ADR-0004).
+
 ## Parsing the ``:-`` fallback
 
 The second assertion is that where compose supplies ``${VAR:-fallback}``, the
@@ -119,6 +144,8 @@ from __future__ import annotations
 import pathlib
 import re
 
+import yaml
+
 from opspilot.settings import Settings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -149,6 +176,16 @@ _NO_COMPARABLE_DEFAULT: dict[str, str] = {
 # deployment decision that ``settings.py``'s default cannot express; the
 # reasoning is in this file's docstring.
 _LITERAL_BY_DESIGN = frozenset({"DATABASE_URL"})
+
+# The host addresses that are loopback, as ``docker compose`` spells them in a
+# ``host_ip`` or in the leading field of a short-syntax ``ports:`` entry.
+#
+# Both loopback families are named rather than only ``127.0.0.1`` because the
+# property under test is "not reachable from off this host", and both of these
+# are true of it. What is NOT here is the Docker default of ``0.0.0.0`` (or its
+# IPv6 spelling ``::``), which binds every interface the machine has -- the
+# reason the entries below are spelled out rather than left to the default.
+_LOOPBACK_HOST_IPS = frozenset({"127.0.0.1", "::1"})
 
 # ``${VAR:-fallback}`` forms whose fallback is not ``settings.py``'s default,
 # as ``(service, variable)``. Each is a deployment decision the default cannot
@@ -460,4 +497,154 @@ def test_the_migrate_service_gets_the_database_url_it_migrates() -> None:
         f"the migrate service's DATABASE_URL does not name the `postgres` "
         f"service on the compose network (it renders {database_url!r}). A host "
         f"address here migrates the wrong database, or nothing."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Network binding. A different question from the three above, and a different
+# parser: see "The one place a real parser is used" in this file's docstring.
+# ---------------------------------------------------------------------------
+
+
+def _compose_document() -> object:
+    """``docker-compose.yml`` parsed, or a loud failure.
+
+    The assertion is on the *document*, not on a line: if the file stops being
+    YAML, or stops having a ``services`` mapping, every check below would
+    otherwise have nothing to iterate and would pass vacuously. A parse failure
+    is the single most important thing this guard can report, so it is raised as
+    an assertion rather than skipped.
+    """
+    document = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    assert isinstance(document, dict), (
+        f"docker-compose.yml did not parse to a mapping (it parsed to "
+        f"{type(document).__name__}). Every guard in this file assumes a compose "
+        f"document; if the file's shape changed, fix these guards rather than "
+        f"letting them pass against nothing."
+    )
+    services = document.get("services")
+    assert isinstance(services, dict), (
+        f"docker-compose.yml has no `services` mapping (it has {services!r}). "
+        f"The port-binding guard below reads it from there, so a rename would "
+        f"make that guard report a clean file that publishes nothing."
+    )
+    return document
+
+
+def _published_ports(document: dict[str, object]) -> dict[str, list[object]]:
+    """Every ``ports:`` entry in the file, as ``{service: [entry, ...]}``.
+
+    Services with no ``ports:`` block are omitted rather than recorded as empty,
+    so a caller can tell "publishes nothing" from "publishes a block we could not
+    read" -- and the assertion below distinguishes them too.
+    """
+    services = document["services"]
+    assert isinstance(services, dict)
+    published: dict[str, list[object]] = {}
+    for name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        entries = service.get("ports")
+        if entries is None:
+            continue
+        assert isinstance(entries, list), (
+            f"the {name} service declares `ports` as {type(entries).__name__}, "
+            f"not a sequence of entries, which is what the Compose schema types "
+            f"it as. A guard that cannot read the value it is guarding is not a "
+            f"guard, so this fails rather than skipping the service."
+        )
+        published[str(name)] = list(entries)
+    return published
+
+
+def _host_interface(entry: object) -> str | None:
+    """The host address a ``ports:`` entry publishes on, or ``None``.
+
+    ``None`` means *this guard cannot tell*, and every ``None`` fails the
+    assertion. That is the deliberate default: the Docker default is to publish
+    on every interface, so an entry this cannot resolve is one whose binding is
+    unknown, and an unknown binding is not evidence of a loopback one.
+
+    Both compose spellings are handled:
+
+    * long syntax -- a mapping whose ``host_ip`` names the interface, and which
+      omits the key entirely when the author wants the default (so an absent key
+      is ``None``, not ``"0.0.0.0"`` and not a guess);
+    * short syntax -- ``[IP:][HOST:]CONTAINER[/PROTOCOL]``, where the leading
+      field is the interface and a *two*-field entry (``"5432:5432"``) names no
+      interface at all. That two-field form is the defect this guard exists for,
+      so it must resolve to ``None`` rather than being read as loopback.
+    """
+    if isinstance(entry, dict):
+        host_ip = entry.get("host_ip")
+        return str(host_ip) if isinstance(host_ip, (str, int)) else None
+    if not isinstance(entry, str):
+        return None
+    # Drop the optional `/protocol` suffix before counting fields: a range such
+    # as `"3000-3005:3000-3005/tcp"` is still a two-field entry, and the
+    # protocol must not make it look like it named an interface.
+    without_protocol = entry.split("/", 1)[0]
+    fields = without_protocol.split(":")
+    if len(fields) != 3:
+        return None
+    return fields[0] or None
+
+
+def test_every_published_port_is_bound_to_loopback() -> None:
+    """No published port reaches past the host it is published on.
+
+    **Why this is a control and not a preference.** Docker's default is to bind
+    a published port to ``0.0.0.0``. On a laptop that is invisible; on a
+    machine with a second interface it is not, and the three ports this file
+    publishes are the database, the token-guarded API, and the dashboard whose
+    Route Handlers approve refunds on the browser's behalf. ``docker-compose.yml``
+    read as documentation says "run this on your machine"; read as a network
+    contract it said something much wider, and nothing in the file contradicted
+    it until now.
+
+    The three entries are therefore spelled ``127.0.0.1:<port>:<port>``, and this
+    test is what keeps them that way: it is the only assertion that notices the
+    next edit which drops an address back to ``"<port>:<port>"`` and silently
+    re-publishes on every interface.
+
+    **What this deliberately does not cover.** Removing a ``ports:`` block
+    entirely is not a failure here, and cannot be -- an operator who removes the
+    published ports has made the stack *less* exposed, which is the direction
+    this guard exists to push, and there is no reading of a deleted block that
+    distinguishes that decision from an accident. The vacuity that *can* be
+    caught is caught below: a file with no published ports at all fails rather
+    than passing for a clean one.
+    """
+    document = _compose_document()
+    assert isinstance(document, dict)
+    published = _published_ports(document)
+
+    assert published, (
+        "docker-compose.yml publishes no ports at all, so this guard has "
+        "nothing to assert. That is either a file that has stopped exposing the "
+        "database, the API and the dashboard (nothing in this repository says "
+        "they should be unreachable), or a guard that has stopped guarding. "
+        "Restore the published ports, with the host interface named."
+    )
+
+    unloopback: list[str] = []
+    for service, entries in published.items():
+        for entry in entries:
+            host_ip = _host_interface(entry)
+            if host_ip not in _LOOPBACK_HOST_IPS:
+                unloopback.append(f"{service}: {entry!r} (host interface {host_ip!r})")
+
+    assert not unloopback, (
+        "these published ports do not name a loopback host interface: "
+        f"{unloopback}.\n"
+        "Docker publishes a port on every interface the host has unless the "
+        'mapping names one, so `- "5432:5432"` and `- "8000:8000"` are '
+        "reachable from the LAN -- which is how a database with example "
+        "credentials and an API that hands out refunds become network services. "
+        f'Write the address down: `- "127.0.0.1:5432:5432"` '
+        f"({sorted(_LOOPBACK_HOST_IPS)[0]} or ::1). A long-syntax entry "
+        "(`- target: 5432\\n  host_ip: 127.0.0.1`) is equally acceptable -- the "
+        "guard reads both -- but an entry that names no interface at all is "
+        "refused rather than assumed, because Docker's unstated default is the "
+        "one this test exists to catch."
     )

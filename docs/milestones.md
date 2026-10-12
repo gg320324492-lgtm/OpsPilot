@@ -884,7 +884,7 @@ what got built rather than what was promised.
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
 | D12 | `docker compose up` brings up api, worker, web, postgres, three MCP servers. | `milestones.md` §M9. |
 | D12a | The three MCP servers exist and are reachable, but as **child processes of the worker**, not as Compose services. A stdio server has no port to expose, so a Compose service for one would be a container that starts, blocks on stdin and serves nothing. `MCP_TRANSPORT=stdio` is what brings them up as subprocesses; the default `inprocess` runs them inside the worker with no process boundary at all. Both are real; only the first exercises the transport. | `mcp-contracts.md` §"Why stdio and not HTTP/SSE"; `docker-compose.yml` footer. |
-| D13 | The Compose stack has been run at least once. | `docker-compose.yml` header ("NOT VERIFIED"); `limitations.md` §6. |
+| D13 | The Compose stack has been run at least once. | `docker-compose.yml` header (which now records the verification instead of denying it); `limitations.md` §6. |
 | D14 | README carries the golden-path trace, the eval table, an architecture diagram, the five demo scenarios, a recorded GIF, and a limitations section linking `docs/limitations.md`. | `milestones.md` §M9. |
 | D15 | The README's eval table matches the results file it cites. | README "One live run". |
 | D16 | The tests `limitations.md` names as existing actually exist. | `limitations.md` §2. |

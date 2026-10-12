@@ -172,10 +172,12 @@ export const WEB_SERVICE_URL = process.env.E2E_WEB_SERVICE_URL ?? "http://localh
  *
  * Read out of `WEB_SERVICE_URL` rather than assumed, so the URL this module
  * probes and the port `docker-compose.yml` binds are the same fact. Compose
- * publishes a literal `3000:3000`, so an operator who moves this one with
- * `E2E_WEB_SERVICE_URL` has to move the compose mapping too -- which the
- * pre-flight below turns into a named error instead of a container that never
- * becomes healthy.
+ * publishes a literal `127.0.0.1:3000:3000` -- the host interface is named
+ * rather than left to Docker's `0.0.0.0` default, so the dashboard is
+ * loopback-only and this suite's `http://localhost:3000` still reaches it --
+ * so an operator who moves this one with `E2E_WEB_SERVICE_URL` has to move the
+ * compose mapping too, which the pre-flight below turns into a named error
+ * instead of a container that never becomes healthy.
  */
 export const WEB_SERVICE_PORT = portOfUrl(WEB_SERVICE_URL, DASHBOARD_PORT);
 

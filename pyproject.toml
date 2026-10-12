@@ -99,6 +99,16 @@ dev = [
   "ruff>=0.16.10,<0.17",
   "mypy>=1.13",
   "types-requests",
+  # PyYAML parses `docker-compose.yml` in
+  # tests/unit/test_compose_settings_are_wired.py. The sibling guards in that
+  # file hand-parse the `environment:` blocks because an undeclared parser is a
+  # dependency only the author's machine has (that file's own docstring is the
+  # argument, and it is still true of them). This one test genuinely needs a
+  # real YAML parser -- a hand-written matcher over `ports:` lines would pass a
+  # mapping it cannot parse, which is the shape of guard that reports green on
+  # the thing it exists to catch -- so the package is DECLARED here rather than
+  # relied upon being present.
+  "pyyaml>=6.0",
   "openai>=1.54",
   "anthropic>=0.39",
 ]
@@ -300,12 +310,15 @@ files = ["src", "mcp_servers", "tests", "evals"]
 
 # The MCP SDK's type stubs are incomplete; the adapter that touches it is the one
 # place where a narrow relaxation is granted, and it is named rather than global.
+# `yaml.*` is here for the same reason and not the same cause: PyYAML ships no
+# stubs, and the stubs-only distribution is not worth taking on for the one
+# `safe_load()` call in the compose port-binding guard.
 [[tool.mypy.overrides]]
 module = ["opspilot.adapters.tools.mcp_gateway"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["langgraph.*", "mcp.*", "pgvector.*"]
+module = ["langgraph.*", "mcp.*", "pgvector.*", "yaml.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

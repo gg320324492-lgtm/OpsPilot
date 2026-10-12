@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ApiError, api } from "@/lib/api/client";
+import { foreignOriginRefusal } from "@/lib/request-origin";
 
 /**
  * `POST /api/tickets`, proxied from the browser to the API.
@@ -14,6 +15,16 @@ import { ApiError, api } from "@/lib/api/client";
  * *here*, same-origin, and this handler calls the API with the token it reads
  * from the server environment.
  *
+ * **It checks the origin too.** Creating a ticket is not a read and it is not
+ * free: it writes a ticket and starts a run, and a run is the thing that
+ * eventually reaches an approval gate with a refund behind it. So the same
+ * forgery that a hostile page could aim at `/api/approvals/.../approve` aimed at
+ * this route is a way to manufacture work for the worker and fill the operator's
+ * queue. The rule applied is deliberately identical to the approvals route's
+ * rather than a second, slightly different one -- one policy, one module
+ * (`@/lib/request-origin`), one test file -- because three near-identical checks
+ * are three things a later edit can make disagree.
+ *
  * The API's CORS policy exists for the reads a browser makes directly; this
  * write goes through the same origin as the page, so it needs no CORS at all.
  * That is also why `docs/api-contract.md` §8.1's argument about a rewrite proxy
@@ -25,6 +36,17 @@ import { ApiError, api } from "@/lib/api/client";
  * has both ids and can link straight to the run without a second request.
  */
 export async function POST(request: Request) {
+  // Before the token is spent, and before the body is read. See the module
+  // comment; `web/e2e/write-origin.spec.ts` asserts the refused request never
+  // reaches the API.
+  const refusal = foreignOriginRefusal(request);
+  if (refusal !== null) {
+    return NextResponse.json(
+      { error: { code: refusal.code, message: refusal.message, details: null } },
+      { status: refusal.status },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();

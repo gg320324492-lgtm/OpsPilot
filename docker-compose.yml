@@ -2,13 +2,13 @@
 #
 # `docker compose up` brings up: postgres, migrate, api, worker, web.
 #
-# NOT VERIFIED. Docker is not installed on the machine this was written on
-# (docs/adr/0004 records the same absence for the test suite's postgres marker),
-# so nothing here has been through `docker compose up`, `docker compose config`
-# or a build. Every command, path and entry point below was checked against the
-# source that defines it, but a Compose file that has never been up is the least
-# verified artefact in this repository. Treat the first run as a debugging
-# session, not a smoke test.
+# VERIFIED. `docker compose up` has been run: on a developer's WSL Docker daemon
+# (2026-10-11, all four services up) and on every push in CI, where
+# `docker-build` builds every image, runs `docker compose up -d --wait` and
+# checks `/ready`, and `web-e2e` drives the golden path through this same file
+# against PostgreSQL. What remains unverified here is narrower than it was: the
+# three MCP servers are not Compose services at all — they are spawned on demand
+# by the worker as stdio subprocesses, boundary D12a in docs/milestones.md.
 
 name: opspilot
 
@@ -34,7 +34,16 @@ services:
       # Published so a developer can reach the database from the host (psql, a
       # migration run outside Docker). It is a local-development convenience;
       # an operator deploying this elsewhere would remove it.
-      - "5432:5432"
+      #
+      # The host interface is named -- `127.0.0.1`, not left to Docker's default.
+      # The default is 0.0.0.0, which publishes the container's port on every
+      # interface the host has, so "a local-development convenience" would be
+      # LAN-reachable with the example password in this service's own
+      # `environment:` block. Writing the loopback address down is what makes
+      # the sentence above true; the assertion that keeps it true is
+      # tests/unit/test_compose_settings_are_wired.py
+      # ::test_every_published_port_is_bound_to_loopback.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       # `pg_isready` ships with the image. The `-U`/`-d` are named so the check
       # proves the specific database is accepting connections, not merely that a
@@ -200,8 +209,12 @@ services:
       # stated on the line: WORKER_ID (a claimed run is the worker's to
       # attribute; the api claims none) and nothing else -- OPSPILOT_FAKE_SCENARIO
       # matches so `docker compose config` reads identically for both.
-      # Bind all interfaces inside the container. The entry point defaults to
-      # 127.0.0.1, which would be unreachable through a published port.
+      # Bind all interfaces INSIDE the container. The entry point defaults to
+      # 127.0.0.1, which would be unreachable through a published port. This is
+      # the container's own loopback and says nothing about the host: the host
+      # side of the same port is pinned to 127.0.0.1 by the `ports:` entry below,
+      # and the two are not in tension -- one is what the process inside listens
+      # on, the other is what the host exposes of it.
       API_HOST: 0.0.0.0
       API_PORT: "8000"
       # The in-process MCP servers write their JSON stores here; the volume
@@ -210,7 +223,12 @@ services:
       # path is baked; naming it here keeps the two services symmetric.
       OPSPILOT_MCP_DATA_DIR: /data/mcp
     ports:
-      - "8000:8000"
+      # Loopback only, explicitly. Docker's default is to publish on 0.0.0.0,
+      # which would put the token-guarded API -- approvals included -- on every
+      # interface the host has. Guarded by
+      # tests/unit/test_compose_settings_are_wired.py
+      # ::test_every_published_port_is_bound_to_loopback.
+      - "127.0.0.1:8000:8000"
     volumes:
       # A shared volume for the MCP servers' JSON stores. The worker's gateway
       # builds the three servers in-process and they persist mutations (a refund
@@ -417,7 +435,16 @@ services:
       # when this one is set.
       API_INTERNAL_BASE_URL: http://api:8000
     ports:
-      - "3000:3000"
+      # Loopback only, explicitly, and this one matters most of the three. The
+      # dashboard's Route Handlers hold the operator token server-side and
+      # approve refunds on the browser's behalf, so a dashboard reachable from
+      # the LAN is a refund endpoint on the LAN. The Route Handlers also refuse a
+      # cross-origin POST (web/src/lib/request-origin.ts) -- that is the control
+      # that survives a regression here, this binding is the one that does not
+      # depend on it. Guarded by
+      # tests/unit/test_compose_settings_are_wired.py
+      # ::test_every_published_port_is_bound_to_loopback.
+      - "127.0.0.1:3000:3000"
     depends_on:
       api:
         # The dashboard checks API reachability on load

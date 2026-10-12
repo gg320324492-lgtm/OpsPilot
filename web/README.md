@@ -2,9 +2,13 @@
 
 The operator-facing dashboard. Next.js 16 (App Router) + TypeScript + Tailwind 4.
 
-It talks to the API on `:8000` **directly from the browser process** — there is
-no Next.js rewrite proxy, so the API's own CORS policy is what makes this work.
-See `docs/api-contract.md` §8.1 for why a proxy was not chosen instead.
+It never calls the API on `:8000` from the browser. Writes go through Next.js
+Route Handlers under `src/app/api/` — `tickets`, `approvals/.../[decision]`,
+`knowledge/reindex` — which read `OPSPILOT_OPERATOR_TOKEN` from the server
+environment and call the API themselves. The token is deliberately absent from
+the client bundle: a token in browser JavaScript is a refund-capable credential
+published to anyone who can fetch the bundle. Reads go direct, and the API's CORS
+policy (`docs/api-contract.md` §8.1) is what makes those work.
 
 ## Running it
 
@@ -103,6 +107,11 @@ not app code.
 
 ## State of the screens
 
-Routing stubs and the nav shell only. The six screens — Dashboard, Tickets,
-Runs, Run Detail, Approvals, Knowledge — are not built yet; each route renders a
-placeholder naming itself.
+All six are built: Dashboard, Tickets, Runs, Run Detail, Approvals, Knowledge.
+
+The golden path is walked in a real browser by `web/e2e/golden-path.spec.ts`
+(`npm run e2e`, also the `web-e2e` CI job), which brings up postgres, migrate,
+api and worker through Compose and clicks through the dashboard — reindex,
+submit the ticket, follow the run to its trace, approve the parked refund. It
+runs against PostgreSQL, so retrieval is cross-process; the terminal recording
+in `docs/assets` covers the API in one process on SQLite.
