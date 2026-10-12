@@ -532,6 +532,51 @@ jobs:
           name: web-e2e-report
           path: web/test-results/
           if-no-files-found: ignore
+      - name: Capture the stack's own logs on failure
+        if: failure()
+        working-directory: .
+        # READ THIS BEFORE TRUSTING THE OUTPUT. On a failure *inside a test*, this
+        # step has nothing to show, and that is expected rather than a mistake:
+        # `web/e2e/stack.ts` runs `docker compose down -v` in `afterAll`, which
+        # Playwright runs whether the test passed or failed, and
+        # `web-service.spec.ts` ends the run the same way. So the containers the
+        # golden-path failure needs to be explained by are already gone by the
+        # time the workflow gets here -- the logs that failure actually needs are
+        # written to web/test-results/compose-logs/ from inside the Playwright
+        # process BEFORE that teardown, and ride along in the artefact uploaded
+        # above.
+        #
+        # What this step does catch is everything else, which is what it is for:
+        # a failure in `beforeAll` leaves `stack === null`, skips teardown
+        # entirely, and leaves live containers that only the workflow can see --
+        # including, on this job's most recent red (run 38202887580's companion
+        # failure modes), a worker in a `restart: unless-stopped` loop that
+        # `docker compose up --wait` reported as fine because the worker has no
+        # healthcheck. `ps -a` is here for the same reason: a container that is
+        # `Restarting` says more than any log line does.
+        #
+        # `|| true` throughout: a diagnostic step must not become a second
+        # failure, and a missing compose project must not mask the one error
+        # this job actually exists to report.
+        run: |
+          {
+            echo "### docker compose ps -a"
+            docker compose ps -a
+            echo
+            for service in postgres migrate api worker web; do
+              echo "### docker compose logs $service"
+              docker compose logs --no-color --timestamps --tail 500 "$service"
+              echo
+            done
+          } > web/compose-logs.txt 2>&1 || true
+          cat web/compose-logs.txt
+      - name: Upload the compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-compose-logs
+          path: web/compose-logs.txt
+          if-no-files-found: ignore
       - name: Tear down any stack the run left behind
         if: always()
         working-directory: .

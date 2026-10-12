@@ -131,12 +131,53 @@ export class ApiError extends Error {
   }
 }
 
-/** Where the API lives. Read server-side; see the module comment on `NEXT_PUBLIC_`. */
+/**
+ * Where the API lives, resolved for the runtime asking.
+ *
+ * **There are two answers, not one, and picking the wrong one is a deployment
+ * defect rather than a style question.** A URL that works in the browser
+ * (`http://localhost:8000`, the API's *published* port) is the container's own
+ * loopback when read from inside the `web` container, where the API is a
+ * *different* container reachable only by its compose service name
+ * (`http://api:8000`). Before this split, server-side fetches from the
+ * containerised dashboard read the localhost URL and every Server Component
+ * read failed with "Cannot reach the API".
+ *
+ * The two names are not interchangeable, and which one is inlined is decided by
+ * the `NEXT_PUBLIC_` prefix -- the same decision the module comment above is
+ * about, applied to a URL instead of the token:
+ *
+ *   - `API_INTERNAL_BASE_URL` has **no** `NEXT_PUBLIC_` prefix. Next.js does not
+ *     inline it into the browser bundle (a bundle has no business knowing a
+ *     compose service name), so it is readable **only** in the Next server
+ *     process. That is the value the containerised dashboard needs.
+ *   - `NEXT_PUBLIC_API_BASE_URL` **is** inlined at build time and is the only
+ *     one the browser can see. The browser must keep using it: a non-public
+ *     variable is `undefined` in the bundle, so reading it there would break
+ *     the browser path instead. This is the reasoning the module comment
+ *     preserves for the token; a URL is a lesser secret but the mechanism is
+ *     the same.
+ *
+ * The server therefore prefers the internal name and falls back to the public
+ * one when it is unset (a host-run `next start`, or `next dev`, has no separate
+ * internal URL and both point at the same place). The browser always gets the
+ * public name. With neither set the fallback chain stays total and lands on
+ * `http://localhost:8000`, the host-run development case.
+ *
+ * `typeof window === "undefined"` is the test rather than a build-time flag:
+ * it is the explicit server/browser boundary the App Router documents, and it
+ * is evaluated at call time, so one module serves both -- the Route Handlers
+ * (`app/api/...`, which run server-side mid-request) and any browser bundle
+ * that imports this file resolve correctly.
+ */
 function getApiBaseUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const raw =
+    typeof window === "undefined"
+      ? (process.env.API_INTERNAL_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL)
+      : process.env.NEXT_PUBLIC_API_BASE_URL;
   // Trailing slashes removed so joining a path never yields a double slash,
   // which some proxies normalise and some do not.
-  return raw.replace(/\/+$/, "");
+  return (raw ?? "http://localhost:8000").replace(/\/+$/, "");
 }
 
 /** The operator token, read on the server only. */

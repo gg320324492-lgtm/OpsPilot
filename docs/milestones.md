@@ -723,25 +723,50 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `npm ci` then `npm run typecheck` (`tsc --noEmit`), both on Node 22 with
       `working-directory: web` and `npm ci` against the committed lockfile.
       Both commands exit 0 on the committed tree.)
-- [ ] The golden path is walkable in a browser start to finish.
-      **Left unchecked: no artefact in the repository demonstrates it.** The
-      three things that look like evidence are not. `docs/assets/golden-path.gif`
-      (359,981 bytes, committed) is a recording of a *terminal*:
-      `scripts/record_demo_gif.mjs` uses Playwright only to screenshot a ttyd
-      view of `scripts/demo_golden_path.py`, and that script drives the golden
-      path over HTTP against an API and worker it starts **in one process** on
-      SQLite — its own docstring says so — so it cannot exercise the two-process
-      deployment, and it never loads a dashboard screen, clicks Approve, or
-      visits any of the six routes. The `docker-build` job brings up postgres,
-      migrate, api, worker and web and curls `/ready`, but drives no run. And
-      there is no browser or e2e test: `web/` has no test runner in
-      `devDependencies`, and Playwright appears only in that GIF script. The
-      pieces are all present on the supported runtime — `PgVectorStore` persists
-      embeddings across the API and worker processes where SQLite's
-      `InMemoryVectorStore` does not (`docs/limitations.md` §2), and
-      `OPSPILOT_CORS_ORIGINS` defaults to `http://localhost:3000` — but "the
-      pieces are present" is not a walkthrough, and nothing here records one
-      having been done.
+- [x] The golden path is walkable in a browser start to finish.
+      (`web/e2e/golden-path.spec.ts`, run with `npm run e2e` in `web/` —
+      Playwright + `@playwright/test` 1.64.0, pinned exact in
+      `web/package.json`; there is no second framework, Playwright was already
+      the tool `scripts/record_demo_gif.mjs` uses). It brings up **postgres +
+      migrate + api + worker with `docker compose`** on the repository's own
+      `docker-compose.yml` and the dashboard with `node
+      .next/standalone/server.js` on the host, then walks the path **by
+      clicking**, not by calling the API: it clicks "Reindex knowledge/" on
+      Knowledge (the API does not reindex at start-up, so without it a fresh
+      Postgres has 0 chunks and the worker abstains), clicks "Fill with the
+      README's ticket" and "Submit ticket" on Tickets, follows the run to its
+      trace screen (`/runs/{id}`, whose Timeline panel renders
+      `GET /api/runs/{id}/trace`), clicks **Approve** on Approvals, and asserts
+      what the user sees — the parked banner, the timeline with real steps, the
+      two golden-path citations (`refund-policy.md`,
+      `duplicate-charge-sop.md`), the terminal `Completed` status, an executed
+      `billing.issue_refund`, and a non-escalated reply. The refund-executed-
+      exactly-once claim is asked of the **billing MCP server**
+      (`billing.list_transactions` = `["TX-88219"]`), not of the run's own
+      status — the repository's core habit. It runs against **PostgreSQL**, the
+      dialect the golden path needs for retrieval (ADR-0004): the reindex runs
+      in the api container and the search in the worker container, two processes
+      over one pgvector database, which the single-process SQLite GIF could
+      never exercise. It **skips cleanly** without Docker (`web/e2e/stack.ts`
+      reads `docker info` and skips with a reason naming Docker, ADR-0004's
+      pattern; `E2E_SKIP_DOCKER` opts out explicitly) — but a stack Docker was
+      reachable enough to attempt and could not bring up is a **failure**, not a
+      skip. Wired into CI as the `web-e2e` job in `.github/workflows/ci.yml`
+      (fake provider, no key, deterministic, so it runs on every push unlike the
+      dispatch-only `eval-live`). Two defects found while building it and
+      **reported here rather than fixed**: (1) the compose `web` service cannot
+      reach the API from inside its container — `web/src/lib/api/client.ts`
+      reads `NEXT_PUBLIC_API_BASE_URL` for *server-side* fetches too, and
+      `localhost:8000` inside a container is the container, so every
+      Server-Component read fails with "Cannot reach the API" (the file sets
+      `API_INTERNAL_BASE_URL=http://api:8000` for exactly this but the client
+      never reads it); the e2e therefore runs the dashboard on the host. (2)
+      `docker compose up` reuses the named `postgres-data`/`mcp-data` volumes, so
+      a run against a stack a previous session left behind starts with the
+      refund already recorded; the e2e does `docker compose down -v` first.)
+      The earlier evidence still stands as *not* a browser walkthrough: the GIF
+      is a ttyd screenshot of `scripts/demo_golden_path.py`, which drives the
+      path in one process on SQLite.
 
 ---
 

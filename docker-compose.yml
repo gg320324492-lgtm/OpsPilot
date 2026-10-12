@@ -407,10 +407,14 @@ services:
       # localhost URL, the server uses the internal one. When they were the same
       # value one of the two would be wrong.
       #
-      # NOTE: client.ts reads NEXT_PUBLIC_API_BASE_URL for both paths today, so
-      # in this configuration server-side fetches use the localhost URL too --
-      # which works because the port is published. A future split (a separate
-      # server-side base URL) would use this variable.
+      # client.ts::getApiBaseUrl now reads this for server-side fetches and
+      # NEXT_PUBLIC_API_BASE_URL (the build arg) for browser fetches: the split
+      # is by `typeof window`, and since this name has no NEXT_PUBLIC_ prefix it
+      # is not inlined into the bundle, so only the server can see it. The
+      # public variable being `http://localhost:8000` is correct for the browser
+      # -- "localhost" there is the user's machine -- and unreachable from
+      # inside this container, which is exactly why the server no longer uses it
+      # when this one is set.
       API_INTERNAL_BASE_URL: http://api:8000
     ports:
       - "3000:3000"

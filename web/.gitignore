@@ -13,6 +13,12 @@
 # testing
 /coverage
 
+# Playwright writes failure artefacts here (traces, screenshots, the HTML
+# report). They are output, not source -- several MB of base64 and JPEGs per
+# failed run -- so they stay out of the tree exactly as `.next/` does. A real
+# run leaves them on disk for a human to open; nothing here is committed.
+/test-results/
+
 # next.js
 /.next/
 /out/

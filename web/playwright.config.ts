@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { DASHBOARD_URL } from "./e2e/dashboard-port";
+
 /**
  * Playwright config for the dashboard's browser walkthrough.
  *
@@ -44,8 +46,13 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   use: {
-    // The stack publishes the dashboard on :3000 (docker-compose.yml `web`).
-    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    // The host-run dashboard `e2e/stack.ts` starts, on `DASHBOARD_PORT` (3000
+    // unless `E2E_PORT`/`E2E_BASE_URL` says otherwise). Imported rather than
+    // repeated: this runs in the Playwright runner process and the server starts
+    // in a worker, so the only thing the two can agree on is a value both derive
+    // the same way -- see `e2e/dashboard-port.ts`. `web-service.spec.ts` is
+    // unaffected: it navigates by absolute URL to the containerised dashboard.
+    baseURL: DASHBOARD_URL,
     // A failure artefact a human can read is the whole point of an e2e run:
     // without it a red CI run says only "the click did not land".
     trace: "retain-on-failure",
