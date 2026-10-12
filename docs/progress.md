@@ -4706,3 +4706,89 @@ re-counted the files against the diff. The second is the ordinary failure:
 a figure carried between two conversations is a claim, not a measurement, and
 `06a57c6` set the opposite precedent for this file — every count there was
 taken from the repository at the time of writing.
+
+## Phase 1 closes: every milestone audited, four defects fixed, CI at twelve jobs
+
+**Date:** 2026-10-12. Spans `98071c2` through `bf29b69`, 22 commits.
+
+### What the audit found
+
+`06a57c6` checked all 84 M0–M8 acceptance criteria against the repository and
+ticked the 70 that held, each with its evidence, leaving 14 that did not. Four
+of those turned out to be real defects rather than stale wording, and none was
+findable from the test suite:
+
+- **`knowledge.search` could never execute** — on the eval path or in
+  production. `architecture.md` §7 advertises it as a `READ` tool and
+  `RetrievalStack` had bound a `KnowledgeTool` since retrieval landed, but the
+  runtime's only `gateway.call_tool` site was handed a bare `MCPToolGateway` at
+  both assembly points. Found by a live eval run, not by a test. Fixed by
+  `CompositeToolGateway` (`148a87c`); the committed run then proposes it 35
+  times and executes 35, none failed.
+- **`orchestrator` was discarded.** `run_loop` did `_ = orchestrator` and both
+  implementations raised `NotImplementedError`. Four tests asserted the
+  *opposite* — their docstrings said "the pump must not consult it" — so the
+  port looked wired and was not. Fixed by extracting the stage functions into a
+  `StageDriver` the orchestrator dispatches through (`fcc8446`), with a spy test
+  mutation-verified to fail if the orchestrator is bypassed.
+- **`EMBEDDING_MODEL` defaulted to an OpenAI model name** the local provider
+  never calls, and an eval had recorded it beside `embedding_provider: "local"`
+  (`959855d`).
+- **The containerised dashboard could not reach the API** — `client.ts`
+  resolved one base URL for both server and browser, and `localhost` inside the
+  container is the container (`bf29b69`).
+
+Six more were false claims about the fixtures, the idempotency constraint, the
+gold citations and `/ready`'s exemption; each was corrected to what the code
+does, and the two that mattered for safety said so in their new wording — the
+refund key is the handler's linear scan, not a UNIQUE constraint, and it holds
+for one process serving calls one at a time.
+
+### What the second live run measured
+
+`evals/results/2026-10-11T15-39-42.json`, MiniMax-M3.1-Flash-Preview over 70
+cases:
+
+```
+classification                20   0.800  (16/20)      unsafe execution count  15   0
+retrieval recall@5            20   0.700  (14/20)      task completion          9   1.000 (9/9)
+retrieval precision@5         20   0.170                approval-policy          1   1.000 (1/1)
+abstention correctness         5   1.000  (5/5)         tool argument validity   --   0.471 (80/170)
+                                                       tool selection          15   0.200 (3/15)
+```
+
+`unsafe execution count 0` is the property being claimed. `tool selection 0.200`
+is the model, not the design, and the README says so.
+
+### The score did not move
+
+**18 of 19, unchanged.** D19 stays unmet for the reason it states: D19a, the
+2026-10-09 `issues.create` decision, which none of this touches. A §8 instance
+no row names does not generate a row — that rule is now written down, because
+`knowledge.search` was one and the D19 row's "last strand" rested on a negative
+nobody had re-derived.
+
+### What went wrong, since the rule is to record it
+
+- **`8c558b1`'s message miscounts** — "four other documents" where five carried
+  the claim. Unfixable in place; recorded at `f829897`.
+- **`6d79fbe` claimed a CI job it did not commit.** The message says "A web-e2e
+  job runs it on push"; `git add` had not taken and CI ran eleven jobs without
+  it. Found by reading the job list rather than the message, and committed at
+  `b8965d5`. A document describing a mechanism that does not exist, in a commit
+  message instead of a file.
+- **The first suggestion to fix the trace was wrong.** `state_change` latency is
+  NULL by M7a's decision — recorded in `progress.md` and argued in two frontend
+  comments, and neither was read before recommending `latency_ms=0`. The change
+  would have rendered fourteen rows as `0` in the dashboard. Reverted at
+  `c799464`.
+
+### Where Phase 1 ends
+
+Six criteria remain unticked, each with its reason recorded rather than dropped:
+three are M0 assertions true only of a tree that no longer exists, one is the
+hand-written fixtures (`record_fixture()` exists and has never run against a real
+provider), one is `LangGraphOrchestrator`, and one is the D12a boundary. The
+browser walkthrough M7 could not reach — `docker-build` proves the stack comes up
+but drives no run, and `web/` had no test runner — is now guarded by a job that
+clicks through the real UI against the real stack, green on every push.
