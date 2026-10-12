@@ -596,6 +596,29 @@ are kept identical by `tests/unit/test_mypy_configuration_is_enforced.py`, so
 `mypy --strict src` — which checks only `src` — is not the project's type check.
 Passing a path on the command line would silently narrow the check to that path.
 
+#### The browser walkthrough (`web-e2e`)
+
+The Python suite runs on SQLite and never loads a page. The browser walkthrough
+is the separate one that does, and it is what the `web-e2e` CI job runs:
+
+```bash
+cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
+```
+
+It brings up `postgres migrate api worker` through Compose and builds the
+dashboard, so **it needs a working Docker daemon** — it skips cleanly without
+one, and a stack Docker tried and could not start is a failure, not a skip. It
+takes about two minutes and leaves nothing behind; `docker compose down -v` is
+run either way.
+
+The web tree's other two gates:
+
+```bash
+cd web && npm run lint && npm run typecheck
+```
+
+Run both bare. `npm run e2e` is a third script, not a substitute for either.
+
 #### Regenerating `web/package-lock.json`
 
 Do it inside the container, not on your host:
