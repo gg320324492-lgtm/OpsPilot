@@ -19,6 +19,7 @@ conflating them with failures is the mistake this hierarchy exists to prevent:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 if TYPE_CHECKING:
     from opspilot.domain.runs import RunStatus
@@ -111,6 +112,31 @@ class PolicyDenied(DomainError):
 
 class UnknownTool(DomainError):
     """The model proposed a tool name that is not in the static registry (gate 2)."""
+
+
+class TicketExists(DomainError):
+    """A ticket with this ``external_id`` already exists.
+
+    The ticket store's unique index on ``external_id`` fired. This is named as a
+    business condition rather than left as the driver's ``IntegrityError`` because
+    the condition is the contract's (``docs/api-contract.md`` §9): ``POST
+    /api/tickets`` always creates, and a client that sends an ``external_id``
+    which is already taken gets ``409 ticket_exists`` **carrying the existing
+    ticket**, not a 500 that reports a database failure to an operator who did
+    nothing wrong.
+
+    It carries the id of the ticket that already holds the ``external_id`` so the
+    caller can read it back through the store rather than re-deriving it. Which
+    constraint fired is decided by the adapter, not here -- a domain layer that
+    parsed ``UNIQUE constraint failed: tickets.external_id`` out of a SQLite
+    message and ``duplicate key value violates unique constraint`` out of a
+    Postgres one would know two dialects, which is the adapter's job (ADR-0004).
+    """
+
+    def __init__(self, external_id: str, ticket_id: UUID) -> None:
+        self.external_id = external_id
+        self.ticket_id = ticket_id
+        super().__init__(f"a ticket with external_id {external_id!r} already exists ({ticket_id})")
 
 
 class MaxStepsExceeded(DomainError):

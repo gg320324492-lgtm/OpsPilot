@@ -34,6 +34,7 @@ from opspilot.api.schemas import (
     TicketDetailResponse,
     TicketListResponse,
 )
+from opspilot.domain.errors import TicketExists
 from opspilot.domain.runs import AgentRun
 from opspilot.settings import Settings, get_settings
 
@@ -70,6 +71,50 @@ def _settings() -> Settings:
     return get_settings()
 
 
+async def _read_ticket(tickets: object, ticket_id: UUID) -> TicketRow | None:
+    """Read back the ticket a duplicate ``external_id`` already belongs to.
+
+    Probed with ``getattr`` for the same reason every other optional read in
+    this module is: a store that cannot answer is not a reason to answer the
+    client with a 500, and ``GET /api/tickets/{id}`` already degrades the same
+    way. The 409 still stands without it -- only the copy of the ticket is
+    thinner.
+    """
+    getter = getattr(tickets, "get", None)
+    return await getter(ticket_id) if getter is not None else None
+
+
+def _ticket_exists(exc: TicketExists, existing: TicketRow | None) -> ApiError:
+    """Build the contract's 409 ``ticket_exists``, carrying the existing ticket.
+
+    ``docs/api-contract.md`` §9 promises the duplicate comes back *with the ticket
+    that holds the ``external_id``*, so it is carried in ``details.ticket`` and
+    serialized through ``TicketDetail`` -- the same model §2 defines the created
+    ticket with, so a client that parses a ``ticket`` object already knows the
+    shape and cannot be handed a second, subtly different one.
+
+    Nothing else is added to the envelope: ``code``, ``message`` and ``details``
+    are the three fields §6 defines, and the status is 409 because that is the
+    status ``errors.py`` registers for this code.
+    """
+    details: dict[str, object] = {"external_id": exc.external_id, "ticket_id": str(exc.ticket_id)}
+    if existing is not None:
+        details["ticket"] = TicketDetail(
+            id=existing.id,
+            external_id=existing.external_id,
+            subject=existing.subject,
+            body=existing.body,
+            customer_email=existing.customer_email,
+            created_at=existing.created_at,
+        ).model_dump(mode="json")
+    return ApiError(
+        409,
+        "ticket_exists",
+        f"A ticket with external_id {exc.external_id!r} already exists.",
+        details,
+    )
+
+
 @router.post("/tickets", status_code=201, response_model=TicketCreateResponse)
 async def create_ticket(
     request: TicketCreateRequest,
@@ -92,13 +137,26 @@ async def create_ticket(
 
     Returns:
         The nested ``ticket`` + ``run`` shape, with the run in ``received``.
+
+    Raises:
+        ApiError: 409 ``ticket_exists`` if the ``external_id`` is already taken.
     """
-    ticket_id: UUID = await tickets.create(
-        subject=request.subject,
-        body=request.body,
-        customer_email=request.customer_email,
-        external_id=request.external_id,
-    )
+    try:
+        ticket_id: UUID = await tickets.create(
+            subject=request.subject,
+            body=request.body,
+            customer_email=request.customer_email,
+            external_id=request.external_id,
+        )
+    except TicketExists as exc:
+        # The duplicate is detected by the unique index on ``tickets.external_id``,
+        # inside the store -- not by a read this handler could have skipped and got
+        # wrong under concurrency -- and reaches here as a named domain condition
+        # rather than as the driver's ``IntegrityError``. The router is what turns
+        # it into the contract's ``409``: this module already raises ``ApiError``
+        # for every other failure it owns, so a second mechanism (an exception
+        # handler in ``errors.py``) would give the same code two shapes.
+        raise _ticket_exists(exc, await _read_ticket(tickets, exc.ticket_id)) from exc
     model_name = settings.model_name or settings.model_provider
     try:
         run = await runs.create(
