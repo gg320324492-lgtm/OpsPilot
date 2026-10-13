@@ -115,15 +115,18 @@
  *     the containers the earlier one would have been asked about.
  *
  * So the logs are written **from here, before the `down -v`**, into
- * `web/test-results/compose-logs/` -- the directory Playwright already uploads
- * on failure, and which `web/.gitignore` already excludes. The capture is
- * unconditional rather than failure-gated: the code path that most needs it
- * (a failing test) is precisely the one where a conditional written by the same
- * person who just got the failure wrong is worth least, and the files are a few
- * KB of a directory nobody commits. The workflow still gets its own
- * `compose ps -a` / `compose logs` step, because a failure inside `beforeAll`
- * leaves `stack === null`, skips teardown entirely, and leaves live containers
- * that only the workflow can see.
+ * `web/test-results/compose-logs/<spec>/` -- the directory Playwright already
+ * uploads on failure, and which `web/.gitignore` already excludes, one
+ * subdirectory per spec so the two captures cannot overwrite each other (see
+ * `composeDiagnosticsDir`). The capture is unconditional rather than
+ * failure-gated: the code path that most needs it (a failing test) is precisely
+ * the one where a conditional written by the same person who just got the
+ * failure wrong is worth least, the files are a few KB of a directory nobody
+ * commits, and gating on the test's status would change nothing CI stores --
+ * `web-e2e` uploads this tree under `if: failure()` anyway. The workflow still
+ * gets its own `compose ps -a` / `compose logs` step, because a failure inside
+ * `beforeAll` leaves `stack === null`, skips teardown entirely, and leaves live
+ * containers that only the workflow can see.
  *
  * `--wait` is why the condition is hard to see in the first place. It returns
  * as soon as every healthchecked service is healthy and every one-shot has
@@ -131,11 +134,15 @@
  * it serves no HTTP endpoint, so there is nothing to probe). Measured on this
  * machine, `docker compose up -d --wait` returned with the worker container
  * reporting `Up 1 second`: `--wait` is satisfied by "the container started",
- * which is several seconds short of "the process is polling". Nothing in the
- * run distinguishes those two states, which is why a worker that came up and
- * then sat there reads exactly like a worker that is merely slow.
- * `waitForWorkerPolling` below is what closes that gap, by asking the worker
- * itself.
+ * which is several seconds short of "the process is polling". Worse, it is
+ * satisfied by a worker that is crash-looping: a container whose command was
+ * overridden to print its boot line and then `exit 1` was reported by
+ * `docker compose up -d --wait` as **`Healthy`** while `docker compose ps -a`
+ * showed `Restarting (1)`. Nothing in the run distinguishes those states, which
+ * is why a worker that came up and then sat there reads exactly like a worker
+ * that is merely slow. `waitForWorkerPolling` below is what closes that gap, by
+ * asking the worker itself *and* Docker -- the log alone cannot, because the
+ * log is append-only and a dead attempt's boot line is still in it.
  */
 
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
@@ -247,8 +254,14 @@ function dockerUnusableReason(): string | null {
 /**
  * Start the stack: postgres + migrate + api + worker via Compose, web on the
  * host. Call from `test.beforeAll`; on a skip the caller must `test.skip(reason)`.
+ *
+ * `label` is required and not optional, and it names this spec's diagnostics
+ * capture. It is a parameter rather than something inferred from the caller so
+ * that a spec cannot bring up a stack and silently contribute an unattributable
+ * set of logs -- see `composeDiagnosticsDir` for what that costs when it goes
+ * wrong.
  */
-export async function startStackOrSkip(): Promise<StackHandle> {
+export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHandle> {
   const reason = dockerUnusableReason();
   if (reason !== null) {
     return { skip: true, reason };
@@ -374,8 +387,11 @@ export async function startStackOrSkip(): Promise<StackHandle> {
       // session safe.
       await stopDashboard(child, DASHBOARD_PORT);
       // BEFORE `down -v`, which is the whole point -- see the module docstring.
-      // After it there is nothing left to ask.
-      writeComposeDiagnostics(env);
+      // After it there is nothing left to ask. Into this spec's OWN directory:
+      // `web-service.spec.ts` runs after this one, tears down the same Compose
+      // project, and used to write over these files with the output of a stack
+      // that has no worker in it.
+      writeComposeDiagnostics(env, label);
       spawnSync("docker", ["compose", "down", "-v"], {
         cwd: REPO_ROOT,
         stdio: "inherit",
@@ -407,8 +423,12 @@ export async function startStackOrSkip(): Promise<StackHandle> {
  * Skips cleanly without Docker (same ADR-0004 pattern as `startStackOrSkip`); a
  * stack Docker was reachable enough to attempt and could not bring up is a
  * failure, never a skip.
+ *
+ * `label` is this spec's own name, for the same reason `startStackOrSkip`'s is:
+ * it is the directory its capture is written to, and this spec's stack has no
+ * worker, so letting it write into a shared one would erase the golden path's.
  */
-export async function startContainerisedWebOrSkip(): Promise<StackHandle> {
+export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promise<StackHandle> {
   const reason = dockerUnusableReason();
   if (reason !== null) {
     return { skip: true, reason };
@@ -462,7 +482,10 @@ export async function startContainerisedWebOrSkip(): Promise<StackHandle> {
       // The second stack tears down the first one's containers too -- they are
       // one Compose project -- so it carries the same capture. Without it, this
       // file's `down -v` would erase the logs the golden-path failure needs.
-      writeComposeDiagnostics(env);
+      // And into a DIFFERENT directory from the golden path's, which is the
+      // other half of that sentence: it tears the containers down, so it must
+      // not also overwrite the first capture's account of them.
+      writeComposeDiagnostics(env, label);
       spawnSync("docker", ["compose", "down", "-v"], {
         cwd: REPO_ROOT,
         stdio: "inherit",
@@ -525,6 +548,15 @@ function composeOutput(args: string[], env: NodeJS.ProcessEnv): string {
   return text === "" ? "(no output)" : text;
 }
 
+/** What Docker says about the worker's container. Read, never asserted on directly. */
+export type WorkerContainerState = {
+  readonly found: boolean;
+  readonly status: string;
+  readonly restarting: boolean;
+  readonly exitCode: number;
+  readonly restarts: number;
+};
+
 /**
  * The worker's container state, read from Docker rather than inferred.
  *
@@ -539,13 +571,7 @@ function composeOutput(args: string[], env: NodeJS.ProcessEnv): string {
  * by default, which reports *no worker at all* for a worker that exited -- the
  * one state where the container id is most wanted.
  */
-function workerContainerState(env: NodeJS.ProcessEnv): {
-  found: boolean;
-  status: string;
-  restarting: boolean;
-  exitCode: number;
-  restarts: number;
-} {
+function workerContainerState(env: NodeJS.ProcessEnv): WorkerContainerState {
   const ids = spawnSync("docker", ["compose", "ps", "-aq", "worker"], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
@@ -583,6 +609,94 @@ function workerLogs(env: NodeJS.ProcessEnv, tail = 200): string {
 }
 
 /**
+ * The worker's state in one line, for a human reading a CI log.
+ *
+ * One definition, because this string now appears in four places that must not
+ * drift apart -- the two `waitForWorkerPolling` failures, `workerReport`'s
+ * header, and `assessWorker`'s return value. A reader comparing a thrown error
+ * against an attached report is comparing two renderings of the same fact, and
+ * the fact is worthless if only one of them names the restart count.
+ */
+export function describeWorkerState(state: WorkerContainerState): string {
+  if (!state.found) {
+    return "no worker container (compose reports no worker container at all)";
+  }
+  return (
+    `container ${state.status}` +
+    (state.restarting ? ", RESTARTING" : "") +
+    ` (exit code ${state.exitCode}, ${state.restarts} restart(s))`
+  );
+}
+
+/** The boot line `_run` prints once, immediately before `poll_forever`. */
+const BOOTED = /opspilot-worker\[.*]: booted;/;
+
+/**
+ * The worker's verdict, given what its log says and what Docker says about it.
+ *
+ * **The two are read together, and the container's state is consulted even when
+ * the log has already said yes.** That is the whole point of this function
+ * existing separately from the poll loop.
+ *
+ * The log is per-container and append-only, so a worker that booted once and
+ * then died in a `restart: unless-stopped` loop still has its boot line
+ * sitting in `compose logs worker` -- every attempt's output is retained.
+ * Deciding on the log alone therefore returns success for exactly the worker
+ * the caller is trying to rule out, and the `restarts > 0` clause below becomes
+ * unreachable on that shape: it sits behind an early `return`, on the branch only
+ * a *silent* worker reaches. `waitForWorkerPolling`'s docstring claimed the
+ * clause closed the hole. It did not -- the code and the docstring disagreed,
+ * and the code was the one the suite ran. That was measured, not argued: against
+ * a worker whose command was overridden to print its boot line and then `exit 1`,
+ * `BOOTED.test(logs)` was `true`, the container read `restarting` with 6 restarts,
+ * and the gate passed.
+ *
+ * So the order is: **container state first, boot line second.** A boot line is
+ * necessary but not sufficient. A container Docker has not reported as absent,
+ * restarting, exited, dead, or restarted at least once is a precondition for
+ * counting as polling, and the boot line is what then says the process inside it
+ * got as far as `poll_forever`. The deny-list is a deny-list rather than a
+ * positive `status === "running"` on purpose: a container Docker has only just
+ * created is transient rather than broken, and failing on a shape that would
+ * have settled on its own is the other way to be wrong.
+ *
+ * The two failures are distinguished rather than merged, because they mean
+ * different things to whoever reads them:
+ *
+ *   * `unhealthy_container` -- the container itself cannot be a polling worker
+ *     (absent, restarting, exited, dead, or restarted at least once). Fail
+ *     immediately: this will not settle on its own, and waiting out a deadline
+ *     to learn what the first second already said is how this failure got
+ *     misdiagnosed once already.
+ *   * `silent` -- a running container with a clean restart count that never
+ *     printed the boot line. The log is the answer, and the caller decides how
+ *     long to keep asking.
+ */
+export function assessWorker(
+  logs: string,
+  state: WorkerContainerState,
+): { readonly polling: true } | {
+  readonly polling: false;
+  readonly cause: "unhealthy_container" | "silent";
+  readonly stateLine: string;
+} {
+  const stateLine = describeWorkerState(state);
+  const containerCanPoll =
+    state.found &&
+    !state.restarting &&
+    state.status !== "exited" &&
+    state.status !== "dead" &&
+    state.restarts === 0;
+  if (!containerCanPoll) {
+    return { polling: false, cause: "unhealthy_container", stateLine };
+  }
+  if (!BOOTED.test(logs)) {
+    return { polling: false, cause: "silent", stateLine };
+  }
+  return { polling: true };
+}
+
+/**
  * The worker's state and log, as one block of text.
  *
  * Shaped for a human reading a CI log or a `test-results/` file, which is the
@@ -593,14 +707,11 @@ function workerLogs(env: NodeJS.ProcessEnv, tail = 200): string {
 export function workerReport(): string {
   const env = stackEnv();
   const state = workerContainerState(env);
-  const stateLine = state.found
-    ? `container ${state.status}` +
-      (state.restarting ? ", RESTARTING" : "") +
-      ` (exit code ${state.exitCode}, ${state.restarts} restart(s))`
-    : "container NOT FOUND (compose reports no worker container at all)";
-  return [`--- worker container: ${stateLine}`, "--- worker logs (last 200 lines):", workerLogs(env)].join(
-    "\n",
-  );
+  return [
+    `--- worker container: ${describeWorkerState(state)}`,
+    "--- worker logs (last 200 lines):",
+    workerLogs(env),
+  ].join("\n");
 }
 
 /**
@@ -631,12 +742,20 @@ export function workerReport(): string {
  *
  * **Why a restart is a failure and not a shrug.** On a freshly-created stack
  * container `RestartCount` starts at zero and the only thing that increments it
- * is the worker process dying. And because the log is per-container and
- * append-only, a worker that booted, crashed, and came back leaves its FIRST
- * boot line in the log forever -- so matching on the log alone would pass a
- * crash-looping worker that had since stopped polling, which is the exact
- * failure being guarded against. `restarts > 0` is what closes that, and it is
- * free: on a healthy stack it is zero.
+ * is the worker process dying. Both callers here hand this function a fresh
+ * container -- `startStackOrSkip` after `down -v` + `up`, and `recreateWorker`
+ * after `--force-recreate` -- so a non-zero count means exactly one thing and
+ * never a recycled container from a previous run.
+ *
+ * **The state is read before the log, on purpose.** The earlier version of this
+ * loop tested `BOOTED.test(logs)` first and returned on a match, which left
+ * every check below it -- `restarts > 0` among them -- unreachable whenever the
+ * boot line was present. Because the log is append-only, that is the *crash-loop
+ * case*: a worker that booted and then died keeps its first boot line forever,
+ * so the guard documented above was documented but not implemented. The
+ * decision itself lives in `assessWorker`, which is a pure function of (log,
+ * state) precisely so it can be tested against that shape without Docker --
+ * `stack-diagnostics.spec.ts` does.
  *
  * The timeout is 60 seconds for a line this machine prints in well under one
  * (measured: `docker compose up -d --wait` returns with the worker container at
@@ -649,38 +768,33 @@ export function workerReport(): string {
  */
 async function waitForWorkerPolling(env: NodeJS.ProcessEnv, timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  const BOOTED = /opspilot-worker\[.*]: booted;/;
   for (;;) {
-    const logs = workerLogs(env, 50);
-    if (BOOTED.test(logs)) {
+    // The container's state is read first and unconditionally. The log alone
+    // cannot distinguish a healthy worker from one that booted and then died,
+    // because the boot line of a dead attempt is still in an append-only log.
+    const state = workerContainerState(env);
+    const verdict = assessWorker(workerLogs(env, 50), state);
+    if (verdict.polling) {
       return;
     }
-    const state = workerContainerState(env);
-    const stateLine = state.found
-      ? `container ${state.status}, ${state.restarts} restart(s), exit code ${state.exitCode}`
-      : "no worker container";
-    if (
-      !state.found ||
-      state.restarting ||
-      state.status === "exited" ||
-      state.status === "dead" ||
-      state.restarts > 0
-    ) {
+    if (verdict.cause === "unhealthy_container") {
       throw new Error(
-        `the worker is not polling: there is no worker container, or it is ` +
-          `${state.status === "exited" ? "exited" : state.status} rather than running (${stateLine}). ` +
+        `the worker is not polling: ${verdict.stateLine}. A boot line in its log does ` +
+          `not rescue it -- a container's log is append-only, so a worker that booted and then ` +
+          `crash-looped still carries its FIRST boot line there, and a gate that trusted the log ` +
+          `without also reading the container passed exactly that worker through. ` +
           `No run submitted from here could ever have been claimed by a worker in that state -- ` +
           `which is the condition CI run 38202887580 reported as a run stuck at RECEIVED with no ` +
           `steps, and it should be treated as the same failure until the log says otherwise.\n` +
-          `${diagnoseWorker(env, stateLine)}`,
+          `${diagnoseWorker(env, verdict.stateLine)}`,
       );
     }
     if (Date.now() >= deadline) {
       throw new Error(
         `the worker did not report itself polling within ${Math.round(timeoutMs / 1000)}s. It is ` +
-          `running (${stateLine}) but never printed a boot line, so no run submitted from here could ` +
-          `have been claimed. A running container is all \`docker compose up --wait\` was ever able to ` +
-          `check -- it is not enough.\n${diagnoseWorker(env, stateLine)}`,
+          `running (${verdict.stateLine}) but never printed a boot line, so no run submitted from here ` +
+          `could have been claimed. A running container is all \`docker compose up --wait\` was ever able to ` +
+          `check -- it is not enough.\n${diagnoseWorker(env, verdict.stateLine)}`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -693,30 +807,96 @@ function diagnoseWorker(env: NodeJS.ProcessEnv, stateLine: string): string {
 }
 
 /**
- * Write the whole stack's own logs to `web/test-results/compose-logs/`.
+ * The specs that capture compose diagnostics, and the directory each one gets.
  *
- * Called from both teardowns, immediately before `docker compose down -v`, and
- * unconditionally -- see the module docstring for why a CI-side `compose logs`
- * step cannot do this job and why a failure-gated capture is the wrong shape.
+ * A closed union rather than a free string, because the capture is only useful
+ * if its path says whose it is, and a free string lets a new spec pick a name
+ * nobody will guess and never be corrected. Adding a spec is a one-line change
+ * here; that is the price of a capture a reader can attribute from the artifact
+ * listing alone.
+ */
+export type DiagnosticLabel = "golden-path" | "failure-states" | "web-service";
+
+/** The directory `label`'s capture goes in, relative to `web/`. */
+const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
+
+/**
+ * Every service this repository's compose file declares, including `web`.
+ *
+ * A failure in `web-service.spec.ts` is as unexplained without the `web` log as
+ * one in the golden path is without the worker's, and asking a service that was
+ * never started costs one empty file. Exported so the capture's file list is
+ * one definition the tests can assert on, rather than a literal repeated here.
+ */
+export const DIAGNOSTIC_SERVICES = ["postgres", "migrate", "api", "worker", "web"] as const;
+
+/**
+ * Where `label`'s capture goes: `web/test-results/compose-logs/<label>/`.
+ *
+ * **One directory per capture, named for the spec that wrote it.** The bug this
+ * replaces wrote six fixed filenames (`worker.log`, `ps.txt`, …) into one shared
+ * directory that two specs both wrote to. Playwright runs the files in name
+ * order, `web-service.spec.ts` sorts last, and its stack has no worker -- so on
+ * every full run, passing or failing, the golden path's `worker.log` was
+ * overwritten with `(no output)` and `ps.txt` with a listing that had no worker
+ * row in it. The one file that would settle a real worker failure was destroyed
+ * by a spec that had nothing to say about the worker.
+ *
+ * The subdirectory is what makes it work, and it is below `test-results/` on
+ * purpose: the `web-e2e` job uploads `web/test-results/` wholesale with
+ * `if: failure()`, so anything that reads a path-first reader (a GitHub artifact
+ * browser, `ls`, a grep) sees `compose-logs/golden-path/worker.log` next to
+ * `compose-logs/web-service/worker.log` and knows which stack each belongs to
+ * without opening either.
+ *
+ * Pure and exported because the path is the whole defect: it is testable with
+ * no Docker, no containers and no filesystem, by asking two labels for their
+ * directories and checking they differ and land where the upload looks.
+ *
+ * `label` is constrained by `DiagnosticLabel` to the literal names above, which
+ * is why there is no sanitising here -- a value that cannot contain a separator
+ * or a `..` cannot escape the directory it is joined to.
+ */
+export function composeDiagnosticsDir(label: DiagnosticLabel): string {
+  return path.join(WEB_DIR, ...DIAGNOSTICS_SUBDIR, label);
+}
+
+/**
+ * Write the whole stack's own logs to `web/test-results/compose-logs/<label>/`.
+ *
+ * Called from both teardowns, immediately before `docker compose down -v`, with
+ * the calling spec's own name. Two calls therefore cannot overwrite each other:
+ * see `composeDiagnosticsDir` for the measurement that showed they did.
+ *
+ * **Unconditional -- on success as well as on failure -- and the reason is not
+ * the one usually given.** The attractive argument is comparison: a later red
+ * run wants the passing run's context beside it. That argument does not survive
+ * contact with CI, where `web-e2e` uploads `web/test-results/` under
+ * `if: failure()` -- a green run's capture is never uploaded, and the next
+ * `npm run e2e` clears `test-results/` before it starts, so locally it lasts
+ * until the next run and nowhere else. What actually decides it is simpler:
+ * gating the write on the test's status would change *nothing CI stores* (the
+ * upload is already failure-gated) while adding a condition to the one piece of
+ * code that runs when the run is going wrong. `afterAll` executes the same way
+ * whether the body passed or failed, the containers are gone a second later
+ * either way, and a teardown whose correctness depends on a status flag is a
+ * teardown that can be wrong exactly when it matters. The cost of not gating is
+ * a few KB in a gitignored directory (`web/.gitignore`).
  *
  * `test-results/` is where Playwright already puts the trace and the screenshot
- * and is already gitignored (`web/.gitignore`), and the `web-e2e` job already
- * uploads it on failure. Writing here means the worker's log travels with the
- * artefact a reader is already going to open, rather than in a second place they
- * have to know to look.
+ * and is already uploaded on failure. Writing here means the worker's log
+ * travels with the artefact a reader is already going to open, rather than in a
+ * second place they have to know to look.
  *
  * Best-effort throughout: this runs inside `afterAll`, where a thrown error
  * masks the test failure that actually mattered.
  */
-function writeComposeDiagnostics(env: NodeJS.ProcessEnv): void {
-  const dir = path.join(WEB_DIR, "test-results", "compose-logs");
+function writeComposeDiagnostics(env: NodeJS.ProcessEnv, label: DiagnosticLabel): void {
+  const dir = composeDiagnosticsDir(label);
   try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "ps.txt"), composeOutput(["ps", "-a"], env), "utf-8");
-    // Every service this repository's compose file declares, including `web`:
-    // a failure in `web-service.spec.ts` is as unexplained without it, and
-    // asking for a service that was never started costs one empty file.
-    for (const service of ["postgres", "migrate", "api", "worker", "web"]) {
+    for (const service of DIAGNOSTIC_SERVICES) {
       writeFileSync(
         path.join(dir, `${service}.log`),
         composeOutput(["logs", "--no-color", "--timestamps", "--tail", "500", service], env),
@@ -866,6 +1046,98 @@ export async function waitForHttp(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`${url} never answered: ${String(lastError)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Changing the stack while a spec is running: stop the worker, bring it back
+// with a deployment knob overridden.
+//
+// WHY A SPEC NEEDS THIS
+// --------------------
+// Some states an operator must be able to read are ones the golden path's own
+// configuration cannot produce. `failure-states.spec.ts` needs a run the policy
+// engine *refused* -- and the golden script's one refund ($129.00) is under no
+// ceiling, so gate 4 waves it through to the approval gate like everything else.
+// Reaching the refusal means running the worker with `OPSPILOT_REFUND_CEILING`
+// set, which is a deployment knob Compose already reads from the environment
+// (`docker-compose.yml`: `OPSPILOT_REFUND_CEILING: ${OPSPILOT_REFUND_CEILING:-}`).
+// Recreating that one container changes the deployment without rebuilding
+// postgres, the api, the image or the dashboard -- seconds, not a second full
+// stack bring-up.
+//
+// These live here rather than in that spec for one reason: `OPSPILOT_OPERATOR_TOKEN`
+// has exactly one value in this suite. A spec that ran Compose without it would
+// either render the file with a second token or fail the `:?` guard, and the first
+// is the "diagnostic rendered with a different environment than the one it is
+// diagnosing" hazard `stackEnv`'s own comment is about.
+// ---------------------------------------------------------------------------
+
+/**
+ * The environment a spec's own `docker compose` calls must run with.
+ *
+ * `stackEnv()` plus overrides. Exported rather than reconstructed so the operator
+ * token stays a single definition (`THROWAWAY_TOKEN`, above) and a diagnostic
+ * cannot be rendered against an environment the stack was not started with.
+ */
+export function composeEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return { ...stackEnv(), ...extra };
+}
+
+/**
+ * Stop the worker container and leave the rest of the stack up.
+ *
+ * The api, the database and the dashboard keep serving while this holds, which is
+ * the point: what an operator sees with the worker down is a run the worker never
+ * claimed -- a screen with a real, explainable state on it, not an error page.
+ *
+ * Throws rather than returning a boolean. A stopped worker changes what every
+ * later assertion means, so a failure to stop it must stop the spec rather than
+ * quietly leave it driving a stack that is not the one the test thinks it is.
+ */
+export function stopWorker(): void {
+  const stopped = spawnSync("docker", ["compose", "stop", "worker"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env: stackEnv(),
+  });
+  if (stopped.error || stopped.status !== 0) {
+    throw new Error(
+      "`docker compose stop worker` failed (see the output above). This spec asserts on " +
+        "what the dashboard shows while the worker is down, and it cannot do that with the " +
+        "worker still polling.",
+    );
+  }
+}
+
+/**
+ * Recreate the worker with deployment knobs overridden, and wait until it says it
+ * is polling again.
+ *
+ * `--force-recreate` rather than `restart`, because a restart reuses the container
+ * and with it the environment it was created with -- which is the opposite of what
+ * an override is for. The container is new, so its `RestartCount` starts at zero
+ * and `waitForWorkerPolling` below can still tell a healthy worker from one that
+ * crashed and came back.
+ *
+ * The boot line is waited for for the same reason `startStackOrSkip` waits for it:
+ * `up -d` returning says the container was created, not that the process inside it
+ * reached `poll_forever`. A worker recreated with a knob it then rejects would
+ * otherwise be indistinguishable from one that came up.
+ */
+export async function recreateWorker(extra: Record<string, string> = {}): Promise<void> {
+  const env = composeEnv(extra);
+  const up = spawnSync("docker", ["compose", "up", "-d", "--force-recreate", "worker"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env,
+  });
+  if (up.error || up.status !== 0) {
+    throw new Error(
+      "`docker compose up --force-recreate worker` failed (see the output above). The stack " +
+        "is otherwise up, so this is a failure rather than a skip.",
+    );
+  }
+  await waitForWorkerPolling(env);
 }
 
 /**
