@@ -815,7 +815,7 @@ function diagnoseWorker(env: NodeJS.ProcessEnv, stateLine: string): string {
  * here; that is the price of a capture a reader can attribute from the artifact
  * listing alone.
  */
-export type DiagnosticLabel = "golden-path" | "failure-states" | "web-service";
+export type DiagnosticLabel = "golden-path" | "failure-states" | "web-service" | "claim-lease";
 
 /** The directory `label`'s capture goes in, relative to `web/`. */
 const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
@@ -1138,6 +1138,112 @@ export async function recreateWorker(extra: Record<string, string> = {}): Promis
     );
   }
   await waitForWorkerPolling(env);
+}
+
+/**
+ * The marker the claim program below prints its JSON on.
+ *
+ * A prefix rather than "the last line of stdout", because the api container's
+ * Python may emit warnings (log configuration, a DeprecationWarning) on the way
+ * out and a parse that trusted the last line would read one of those as the
+ * claim. `parse` skips everything that does not carry it and fails loudly if no
+ * line does, which is the difference between "the claim did not happen" and
+ * "the claim happened and the harness misread it".
+ */
+const CLAIM_MARKER = "@@opspilot-claim@@";
+
+/** One claimed run, as `SqlRunStore.claim_next` returned it. */
+export type ClaimedRun = {
+  readonly id: string;
+  readonly claimed_by: string | null;
+  readonly claimed_until: string | null;
+  readonly status: string;
+};
+
+/**
+ * Claim the oldest claimable run by calling `SqlRunStore.claim_next` itself.
+ *
+ * WHY THIS RUNS PYTHON INSTEAD OF AN UPDATE
+ * -----------------------------------------
+ * The state under test is a run that is *claimed and not driven*: `received`, no
+ * steps, a lease whose deadline is in the future. The production code that
+ * produces it is `claim_next`, so this calls it — same method, same transaction,
+ * same columns (`adapters/persistence/repositories.py`), from the `api`
+ * container, which holds the same `DATABASE_URL` the worker does. A hand-written
+ * `UPDATE agent_runs SET claimed_until = ...` would be shorter and would test a
+ * state no code in this repository can reach.
+ *
+ * **And it cannot be reached by a live worker**, which is why a stand-in is
+ * needed at all. `drain_once` claims and then drives: the very next thing it does
+ * is `set_status(CLASSIFYING)`, which writes a `state_change` step in the same
+ * transaction. So a run with a live lease and zero steps exists for a few
+ * milliseconds between two database round trips, and catching it means polling
+ * the row faster than the worker can commit — a race, not a test. `docs/
+ * limitations.md` §2 measured the window that *does* persist (300 s) by writing
+ * the lease from outside the worker; this is that measurement, made repeatable.
+ *
+ * The `workerId` is a stand-in and the caller says so, because the field under
+ * test includes *who*: the dashboard names the holder, and a worker that is not
+ * there must not be able to produce a lease that reads as `worker-compose`'s.
+ *
+ * **The worker must be stopped** (`stopWorker()`) while this runs, or its next
+ * poll claims the same row. That is not a caveat — it is the precondition the
+ * two callers hold, and `claim_next` returning the *wrong* run is caught by
+ * comparing the returned id with the one the caller submitted.
+ *
+ * Returns `null` when nothing was claimable, which is a real answer (the queue
+ * was empty) and is why the return type says so rather than throwing.
+ */
+export function claimOldestRunThroughTheRepository(options: {
+  workerId: string;
+  leaseSeconds: number;
+}): ClaimedRun | null {
+  const program = [
+    "import asyncio, json",
+    "from opspilot.adapters.persistence import db",
+    "from opspilot.adapters.persistence.repositories import SqlRunStore",
+    "from opspilot.settings import get_settings",
+    `WORKER = ${JSON.stringify(options.workerId)}`,
+    `LEASE = ${JSON.stringify(options.leaseSeconds)}`,
+    "async def main():",
+    "    factory = db.session_factory(get_settings())",
+    "    run = await SqlRunStore(factory).claim_next(worker_id=WORKER, lease_seconds=LEASE)",
+    "    payload = None if run is None else {",
+    "        'id': str(run.id),",
+    "        'claimed_by': run.claimed_by,",
+    "        'claimed_until': run.claimed_until.isoformat() if run.claimed_until else None,",
+    "        'status': run.status.value,",
+    "    }",
+    `    print(${JSON.stringify(CLAIM_MARKER)} + json.dumps(payload))`,
+    "asyncio.run(main())",
+  ].join("\n");
+
+  const out = execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", program], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    env: stackEnv(),
+  });
+  const line = out
+    .split("\n")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.startsWith(CLAIM_MARKER))
+    .pop();
+  if (line === undefined) {
+    throw new Error(
+      "the claim program printed no result line, so whether it claimed anything is unknown.\n" +
+        `It was given:\n${program}\n\nand printed:\n${out}`,
+    );
+  }
+  const parsed = JSON.parse(line.slice(CLAIM_MARKER.length)) as ClaimedRun | null;
+  if (parsed !== null && parsed.claimed_by !== options.workerId) {
+    throw new Error(
+      `the claim wrote claimed_by=${String(parsed.claimed_by)}, not the ${options.workerId} this ` +
+        "test asked for, so the page's 'held by' text is not being tested against the holder it " +
+        "claims. Either the worker container is still polling and took the run first, or the " +
+        "repository is not writing the column this helper reads.",
+    );
+  }
+  return parsed;
 }
 
 /**

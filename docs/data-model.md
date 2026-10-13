@@ -55,6 +55,8 @@ All timestamps are `TIMESTAMPTZ`, stored UTC, named `*_at`.
 | `completed_at` | TIMESTAMPTZ NULL | Set on entry to `COMPLETED`/`FAILED` |
 | `failure_reason` | TEXT NULL | Machine-stable token; see state-machine doc §3 |
 | `created_at` | TIMESTAMPTZ NOT NULL | |
+| `claimed_until` | TIMESTAMPTZ NULL | When the claim lease expires. See below |
+| `claimed_by` | TEXT NULL | The `WORKER_ID` holding the lease. See below |
 
 Index for the worker:
 
@@ -63,11 +65,38 @@ CREATE INDEX ix_agent_runs_claimable
     ON agent_runs (created_at)
     WHERE status IN ('received','classifying','retrieving',
                      'planning','executing','responding');
+
+CREATE INDEX ix_agent_runs_claimed_until
+    ON agent_runs (claimed_until)
+    WHERE claimed_until IS NOT NULL;
 ```
 
 A partial index on the claim predicate. It stays small as the table grows,
 because completed and failed runs — which will be the overwhelming majority —
 are not in it.
+
+**The claim lease.** `claim_next` takes the oldest claimable row whose lease is
+absent or expired and sets `claimed_until`/`claimed_by` forward *in the same
+transaction as the read*; `renew_lease` pushes the deadline out while the same
+worker still holds the row, and a `set_status` into `waiting_approval`,
+`completed` or `failed` clears both columns because the row is no longer being
+driven. The lease is what makes two workers safe, and it is deliberately **not** a
+status: `executing` must stay claimable for a worker that died mid-step, so the
+lease sits beside the state machine rather than inside it
+(`docs/agent-state-machine.md` §2 has no edge for it, and
+`docs/adr/0005` is the argument).
+
+Two columns rather than one because renewal has to be conditional: a worker whose
+lease expired and whose run was taken by somebody else renews **zero** rows
+(`UPDATE ... WHERE id = ? AND claimed_by = ?`) and learns it lost the run. Without
+`claimed_by` a stalled worker waking up would extend the *thief's* lease.
+
+`claimed_until` carries its own partial index because the predicate's second
+clause (`claimed_until IS NULL OR claimed_until < now()`) is what admits an
+expired lease back into the queue. The trade the lease buys is real and is
+recorded in [limitations.md](limitations.md) §2: recovery is automatic, which is
+what makes it silent, and the operator-facing half of that is the `claim_lease`
+field on `GET /api/runs/{id}` ([api-contract.md](api-contract.md) §3).
 
 ### `agent_steps`
 

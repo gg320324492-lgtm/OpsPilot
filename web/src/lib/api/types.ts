@@ -229,6 +229,15 @@ export interface paths {
          *     middle of the trace. Filtering here rather than in the client means the
          *     dashboard cannot forget to.
          *
+         *     ``claim_lease`` is the one field that separates a run nothing has claimed
+         *     from a run a worker holds and has not started writing steps for. The claim
+         *     takes a row without changing its status, so both render as ``received`` with
+         *     no steps -- measured for the full 300 s of ``WORKER_CLAIM_LEASE_SECONDS``
+         *     against a healthy worker, and recorded in ``docs/limitations.md`` §2. The run
+         *     *status* is deliberately not extended to carry it: the state machine is a
+         *     specification (``docs/agent-state-machine.md`` §2) and this is not one of its
+         *     states.
+         *
          *     Raises:
          *         ApiError: 404 ``run_not_found`` if there is no such run.
          */
@@ -343,6 +352,9 @@ export interface paths {
          *
          *     Returns:
          *         The nested ``ticket`` + ``run`` shape, with the run in ``received``.
+         *
+         *     Raises:
+         *         ApiError: 409 ``ticket_exists`` if the ``external_id`` is already taken.
          */
         post: operations["create_ticket_api_tickets_post"];
         delete?: never;
@@ -609,6 +621,51 @@ export interface components {
             score: number;
         };
         /**
+         * ClaimLease
+         * @description Who is holding this run, and until when (contract §3).
+         *
+         *     ``state`` is computed **server-side** rather than left to the client to
+         *     derive from ``claimed_until`` against its own clock. That is the same rule
+         *     the timeline and ``failed_tool_calls`` follow (``docs/api-contract.md`` §4):
+         *     a decision made once, on the server, is the same decision in the README
+         *     screenshot, in the dashboard and in anybody else's client. A client that
+         *     compared the timestamps itself would have to re-implement the comparison
+         *     before it could say the one sentence this field exists to make true.
+         *
+         *     ``claimed_by`` and ``claimed_until`` ride along because the operator needs
+         *     the bound, not just the verdict: "held until 14:32" is what turns a stuck run
+         *     from an open-ended worry into a deadline.
+         */
+        ClaimLease: {
+            /** Claimed By */
+            claimed_by?: string | null;
+            /** Claimed Until */
+            claimed_until?: string | null;
+            state: components["schemas"]["ClaimLeaseState"];
+        };
+        /**
+         * ClaimLeaseState
+         * @description Whether a worker is holding a run's claim lease *right now*.
+         *
+         *     The lease is ``agent_runs.claimed_until``/``claimed_by``
+         *     (``migrations/versions/0002_claim_lease.py``): ``claim_next`` writes them in
+         *     the same transaction as the claim read, ``renew_lease`` pushes the deadline
+         *     forward while the holder is alive, and ``set_status`` clears them on the
+         *     transitions that hand the row back.
+         *
+         *     **Three states, not a boolean.** ``UNCLAIMED`` is a run nothing has ever
+         *     claimed. ``HELD`` is a deadline in the future, so a second worker cannot take
+         *     the row. ``EXPIRED`` is a lease whose holder died or stalled: nobody is
+         *     driving the run, and it is claimable again. Collapsing the last two into one
+         *     boolean loses the only distinction that matters to the operator reading a run
+         *     stuck at ``RECEIVED`` -- "a worker holds this and is working" versus "the
+         *     holder is gone and the run is waiting to be re-claimed"
+         *     (``docs/limitations.md`` §2) -- and pushes the choice of which sentence to
+         *     say back out to every call site.
+         * @enum {string}
+         */
+        ClaimLeaseState: "unclaimed" | "held" | "expired";
+        /**
          * CustomerReply
          * @description The customer-visible reply, set only at ``COMPLETED`` (contract §3).
          *
@@ -775,11 +832,15 @@ export interface components {
          * @description Body of ``GET /api/runs/{run_id}`` -- the run-detail screen (contract §3).
          *
          *     ``pending_approval`` is present only when the run is parked; ``customer_reply``
-         *     is set only at ``COMPLETED``.
+         *     is set only at ``COMPLETED``. ``claim_lease`` is present on every run, because
+         *     "no worker has claimed this" and "a worker holds this and has not written a
+         *     step" are two different operational facts and the page has to be able to say
+         *     which one it is looking at.
          */
         RunDetail: {
             /** Citations */
             citations?: components["schemas"]["CitationDetail"][];
+            claim_lease?: components["schemas"]["ClaimLease"];
             /** Completed At */
             completed_at?: string | null;
             /**

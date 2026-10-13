@@ -110,8 +110,6 @@ indistinguishable from a run nothing ever claimed:
 
 - the boot sweep deliberately skips `RECEIVED` (`db.py:150`,
   `mark_interrupted_runs`), so a worker restart does not clear the lease;
-- `GET /api/runs/{id}` projects no lease column at all (`api/schemas.py` has no
-  `claimed_until` and no `claimed_by`), so the dashboard has nothing to render;
 - only a worker *driving* the run renews it (`worker/loop.py::_renew_lease_while_driving`),
   so a claimer that died stops renewing and the run simply waits the lease out.
 
@@ -124,9 +122,8 @@ character what a run nothing claimed renders as, and the exact snapshot CI run
 38202887580 could not explain. Before the lease that window was about a second,
 because a claim that wrote nothing left the row for the very next poll.
 
-**The default is still defensible; what is missing is a bound on *detecting*
-this, not on recovering from it.** Recovery is automatic — the lease expires,
-the predicate's second clause admits the row again
+**The default is still defensible, and the default did not move.** Recovery is
+automatic — the lease expires, the predicate's second clause admits the row again
 (`repositories.py:398-407`), the next poll takes it — and that is why the
 boundary ADR-0005 describes ("a worker that dies leaves a lease that expires,
 and the run becomes claimable again") is true. It is also precisely what makes
@@ -136,12 +133,26 @@ a run's p95 drive duration, measured at 276.7 s on the live eval
 (`docs/milestones.md` §M8), or a long run loses its lease mid-drive and a second
 worker drives the same refund — which is a worse outcome than a slow one, and
 276.7 s is already larger than any detection window an operator would accept.
-The two requirements are incompatible, so the number is at its floor and the
-change belongs elsewhere: **project `claimed_until`/`claimed_by` on the run and
-render a claimed-but-not-started run as its own state.** Until that exists, a
-run at `RECEIVED` for longer than `WORKER_POLL_INTERVAL` is not evidence of a
-busy worker, and no capture, log line or screen in this repository can tell
-the two apart.
+The two requirements are incompatible, so the number is at its floor.
+
+**What is now bounded is *detecting* it, which is what the paragraph above named
+as the missing half.** `GET /api/runs/{id}` carries a `claim_lease` object
+(`docs/api-contract.md` §3): `unclaimed`, `held` or `expired`, carrying the
+holder's `WORKER_ID` and the deadline. The dashboard reads it, so the run-detail
+page now says *"A worker (worker-compose) claimed this run and has not written a
+step yet. The claim is held until … and is renewed while the worker keeps
+driving; if it is not renewed, the run becomes claimable again then."* in place
+of the sentence it used to print unconditionally — *"the worker has not claimed
+it yet"* — which was false for five minutes at a time. The state is computed
+server-side rather than left to the client, so a dashboard cannot forget to.
+
+**What is still not bounded is the recovery.** Nothing announces that a lapsed
+lease has been taken up again: the page says a run is *held* and that the hold
+has a deadline, not when the run starts moving, because nothing will. So a run
+at `RECEIVED` for longer than `WORKER_POLL_INTERVAL` is still not evidence of a
+busy worker. What changed is that an operator can now rule the *dead-worker* and
+*claimed-but-stalled* cases in or out from the page instead of guessing — a run
+with no lease has not been claimed, and a run whose lease has expired says so.
 
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.

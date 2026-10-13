@@ -34,12 +34,13 @@ from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from opspilot.adapters.persistence import db, models
 from opspilot.domain.approvals import ApprovalRequest as ApprovalRequestDomain
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError
+from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError, TicketExists
 from opspilot.domain.runs import CLAIMABLE, AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import (
@@ -125,8 +126,74 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+#: The names ``tickets.external_id``'s unique constraint can carry. The migration
+#: (``0001_initial_schema``) names it ``uq_tickets_external_id``; a schema built
+#: from ``Base.metadata.create_all`` -- which is what the SQLite tests use -- has
+#: no name to read, so SQLAlchemy derives ``tickets_external_id_key``. Both are
+#: the same constraint and both must resolve, or a Postgres deployment would be
+#: the one dialect this code refuses to recognise.
+_EXTERNAL_ID_CONSTRAINTS: frozenset[str] = frozenset(
+    {"uq_tickets_external_id", "tickets_external_id_key"}
+)
+
+#: The prefix SQLite's driver puts on a UNIQUE violation. It names the **column**,
+#: not the constraint, because SQLite has no named constraint to report.
+_SQLITE_UNIQUE = "UNIQUE constraint failed"
+
+#: The prefix libpq/psycopg put on a unique violation, followed by the name it
+#: does report. Used only as a fallback for a driver that exposes no ``diag``.
+_POSTGRES_UNIQUE = "duplicate key value violates unique constraint"
+
+
+def _is_external_id_violation(exc: IntegrityError) -> bool:
+    """Whether ``exc`` is the ``tickets.external_id`` unique violation, and only it.
+
+    Every other ``IntegrityError`` -- the partial unique idempotency index on
+    executed tool calls, a NOT NULL, a foreign key -- is some *other* invariant
+    failing and must stay a 500. Reporting those as ``ticket_exists`` would be a
+    worse lie than the one this replaces: an operator would be told to go and
+    change their ``external_id`` when the real fault is elsewhere, and the 409
+    would hide the trace that names it.
+
+    The two dialects report the same violation in shapes that share no
+    substring, which is why both are matched (ADR-0004 records running SQLite
+    where the answer is assumed):
+
+    - **Postgres/psycopg** -- ``orig`` is a ``psycopg.errors.UniqueViolation``
+      carrying a ``diag`` whose ``constraint_name`` is the violated index. That
+      is read structurally, not out of the message, so it cannot be spoofed by a
+      value that happens to contain the constraint's name.
+    - **SQLite** -- ``orig`` is a plain ``sqlite3.IntegrityError`` whose message
+      is ``UNIQUE constraint failed: tickets.external_id``. There is nothing
+      structural to read, so the column in the message is what decides.
+
+    Args:
+        exc: The ``IntegrityError`` the flush raised.
+
+    Returns:
+        ``True`` only for the ``tickets.external_id`` unique violation.
+    """
+    orig = exc.orig
+    name = getattr(getattr(orig, "diag", None), "constraint_name", None)
+    if name is not None:
+        return name in _EXTERNAL_ID_CONSTRAINTS
+    message = str(orig)
+    if _SQLITE_UNIQUE in message:
+        return "tickets.external_id" in message
+    if _POSTGRES_UNIQUE in message:
+        return any(constraint in message for constraint in _EXTERNAL_ID_CONSTRAINTS)
+    return False
+
+
 def _to_agent_run(row: models.AgentRun) -> AgentRun:
-    """Map an ``agent_runs`` row to the domain ``AgentRun``."""
+    """Map an ``agent_runs`` row to the domain ``AgentRun``.
+
+    Every column, including the claim lease. Leaving the two lease columns behind
+    here is what made a claimed run and a run nothing claimed indistinguishable
+    above the repository: ``claim_next`` writes them without changing ``status``,
+    so both projected to the same object and the API had nothing to render
+    (``docs/limitations.md`` §2).
+    """
     return AgentRun(
         id=row.id,
         ticket_id=row.ticket_id,
@@ -137,6 +204,8 @@ def _to_agent_run(row: models.AgentRun) -> AgentRun:
         completed_at=row.completed_at,
         failure_reason=row.failure_reason,
         created_at=row.created_at,
+        claimed_until=row.claimed_until,
+        claimed_by=row.claimed_by,
     )
 
 
@@ -198,7 +267,17 @@ class SqlTicketStore(_SessionBound):
     async def create(
         self, *, subject: str, body: str, customer_email: str, external_id: str | None = None
     ) -> UUID:
-        """Insert a ticket and return its id."""
+        """Insert a ticket and return its id.
+
+        Raises:
+            TicketExists: if ``external_id`` is already taken. The unique index on
+                ``tickets.external_id`` is what decides, so this store creates
+                exactly as many rows as the client posts -- there is no
+                read-then-write window for two concurrent posts to slip through,
+                which is the property ``docs/api-contract.md`` §9 means by "a
+                unique violation returns 409". Every other integrity failure
+                propagates untouched and is a 500.
+        """
         with self._scope() as session:
             ticket = models.Ticket(
                 subject=subject,
@@ -207,7 +286,27 @@ class SqlTicketStore(_SessionBound):
                 external_id=external_id,
             )
             session.add(ticket)
-            session.flush()
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                if external_id is None or not _is_external_id_violation(exc):
+                    # A different invariant failed. Re-raising keeps it a 500
+                    # rather than dressing it as the contract's dedupe answer.
+                    raise
+                # A failed flush leaves the transaction unusable: SQLAlchemy
+                # refuses every further statement until it is rolled back, so the
+                # read-back below needs this. It costs the caller only a
+                # transaction that the violation had already made uncommittable.
+                session.rollback()
+                existing = session.execute(
+                    select(models.Ticket).where(models.Ticket.external_id == external_id)
+                ).scalar_one_or_none()
+                if existing is None:
+                    # The index fired but the row cannot be read. Re-raising the
+                    # original is the honest answer: a 409 that carries no ticket
+                    # is the contract violation this whole path exists to fix.
+                    raise
+                raise TicketExists(external_id, existing.id) from exc
             return ticket.id
 
     async def get(self, ticket_id: UUID) -> TicketRecord | None:

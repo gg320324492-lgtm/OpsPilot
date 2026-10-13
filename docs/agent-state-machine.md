@@ -282,6 +282,29 @@ default for a new state is "claimable", which is the safe direction: forgetting
 to exclude a parked state causes duplicate work, and the integration test
 `test_waiting_approval_is_not_claimed` catches it.)
 
+### The lease is not a state, and this document does not gain one
+
+The real predicate has a second clause:
+
+```sql
+AND (claimed_until IS NULL OR claimed_until < now())
+```
+
+`claim_next` sets `claimed_until`/`claimed_by` in the same transaction as the
+read (`migrations/versions/0002_claim_lease.py`). **The claim does not change
+`status`**, and it must not: a status change would have to make `EXECUTING`
+unclaimable, which would strand an approved refund when its worker died
+(`docs/architecture.md` §5; `docs/adr/0005`).
+
+The consequence for anyone reading this table: `RECEIVED` does **not** mean "no
+worker has taken this". It means the run has not left the queue, which is true
+both before the claim and after it. Who is holding the row is a second, separate
+fact — `ClaimLeaseState` in `src/opspilot/domain/runs.py`, projected to the API
+as `claim_lease` (`docs/api-contract.md` §3) — and it is deliberately not a
+member of `RunStatus`: adding one would mean editing a normative table to
+describe something the table is not about, and would leave the run's status with
+two independent ways of saying "somebody is working on this".
+
 ## 6. Step budget
 
 A run may execute at most `MAX_STEPS` plan/execute rounds (`24` by default —

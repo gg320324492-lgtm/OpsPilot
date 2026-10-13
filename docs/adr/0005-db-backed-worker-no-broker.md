@@ -71,8 +71,12 @@ database is no longer a correctness requirement. The lease's own boundary is
 recorded in `docs/limitations.md` §2 and is worth repeating here, because this
 ADR is where a reader looks to decide whether the claim is safe — **a run that
 is claimed and then abandoned stays `RECEIVED` for up to one lease period
-(300 s), and nothing in the API, the boot sweep, the dashboard or the worker's
-log distinguishes that from a run that was never claimed.**
+(300 s).** What is no longer true is the second half of that boundary: the API
+projects the lease as `claim_lease` on `GET /api/runs/{id}`
+(`docs/api-contract.md` §3) and the dashboard renders it, so an operator can
+tell a held run from a run nothing claimed without leaving the page. The boot
+sweep still does not clear the lease and the worker's log still does not mention
+it; both remain true, and neither is on the path an operator reads.
 
 **Cost.** Polling means up to `WORKER_POLL_INTERVAL` (default 1s) of added
 latency, and an idle worker issues a query per second per replica. Both are

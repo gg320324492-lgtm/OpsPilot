@@ -33,6 +33,7 @@ from opspilot.api.schemas import (
     AuditEventDetail,
     AuditResponse,
     CitationDetail,
+    ClaimLease,
     CustomerReply,
     PendingApproval,
     RunCreateRequest,
@@ -137,6 +138,24 @@ def _run_summary(run: AgentRun) -> RunSummary:
     )
 
 
+def _claim_lease(run: AgentRun) -> ClaimLease:
+    """The run's claim lease, with the held/expired decision made here.
+
+    ``claim_state`` reads the clock, so this is the one place in the request
+    where "is a worker holding this right now" is decided. The projection is
+    unconditional -- a run with no lease gets ``unclaimed`` rather than ``null``
+    -- because the dashboard's branch is "which of the three states is this",
+    and a nullable object makes "the field the API did not send" the fourth
+    answer, which is the same empty-panel defect the optional reads below are
+    written against.
+    """
+    return ClaimLease(
+        state=run.claim_state(),
+        claimed_by=run.claimed_by,
+        claimed_until=run.claimed_until,
+    )
+
+
 @router.post("/runs", status_code=201, response_model=RunRef)
 async def create_run(
     request: RunCreateRequest,
@@ -215,6 +234,15 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
     middle of the trace. Filtering here rather than in the client means the
     dashboard cannot forget to.
 
+    ``claim_lease`` is the one field that separates a run nothing has claimed
+    from a run a worker holds and has not started writing steps for. The claim
+    takes a row without changing its status, so both render as ``received`` with
+    no steps -- measured for the full 300 s of ``WORKER_CLAIM_LEASE_SECONDS``
+    against a healthy worker, and recorded in ``docs/limitations.md`` §2. The run
+    *status* is deliberately not extended to carry it: the state machine is a
+    specification (``docs/agent-state-machine.md`` §2) and this is not one of its
+    states.
+
     Raises:
         ApiError: 404 ``run_not_found`` if there is no such run.
     """
@@ -238,6 +266,7 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
         completed_at=run.completed_at,
         failure_reason=run.failure_reason,
         created_at=run.created_at,
+        claim_lease=_claim_lease(run),
         steps=steps,
         tool_calls=tool_calls,
         citations=citations,

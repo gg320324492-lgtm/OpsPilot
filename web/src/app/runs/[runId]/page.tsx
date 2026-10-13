@@ -9,7 +9,12 @@ import {
   Time,
 } from "@/components/ui";
 import { formatClock, formatLatency, formatTimestamp, humanise } from "@/lib/format";
-import { loadRunDetail, type Citation, type ToolCall } from "@/lib/data";
+import {
+  loadRunDetail,
+  type Citation,
+  type ClaimLease,
+  type ToolCall,
+} from "@/lib/data";
 import { ApprovalSummaryCard } from "./approval-summary";
 
 /**
@@ -73,6 +78,11 @@ export default async function RunDetailPage({
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
   const failedCalls = detail.failed_tool_calls ?? [];
+  // The claim lease, resolved once here. An absent field means the API predates
+  // it (`docs/api-contract.md` §3), and the honest reading of "this deployment
+  // does not tell me" is still "nothing has claimed it" -- which is what the
+  // page said before the field existed.
+  const lease = detail.claim_lease;
 
   return (
     <Page
@@ -127,6 +137,9 @@ export default async function RunDetailPage({
             <Field label="Completed">
               {detail.completed_at ? formatTimestamp(detail.completed_at) : "—"}
             </Field>
+            <Field label="Claim">
+              <ClaimCell lease={lease} />
+            </Field>
             {detail.failure_reason ? (
               <Field label="Failure reason">
                 <span className="text-red-700 dark:text-red-300">{detail.failure_reason}</span>
@@ -156,7 +169,7 @@ export default async function RunDetailPage({
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
-            <Timeline trace={trace} />
+            <Timeline trace={trace} lease={lease} />
             <ToolCalls calls={toolCalls} />
           </div>
 
@@ -188,11 +201,19 @@ export default async function RunDetailPage({
  *   is rendered as such, rather than being papered over with a client-side
  *   guess. An empty detail is a backend gap (M7a found two of them) and
  *   hiding it would remove the signal that catches the next one.
+ *
+ * - The empty *timeline* reads the claim lease, because "no steps yet" is the
+ *   state the lease was made observable for. See `noStepsHint`; the short
+ *   version is that a claim takes a run without changing its status, so a run a
+ *   worker holds and a run nothing claimed render as the same page until one of
+ *   them says otherwise.
  */
 function Timeline({
   trace,
+  lease,
 }: {
   trace: Awaited<ReturnType<typeof loadRunDetail>>["trace"];
+  lease: ClaimLease | undefined;
 }) {
   return (
     <Panel
@@ -206,10 +227,7 @@ function Timeline({
       {trace.error ? (
         <ErrorPanel error={trace.error} title="Could not load the trace" />
       ) : !trace.data || (trace.data.steps?.length ?? 0) === 0 ? (
-        <EmptyState
-          title="No steps recorded yet."
-          hint="A run writes a step as it works. If it is still `received`, the worker has not claimed it yet."
-        />
+        <EmptyState title="No steps recorded yet." hint={noStepsHint(lease)} />
       ) : (
         <ol className="space-y-0">
           {(trace.data.steps ?? []).map((step, index) => (
@@ -250,6 +268,71 @@ function Timeline({
       )}
     </Panel>
   );
+}
+
+/**
+ * What an empty timeline is *because*.
+ *
+ * **This sentence was unconditional and was false half the time.** A claim takes
+ * a run without changing its status (`SqlRunStore.claim_next`), so before the
+ * lease was on the wire a run a worker was holding and a run nothing had claimed
+ * rendered character for character the same, and this hint said the second thing
+ * about both. Measured for the full 300 s of `WORKER_CLAIM_LEASE_SECONDS` against
+ * a healthy worker (`docs/limitations.md` §2).
+ *
+ * The unclaimed branch keeps its wording **verbatim**, because that is the case
+ * it was written for and `failure-states.spec.ts` asserts on it for a run it
+ * produces by stopping the worker — a run that really has never been claimed.
+ * The two branches are the whole point: if the claimed branch merely appended to
+ * the old sentence, a claimed run would still be described as unclaimed.
+ *
+ * Plain strings, not JSX. `EmptyState` renders the hint inside a single `<p>`,
+ * and Playwright's `getByText` matches on an element's whole text — splitting the
+ * sentences across nodes would give two elements matching the same substring.
+ */
+function noStepsHint(lease: ClaimLease | undefined): string {
+  if (lease?.state === "held") {
+    return (
+      `A worker (${lease.claimed_by ?? "unnamed"}) claimed this run and has not written a step yet. ` +
+      `The claim is held until ${formatTimestamp(lease.claimed_until)} and is renewed while the worker ` +
+      `keeps driving; if it is not renewed, the run becomes claimable again then.`
+    );
+  }
+  if (lease?.state === "expired") {
+    return (
+      `A worker claimed this run, and its claim expired at ${formatTimestamp(lease.claimed_until)}. ` +
+      `No worker is holding it now — the run becomes claimable again on the next poll.`
+    );
+  }
+  return "A run writes a step as it works. If it is still `received`, the worker has not claimed it yet.";
+}
+
+/**
+ * The run's claim, as one field beside Started and Completed.
+ *
+ * The empty-timeline hint above is the *notice*; this is the *record*, so the
+ * lease stays readable after the timeline fills in and on a run that is moving
+ * normally. Rendered in the panel's own words rather than as a raw timestamp,
+ * because "not claimed" and "claimed, nobody is holding it" are the two facts
+ * an operator compares against how long the run has been sitting there.
+ */
+function ClaimCell({ lease }: { lease: ClaimLease | undefined }) {
+  if (lease?.state === "held") {
+    return (
+      <span>
+        Held by {lease.claimed_by ?? "an unnamed worker"} until{" "}
+        {formatTimestamp(lease.claimed_until)}
+      </span>
+    );
+  }
+  if (lease?.state === "expired") {
+    return (
+      <span className="text-amber-700 dark:text-amber-300">
+        Expired {formatTimestamp(lease.claimed_until)} — nobody is holding it
+      </span>
+    );
+  }
+  return <span className="text-neutral-500 dark:text-neutral-400">Not claimed</span>;
 }
 
 /**

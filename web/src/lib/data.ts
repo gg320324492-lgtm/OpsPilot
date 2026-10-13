@@ -32,6 +32,7 @@ export type Citation = components["schemas"]["CitationDetail"];
 export type ToolCall = components["schemas"]["ToolCallDetail"];
 export type RunStatus = components["schemas"]["RunStatus"];
 export type ApprovalStatus = components["schemas"]["ApprovalStatus"];
+export type ClaimLease = components["schemas"]["ClaimLease"];
 
 /**
  * The outcome of a read: either the payload or the failure, never a throw.

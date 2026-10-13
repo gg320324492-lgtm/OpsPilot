@@ -5486,3 +5486,75 @@ is a bound on *detecting* the state, not on recovering from it — recovery is
 automatic and is exactly what makes it silent. Recorded in
 `docs/limitations.md` §2, with the boundary repeated in `docs/architecture.md` §5
 and ADR-0005, since all three currently read as though the claim is simply safe.
+
+---
+
+## C4's third finding, closed on the half that was open — the lease, on the page
+
+**Date:** 2026-10-13.
+
+The section above ended with a specific sentence: *"The missing thing is a bound
+on **detecting** the state, not on recovering from it"* — and then named the
+work: *"project `claimed_until`/`claimed_by` on the run and render a
+claimed-but-not-started run as its own state."* This is that work. The 300 s
+default did **not** move and is not proposed to; recovery is still automatic and
+still silent.
+
+### The decision: the lease goes on `AgentRun`
+
+`domain/runs.py::AgentRun`'s docstring claimed it "mirrors the `agent_runs`
+table", and `b9bbd5c` had already made that false — `claimed_until`/`claimed_by`
+existed in the ORM and were dropped by `_to_agent_run`, so a claimed run and a
+run nothing claimed were the same object. The drift existed whether or not it
+was touched.
+
+It was put **on** the domain object, against the argument that a lease is
+coordination state rather than business identity. What decided it is the cost of
+the alternative: a separate read is a second round trip per render *and* a
+second `_optional_method` probe, and `repositories.py`'s own comment on those
+probes records what happens when a deployment does not answer one — a silently
+empty panel. A lease that renders empty in production and works in every test
+because `FakeRunStore` answers a probe that `SqlRunStore` might not is the exact
+defect `test_run_detail_against_the_real_store.py` was written about.
+`docs/data-model.md` §2 needed the two columns either way; the model now carries
+them and `claim_state()` reads the clock.
+
+**The run status was not extended.** `docs/agent-state-machine.md` §2 is a
+specification and the lease is not one of its states — the claim cannot change
+`status` without making `EXECUTING` unclaimable, which is the thing that would
+strand an approved refund. `ClaimLeaseState` is a separate enum beside the status,
+and §5 of that document now says so, because "is the row held" and "which state
+is it in" are two questions with two answers.
+
+### What the page says now
+
+The existing `No steps recorded yet.` notice is now **conditional**, not
+duplicated — the sentence it printed unconditionally ("the worker has not claimed
+it yet") was false for five minutes at a time:
+
+| State | The hint under `No steps recorded yet.` |
+|---|---|
+| never claimed | *A run writes a step as it works. If it is still `received`, the worker has not claimed it yet.* (verbatim; what `failure-states.spec.ts` asserts) |
+| held | *A worker (worker-compose) claimed this run and has not written a step yet. The claim is held until … and is renewed while the worker keeps driving; if it is not renewed, the run becomes claimable again then.* |
+| expired | *A worker claimed this run, and its claim expired at …. No worker is holding it now — the run becomes claimable again on the next poll.* |
+
+A `Claim` field beside Started/Completed carries the same fact as a record, so it
+survives once the timeline fills in. The API computes `state` server-side, like
+the timeline's labels and `failed_tool_calls`, so a client cannot re-derive it
+against its own clock and disagree.
+
+### The one thing the e2e could not get from a live worker
+
+`drain_once` claims and then immediately writes the first `state_change` step, so
+"claimed, `received`, no steps" exists for the milliseconds between two database
+round trips. `claim-lease.spec.ts` produces it by calling `SqlRunStore.claim_next`
+itself from the `api` container — the same method a worker calls, not an `UPDATE`
+no code path runs — with the worker stopped, and asserts the returned id is the
+run the test submitted. That is the same measurement `docs/limitations.md` §2
+records at 300 s, made repeatable.
+
+### Still not fixed, and still not claimed to be
+
+Nothing announces that a lapsed lease has been taken up again. The page says a
+run is *held* and that the hold has a deadline; it does not say when the run
+starts moving, because nothing will.

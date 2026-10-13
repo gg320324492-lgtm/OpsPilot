@@ -17,7 +17,7 @@ Base path: `/api`. Errors use a single shape (§6).
 | `GET` | `/api/tickets/{ticket_id}` | One ticket with its runs |
 | `POST` | `/api/runs` | Enqueue a run for an existing ticket |
 | `GET` | `/api/runs` | List runs (filterable by status) |
-| `GET` | `/api/runs/{run_id}` | Run detail: status, steps, tool calls, citations |
+| `GET` | `/api/runs/{run_id}` | Run detail: status, steps, tool calls, citations, claim lease |
 | `GET` | `/api/runs/{run_id}/trace` | The ordered execution timeline only |
 | `GET` | `/api/runs/{run_id}/audit` | The run's audit ledger (append-only events) |
 | `GET` | `/api/approvals` | List approvals (default: `pending`) |
@@ -86,6 +86,14 @@ The payload the dashboard's run-detail screen renders.
   "failure_reason": null,
   "created_at": "2026-10-05T10:42:03Z",
 
+  // Who is holding the run. Present on every run. This one is parked, and
+  // parking releases the claim, so it reads `unclaimed` -- see the field note.
+  "claim_lease": {
+    "state": "unclaimed",
+    "claimed_by": null,
+    "claimed_until": null
+  },
+
   "steps": [
     { "sequence": 1, "step_type": "state_change", "output": {"to": "classifying"},
       "latency_ms": 0, "started_at": "…" },
@@ -143,6 +151,34 @@ Field notes:
 - `pending_approval` is present only when the run is parked. It is the only
   place in the API where an approver-visible payload is nested inside a run.
 - `customer_reply` is set only at `COMPLETED`.
+- **`claim_lease`** says whether a worker is holding this run *right now*, which
+  is not the same question as `status`. `state` is `unclaimed` (nothing has ever
+  claimed it), `held` (a lease whose deadline is in the future, so no second
+  worker can take the row) or `expired` (the holder died or stalled — nobody is
+  driving it and it is claimable again). `claimed_by` is the `WORKER_ID` holding
+  it and `claimed_until` is the deadline.
+
+  It is a field rather than a status because the claim deliberately does **not**
+  move the run: `claim_next` takes the row and writes the lease in the same
+  transaction without touching `status`, and `docs/agent-state-machine.md` §2 is
+  a specification that has no state for it. So before this field existed, a run
+  that was claimed and then abandoned and a run nothing ever claimed were the
+  same response body — both `received`, both with no steps. Measured against a
+  healthy worker, the first went unclaimed for the full **300 s** of
+  `WORKER_CLAIM_LEASE_SECONDS` while the dashboard told an operator the worker
+  had not claimed it ([limitations.md](limitations.md) §2).
+
+  `claimed_by` and `claimed_until` are `null` **together**, and `state` is
+  `unclaimed` whenever they are: either nothing ever claimed the run, or it
+  reached a state that releases the row (`waiting_approval`, `completed`,
+  `failed`). A run that reaches a terminal state therefore never reports a
+  holder, even if a worker held it a moment earlier.
+
+  `state` is **computed by the server**, not derived by the client from
+  `claimed_until` and a local clock — for the same reason the timeline's `label`
+  and `detail` are assembled server-side (§4). One decision, made once, is the
+  same decision in the dashboard, in the README's screenshot and in anybody
+  else's client.
 - **`failed_tool_calls`** repeats, as a summary, every entry of `tool_calls`
   whose `status` is `failed`. It exists because `tool_calls` alone did not
   survive contact with a real deployment.

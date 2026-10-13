@@ -26,7 +26,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.runs import RunStatus
+from opspilot.domain.runs import ClaimLeaseState, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 
 # ---------------------------------------------------------------------------
@@ -143,6 +143,27 @@ class CustomerReply(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ClaimLease(BaseModel):
+    """Who is holding this run, and until when (contract §3).
+
+    ``state`` is computed **server-side** rather than left to the client to
+    derive from ``claimed_until`` against its own clock. That is the same rule
+    the timeline and ``failed_tool_calls`` follow (``docs/api-contract.md`` §4):
+    a decision made once, on the server, is the same decision in the README
+    screenshot, in the dashboard and in anybody else's client. A client that
+    compared the timestamps itself would have to re-implement the comparison
+    before it could say the one sentence this field exists to make true.
+
+    ``claimed_by`` and ``claimed_until`` ride along because the operator needs
+    the bound, not just the verdict: "held until 14:32" is what turns a stuck run
+    from an open-ended worry into a deadline.
+    """
+
+    state: ClaimLeaseState
+    claimed_by: str | None = None
+    claimed_until: datetime | None = None
+
+
 # ---------------------------------------------------------------------------
 # Tickets
 # ---------------------------------------------------------------------------
@@ -223,7 +244,10 @@ class RunDetail(BaseModel):
     """Body of ``GET /api/runs/{run_id}`` -- the run-detail screen (contract §3).
 
     ``pending_approval`` is present only when the run is parked; ``customer_reply``
-    is set only at ``COMPLETED``.
+    is set only at ``COMPLETED``. ``claim_lease`` is present on every run, because
+    "no worker has claimed this" and "a worker holds this and has not written a
+    step" are two different operational facts and the page has to be able to say
+    which one it is looking at.
     """
 
     id: UUID
@@ -235,6 +259,9 @@ class RunDetail(BaseModel):
     completed_at: datetime | None = None
     failure_reason: str | None = None
     created_at: datetime
+    claim_lease: ClaimLease = Field(
+        default_factory=lambda: ClaimLease(state=ClaimLeaseState.UNCLAIMED)
+    )
     steps: list[StepDetail] = Field(default_factory=list)
     tool_calls: list[ToolCallDetail] = Field(default_factory=list)
     citations: list[CitationDetail] = Field(default_factory=list)
