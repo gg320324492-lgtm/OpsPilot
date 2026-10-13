@@ -1,0 +1,27 @@
+{
+  "name": "opspilot-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron shell for the OpsPilot dashboard (docs/phase2-plan.md P2-D1)",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-renderer.mjs",
+    "start": "npm run build && electron .",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "playwright test",
+    "test:lifecycle": "playwright test --project lifecycle",
+    "test:shell": "playwright test --project shell"
+  },
+  "dependencies": {
+    "electron": "44.7.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "1.64.0",
+    "@types/node": "^20",
+    "eslint": "^9.39.5",
+    "typescript": "^5",
+    "typescript-eslint": "^8.71.2"
+  }
+}

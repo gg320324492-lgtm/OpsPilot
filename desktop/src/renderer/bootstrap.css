@@ -1,0 +1,187 @@
+/*
+ * The bootstrap page's styling.
+ *
+ * Dark, because the window is a control panel for a terminal-side process and
+ * because it is shown for a handful of seconds or, on a failure, indefinitely —
+ * long enough that a bright page in a dark desktop is unpleasant to leave open.
+ *
+ * The colours are checked against WCAG AA on the `#0f1115` background: body text
+ * is `#e6e9ef` on `#171a21` (≈14.9:1), the muted text `#9aa4b2` on `#171a21`
+ * (≈7.3:1), and the accent `#7aa2f7` on `#0f1115` (≈7.0:1). The one place a
+ * low-contrast colour appears is the log, which is `#a9b4c2` on `#0b0d11`
+ * (≈9.8:1) — comfortably above the threshold rather than at it.
+ *
+ * The log is `pre`-formatted and wraps rather than scrolls horizontally,
+ * because a long Compose line cut off at the window edge is the one piece of
+ * output an operator cannot read.
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #0b0d11;
+  --line: #262b36;
+  --text: #e6e9ef;
+  --muted: #9aa4b2;
+  --log: #a9b4c2;
+  --accent: #7aa2f7;
+  --danger: #f7768e;
+  --danger-line: #5c2733;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  padding: 28px 32px 20px;
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.shell__mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(140deg, var(--accent), #bb9af7);
+}
+
+.shell__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.shell__subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.status__headline {
+  margin: 0;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.status__detail {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.failure {
+  padding: 18px;
+  border: 1px solid var(--danger-line);
+  border-radius: 10px;
+  background: #1a1116;
+}
+
+.failure__title {
+  margin: 0 0 10px;
+  color: var(--danger);
+  font-size: 16px;
+}
+
+.failure__detail {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.failure__remedy {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--danger-line);
+}
+
+.failure__remedy-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.failure__remedy-body {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.log {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.log__heading {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.log__body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--log);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.shell__footer {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shell__ownership:empty {
+  display: none;
+}

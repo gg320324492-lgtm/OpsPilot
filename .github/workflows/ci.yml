@@ -8,7 +8,8 @@
 #
 # Two workflows, because one of them must run only on demand:
 #   * ci.yml      — every push/PR: lint, typecheck, test, verify, mcp-contract,
-#                   security, eval-smoke, web-lint, web-typecheck, docker-build.
+#                   security, eval-smoke, web-lint, web-typecheck, desktop-check,
+#                   docker-build.
 #   * eval-live.yml — workflow_dispatch only; it costs money and is
 #                   non-deterministic (docs/evals.md §5), so it is never on push.
 
@@ -436,6 +437,54 @@ jobs:
         run: npm ci
       - name: tsc --noEmit
         run: npm run typecheck
+
+  # ------------------------------------------------------------------------- #
+  # desktop-check — the Electron shell's own gates (docs/phase2-plan.md P2-D1).
+  #
+  # WHY A SEPARATE PACKAGE AND THEREFORE A SEPARATE JOB
+  # -------------------------------------------------
+  # `web/` is the Next.js application: `web/package.json` is its manifest,
+  # `web/package-lock.json` is the lockfile `web-lint` and `web-typecheck` run
+  # `npm ci` against, and adding Electron to it would mean every push downloads a
+  # Chromium runtime and every `web` gate lints and type-checks code that is not
+  # the web app. The shell lives in `desktop/` with its own manifest, lockfile,
+  # tsconfig and ESLint config; the repository has two Node packages and this is
+  # the job for the second one. Nothing about `web-lint` or `web-typecheck`
+  # changes: neither reads a file under `desktop/`.
+  #
+  # WHAT THIS JOB DOES NOT RUN, AND WHY
+  # ----------------------------------
+  # Not `npm run test:shell`. That project launches the real Electron app, which
+  # needs a display (`xvfb-run` on Linux) AND brings up the full Compose stack --
+  # a database, migrations, an API and a worker -- on every push. Its evidence
+  # belongs in a job that can afford those minutes, and `desktop/e2e/shell.spec.ts`
+  # skips cleanly with a named reason on a runner that cannot open a window.
+  #
+  # `npm run test:lifecycle` is the half that costs nothing and runs here: it
+  # drives `src/lifecycle/` from a table of answers, with no Electron, no Docker,
+  # and no browser binary -- so no `playwright install` step is needed for it.
+  # ------------------------------------------------------------------------- #
+  desktop-check:
+    name: desktop-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: eslint
+        run: npm run lint
+      - name: tsc --noEmit
+        run: npm run typecheck
+      - name: Lifecycle tests (no Electron, no Docker, no browser)
+        run: npm run test:lifecycle
 
   # ------------------------------------------------------------------------- #
   # docker-build — builds the Compose stack and proves it comes up

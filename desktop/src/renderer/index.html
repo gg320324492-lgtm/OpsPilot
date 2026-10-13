@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpsPilot</title>
+    <link rel="stylesheet" href="bootstrap.css" />
+  </head>
+  <body>
+    <!--
+      The page that stands between an operator and a blank window.
+
+      It exists because `docker compose up -d --wait` can take minutes on a
+      first launch, and a window that shows nothing for two minutes is
+      indistinguishable from a window that has hung. Everything below is driven
+      by `window.opspilot`, the two-function bridge in `src/preload.ts`; there
+      is no fetch here, no origin of its own, and no credential.
+
+      The failure block is deliberately *not* hidden on success: it is empty
+      until something goes wrong, and when something does go wrong it is the
+      only thing on screen, which is the whole point of D1's "a real error
+      rather than a silent failure".
+    -->
+    <main class="shell">
+      <header class="shell__brand">
+        <span class="shell__mark" aria-hidden="true"></span>
+        <div>
+          <h1 class="shell__title">OpsPilot</h1>
+          <p class="shell__subtitle">Safety-gated AI operations agent</p>
+        </div>
+      </header>
+
+      <section class="status" aria-live="polite">
+        <p id="headline" class="status__headline">Starting…</p>
+        <p id="detail" class="status__detail"></p>
+      </section>
+
+      <section id="failure" class="failure" hidden>
+        <h2 id="failure-title" class="failure__title"></h2>
+        <p id="failure-detail" class="failure__detail"></p>
+        <div class="failure__remedy">
+          <span class="failure__remedy-label">What to do</span>
+          <p id="failure-remedy" class="failure__remedy-body"></p>
+        </div>
+      </section>
+
+      <section class="log">
+        <h2 class="log__heading">Startup log</h2>
+        <pre id="log" class="log__body" aria-live="polite"></pre>
+      </section>
+
+      <footer class="shell__footer">
+        <span id="ownership" class="shell__ownership"></span>
+      </footer>
+    </main>
+    <script src="bootstrap.js"></script>
+  </body>
+</html>
