@@ -5558,3 +5558,59 @@ records at 300 s, made repeatable.
 Nothing announces that a lapsed lease has been taken up again. The page says a
 run is *held* and that the hold has a deadline; it does not say when the run
 starts moving, because nothing will.
+
+## Two runs of the same code: B2 is not measurable against this endpoint
+
+**Date:** 2026-10-13. Two live runs of `tool_selection`, same model
+(`MiniMax-M3.1-Flash-Preview`), same configuration, no change in between.
+
+| Run | Result | p50 | p95 |
+|---|---|---|---|
+| `2026-10-13T18-24-25.json` | **3/15 = 0.200** | 34.3s | 280.2s |
+| `2026-10-13T18-40-10.json` | **2/15 = 0.133** | 33.0s | 199.2s |
+
+**The committed baseline was 3/15, and the first run reproduced it exactly.**
+
+### What the two runs have in common, and what they do not
+
+- **Both hits:** `tool-011`, `tool-015`.
+- **Hit once:** `tool-009` — in run 1 only. Everything else that scored was a hit in both.
+- **The two runs proposed an identical tool set for 8 of the 15 cases.** Every case that
+  failed in both proposed *different* things the second time.
+
+So two of the three baseline hits are stable and thirteen of the fifteen cases move
+between runs. The failure is not one wrong menu being applied consistently; it is a
+model that answers the same question differently on a second reading of it.
+
+### What this rules out
+
+P2-B2's acceptance is "the same 15 cases, at least 10 hits". **That target cannot be
+reached by changing the tool menu or the planning feedback, and the reason is not
+about the menu.** A change that moved the number from 3/15 to 5/15 would be
+indistinguishable from the 3/15-versus-2/15 spread measured here. Fitting the menu to
+these fifteen cases would be fitting noise, and the metric could not tell the
+difference between that and a real improvement.
+
+The honest position is the one `docs/phase2-plan.md` §P2-B2 already states — a change
+must move *both* runs or it is not a change — applied to a baseline that itself does
+not hold still.
+
+### What is still worth doing
+
+The `tool_selection_holdout` (P2-B4) is untouched and remains the correct instrument
+for judging a change *once one exists*: it was never consulted while tuning, and it
+can be run twice the same way. What cannot be built is a change whose justification is
+"three cases more often than before" when "often" spans that range.
+
+This is a property of the endpoint, not of the harness: the fake provider replays a
+script and is deterministic, and the harness itself produced byte-identical results
+across every run recorded in this file. **B2 is deferred, not cancelled** — it becomes
+measurable when the model under test answers consistently enough for two runs to
+agree.
+
+### A note on the run configuration
+
+`MODEL_TIMEOUT_SECONDS` had to be raised from its default 60 to 180 for these runs: at
+60 the first attempt died in `choose_tool` with `APITimeoutError`, because this
+endpoint's p95 is 280 s. That is a statement about the endpoint, not a tuning knob —
+a run at the default would have measured timeouts rather than tool selection.

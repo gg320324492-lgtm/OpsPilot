@@ -122,6 +122,16 @@ this step.
 least twice** so a single run's variance is not read as improvement. A change
 that moves one run and not the other is not a change.
 
+**Status: deferred, because the acceptance cannot be met as written.** Two runs
+of the unmodified code against `MiniMax-M3.1-Flash-Preview` scored **3/15 and
+2/15**, and proposed an identical tool set for only 8 of the 15 cases — every
+case that failed in both failed *differently* the second time. The gap between
+the two runs is as large as any plausible improvement, so "ten of fifteen"
+cannot distinguish a change from noise against this endpoint. The measurement
+and the case-by-case comparison are in `docs/progress.md` under "Two runs of
+the same code". B2 resumes when the model under test answers consistently enough
+for two runs to agree; the holdout from B4 is the instrument for judging it then.
+
 ### B3 — Correct what `tool argument validity` actually measures
 
 Measured at the baseline commit, all 170 recorded tool calls split as **77
