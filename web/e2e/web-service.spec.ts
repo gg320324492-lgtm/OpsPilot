@@ -52,7 +52,7 @@ import {
 let stack: StackHandle | null = null;
 
 test.beforeAll(async () => {
-  stack = await startContainerisedWebOrSkip();
+  stack = await startContainerisedWebOrSkip("web-service");
 });
 
 test.afterAll(() => {

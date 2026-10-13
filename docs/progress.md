@@ -5094,3 +5094,395 @@ one line later — would turn the 90 from a count into a diagnosis, and would le
 B2 tell "the model supplied nothing" from "the model supplied the wrong shape,"
 which are different defects with different owners. That is a recording change, not
 a change to any behaviour, and it is §P2-B2's to decide.
+
+---
+
+## CI run 38202887580's first failure — the cause is NOT established, and the artifact cannot establish it
+
+**Date:** 2026-10-13.
+
+A diagnosis pass over the `web-e2e` red of CI run 38202887580: what the current
+instrumentation actually captures, whether the failure reproduces, and what each
+candidate cause would have had to look like. **No production code was changed and
+no assertion was weakened or skipped.** Four defects were found and are reported
+below rather than fixed, because fixing them is a separate decision.
+
+**The headline: this cause is unestablished, and `bf29b69`'s own note that "the
+worker never claimed it" is an inference the artifact does not support.** What the
+artifact does support is stronger and more uncomfortable than the inference: at
+the failing commit, the wait that timed out **could not observe the worker at
+all**, because it never re-read the run. The page it asserted against was a
+rendering of the run taken ~1.5 s after it was created, and a healthy worker needs
+~2 s (measured below) to park it. A worker that never claimed the run and a worker
+that claimed and parked it within two seconds produce **byte-identical artifacts**.
+
+### What the artifact from that run actually contains
+
+The run's job log and its Playwright artefact are both still downloadable
+(`gh run view 38202887580 --job 114659932184 --log`;
+`gh run download 38202887580 --name web-e2e-report`). They are worth stating
+precisely, because the premise this section was asked to confirm — *"the run sat
+at RECEIVED with zero steps for the full 90-second timeout … the worker never
+claimed the run"* — is the one claim in this story the evidence does not carry.
+
+The job log is what the CI job captured. It contains no worker output at all, and
+that is now explicable rather than merely stated: `stack.ts` runs
+`docker compose up -d` with `stdio: "inherit"`, which streams **Compose's own
+progress** — the `Container … Starting / Started / Healthy / Stopping` lines — and
+not container stdout. `grep opspilot-worker` over that job log returns sixteen
+compose lifecycle lines and **not one** `opspilot-worker[…]: booted;`. The
+worker's log is behind `docker logs`, which nothing in that run asked for. The
+`Capture the stack's own logs on failure` step did not exist yet.
+
+From the Playwright network trace (`trace.zip` → `1-trace.network`), two facts are
+established and neither is about the worker:
+
+- `POST /api/knowledge/reindex → 200`, then `POST /api/tickets → 201`.
+- `GET /runs/c06308a0-37d1-4abc-9bb4-e4a0f6fecb79` appears **exactly once**. Every
+  other dashboard route in the trace appears **eight** times. Over the 90-second
+  window in which the run was supposedly stuck, the browser made **one** request
+  for it.
+
+The `error-context.md` page snapshot is the DOM at failure, and the DOM had not
+changed since the navigation:
+
+```
+- heading "Run c06308a0" [level=1]
+- text: · fake/fake Received
+- term: Created       definition: time: Oct 12, 2026, 04:14:48 AM
+- term: Started       definition: —
+- text: 0 steps, as the server ordered them
+- paragraph: No steps recorded yet.
+```
+
+`Created: 04:14:48`; the ticket's run link was visible at `04:14:49.459` and the
+navigation to `/runs/{id}` followed immediately. So the snapshot is a picture of
+the run **~1.5 s old**.
+
+The screencast settles that the page was inert rather than merely un-refreshed at
+the instants sampled: `trace.zip` carries **thirteen** frames. Twelve fall between
+`1791778488061` and `1791778488834` — a 0.77-second burst of load and interaction
+— and the thirteenth is `1791778578891`, **90.06 seconds later**, the failure
+snapshot. A page that re-rendered would have produced frames throughout.
+
+### Why the wait could not have observed the worker
+
+This is established from the source at the failing commit `b8965d5`, not inferred.
+
+`git show b8965d5:web/e2e/golden-path.spec.ts` step 3:
+
+```ts
+await page.goto(`/runs/${runId}`);
+await expect(page.getByRole("heading", { name: /^Run / })).toBeVisible();
+await expect(page.getByText(/Parked\. Nothing has been sent\./)).toBeVisible({
+  timeout: 90_000,
+});
+```
+
+One navigation, then a bare `toBeVisible`. `toBeVisible` re-checks a locator
+against the **existing DOM**; it does not re-navigate, and it cannot notice a
+Server Component's data changing underneath it. `git show
+b8965d5:web/src/app/runs/[runId]/page.tsx` contains no `use client`, no
+`setInterval`, no `router.refresh`, no `revalidate` — the page is a pure Server
+Component rendered once per navigation, exactly as the current spec's own comment
+says.
+
+The same file, **fifty lines later, at the same commit**, already had this right for
+the `Completed` wait (lines 156–164):
+
+```ts
+await expect.poll(async () => {
+    await page.goto(`/runs/${runId}`);
+    return (await page.getByText(/^Completed$/).count()) > 0;
+  }, { timeout: 90_000, intervals: [2_000] }).toBe(true);
+```
+
+Two waits of the same kind, written two different ways, in one file. Step 3's
+could only ever pass if the run reached `waiting_approval` **before** the single
+navigation — a sub-second race against a worker that needs about two seconds.
+
+`bf29b69` changed step 3 to the `expect.poll` + re-navigate form. That is the
+commit recorded here as having "added diagnosability rather than a fix", and its
+message says *"No assertion was weakened, no timeout raised, no new skip."* All
+three are true, and none of them records that **the wait stopped asserting a static
+DOM and started re-reading the run**. That change is the reason the test can pass
+at all today. It belongs in the history of this failure and is not in it.
+
+The commit message also states, as fact, *"the worker claims a run submitted
+immediately in about two"*, and reasons from it that *"neither slow boot nor a
+start-order race explains a ninety-second stall."* The two numbers that would have
+shown the problem were in the message: claim ≈2 s, page load ≈1.5 s after
+creation.
+
+**What this does not establish: that the worker was healthy in that run.** It
+establishes that the artifact cannot distinguish a healthy worker from a dead one,
+because the wait never asked again.
+
+### Reproduction: no, and here is what was measured instead
+
+The historical failure was **not reproduced**, and cannot be: the claim path
+changed afterwards (`b9bbd5c` added the lease), and the failure was in the test's
+wait rather than in the stack, so the run that produced it is no longer a
+configuration this repository can produce. Attempted: the full suite twice
+(`16 passed (2.1m)`, exit 0), `golden-path.spec.ts` alone (`2 passed (41.0s)`),
+`docker compose` by hand, and the job log and artefact of run 38202887580 itself.
+
+What *was* measured, on this machine, with the stack up by hand:
+
+| measurement | result |
+|---|---|
+| run created → `started_at`, healthy worker | `04:55:57.185174Z` → `04:55:58.137635Z` |
+| healthy park latency, run 1 | **1.92 s** (`received` → `executing` 1.64 s → `waiting_approval` 1.92 s) |
+| healthy park latency, run 2 | **3.22 s** |
+
+The failing run navigated to the run page ~1.5 s after creating it, against a
+worker that parks in 1.9–3.2 s. The wait did not observe the gap.
+
+### What the current instrumentation captures, measured
+
+`bf29b69`'s three additions, exercised rather than read:
+
+**`writeComposeDiagnostics` — it does not reach the artefact.** After a **green**
+full suite the directory `web/test-results/compose-logs/` contains `worker.log` =
+`(no output)` (11 bytes) and `ps.txt` listing `opspilot-web-1` and **no worker
+row at all**. Run `golden-path.spec.ts` on its own and the same two files read:
+
+```
+opspilot-worker-1  opspilot-worker  "opspilot-worker"  worker  Up 16 seconds  8000/tcp
+worker-1  | … opspilot-worker[worker-compose]: booted; marked 0 interrupted run(s) failed; polling every 1.0s
+```
+
+`writeComposeDiagnostics` writes six fixed filenames into one directory and is
+called from **both** teardowns. `web-service.spec.ts` sorts after
+`golden-path.spec.ts` and its stack has no worker, so on every full run — failing
+or green — the worker's log, the one file that would have settled 38202887580, is
+overwritten with the empty output of a stack that never had a worker. The module
+docstring warns about *"whichever tears down last removes the containers the
+earlier one would have been asked about"*; the containers are handled, the
+**files** are not.
+
+**A crash loop IS visible — in the capture, not in the gate.** With the worker's
+command overridden (outside the repository, `docker compose -f … -f override.yml`)
+to exit 1:
+
+- `docker compose up -d --wait` printed **`Container opspilot-worker-1  Healthy`**
+  while the container was crash-looping. The `--wait` hole the docstring describes
+  is real and reproduced.
+- `docker compose ps -a` showed `Restarting (1) Less than a second ago`, and
+  `docker compose logs worker` showed the repeated
+  `opspilot-worker: refusing to start -- injected fault`. Both are captured
+  correctly by `writeComposeDiagnostics`.
+
+**`waitForWorkerPolling` does not gate what its docstring says it gates.** With a
+worker that prints its boot line and *then* exits 1 — the exact shape the docstring
+claims to guard against (*"a worker that booted, crashed, and came back leaves its
+FIRST boot line in the log forever … `restarts > 0` is what closes that"*), a
+transcription of `stack.ts:650-688`'s decision order against the live container
+printed:
+
+```
+BOOTED regex matches the log : true
+container state              : status=restarting restarting=true exit=1 restarts=6
+=> waitForWorkerPolling RETURNS (success) on the first poll, without reading the state.
+```
+
+The `BOOTED.test(logs)` test is the **first** statement in the loop body and
+returns before `workerContainerState()` is ever called, so `restarts > 0` is only
+consulted on the path where the boot line is *absent*. The guard is documented and
+not implemented. The CI-side capture would still have shown it; only the gate is
+defeated.
+
+**A healthy worker and an idle one are indistinguishable in the log.** The worker
+emits exactly **one** line for an entire lifetime — the boot line — whether it
+claimed nothing or drove a run to completion (the golden path above completed,
+refund executed, and `worker.log` is that single line). `loop.py`'s own comment
+says so: *"the worker's log for the entire incident held exactly one line — the
+boot line."* Per-claim logging does not exist, and adding it is a `src/` change,
+out of scope here.
+
+### The candidate causes, one at a time
+
+| candidate | verdict | what settles it |
+|---|---|---|
+| **the api did not accept the ticket** | **excluded** | `POST /api/tickets → 201` in `1-trace.network`; the snapshot renders the run's own id, its ticket link `f0a166aa…`, and `Created 04:14:48`. The run was created and persisted. |
+| **worker and api disagreed about the database** | **excluded by configuration** | `docker-compose.yml:315` gives the worker a literal `DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot`, and the api service carries the same literal. It is not `${…}`-templated in any service — deliberately (the compose comment at :401 says why), so a host `.env` cannot make the two diverge. |
+| **worker crashed on start → `SystemExit(1)` → `restart: unless-stopped`** | **not established** | Would have shown as `Restarting` in `ps -a`, `RestartCount > 0`, and repeated `opspilot-worker: refusing to start -- …` on stderr. None of that was captured, because `compose up -d` does not stream container stdout and the CI-side log step did not exist yet. |
+| **worker up, poll loop not running** | **not established** | Would have shown as a boot line and no further output — **which is exactly what a healthy idle worker also shows**. The two are indistinguishable in every artefact this run produced. |
+| **run claimed and then lost** | **not established**, and note the rendering | A run lost while still `received` renders as `received`, not `failed`: `claim_next` does not change the status, and the boot sweep skips `RECEIVED` (`db.py:147-161`, *"RECEIVED has no work to interrupt"*). Only a run lost *after* its first transition would read `FAILED('interrupted')`, and the stale page would not have shown that either. |
+
+Three of the five cannot be separated by the artefact that exists. That is not a
+gap in this analysis; it is the finding.
+
+### What the lease (`b9bbd5c`) changes
+
+For the historical failure: **neither** — the lease did not exist when that run
+happened, and the failure was in the wait.
+
+For this *class* of symptom, the lease makes it **strictly more likely**, and this
+was measured rather than argued. On a live stack, with a healthy worker
+(`Up 31 seconds`, boot line printed, 0 restarts), a run at `received` carrying an
+unexpired `claimed_until` was **not claimed for the whole lease**:
+
+```
+t=+3s  status=received started_at=None steps=0 lease_keys=[]
+…  (unchanged through t=+24s)
+row: received | claimed_by=ghost-worker | lease_still_live=t
+```
+
+Three facts make that window invisible rather than merely slow:
+
+1. `claim_next` writes the lease but **does not change the status**
+   (`repositories.py:420-422`), so the run stays `received`.
+2. The boot sweep **deliberately skips `RECEIVED`** (`db.py:147-161`), so a worker
+   restart does not clear it.
+3. The API response exposes **no lease field at all** — `grep claimed
+   src/opspilot/api/schemas.py` returns nothing, and the probe above reports
+   `lease_keys=[]`.
+
+So the rendered page is `Status: Received`, `Started: —`, `Completed: —`,
+`0 steps, as the server ordered them`, `No steps recorded yet.` — **character for
+character the snapshot in `error-context.md`**. Before the lease, `claim_next`
+changed nothing, so the same crash was re-driven by the next poll about a second
+later; the lease converts a ~1 s window into up to `WORKER_CLAIM_LEASE_SECONDS`
+(300 s, `docker-compose.yml:373`) — three times the 90-second park wait.
+
+The lease does remove the defect `docs/limitations.md` §2 records (thirty of thirty
+concurrent claims returning the same row), and that is a real gain. But its
+documented boundary — *"a worker that dies leaves a lease that expires, and the run
+becomes claimable again by the existing recovery path"* — is true and is exactly
+what makes the symptom unreportable meanwhile: **nothing observes a run that is
+claimed, leased, and not being driven.** Neither the API, nor the dashboard, nor
+the boot sweep, nor `waitForWorkerPolling`, which has already returned by then.
+
+### Defects found while diagnosing — reported, not fixed
+
+1. **`web/e2e/stack.ts::waitForWorkerPolling` — the restart guard does not exist.**
+   `BOOTED.test(logs)` returns before the container state is read
+   (`stack.ts:655-657` against `:658-667`), so a boot-then-crash-looping worker
+   passes (`restarts=6, restarting=true`, measured). Its docstring states the
+   opposite. Fixing it is a two-line reordering and changes no assertion.
+2. **`web/e2e/stack.ts::writeComposeDiagnostics` — the capture does not survive to
+   the artefact.** Fixed filenames in a shared directory; the second Docker spec's
+   teardown overwrites the golden path's `worker.log` with `(no output)`.
+   Namespacing by spec, or writing into each spec's own `test-results`
+   subdirectory, would fix it.
+3. **`src/opspilot/adapters/models/fake.py:167-175` — the `duplicate_charge`
+   fixture is single-use per worker process.** `_scenario_cursors` advances per
+   `generate_structured` call for the provider's lifetime, and the module docstring
+   says so (*"A call index advances per scenario"*), but nothing in `docs/` records
+   the consequence. Four consecutive golden-path submissions into one running stack
+   produced `waiting_approval, failed, waiting_approval, failed`, the failures
+   being `pydantic ValidationError: 6 validation errors for TicketClassification …
+   input_value={'body': 'We confirmed th…', 'escalated': False}` — the *reply*
+   fixture arriving where a classification was expected. This is **not** this CI
+   failure (it yields `FAILED('schema_invalid')`, not `received`), and the e2e suite
+   submits one ticket per fresh stack, which is why it has never reddened. It is a
+   real limitation of `MODEL_PROVIDER=fake` and it is not written down.
+4. **No per-claim log line in the worker.** `loop.py` logs only model failures and
+   lost leases. A worker that claims nothing and one that drives a run to
+   completion produce identical logs, which is the second half of why 38202887580
+   could not be diagnosed. Adding one is a `src/` change and is out of scope here.
+
+### What is not established, and what would settle it
+
+**The cause of 38202887580's first failure is unestablished and must not be
+recorded as fixed.** It has not recurred in the CI runs since
+(`38207426468` … `38285939804`, all green), and nothing in the instrumentation
+added afterwards has been *exercised against the failure*, because the failure
+cannot be produced any more.
+
+Three things would have settled it, in descending order of cost:
+
+1. **The worker's container state at 04:16:19.** `docker compose ps -a` and
+   `docker compose logs worker` before the `down -v`. Those are exactly what
+   `writeComposeDiagnostics` and the CI step now capture — but as finding 2 above
+   shows, on a full run the first capture is overwritten, so this would need the
+   namespacing fix first.
+2. **A second read of the run.** Any assertion of the form the failing run used —
+   load once, wait on the DOM — cannot distinguish any of the five candidates,
+   because the answer is the same for four of them. Re-reading is what the current
+   spec does, and it is the reason the current suite is green.
+3. **The row's `claimed_until` at failure time**, which would have separated
+   "never claimed" from "claimed and lost" outright. It is now the one piece of
+   evidence that would decide the lease question too, and nothing surfaces it.
+
+Until one of those is available for that run, the honest statement is the one this
+section makes: **the wait was defective and that defect is established; the worker's
+state during those ninety seconds is not.**
+
+---
+
+## C4's three findings, two fixed and one recorded
+
+**Date:** 2026-10-13.
+
+Acting on the section above. Findings 1 and 2 are fixed and tested; finding 3 —
+the fake-provider fixture's per-process cursor — is not in scope here and is
+untouched. No production code under `src/opspilot/` was changed, no assertion
+was weakened, no skip was added, and no existing spec was deleted.
+
+### 1. `waitForWorkerPolling`'s restart guard now exists
+
+The decision moved out of the poll loop into `stack.ts::assessWorker`, a pure
+function of `(logs, state)`. The order inside it is the fix: **container state
+first, boot line second.** The previous loop tested `BOOTED.test(logs)` and
+returned on a match, which left every check below it — `restarts > 0` among them
+— unreachable whenever the boot line was present, and because a container's log
+is append-only, that is precisely the crash-loop shape. `waitForWorkerPolling`
+now reads `workerContainerState` on every iteration and cannot return without
+consulting it.
+
+`web/e2e/stack-diagnostics.spec.ts` pins it without Docker. The decisive test
+feeds the *measured* fixture — a log carrying **three** boot lines and three
+`refusing to start -- injected fault` lines — alongside
+`{status: "restarting", restarting: true, restarts: 6}`, asserts the log really
+does contain the boot line (so the test cannot go green through an empty log),
+and asserts the verdict is `unhealthy_container`. Drop the `restarts === 0`
+clause and it fails; move the log check back in front of the state check and it
+fails. Both were the previous implementation, and that implementation passed this
+worker through.
+
+A second test covers the window the restart *count* alone would miss: under
+`restart: unless-stopped` there is a moment between the process dying and Docker
+acting, in which the container reads `exited` with `restarts: 0`. That is why
+the guard is on the container's shape and not on the count alone.
+
+### 2. The compose capture is namespaced per spec
+
+`writeComposeDiagnostics` wrote six fixed filenames into one directory that both
+teardowns wrote to, so `web-service.spec.ts` — which sorts last and has no
+worker in its stack — overwrote the golden path's `worker.log` with `(no
+output)` on every run, green or red. Captures now go to
+`web/test-results/compose-logs/<spec>/`, with the spec name the last path
+segment, and each spec passes its own name to `startStackOrSkip` /
+`startContainerisedWebOrSkip`. The label is a closed union
+(`DiagnosticLabel`), so a new spec cannot contribute an unattributable capture
+without adding itself to the list.
+
+The capture stays **unconditional** — on success as well as failure. The
+comparison argument usually given for that (a red run wants the green run's
+context beside it) does not survive contact with CI: `web-e2e` uploads
+`web/test-results/` under `if: failure()`, so a passing run's capture is never
+uploaded, and the next `npm run e2e` clears `test-results/` before it starts
+(measured — a sentinel file planted before a run was gone after it). What
+actually decides it is that gating on the test's status would change nothing CI
+stores while adding a condition to the one piece of code that runs when the run
+is going wrong.
+
+### 3. The lease widens the symptom C4 could not diagnose — recorded, not changed
+
+`claim_next` writes a lease without changing the run's status, the boot sweep
+skips `RECEIVED`, and the API projects no lease column, so a run that was claimed
+and then abandoned renders character-for-character like one nothing claimed —
+measured at the full 300 s of `WORKER_CLAIM_LEASE_SECONDS` against a healthy
+worker, where the pre-lease window was about a second.
+
+**The default is left at 300 s and should be.** It has to exceed a run's p95
+drive duration (276.7 s, `docs/milestones.md` §M8) or a long run loses its lease
+mid-drive and a second worker drives the same refund; 276.7 s already exceeds any
+detection window an operator would accept, so the number is at its floor and
+lowering it trades a five-minute silence for a double-drive. The missing thing
+is a bound on *detecting* the state, not on recovering from it — recovery is
+automatic and is exactly what makes it silent. Recorded in
+`docs/limitations.md` §2, with the boundary repeated in `docs/architecture.md` §5
+and ADR-0005, since all three currently read as though the claim is simply safe.

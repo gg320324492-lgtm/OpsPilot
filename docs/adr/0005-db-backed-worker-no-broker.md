@@ -61,6 +61,19 @@ works without any process running at all — a parked approval survives the work
 being
 down for a day.
 
+**Later decision, and what it costs.** The claim now holds its row for a worker
+that is driving it, via a lease rather than a status change (`b9bbd5c`;
+`migrations/versions/0002_claim_lease.py` — a status change would have had to
+make `EXECUTING` unclaimable, which §5 of `docs/architecture.md` explains would
+strand approved refunds). That closes the duplicate above and it changes what
+this ADR's own advice ("run one worker per database") now means: one worker per
+database is no longer a correctness requirement. The lease's own boundary is
+recorded in `docs/limitations.md` §2 and is worth repeating here, because this
+ADR is where a reader looks to decide whether the claim is safe — **a run that
+is claimed and then abandoned stays `RECEIVED` for up to one lease period
+(300 s), and nothing in the API, the boot sweep, the dashboard or the worker's
+log distinguishes that from a run that was never claimed.**
+
 **Cost.** Polling means up to `WORKER_POLL_INTERVAL` (default 1s) of added
 latency, and an idle worker issues a query per second per replica. Both are
 acceptable at this scale and both are honest: the README's latency figures

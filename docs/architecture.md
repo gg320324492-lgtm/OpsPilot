@@ -211,6 +211,15 @@ Consequences of this choice, stated honestly:
   a real PostgreSQL (`tests/integration/test_worker_claim_postgres.py`); the
   end-to-end guarantee is not, and `docs/limitations.md` §2 records it. Run one
   worker per database until a claim that holds its row is written.
+
+  A claim **lease** (`claimed_until`/`claimed_by`, `b9bbd5c`) now holds the row
+  for a worker that is driving it, which closes the duplicate above. Its own
+  boundary is the one an operator meets first: the lease does not change the
+  run's status, the boot sweep skips `RECEIVED`, and the API projects no lease
+  column, so a run that was claimed and then abandoned reads exactly like one
+  that was never claimed — for up to one lease period, measured at 300 s.
+  `docs/limitations.md` §2 carries the measurement and what it would take to
+  make that state visible.
 - **`WAITING_APPROVAL` is not a busy-wait.** The worker parks the run and moves
   on. Approval is an *edge-triggered* event: `POST /approvals/{id}/approve`
   flips the run back to a claimable state, and the worker picks it up again.

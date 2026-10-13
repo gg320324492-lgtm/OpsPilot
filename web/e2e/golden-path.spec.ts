@@ -69,7 +69,7 @@ const EXPECTED_CITATIONS = ["refund-policy.md", "duplicate-charge-sop.md"];
 let stack: StackHandle | null = null;
 
 test.beforeAll(async () => {
-  stack = await startStackOrSkip();
+  stack = await startStackOrSkip("golden-path");
 });
 
 test.afterAll(() => {

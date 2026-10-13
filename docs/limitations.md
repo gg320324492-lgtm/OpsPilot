@@ -97,6 +97,52 @@ its own decision, and is **Phase 2 C1's open half**, not something a test can
 assert into existence. The practical consequence: **run one worker per
 database.**
 
+**The claim lease fixes that, and in exchange widens an already-unreportable
+window from about a second to five minutes.** The lease (`b9bbd5c`;
+`migrations/versions/0002_claim_lease.py`) writes `claimed_until`/`claimed_by`
+in the same transaction as the claim read, so a *live* worker's run is not
+handed to a second worker — which is the 30/30 above, fixed. What the lease
+buys that is not free is that it now decides **when an abandoned run becomes
+claimable again**, and it does not change the run's status when it does
+(`repositories.py:420-422`). So a run that has been claimed and not driven
+stays `RECEIVED`, and from every surface this repository has, that is
+indistinguishable from a run nothing ever claimed:
+
+- the boot sweep deliberately skips `RECEIVED` (`db.py:150`,
+  `mark_interrupted_runs`), so a worker restart does not clear the lease;
+- `GET /api/runs/{id}` projects no lease column at all (`api/schemas.py` has no
+  `claimed_until` and no `claimed_by`), so the dashboard has nothing to render;
+- only a worker *driving* the run renews it (`worker/loop.py::_renew_lease_while_driving`),
+  so a claimer that died stops renewing and the run simply waits the lease out.
+
+Measured on a live stack against a healthy worker (`Up 31 seconds`, boot line
+printed, 0 restarts), a `RECEIVED` run carrying an unexpired lease went
+unclaimed for the full **300 s** (`WORKER_CLAIM_LEASE_SECONDS`,
+`docker-compose.yml`), and the page rendered `Status: Received`, `Started: —`,
+`0 steps, as the server ordered them`, `No steps recorded yet.` — character for
+character what a run nothing claimed renders as, and the exact snapshot CI run
+38202887580 could not explain. Before the lease that window was about a second,
+because a claim that wrote nothing left the row for the very next poll.
+
+**The default is still defensible; what is missing is a bound on *detecting*
+this, not on recovering from it.** Recovery is automatic — the lease expires,
+the predicate's second clause admits the row again
+(`repositories.py:398-407`), the next poll takes it — and that is why the
+boundary ADR-0005 describes ("a worker that dies leaves a lease that expires,
+and the run becomes claimable again") is true. It is also precisely what makes
+the symptom unreportable meanwhile: recovery is silent, and it arrives up to one
+lease period late. **Lowering the default is not available.** It has to exceed
+a run's p95 drive duration, measured at 276.7 s on the live eval
+(`docs/milestones.md` §M8), or a long run loses its lease mid-drive and a second
+worker drives the same refund — which is a worse outcome than a slow one, and
+276.7 s is already larger than any detection window an operator would accept.
+The two requirements are incompatible, so the number is at its floor and the
+change belongs elsewhere: **project `claimed_until`/`claimed_by` on the run and
+render a claimed-but-not-started run as its own state.** Until that exists, a
+run at `RECEIVED` for longer than `WORKER_POLL_INTERVAL` is not evidence of a
+busy worker, and no capture, log line or screen in this repository can tell
+the two apart.
+
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.
 
