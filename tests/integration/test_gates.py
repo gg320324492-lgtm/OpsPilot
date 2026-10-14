@@ -171,7 +171,7 @@ async def test_safe_write_executes_automatically_and_is_audited_before_returning
 ) -> None:
     harness = await _harness(factory)
     record = await harness.gate(
-        ProposedAction(tool_name="issues.create", arguments={"title": "t", "body": "b"})
+        ProposedAction(tool_name="issues.create", arguments={"title": "t", "description": "d"})
     )
 
     assert record.status == "executed"
@@ -186,7 +186,7 @@ async def test_permission_is_snapshotted_from_the_registry(
 ) -> None:
     harness = await _harness(factory)
     await harness.gate(
-        ProposedAction(tool_name="issues.create", arguments={"title": "t", "body": "b"})
+        ProposedAction(tool_name="issues.create", arguments={"title": "t", "description": "d"})
     )
     rows = _tool_calls(factory, "issues.create")
     assert len(rows) == 1

@@ -21,7 +21,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class Permission(StrEnum):
@@ -140,11 +140,66 @@ class RefundArgs(BaseModel):
 
 
 class CustomerLookupArgs(BaseModel):
-    """Arguments shared by the CRM lookups keyed on a customer/account id."""
+    """Arguments for the CRM lookups keyed on a customer/account id."""
 
     model_config = ConfigDict(extra="forbid")
 
     customer_id: str = Field(min_length=1)
+
+
+class CustomerResolveArgs(BaseModel):
+    """Arguments for ``crm.get_customer``, which takes an email **or** an id.
+
+    Not ``CustomerLookupArgs``, and that is the point. `docs/mcp-contracts.md` §1
+    documents two accepted forms:
+
+        { "customer_email": "billing@acme.example" }
+        // or
+        { "customer_id": "CUS-1001" }
+
+        Exactly one of `customer_email` / `customer_id` must be given.
+
+    ``mcp_servers/crm/server.py::get_customer`` implements exactly that -- both
+    parameters, optional, with the "neither / both-disagreeing" cases answered
+    ``validation_error``. Gate 1 did not: all three CRM lookups shared
+    ``CustomerLookupArgs``, which declared only ``customer_id`` under
+    ``extra="forbid"``. So a model that proposed the contract's own first
+    example was refused at gate 1 before the tool ran -- which is what the live
+    recording of 2026-10-15 shows happening
+    (``docs/evidence/live-run-2026-10-15.json``).
+
+    The "exactly one" rule is enforced here rather than left to the server so
+    that a call carrying both identifiers is refused at the gate, not resolved
+    by whichever the tool happens to prefer. Guessing which one was meant "is how
+    a wrong customer gets refunded" (the contract's own words), and gate 1 is
+    where that decision belongs.
+
+    The drift guard is
+    ``tests/integration/test_mcp_contract_arguments.py``: it reads the
+    parameters out of the contract document and asserts this schema accepts
+    every one. It was written because the guard that already existed
+    (``tests/unit/test_permissions.py::test_every_gate_1_schema_is_accepted_by_the_real_tool``)
+    only pushes gate 1's fields *toward* the server; a parameter the contract
+    documents but the schema omits is invisible to it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_email: str | None = Field(default=None, min_length=1)
+    customer_id: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _exactly_one_identifier(self) -> CustomerResolveArgs:
+        given = [name for name in ("customer_email", "customer_id") if getattr(self, name)]
+        if len(given) != 1:
+            # TRY003 wants the message on an exception class, and a field
+            # validator has none: Pydantic wraps this into a ValidationError
+            # with no class of ours to hang it on. The reasoning lives in the
+            # class docstring above, and this string is what the model sees.
+            raise ValueError(  # noqa: TRY003 -- no exception class exists to hold it
+                "exactly one of customer_email or customer_id is required"
+            )
+        return self
 
 
 class InvoiceLookupArgs(BaseModel):
@@ -193,12 +248,34 @@ class IssueSearchArgs(BaseModel):
 
 
 class IssueCreateArgs(BaseModel):
-    """Arguments for ``issues.create``."""
+    """Arguments for ``issues.create``.
+
+    The fields are the contract's, which are also the server's:
+    ``docs/mcp-contracts.md`` §5 shows ``{ "title", "description", "priority",
+    "labels" }`` and ``mcp_servers/issues/server.py::create`` declares exactly
+    those four. This model previously declared ``title`` and ``body`` -- a
+    ``body`` the tool has no parameter for, and no ``description``/``priority``/
+    ``labels``. **No argument set satisfied both sides**: the contract's example
+    was refused at gate 1 under ``extra="forbid"``, and a payload gate 1
+    accepted named a field the server would have ignored.
+
+    That is the same defect ``TransactionListArgs`` records having survived four
+    milestones, in a second tool. It is why
+    ``tests/integration/test_mcp_contract_arguments.py`` exists: the older guard
+    only pushed gate 1's fields toward the server, so a contract parameter the
+    schema omits went unnoticed in both directions.
+
+    ``description``, ``priority`` and ``labels`` are optional because the server
+    declares them so -- only ``title`` is required, and the server allocates the
+    ``OPS-{n}`` key itself.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
-    body: str = Field(min_length=1)
+    description: str | None = None
+    priority: str | None = None
+    labels: list[str] = Field(default_factory=list)
 
 
 # Gate 1's schema surface: the Pydantic model each tool's arguments are parsed
@@ -208,7 +285,7 @@ class IssueCreateArgs(BaseModel):
 # unparsed.
 TOOL_ARGUMENT_SCHEMAS: Final[dict[str, type[BaseModel]]] = {
     "knowledge.search": KnowledgeSearchArgs,
-    "crm.get_customer": CustomerLookupArgs,
+    "crm.get_customer": CustomerResolveArgs,
     "crm.get_account": CustomerLookupArgs,
     "crm.get_subscription": CustomerLookupArgs,
     "billing.get_invoice": InvoiceLookupArgs,
@@ -269,6 +346,28 @@ def validate_tool_call(
     ``ToolCall.arguments`` and snapshotted for the approver -- so the row records
     exactly what will execute.
 
+    ``exclude_none=True`` is what the dump uses, and it is load-bearing rather
+    than cosmetic. A field defaulted to ``None`` means *the model did not supply
+    it*, and the dictionary built here is handed to the MCP server verbatim
+    (``agents/runtime.py``'s EXECUTE step) -- so an included ``None`` is a
+    parameter the tool receives. Three schemas have such fields and none of them
+    wants the null:
+
+    * ``crm.get_customer`` -- sending both ``customer_email: null`` and
+      ``customer_id`` reads to the server as *both* identifiers given, which the
+      contract refuses ("exactly one"). The null would turn the contract's own
+      accepted form into a ``validation_error``.
+    * ``billing.issue_refund`` -- ``transaction_amount`` is gate 1's fast-fail
+      field, derived from the retrieved invoice; the MCP server has no such
+      parameter and rejects unknown ones under ``extra="forbid"``.
+    * ``issues.create`` -- ``description`` and ``priority`` are optional on both
+      sides, and a null is a value where the server expects an absent key.
+
+    Found by ``tests/integration/test_mcp_contract_arguments.py`` when
+    ``crm.get_customer`` grew its optional identifier: the test asserted the
+    call reached the tool, and what reached it was
+    ``{"customer_email": None, "customer_id": "C1"}``.
+
     Raises:
         InvalidArgumentsError: If the tool is registered and the arguments do not
             parse into its argument model. This is a *result*, caught by the
@@ -284,4 +383,4 @@ def validate_tool_call(
         parsed = schema.model_validate(arguments)
     except ValidationError as exc:
         raise InvalidArgumentsError(name, exc) from exc
-    return spec, parsed.model_dump()
+    return spec, parsed.model_dump(exclude_none=True)

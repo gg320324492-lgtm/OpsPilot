@@ -408,6 +408,30 @@ milestone log.
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
 
+- **Two gate-1 schemas rejected the arguments the contract documents.** Found on
+  2026-10-15 while chasing the live recording's `crm.get_customer` failure.
+  `docs/mcp-contracts.md` §1 offers `customer_email` **or** `customer_id` for
+  `crm.get_customer`, and `mcp_servers/crm/server.py` implements both — but all
+  three CRM lookups shared `CustomerLookupArgs`, which declared only
+  `customer_id` under `extra="forbid"`, so the contract's own first example was
+  refused at gate 1. `issues.create` had the same shape: the contract and server
+  take `{title, description, priority, labels}`, gate 1 declared
+  `{title, body}` — a field the tool has no parameter for, and three missing.
+  This is the defect `TransactionListArgs` records having "survived four
+  milestones" (*no argument set satisfied both sides*) in two more tools. It
+  escaped the existing guard because
+  `test_every_gate_1_schema_is_accepted_by_the_real_tool` only pushes schema
+  fields *toward* the server; a contract parameter the schema omits is never
+  sent, so nothing checks it. `tests/integration/test_mcp_contract_arguments.py`
+  is the reverse direction, reading the parameters out of the contract document.
+  Fixing it exposed a third leak: unset optional fields reached the MCP server as
+  `null`, so an email-only lookup arrived as *both* identifiers — now
+  `validate_tool_call` dumps with `exclude_none=True`. **It does not change the
+  0.471 argument-validity figure**: the recorded call sent `email`, where the
+  contract says `customer_email`, and that argument is wrong under either schema.
+  What it fixes is the case where a model reads the contract correctly and is
+  refused anyway.
+
 - `MaxStepsExceeded` killing the worker — a run that spent its step budget
   raised out of `drain_once`, and `poll_forever`'s `while True` had no handler,
   so the exception took the worker down and every run queued behind it waited

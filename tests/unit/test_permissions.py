@@ -116,11 +116,16 @@ def test_valid_arguments_are_parsed_and_defaulted() -> None:
     ("name", "arguments"),
     [
         ("crm.get_customer", {"wrong_field": "x"}),
-        ("crm.get_customer", {}),
+        ("crm.get_customer", {}),  # neither identifier
+        (
+            "crm.get_customer",
+            {"customer_email": "a@b.example", "customer_id": "CUS-1"},
+        ),  # both identifiers -- the contract's "exactly one"
         ("billing.issue_refund", {"transaction_id": "TX-1"}),  # missing amount
         ("billing.issue_refund", {"transaction_id": "", "amount": "1.00"}),  # empty id
         ("knowledge.search", {"query": ""}),  # empty query
-        ("issues.create", {"title": "t"}),  # missing body
+        ("issues.create", {}),  # missing title (description/priority/labels are optional)
+        ("issues.create", {"title": "t", "body": "b"}),  # `body` is not a parameter
         ("billing.list_transactions", {"invoice_id": ""}),  # empty id
         ("billing.list_transactions", {}),  # missing invoice_id
         ("billing.list_transactions", {"account_id": "A"}),  # the pre-M6c field name
@@ -145,10 +150,12 @@ def test_unknown_fields_are_forbidden() -> None:
 def test_validate_never_returns_a_spec_without_parsing() -> None:
     """The returned spec and the parsed arguments come out together, so a caller
     cannot get the spec and skip validation."""
-    result = validate_tool_call("issues.create", {"title": "t", "body": "b"})
+    result = validate_tool_call(
+        "issues.create", {"title": "t", "description": "d", "priority": "high", "labels": ["l"]}
+    )
     spec, parsed = result
     assert isinstance(spec, ToolSpec)
-    assert parsed == {"title": "t", "body": "b"}
+    assert parsed == {"title": "t", "description": "d", "priority": "high", "labels": ["l"]}
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +187,18 @@ def test_validate_never_returns_a_spec_without_parsing() -> None:
 # even when its arguments are merely wrong.
 
 
-def _example_arguments(model: type[Any]) -> dict[str, Any]:
+#: The one schema whose validity is a *relationship between* fields rather than
+#: a set of required ones. ``CustomerResolveArgs`` takes an email or an id and
+#: refuses both-at-once and neither -- so "fill every required field" produces
+#: `{}`, which the validator rejects. There is no way to derive "exactly one of
+#: these two" from `model_fields`, so it is stated here rather than guessed, and
+#: the guard below asserts the value it names actually validates.
+_ONE_OF_OVERRIDES: dict[str, dict[str, Any]] = {
+    "crm.get_customer": {"customer_email": "drift-guard@example.test"},
+}
+
+
+def _example_arguments(model: type[Any], *, tool: str | None = None) -> dict[str, Any]:
     """Build the minimum valid arguments for a gate-1 argument model.
 
     Derived from the model's own fields rather than written per tool, so a schema
@@ -189,8 +207,15 @@ def _example_arguments(model: type[Any]) -> dict[str, Any]:
     string fields that the server also treats as a bounded set are left to the
     server's own validation, which is the point -- this helper only has to get
     past *gate 1*.
+
+    ``tool`` names the tool the model belongs to, so a schema whose validity is
+    not expressible as "these fields are required" can be given an explicit
+    example. See ``_ONE_OF_OVERRIDES``.
     """
     from pydantic import BaseModel as _BaseModel
+
+    if tool is not None and tool in _ONE_OF_OVERRIDES:
+        return dict(_ONE_OF_OVERRIDES[tool])
 
     assert issubclass(model, _BaseModel)
     arguments: dict[str, Any] = {}
@@ -207,6 +232,18 @@ def _example_arguments(model: type[Any]) -> dict[str, Any]:
         else:  # pragma: no cover - no required non-scalar field today
             arguments[name] = "DRIFT-GUARD-PROBE"
     return arguments
+
+
+def test_every_one_of_override_still_validates() -> None:
+    """The overrides are examples, not escapes -- each must pass gate 1.
+
+    Without this, an override that stopped being valid (a renamed field, a
+    tightened validator) would make the drift guard below fail with a confusing
+    message about the *server* rejecting a payload gate 1 never produced.
+    """
+    for tool, arguments in sorted(_ONE_OF_OVERRIDES.items()):
+        model = TOOL_ARGUMENT_SCHEMAS[tool]
+        model.model_validate(arguments)
 
 
 @pytest.fixture
@@ -271,7 +308,7 @@ async def test_every_gate_1_schema_is_accepted_by_the_real_tool(
     assert tools, "no external tools found -- the guard would pass vacuously"
 
     for name, model in sorted(tools.items()):
-        arguments = _example_arguments(model)
+        arguments = _example_arguments(model, tool=name)
         spec, parsed = validate_tool_call(name, arguments)
         assert spec is not None, f"{name} is not in the registry"
 

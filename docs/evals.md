@@ -59,6 +59,53 @@ zero. A security population for argument handling would have to be *created* as
 cases that deliberately propose a forbidden or malformed call; the ordinary
 rejections above are not that population, and no zero is asserted for them.
 
+**Row 5 pools two distinct failures, and the row's own number does not tell them
+apart.** `tool_argument_validity` (`metrics.py:432`) counts a call as valid iff
+its stored arguments re-parse into the registered Pydantic schema
+(`metrics._arguments_valid`, `metrics.py:259`), over every *attempted* call
+(`metrics._attempted_calls`, `metrics.py:286`) — executed, failed or rejected.
+That predicate treats both of these as a miss:
+
+- **empty arguments** — the model proposed the tool but filled in nothing
+  (`arguments == {}`); and
+- **wrong arguments** — the model proposed a non-empty argument dict that the
+  schema refused, e.g. a **wrong parameter name**.
+
+The two are different failures with different fixes (empty = the model did not
+try; wrong-name = the model tried and got the schema wrong), but row 5's value is
+one pooled ratio and **does not separate them**. The split exists, but only in the
+breakdown metrics the table does not print: `metrics._argument_outcome`
+(`metrics.py:231`) classifies each call as `model_supplied` / `model_empty` /
+`model_malformed` / `unknown_tool`, and `empty_argument_proposals`
+(`metrics.py:496`) reports the `model_empty` count. Wrong-parameter-name calls
+land in `model_malformed` — a third bucket with no dedicated metric — so a
+wrong-name failure is counted (as a miss on row 5) but is not separable from an
+empty one by anything the table shows.
+
+This is not hypothetical. The live recording at
+`docs/evidence/live-run-2026-10-15.json` (MiniMax-M3.1-Flash-Preview,
+2026-10-15; story in `docs/progress.md` under "A live recording of the
+golden-path ticket") shows the model calling `crm.get_customer` with
+`{"email": "billing@acme.example"}` when `docs/mcp-contracts.md` §1 requires
+`customer_email`. The call was rejected twice with a `validation_error` and the
+model then escalated to a human instead of proposing the refund. That is a
+**wrong-parameter-name** call: a non-empty argument dict the schema refused, so
+row 5 counts it as a genuine *failure* (not a pass, and not a non-event) — but it
+is a `model_malformed` call, and `empty_argument_proposals` does not count it,
+because it is not empty. The recording is the concrete instance of the failure
+mode row 5's pooled figure cannot name on its own.
+
+**The recording also caught a defect of ours, and it is fixed.** Chasing the
+rejection showed that `crm.get_customer`'s gate-1 schema accepted *only*
+`customer_id` while the contract offers `customer_email` **or** `customer_id` —
+so a model that read the contract correctly and sent `customer_email` was refused
+too. `issues.create` had the same shape. Both schemas now match the contract
+(`docs/limitations.md` §8, fixed list). This does **not** move row 5's 0.471: the
+recorded call sent `email`, which is wrong under either schema. What changed is
+that the *other* way to fail — reading the contract right and being refused by
+our own gate — no longer exists, so a future run's wrong-argument count is only
+the model's.
+
 ## 2. Datasets
 
 50–80 cases total, in JSONL, committed to the repository.

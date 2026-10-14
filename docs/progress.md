@@ -5681,3 +5681,70 @@ and could **replace** the fixture — the recorder writes the real prompt, so
 unlike the hand-written file it would carry a `request_hash` and match on
 content rather than position. That is a run to make when the endpoint's
 argument validity improves, and the same script makes it; nothing needs building.
+
+## The recording's argument defect was two defects, and one was ours
+
+The live recording above shows the model calling `crm.get_customer` with
+`{"email": ...}` and being rejected. Chasing why turned up something larger: the
+rejection was not only the model's fault. **Gate 1's schema and the contract
+disagreed about what the tool accepts, in two different tools.**
+
+### `crm.get_customer`
+
+`docs/mcp-contracts.md` §1 documents two accepted forms and says so in words:
+
+    { "customer_email": "billing@acme.example" }
+    // or
+    { "customer_id": "CUS-1001" }
+    Exactly one of `customer_email` / `customer_id` must be given.
+
+`mcp_servers/crm/server.py::get_customer` implements exactly that. But all three
+CRM lookups shared one schema, `CustomerLookupArgs`, which declared only
+`customer_id` under `extra="forbid"` — so the contract's own **first** example was
+refused before the tool ran.
+
+### `issues.create`
+
+The contract and the server both take `{title, description, priority, labels}`.
+Gate 1's `IssueCreateArgs` declared `{title, body}` — a `body` the tool has no
+parameter for, and three of the four real fields missing. The contract's example
+would be refused; a call gate 1 accepted would name a field the server ignores.
+
+That is the identical defect `TransactionListArgs` records having "survived four
+milestones" — *no argument set satisfied both sides* — in two more tools.
+
+### Why the existing drift guard did not catch it
+
+`tests/unit/test_permissions.py::test_every_gate_1_schema_is_accepted_by_the_real_tool`
+pushes each schema's fields **toward** the server. It catches a schema field the
+server rejects. It cannot catch the reverse: a parameter the *contract* documents
+that the schema omits, because nothing in that direction is ever sent.
+
+`tests/integration/test_mcp_contract_arguments.py` is the other direction. It
+reads the parameter names out of `docs/mcp-contracts.md` and asserts each is
+accepted by the tool's gate-1 schema. Both tools fail it before the fix.
+
+### A third defect the fix exposed
+
+Widening `crm.get_customer` to two optional fields surfaced one more: the
+arguments handed to the MCP server carried the *unset* field as `null`. An
+`email`-only call arrived as `{"customer_email": "...", "customer_id": null}`,
+which the server reads as **both** identifiers given — the contract's refusal.
+`validate_tool_call` now dumps with `exclude_none=True`, because a `None` default
+means "the model did not supply it" and the dictionary is forwarded verbatim.
+`billing.issue_refund`'s `transaction_amount` (gate 1's fast-fail field) had the
+same leak: the server has no such parameter and rejects unknown ones.
+
+### What this does and does not explain about the recording
+
+It does **not** excuse the recorded call. The model sent `email`, and the
+contract's spelling is `customer_email`; that argument is wrong under either
+schema, so the recording's `validation_error` stands and the 0.471 figure is
+unchanged by this fix.
+
+What it does change is the surrounding claim. A model that reads the contract
+correctly and sends `customer_email` was **also** being refused, and that one was
+ours. Two of the three CRM tools' document-and-code mismatches are now closed;
+the argument-naming failure is the model's and remains open.
+
+937 passed / 20 skipped; mypy 190 files clean; ruff and format clean.

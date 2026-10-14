@@ -153,6 +153,18 @@ has to be *created* — cases that deliberately propose a forbidden or
 malformed call — before the security half of it can be asserted at zero for any
 meaning.
 
+**The live recording refines this: the metric does count wrong arguments, it just
+cannot name them.** The baseline run's 90 rejections happen to be all-empty, so
+row 5's pooled `0.471` reads as "did the model fill anything in". But the
+2026-10-15 recording (`docs/evidence/live-run-2026-10-15.json`) is a call with a
+*non-empty* argument dict — `crm.get_customer` called with `email` instead of the
+contract's `customer_email` — and row 5 counts that too, as a genuine failure
+(`model_malformed`). So the gap is narrower than "the metric measures the wrong
+thing": the metric measures argument validity correctly, but it pools an
+empty-argument miss and a wrong-parameter-name miss into one ratio and separates
+neither (`empty_argument_proposals` catches only the empty one). The defect the
+recording exposes is the pooled figure's *resolution*, not its predicate.
+
 **Acceptance:** the metric's name matches what it counts, the 90 empty-argument
 calls are attributed to the model rather than to the gate, and any security
 population is drawn from cases that exist for that purpose rather than inferred
