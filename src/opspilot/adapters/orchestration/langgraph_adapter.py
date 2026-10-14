@@ -1,4 +1,4 @@
-"""``LangGraphOrchestrator``: the LangGraph executor, and an M0 stub.
+"""``LangGraphOrchestrator``: the LangGraph executor, unwritten.
 
 Responsibility: implement ``Orchestrator.step`` as a LangGraph graph whose nodes
 correspond to the state machine's stages. None of that is written: ``step`` and
@@ -35,15 +35,23 @@ from opspilot.ports.orchestrator import StepResult
 
 
 class LangGraphOrchestrator:
-    """M0 stub for the LangGraph executor. ``step`` and ``build_graph`` raise."""
+    """The LangGraph executor, unwritten. ``step`` and ``build_graph`` raise.
+
+    "Unwritten" rather than "an M0 stub", which is what this used to say: M0 was
+    the milestone that shipped the skeleton, and this class was never part of it
+    -- M4 built ``LinearOrchestrator`` and left this one out. Calling it an M0
+    stub implies a stage that has passed; the honest statement is that it is a
+    declared capability nothing implements, recorded as such in
+    ``docs/limitations.md`` §8 and left unticked in ``docs/milestones.md`` §M4.
+    """
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self._config = (args, kwargs)
 
     def build_graph(self) -> object:
-        """Assemble the graph from the runtime's stages. M0 stub."""
+        """Assemble the graph from the runtime's stages. Unwritten."""
         raise NotImplementedError
 
     async def step(self, run: AgentRun) -> StepResult:
-        """Advance the run by one graph node. M0 stub."""
+        """Advance the run by one graph node. Unwritten."""
         raise NotImplementedError

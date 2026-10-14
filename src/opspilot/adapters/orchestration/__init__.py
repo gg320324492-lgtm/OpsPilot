@@ -4,9 +4,9 @@ Responsibility: two implementations of ``opspilot.ports.orchestrator.Orchestrato
 ``LinearOrchestrator`` is written and is what drives a provider-mode run: it is a
 thin dispatcher over the runtime's stage functions (``agents/runtime.py``'s
 ``*_stage`` functions, sequenced by ``StageDriver``), bound to the driver by
-``_pump`` and stepped one stage at a time. ``LangGraphOrchestrator`` remains an M0
-stub -- ``step`` and ``build_graph`` both raise ``NotImplementedError`` -- and
-nothing constructs it. There is no contract test comparing the two, and there
+``_pump`` and stepped one stage at a time. ``LangGraphOrchestrator`` remains
+unwritten -- ``step`` and ``build_graph`` both raise ``NotImplementedError`` --
+and nothing constructs it. There is no contract test comparing the two, and there
 cannot be one while one of them raises on every method it would compare.
 
 Layer: ``adapters``. Only this package may import ``langgraph``.

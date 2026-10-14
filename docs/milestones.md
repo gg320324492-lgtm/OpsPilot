@@ -382,9 +382,11 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       fixture, asserted as a subsequence of the legal set. (The criterion is
       unmet: both `LangGraphOrchestrator.step` and `build_graph` raise
       `NotImplementedError`, so no sequence is produced, and no test anywhere in
-      `tests/` names the class — the module is excluded from coverage and the
-      docstring's "exercised by a contract test in CI only" describes a test
-      that does not exist. No subsequence assertion exists and none can while
+      `tests/` names the class — the module is excluded from coverage, which its
+      own docstring now states plainly ("no test imports it … the module is
+      untested, not tested elsewhere"), because `8c558b1` deleted the old
+      "exercised by a contract test in CI only" claim for naming a test that
+      never existed. No subsequence assertion exists and none can while
       every method it would compare raises. `langgraph` is declared in
       `pyproject.toml` and imported by no module. This is a **capability gap, not
       a boundary** — `docs/limitations.md` §8 item 3 records it in its Remaining
