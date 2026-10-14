@@ -279,6 +279,13 @@ ignore = [
 # the audit on `urllib.request`, and the URL is a `127.0.0.1` constant this file
 # defines, not caller-supplied.
 "scripts/demo_golden_path.py" = ["T20", "S105", "S310"]
+# The live-fixture recorder prints its progress for the same reason the demo does
+# -- its stdout is how a person watches a metered recording happen, and routing it
+# through logging would hide it. ANN401 is the fake's case again: the wrapper takes
+# a *real* provider it must not import. N806 is a local constant that names how
+# many times the endpoint is retried, and reads better inside the function than at
+# module scope.
+"scripts/record_live_fixture.py" = ["T20", "ANN401", "N806"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation

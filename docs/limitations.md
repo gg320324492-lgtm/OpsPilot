@@ -104,7 +104,8 @@ in the same transaction as the claim read, so a *live* worker's run is not
 handed to a second worker — which is the 30/30 above, fixed. What the lease
 buys that is not free is that it now decides **when an abandoned run becomes
 claimable again**, and it does not change the run's status when it does
-(`repositories.py:420-422`). So a run that has been claimed and not driven
+(`SqlRunStore.claim_next` sets `claimed_until` and leaves `status` alone). So a
+run that has been claimed and not driven
 stays `RECEIVED`, and from every surface this repository has, that is
 indistinguishable from a run nothing ever claimed:
 
@@ -123,8 +124,8 @@ character what a run nothing claimed renders as, and the exact snapshot CI run
 because a claim that wrote nothing left the row for the very next poll.
 
 **The default is still defensible, and the default did not move.** Recovery is
-automatic — the lease expires, the predicate's second clause admits the row again
-(`repositories.py:398-407`), the next poll takes it — and that is why the
+automatic — the lease expires, `claim_next`'s predicate admits the row again
+(its `claimed_until < now` clause), the next poll takes it — and that is why the
 boundary ADR-0005 describes ("a worker that dies leaves a lease that expires,
 and the run becomes claimable again") is true. It is also precisely what makes
 the symptom unreportable meanwhile: recovery is silent, and it arrives up to one
@@ -435,7 +436,7 @@ legible):
 - `knowledge.search` — `architecture.md` §7 advertises it as an automatic `READ`
   tool, and `adapters/wiring.py::RetrievalStack` has bound a `KnowledgeTool`
   since retrieval landed, but no code on the dispatch site could reach it. The
-  runtime's single `gateway.call_tool` (`agents/runtime.py:638`) was handed a bare
+  runtime's single `gateway.call_tool` call site was handed a bare
   `MCPToolGateway` at both assembly points, and `mcp_gateway.py::_server_for`
   returns `None` for any server outside `{crm, billing, issues}` — so a server of
   `"internal"`, as `domain/tools.py` registers it, came back

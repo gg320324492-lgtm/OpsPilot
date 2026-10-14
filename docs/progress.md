@@ -5614,3 +5614,70 @@ agree.
 60 the first attempt died in `choose_tool` with `APITimeoutError`, because this
 endpoint's p95 is 280 s. That is a statement about the endpoint, not a tuning knob —
 a run at the default would have measured timeouts rather than tool selection.
+
+## A live recording of the golden-path ticket, and what the model actually did
+
+**Date:** 2026-10-15. `scripts/record_live_fixture.py`, against
+`MiniMax-M3.1-Flash-Preview` at `https://api.minimaxi.com/v1`. Six real calls,
+captured with the actual prompts (230–3142 characters) rather than the
+`<assembled by …>` placeholders the committed fixtures carry in that slot.
+
+This was run to close the one M4 criterion that needs a real provider: the
+fixtures must be *recorded*, not hand-written. It did not close it, and the
+reason is the finding.
+
+### The run reached `completed` without proposing a refund
+
+| # | Call | What the model did |
+|---|---|---|
+| 0 | `generate_structured` / TicketClassification | `duplicate_charge`, confidence **0.99** — correct |
+| 1 | `choose_tool` | `crm.get_customer` with `{"email": "billing@acme.example"}` |
+| 2 | `choose_tool` | `crm.get_customer` again, same arguments |
+| 3 | `choose_tool` | `issues.create` — "Manual verification required…" |
+| 4 | `choose_tool` | `done: true`, no refund proposed |
+| 5 | `generate_structured` / AgentResponse | an escalation reply to the customer |
+
+The committed fixture scripts a different run: `crm.get_customer` →
+`billing.get_invoice` → `billing.list_transactions` → `billing.issue_refund`
+(parks at the approval gate) → `AgentResponse`.
+
+### The cause is a tool-argument error, and it is measurable
+
+The CRM contract (`docs/mcp-contracts.md`) takes **`customer_email`**. The model
+sent **`email`**. The tool answered `ok=True` with a payload of
+`{"customer": null, "error": {"code": "validation_error", "message": "Provide
+exactly one of customer_email or customer_id."}}` — a refusal the runtime's gate
+counts as a failed call, which is why both attempts are in the trace.
+
+Having failed twice to resolve the customer, the model did the defensible thing:
+it declined to propose a refund it could not verify and opened a human-review
+issue instead. **Its reasoning was sound and its conclusion was correct given
+what it was told.** The defect is upstream, in the argument it chose.
+
+That is the 0.471 argument-validity figure `docs/evals.md` reports, and the
+failure `docs/phase2-plan.md` §P2-B2 could not attribute — "the failures are not
+one wrong menu applied consistently". Here it is as one concrete, reproducible
+instance: the right tool, the right intent, the wrong parameter name.
+
+### Why this cannot replace the committed fixture
+
+`duplicate_charge.json` is driven by **eight test modules** — `test_golden_path`,
+`test_readme_scenarios`, `test_step_latency`, `test_model_call_events`,
+`test_worker_survives_max_steps`, `test_gate_dispatch_contract`, and the harness
+itself — which assert the park-at-approval, refund-exactly-once sequence. A
+recording in which the model escalates instead ends those runs at `completed`
+with no approval and no refund, so promoting it would fail dozens of tests.
+
+So the fixture stays hand-written and the M4 criterion stays unticked, for a
+reason that is now recorded rather than assumed. What the recording *is* good
+for is what it shows: a live instance of the argument defect, kept at
+`.scratch/evidence/live-run-2026-10-15.json` and reproducible with
+`scripts/record_live_fixture.py`.
+
+### What would change the answer
+
+A recording where the model sends `customer_email` would script the golden path
+and could **replace** the fixture — the recorder writes the real prompt, so
+unlike the hand-written file it would carry a `request_hash` and match on
+content rather than position. That is a run to make when the endpoint's
+argument validity improves, and the same script makes it; nothing needs building.

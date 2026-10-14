@@ -261,14 +261,15 @@ imports with no business logic, and a published GitHub repository.
       and `StubGateway()` (`adapters/tools/stub_gateway.py`).)
 - [x] The five gates are implemented in order with no bypass path:
       schema → registry → permission → policy → approval.
-      (`agents/runtime.py:369` `_gate_and_execute` is one linear function with
+      (`agents/runtime.py` `_gate_and_execute` is one linear function with
       `GATE_SCHEMA`…`GATE_APPROVAL` named per stage; `gateway.call_tool` has
-      exactly one call site in `agents/`, at line 638, after gate 5.
+      exactly one call site in `agents/`, after gate 5.
       `test_gates.py::test_gate_1_runs_before_gate_2` pins the ordering; each
       gate has its own test in the same file.)
 - [x] `HIGH_RISK_WRITE` without an approved `ApprovalRequest` for that exact
       `tool_call_id` raises `RunParked` and executes nothing.
-      (`runtime.py:595` reads `approval_store.has_approved(call.id)`; `_park_run`
+      (`runtime.py` reads `approval_store.has_approved(call.id)` in
+      `_gate_and_execute`; `_park_run`
       persists the pending approval, moves the run, then raises as the last
       statement. `test_gates.py::test_high_risk_without_approval_parks_and_executes_nothing`
       and `test_high_risk_does_not_execute_without_an_approval_row`.)
@@ -279,7 +280,7 @@ imports with no business logic, and a published GitHub repository.
 - [x] Arguments cannot be mutated between approval and execution
       (`ApprovalArgumentsChanged`).
       (`SqlToolCallStore.set_status` raises `_FrozenToolCall` (a subclass of it)
-      on any write to an already-executed call, `repositories.py:665`;
+      on any write to an already-executed call;
       `test_set_status_on_executed_call_raises`.)
 - [x] `issues.create` executes automatically **and** writes a `tool_executed`
       audit event before returning.
@@ -366,10 +367,22 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       refused by `UnmatchedFixtureError`, and the file carries the
       `request_hash` the committed placeholders do not. Mutation-verified three
       ways (wrong hash, `recorded: false`, empty provenance) — each breaks a
-      test. What remains is one run against a real provider, which needs the key
-      and is the only thing still standing between this row and a tick. A test
-      in that file fails the day anyone flips a committed fixture's `recorded`
-      flag without having actually made a recording.)
+      test. **The run against a real provider was then made, on 2026-10-15, and
+      it did not produce a usable fixture** — so the row stays unticked, but for
+      a recorded reason rather than a missing key. `scripts/record_live_fixture.py`
+      recorded six real calls from `MiniMax-M3.1-Flash-Preview`; the model
+      classified the ticket correctly (`duplicate_charge`, 0.99) then called
+      `crm.get_customer` with `{"email": …}` where the contract takes
+      `customer_email`. Rejected twice, it escalated to a human via
+      `issues.create` instead of proposing a refund — so the recording scripts a
+      *different* run from the one the committed fixture holds, and cannot
+      replace it (eight test modules assert the park-and-refund sequence). The
+      recording is kept at `docs/evidence/live-run-2026-10-15.json` as a live
+      instance of the 0.471 argument-validity defect `docs/evals.md` measures;
+      `docs/progress.md` records what it shows. The same script makes the
+      fixture the day the endpoint sends the right parameter name. A test in
+      `test_record_fixture_roundtrip.py` fails the day anyone flips a committed
+      fixture's `recorded` flag without having actually made a recording.)
 - [x] `AnthropicProvider` and `OpenAIProvider`, sharing one prompt-assembly and
       structured-output path.
       (Both import `adapters/models/_shared.py` and call its `default_system`,
@@ -449,8 +462,8 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       document returns early — `test_ingest.py::test_reingesting_unchanged_document_indexes_nothing`,
       `test_changed_document_is_reindexed`.)
 - [x] `knowledge_chunks` populated with `anchor` and `heading_path`.
-      (Both `NOT NULL` columns on the model (`models.py:310-311`) and in
-      `0001_initial_schema.py:250`; every chunk carries the nearest heading's
+      (Both `NOT NULL` columns on the `KnowledgeChunk` model in `models.py`, and
+      in `0001_initial_schema.py`; every chunk carries the nearest heading's
       anchor and its ancestry —
       `test_chunking.py::test_each_chunk_carries_nearest_heading_anchor`,
       `test_heading_path_records_the_ancestry`, `test_duplicate_headings_get_distinct_anchors`.)

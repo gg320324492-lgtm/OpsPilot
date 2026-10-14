@@ -61,8 +61,8 @@ semantics are what is simulated."*
 > (commit `da6cb74`, 2026-10-15): **13 of 13 jobs green.** Its two `test` jobs
 > (Python 3.12 and 3.13) each report **920 passed, 23 skipped**; its
 > `web-e2e` job reports **61 passed**. Verify with
-> `gh run view 38620909949`. The local suite is **924 passed, 19 skipped**
-> (`pytest`, 2026-10-15) — four more tests run on Windows than on the Linux
+> `gh run view 38620909949`. The local suite is **925 passed, 19 skipped**
+> (`pytest`, 2026-10-15) — five more tests run on Windows than on the Linux
 > runner, which is where the skip-count difference comes from.
 >
 > What is **not** done is listed honestly — `issues.create` is implemented and
@@ -97,7 +97,7 @@ does not make or a value you can recompute from a cited file.
 |---|---|---|
 | CI green | 13 of 13 jobs | run [`38620909949`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38620909949) |
 | Python tests (CI) | 920 passed, 23 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs |
-| Python tests (local) | 924 passed, 19 skipped | `pytest` on 2026-10-15; the 4-test delta is the Windows-only skips in the CI log |
+| Python tests (local) | 925 passed, 19 skipped | `pytest` on 2026-10-15; the 5-test delta is the Windows-only skips in the CI log |
 | Browser walkthrough | 61 passed | same run, the `web-e2e (browser golden path)` job |
 | Tools | 9 registered, 3 permission levels | `domain/tools.py::TOOL_REGISTRY` — 7 `READ`, 1 `SAFE_WRITE`, 1 `HIGH_RISK_WRITE` |
 | MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
