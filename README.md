@@ -933,26 +933,30 @@ here. Concretely it is:
 1. **A tag.** There are currently zero tags in this repository
    (`git tag` is empty), so there is nothing to release *from*. Release assets
    attach to a Git tag; `v0.1.0` does not yet exist.
-2. **A push.** Everything above this line is uncommitted. A release cut from
-   `main` today would ship without any of this README's changes.
+2. **A rebuild from the tagged commit.** The binary above was built from a
+   working tree on 2026-10-14 13:39, which predates `651bcef` and the three
+   commits since (`7ad9679`, `5f88201`, `79ed677`). So it cannot be reproduced
+   from any commit — it is a snapshot of a tree that no longer exists. A release
+   should ship a package built by
+   `cd desktop && npm ci && npm run package` on a clean checkout of the tag —
+   ideally in a CI job, so the artefact's provenance is a run id rather than a
+   person's machine.
 3. **Attaching the artefact.** `desktop/release/` is gitignored
    (`desktop/.gitignore:13`), and correctly so — 116 MB of build output does not
    belong in history. The file would be uploaded as a release asset:
    `gh release create v0.1.0 desktop/release/OpsPilot-Setup-0.1.0-x64.exe`.
    The `.blockmap` beside it is electron-builder's differential-update metadata
    and would go up alongside it if auto-update is ever wired.
-4. **A rebuild from the tagged commit, ideally.** The current binary was built
-   from a working tree, not from a commit, so it cannot be reproduced from
-   `651bcef`. A release should ship a package built by
-   `cd desktop && npm ci && npm run package` on a clean checkout of the tag —
-   ideally in a CI job, so the artefact's provenance is a run id rather than a
-   person's machine.
-5. **D2's real acceptance still outstanding.** §P2-D2 requires that the package
-   be installed and the golden path walked **on a clean Windows machine with
-   Docker Desktop, by someone who did not build it**. That has not happened.
-   Publishing an unverified installer as `0.1.0` would put a download link in
-   front of a prospective client ahead of the test the plan says it must pass
-   first.
+4. **D2's real acceptance still outstanding, and it is the one that gates the
+   rest.** §P2-D2 requires that the package be installed and the golden path
+   walked **on a clean Windows machine with Docker Desktop, by someone who did
+   not build it**. That has not happened — the installer here was built by the
+   person who wrote the code, so running it is self-certification.
+   [`docs/installer-verification.md`](docs/installer-verification.md) is the
+   script for it. Publishing an unverified installer as `0.1.0` would put a
+   download link in front of a prospective client ahead of the test the plan
+   says it must pass first, which is why the tag is not cut even though the
+   tree is clean and pushed.
 
 None of that is a recommendation against shipping — it is the list, in order.
 
