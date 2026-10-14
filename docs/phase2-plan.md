@@ -278,11 +278,76 @@ README, and reproduce the golden path without asking a question.
 
 ---
 
+## P2-F · Internationalisation (deferred, sequenced before the freeze)
+
+**Requested 2026-10-13. Not started.** Recorded here rather than dropped, with
+its measured scope, because "add i18n" is a two-word request and a week's work.
+
+### What exists
+
+**246 user-visible strings, hardcoded, across eight files** — six pages
+(`approvals`, `knowledge`, `page`, `runs`, `runs/[runId]`,
+`runs/[runId]/approval-summary`) and two components (`approval-card`,
+`explanation`). **No i18n framework is a dependency of `web/`** — there is no
+message catalogue, no locale negotiation, and no `Accept-Language` handling
+anywhere.
+
+### The cost that is not obvious
+
+**The e2e suite asserts English prose, in 50 places.** `getByText(/the worker has
+not claimed it yet/)`, `getByText(/A worker claimed this run, and its claim
+expired at /)`, and so on. These are not incidental — several were written in
+Phase 2 to prove that a failure state says something *true and specific* rather
+than something generic. **Adding a locale silently invalidates all 50**, and a
+mechanical `data-i18n` or `data-testid` sweep would trade the suite's ability to
+say what the operator reads for a cheaper assertion.
+
+So i18n is not "wrap the strings in a function". It is **strings + catalogue +
+locale negotiation + 50 assertion updates**, and the second half is where the
+defects hide.
+
+### Proposed scope, in order
+
+1. **Chinese (Simplified) first**, then English as the source locale. The source
+   locale must *remain* English in the repository; the Chinese catalogue is the
+   first translation, not a replacement.
+2. **A framework, chosen deliberately.** `next-intl` is the usual fit for an App
+   Router app with Server Components, and the app is Server Components
+   throughout, so the choice is not arbitrary — but read the current Next
+   version's guidance rather than trusting an older tutorial, the same way
+   `web/AGENTS.md` insists for anything in that tree.
+3. **Update the e2e assertions deliberately**, one at a time, deciding per
+   assertion whether it should pin a *translated* string, a stable `data-testid`,
+   or both. Pinning a translated string is what keeps the suite proving the
+   operator reads something true, in whatever locale it renders.
+4. **Then, and only then, the remaining mainstream languages.** Which ones is a
+   product decision this document does not make.
+
+### What must be true when it lands
+
+- A fresh clone still runs in English with no configuration, as D8 requires.
+- Switching locale does not change what the **API** speaks: the error `code`s
+  (`origin_foreign`, `ticket_exists`, `approval_already_decided`) and the trace
+  `step_type`s are machine identifiers, not copy, and must not be translated.
+  Translating a `code` would break `docs/api-contract.md` §6 and every consumer.
+- The **audit trail stays as recorded.** A refund that was approved in one locale
+  is the same row whatever locale was displayed.
+- **The API's own user-facing text is out of scope.** `docs/api-contract.md` fixes
+  several error `message`s verbatim and tests assert them; localising the API's
+  messages means either shipping a locale on the API or relaxing those assertions,
+  and both are decisions this section does not make. The scope here is the
+  dashboard and the desktop shell.
+
+---
+
 ## Ordering
 
 A → B → C → D → E, with the caveat that A must finish before anything is
 exposed to a network, and D is deliberately last of the engineering work so the
-installer ships the hardened system rather than the vulnerable one.
+installer ships the hardened system rather than the vulnerable one. **F sits
+after D and before the freeze**: an installer that ships only one language is
+still coherent, whereas freezing before the locale question is settled makes it
+retrofit a shipped artefact.
 
 ## What Phase 2 does not do
 
