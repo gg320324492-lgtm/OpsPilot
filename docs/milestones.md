@@ -358,7 +358,18 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       exactly what the criterion denies. `docs/risks.md` R2 said the fixtures
       hold "recorded provider responses … captured once from a real run and
       committed", which the fixtures contradict; R2 has since been corrected,
-      and `docs/limitations.md` §8 carries this instance in its Fixed list.)
+      and `docs/limitations.md` §8 carries this instance in its Fixed list.
+      **The machinery is now proven, which is the half that needed no key.**
+      `tests/unit/test_record_fixture_roundtrip.py` drives `record_fixture()`
+      against a stub provider and replays what it wrote through
+      `FakeModelProvider`: the recorded value comes back, an unmatched prompt is
+      refused by `UnmatchedFixtureError`, and the file carries the
+      `request_hash` the committed placeholders do not. Mutation-verified three
+      ways (wrong hash, `recorded: false`, empty provenance) — each breaks a
+      test. What remains is one run against a real provider, which needs the key
+      and is the only thing still standing between this row and a tick. A test
+      in that file fails the day anyone flips a committed fixture's `recorded`
+      flag without having actually made a recording.)
 - [x] `AnthropicProvider` and `OpenAIProvider`, sharing one prompt-assembly and
       structured-output path.
       (Both import `adapters/models/_shared.py` and call its `default_system`,

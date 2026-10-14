@@ -511,6 +511,19 @@ legible):
   scripted provider proving nothing about a real model — stands closer to open
   than R2 claimed.
 
+  **Update, 2026-10-15.** The half of this that needs no API key is now closed:
+  `tests/unit/test_record_fixture_roundtrip.py` drives `record_fixture()` against
+  a stub provider and replays its output through `FakeModelProvider`, proving the
+  round trip — the recorded value returns, a prompt the recorder never saw is
+  refused, and the written file carries a `request_hash` that matches
+  `hash_request(system, prompt)`. Mutation-verified three ways: a wrong hash, a
+  forced `recorded: false`, and an emptied provenance copy each break a test. So
+  the recorder works and what it writes is replayable; **the responses are still
+  hand-written**, and the only step left is the one run against a real provider
+  that needs the key. One test in that file fails if anyone flips a committed
+  fixture's `recorded` flag without having made a recording, which is the failure
+  mode this entry exists to prevent.
+
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.
 
