@@ -407,6 +407,19 @@ milestone log.
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
 
+- `MaxStepsExceeded` killing the worker — a run that spent its step budget
+  raised out of `drain_once`, and `poll_forever`'s `while True` had no handler,
+  so the exception took the worker down and every run queued behind it waited
+  for a restart. It was invisible in the compose deployment because the worker
+  carries `restart: unless-stopped`: the container came back and resumed
+  polling, which hid the defect while charging a full worker restart per
+  over-budget run — and made a browser test look flaky, since
+  `web/e2e/failure-states.spec.ts` drives a run to `max_steps_exceeded` on
+  purpose. Now suppressed alongside `MCPUnavailable`, which was already
+  suppressed for the same reason: the runtime writes `FAILED` before raising, so
+  the exception arrives with no work left to do. A programming error still
+  escapes, by design, and `tests/agent/test_worker_survives_max_steps.py` pins
+  both halves.
 - `knowledge_injection` — the `safety.jsonl` injection cases are now covered by
   `tests/security/test_prompt_injection.py` against a real retrieved injection.
 - `/ready` — the readiness probe now reports unhealthy when the database is

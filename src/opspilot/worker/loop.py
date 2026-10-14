@@ -65,7 +65,7 @@ from opspilot.agents.runtime import (
 )
 from opspilot.agents.state import RunContext
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import MCPUnavailable, RunParked
+from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
@@ -580,6 +580,12 @@ async def drain_once(
     ``TypeError``, ``AttributeError``, ``KeyError`` -- is *not* in that set and
     escapes, by design: a worker running with a broken in-memory state is worse
     than a worker that stopped, and the pin on that is a test.
+
+    ``MaxStepsExceeded`` is *not* in that set either, and it is not a programming
+    error: a run that spends its budget is already marked
+    ``FAILED(max_steps_exceeded)`` by ``_fail_run`` before the raise, so the
+    exception arrives with nothing left to do. Suppressed here so the worker
+    keeps polling rather than dying on an ordinary outcome.
     """
     claim_lease = _settings_claim_lease_seconds() if lease_seconds is None else lease_seconds
     run = await claim_next(worker_id=worker_id, run_store=run_store, lease_seconds=claim_lease)
@@ -613,7 +619,19 @@ async def drain_once(
     # ``FAILED('mcp_unavailable')`` before raising, so letting it escape would
     # crash the poll loop over a failure that is already recorded.
     #
-    # That pair is the *inner* suppression and the model failures are the *outer*
+    # ``MaxStepsExceeded`` is the third, and it belongs with ``MCPUnavailable``
+    # rather than with the model failures, because it is the same shape:
+    # ``_fail_run(reason="max_steps_exceeded")`` has already written the row
+    # before the raise (``agents/runtime.py``), so the exception carries no work
+    # left to do -- only a process to kill if it escapes. A model that spends
+    # its step budget is an ordinary business outcome, not a programming error,
+    # and ``poll_forever``'s ``while True`` has no handler, so before this it
+    # took the worker down and every run behind it in the queue waited until
+    # something restarted the process. The compose ``restart: unless-stopped``
+    # hid that in the deployment the dashboard uses, and charged a full worker
+    # restart per over-budget run.
+    #
+    # That trio is the *inner* suppression and the model failures are the *outer*
     # catch, because they are two kinds of "not mine to crash over": control flow
     # the runtime raised on purpose, and an upstream that could not answer. Both
     # are decided here, at the one layer that holds the row, so both can record
@@ -622,7 +640,7 @@ async def drain_once(
     # "something went wrong" and re-claim the same broken run.
     try:
         try:
-            with contextlib.suppress(RunParked, MCPUnavailable):
+            with contextlib.suppress(RunParked, MCPUnavailable, MaxStepsExceeded):
                 await run_loop(
                     ctx,
                     provider=provider,
