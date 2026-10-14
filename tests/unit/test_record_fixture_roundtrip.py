@@ -99,6 +99,33 @@ class _StubProvider:
         return _StubResult(value, _StubUsage())
 
 
+class _FailsOnSecondCall(_StubProvider):
+    """Succeeds once, then raises -- the recording that dies partway through.
+
+    This is the shape a real recording takes when the endpoint rate-limits
+    mid-run, which is what happened on 2026-10-15: the key was valid and the
+    endpoint reachable, but ``HTTP 429`` (MiniMax code 2056, Token Plan
+    exhausted) came back on every request. A multi-call recording against such
+    an endpoint gets some answers and then a failure, so what happens to the
+    answers already collected is the question this stub exists to ask.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_structured(
+        self,
+        *,
+        system: str,
+        prompt: str,
+        schema: type[TicketClassification],
+    ) -> _StubResult:
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("HTTP 429: Token Plan quota exhausted")
+        return await super().generate_structured(system=system, prompt=prompt, schema=schema)
+
+
 @pytest.fixture
 async def recorded_file(tmp_path: Path) -> Path:
     """A fixture written by ``record_fixture`` into a throwaway directory.
@@ -239,6 +266,59 @@ def test_the_committed_fixtures_are_still_the_hand_written_ones() -> None:
             "run against a real provider to produce it, tick the §M4 criterion "
             "and update this test; if it was not, the flag is a false claim"
         )
+
+
+async def test_a_recording_that_dies_partway_writes_no_file(tmp_path: Path) -> None:
+    """A provider failure mid-recording raises and leaves nothing behind.
+
+    This is the shape the outstanding real recording would take if it were run
+    against an endpoint that rate-limits: some calls succeed, then one raises.
+    ``record_fixture`` collects every response *before* it opens the file
+    (``fake.py:307-328``), so a failure on call two discards call one's answer
+    and writes nothing -- which is the correct behaviour, and is why this is
+    safe to run against a metered key. The alternative, a partially written
+    fixture, would look like a recording of an endpoint that answered only some
+    of the questions, and would replay as one.
+
+    Pinned because it is the failure path a real run is most likely to hit, and
+    nothing else in the suite exercises it: the other tests either succeed on
+    every call or fail on the first.
+    """
+    provider = _FailsOnSecondCall()
+
+    with pytest.raises(RuntimeError, match="429"):
+        await record_fixture(
+            provider,
+            scenario="dies_partway",
+            calls=[
+                {
+                    "method": "generate_structured",
+                    "schema": "TicketClassification",
+                    "system": SYSTEM,
+                    "prompt": PROMPT,
+                },
+                {
+                    "method": "generate_structured",
+                    "schema": "TicketClassification",
+                    "system": SYSTEM,
+                    "prompt": "a second question the endpoint never answers",
+                },
+            ],
+            fixtures_dir=tmp_path,
+        )
+
+    assert provider.calls == 2, (
+        "the recorder stopped before the failing call; this test only proves "
+        "something about partial writes if the second call was actually made"
+    )
+    assert not (tmp_path / "dies_partway.json").exists(), (
+        "a recording that failed on its second call left a file behind; the "
+        "first call's answer was persisted as if it were the whole recording"
+    )
+    assert list(tmp_path.iterdir()) == [], (  # noqa: ASYNC240 -- a tmp_path assertion, not I/O in a hot loop
+        f"the failed recording left something in the directory: "
+        f"{[p.name for p in tmp_path.iterdir()]}"  # noqa: ASYNC240 -- ditto
+    )
 
 
 def test_a_recorded_agent_response_round_trips_through_its_schema() -> None:

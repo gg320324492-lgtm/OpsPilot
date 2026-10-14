@@ -524,6 +524,23 @@ legible):
   fixture's `recorded` flag without having made a recording, which is the failure
   mode this entry exists to prevent.
 
+  **The real recording was attempted on 2026-10-15 and could not be made.** The
+  key is valid and the endpoint is reachable — the request is authenticated and
+  answered — but every call returns `HTTP 429`, MiniMax error code `2056`:
+  *"已达到 Token Plan 用量上限"* (Token Plan quota exhausted). Three attempts six
+  seconds apart returned the same error, so it is a spent quota rather than a
+  burst limit, and it is the same 429 that interrupted two tool calls in this
+  session. Nothing about the recorder is implicated: it was never given a
+  response to record. **A seventh test now pins what happens when a recording
+  dies partway** — `test_a_recording_that_dies_partway_writes_no_file`, driven by
+  a stub that answers once and then raises — because that is the shape this
+  attempt would have taken against a metered endpoint. `record_fixture` collects
+  every response before it opens the file, so a mid-run failure discards the
+  answers already collected and writes nothing; mutation-verified by moving the
+  write inside the loop, which fails the test. The fixtures therefore remain
+  hand-written, and the M4 criterion stays unticked, for a reason that is now
+  recorded rather than assumed.
+
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.
 
