@@ -314,8 +314,21 @@ was easy to write and is not exercised by CI.
 in CI; its component behaviour is verified by hand against the golden path. This
 is a real gap and is the reason M7 is scheduled after the workflow it displays.
 
-**One language for code, English; Chinese only in conversation.** No i18n
-infrastructure. The dashboard is English-only.
+**One locale ships as a translation; there is no locale negotiation.** Corrected
+2026-10-14: this bullet previously read "No i18n infrastructure. The dashboard is
+English-only," which stopped being true at `651bcef`. What exists now: an
+English source catalogue, a `zh-CN` catalogue of **330 strings** across 19
+namespaces (`web/src/i18n/dictionaries/zh-CN.json`), an `httpOnly SameSite=Lax`
+cookie read server-side, and a switcher in the nav. English remains what a fresh
+clone renders, with no configuration (D8). What is still absent is the half of
+internationalisation that is usually assumed by the phrase: **there is no
+`Accept-Language` negotiation, by deliberate decision** — the guide recommends
+it for a public website, and this decides whether money moves on a
+loopback-bound dashboard, so it is an explicit operator choice rather than a
+default. One translation is not a localisation programme; `docs/phase2-plan.md`
+§P2-F scopes the remaining languages as a product decision this project has not
+made. Covered by 22 `web-e2e` cases across `i18n.spec.ts` and
+`i18n-catalogue.spec.ts`.
 
 ## 7. Product
 
@@ -416,6 +429,48 @@ legible):
   `server_unavailable` every time. `adapters/tools/composite_gateway.py::CompositeToolGateway`
   now routes on `TOOL_REGISTRY[name].server` at call time, and
   `tests/integration/test_composite_gateway.py` proves it at both wiring points.
+- The containerised `web` service's static assets — `web/Dockerfile` copied
+  `public/` and `.next/static/` to `/app/web/public` and
+  `/app/web/.next/static`, and the standalone server reads neither. It `chdir`s
+  to its own directory and resolves both against *it* (`base-server.js`:
+  `distDir = join(dir, config.distDir)`; `next-server.js`: `getPublicDir() =
+  join(dir, 'public')`), so with `server.js` at `/app/server.js` it wanted
+  `/app/public` and `/app/.next/static`. Every JavaScript bundle and stylesheet
+  404'd.
+
+  This is the entry that best explains why the list exists, because **the
+  failure was shaped exactly like success at every level the suite could see.**
+  `GET /` returned 200, so the container reported `Healthy` (its healthcheck is
+  a `fetch` of the root document). The document rendered, so
+  `web-service.spec.ts` passed — every assertion in it is about server-rendered
+  HTML and server-side API reads. And `web-e2e` never exercised the container's
+  assets at all: `golden-path.spec.ts` runs the dashboard on the host, where
+  `e2e/stack.ts` assembles the standalone tree by hand (it copies those same two
+  directories in before spawning `server.js`), so the host path had always been
+  correct. Only the browser knew: no stylesheet, no hydration, and Reindex,
+  Submit and Approve silently doing nothing.
+
+  Both destinations are now `./public` and `./.next/static`, which is what Next's
+  own documentation prescribes (`cp -r public .next/standalone/ && cp -r
+  .next/static .next/standalone/.next/`). Verified against the running container
+  rather than the HTML alone: all 8 scripts and stylesheets the page requests
+  return 200 with real bodies, the Tailwind custom properties resolve, the
+  Reindex click POSTs 200 and repaints the table, and Submit ticket returns 201.
+  Rebuilding the same image with the old destinations reproduces the defect
+  exactly — `GET /` 200, all 8 bundles 404 — which is what makes the fix a
+  measurement rather than an assertion.
+
+  **What changed beyond the two lines is that CI can now see this class of
+  failure.** `web/e2e/web-service.spec.ts` drives the real container and asserts
+  that every script and stylesheet the page requests is served. It is red on the
+  old image and green on the new one. It is an asset check rather than a
+  click-through on purpose: a click would duplicate the golden path's coverage
+  and depend on a seeded knowledge directory, whereas the browser fetches every
+  `<script src>` before any of it can run, so the assertion still holds on the
+  inert page. The broader lesson is the one §8 keeps teaching — a claim about
+  running belongs here until something actually runs it, and a check that only
+  asks "did the server answer?" cannot tell a working dashboard from a blank one
+  with the HTML still attached.
 - `evals/datasets/fixtures/` — `docs/risks.md` R2 claimed the fake provider "is
   a *replay* of recorded real interactions, not invented scripts:
   `evals/datasets/fixtures/` holds recorded provider responses for the golden

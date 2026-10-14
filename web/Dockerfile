@@ -69,12 +69,37 @@ RUN groupadd --system --gid 1001 nodejs 2>/dev/null || true \
 # output and is launched by CMD below; the traced `node_modules` are inside it.
 COPY --from=builder --chown=nextjs:nodejs /app/web/.next/standalone ./
 # `public/` and `.next/static/` are deliberately NOT part of the standalone
-# trace (Next's docs say these belong to a CDN), so they are copied in by hand.
-# Without `.next/static` the page loads with no CSS or JS bundles; without
-# `public` any static asset 404s. The docs' `cp -r public ... && cp -r
-# .next/static ...` is what these two lines are.
-COPY --from=builder --chown=nextjs:nodejs /app/web/public ./web/public
-COPY --from=builder --chown=nextjs:nodejs /app/web/.next/static ./web/.next/static
+# trace (Next's docs say these should be handled by a CDN), so they are copied
+# in by hand. Without `.next/static` the page loads with no CSS or JS bundles;
+# without `public` any static asset 404s. The docs' `cp -r public ...
+# && cp -r .next/static ...` is what these two lines are, and the destinations
+# below are that command's destinations, literally.
+#
+# The destinations are SIBLINGS of `server.js`, not children of a `web/`
+# directory, and that is the whole content of the fix. `WORKDIR` here is `/app`
+# and the previous line copied the standalone tree to `/app`, so `/app` *is*
+# the standalone tree: `server.js` is `/app/server.js`, it `chdir`s to its own
+# directory and calls `startServer({ dir })` with it. From there Next resolves
+# both trees relative to that directory --
+# `next/dist/server/base-server.js`: `distDir = join(dir, config.distDir)`
+# (`./.next`, so `/app/.next`) and `next/dist/server/next-server.js`:
+# `getPublicDir() { return join(dir, 'public') }` (so `/app/public`).
+# Next's docs say the same ("copy to the `standalone/public` and
+# `standalone/.next/static` folders ... after which `server.js` will serve these
+# automatically"), and `outputFileTracingRoot` defaults to the directory
+# holding `next.config.ts` (`/app/web` in the builder), which is why
+# `server.js` sits at the root of the standalone tree rather than under a
+# `web/` prefix.
+#
+# Writing these to `./web/...` instead -- which is what this file did -- leaves
+# both trees one directory too deep. Nothing reads them there, so every
+# JavaScript bundle and stylesheet 404s: the server still renders the document,
+# so a `GET /` returns 200 and the container reports itself healthy, while the
+# page is inert in the browser (no Reindex, no Submit, no Approve). The
+# host-run walkthrough never saw it because `e2e/stack.ts` copies the same two
+# directories into the standalone tree by hand before spawning `server.js`.
+COPY --from=builder --chown=nextjs:nodejs /app/web/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/web/.next/static ./.next/static
 
 # The operator token and the API base URL are NOT baked in. They are read at
 # RUN TIME from the environment:

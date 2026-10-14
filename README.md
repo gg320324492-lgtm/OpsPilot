@@ -1,6 +1,6 @@
 # OpsPilot
 
-**A reliable AI operations agent for B2B support and billing.**
+**A safety-gated AI operations agent for B2B support and billing.**
 
 OpsPilot takes a customer support ticket, investigates it through MCP tools,
 retrieves the company policy that applies, proposes an action — and when that
@@ -10,40 +10,120 @@ once. Every model call, tool call and retrieval is recorded and replayable.
 > **The model proposes. Deterministic code decides. Tools execute.
 > Humans approve risky actions. Everything is traced.**
 
+## The billing in this project is simulated. Read this first.
+
+**There is no payment processor, no card network and no finance system behind
+this project.** `billing.get_invoice`, `billing.list_transactions` and
+`billing.issue_refund` are served by a **billing MCP server that ships in this
+repository** ([`mcp_servers/billing/`](mcp_servers/billing/)), holding a
+deterministic seed dataset in a JSON file. A "refund" here writes a row to that
+file. No money has moved and none can.
+
+The same is true of the **CRM** and **Issues** servers: they are in-repo
+stand-ins for Salesforce, Stripe and Jira. Nothing here is wired to Stripe or to
+any third party.
+
+**What is real, and is real code that runs:** the agent's state machine, the five
+deterministic gates, the pgvector retrieval with citations, the persisted
+approval gate, the worker poll loop and its `FOR UPDATE SKIP LOCKED` claim, the
+idempotent refund, the audit trail, the dashboard, and the evaluation harness.
+
+**The MCP servers themselves are real MCP servers.** They use the official Python
+SDK, speak the protocol over real stdio, and are specified tool by tool in
+[`docs/mcp-contracts.md`](docs/mcp-contracts.md). Only the *systems behind them*
+are simulated — which is exactly the distinction that sentence is drawn to keep
+honest. [`docs/mcp-contracts.md`](docs/mcp-contracts.md) says the same thing in
+its own words: *"The SDK is the real dependency; the seed data and the domain
+semantics are what is simulated."*
+
 |  |  |
 |---|---|
 | **Workflow** | Duplicate-charge billing investigation, end to end |
-| **Tools** | 3 MCP servers (CRM, Billing, Issues) — 9 tools, 3 permission levels |
-| **RAG** | PostgreSQL + pgvector, 16 policy documents, cited retrieval |
+| **Tools** | 3 in-repo MCP servers (CRM, Billing, Issues — **all mocked, see above**) + in-process retrieval — 9 tools, 3 permission levels |
+| **RAG** | PostgreSQL + pgvector, 17 policy documents → 98 chunks, cited retrieval |
 | **Safety** | Static permissions, persisted approvals, idempotent refunds |
 | **Evaluation** | 70+ deterministic cases, 12 metrics, no self-grading |
 
-> **Status: Phase 1, milestones M0–M9 — the golden path runs end to end.**
-> The system is built: the agent loop, the five gates, the persisted approval
-> gate, idempotent refunds, retrieval with citations, the dashboard, the eval
-> harness and CI all exist and are tested — 865 passed, 11 skipped locally;
-> CI's green run 38208652155 is 12 of 12 jobs, its `test` job 861 passed,
-> 15 skipped. What is
-> **not** done is listed honestly — `issues.create` is implemented and tested in
-> isolation but the golden path does not call it (see the trace below), and the
-> golden path needs PostgreSQL for retrieval (SQLite is a tests-only path).
-> The compose services have been run on a machine with a Docker daemon:
-> `api`, `worker`, `web` and `postgres` come up on this machine's WSL Docker
-> daemon, `api`, `web` and `postgres` healthy and `worker` up. The same stack
-> also comes up on CI's runner: the
-> `docker-build` job builds every image, runs `docker compose up -d --wait`,
-> and checks `/ready`. The golden path is also walked in a real browser on
-> every push: `web-e2e` brings up postgres, migrate, api and worker through
-> Compose and clicks through the dashboard — reindex, submit the ticket,
-> follow the run to its trace, approve the parked refund — asserting against
-> PostgreSQL, so retrieval is cross-process the way the terminal recording
-> never was. What is still *not* met is M9's criterion in full: the
+> **Where the nine tools live.** Eight are on the three MCP servers; the ninth,
+> `knowledge.search`, is implemented in-process against pgvector rather than as
+> a fourth server, because retrieval is not an external system
+> ([`docs/mcp-contracts.md`](docs/mcp-contracts.md) §4). The permission model
+> covers it identically.
+
+> **Status: Phase 1 milestones M0–M9 closed; Phase 2 in progress — the golden
+> path runs end to end.** The system is built: the agent loop, the five gates,
+> the persisted approval gate, idempotent refunds, retrieval with citations, the
+> dashboard, the desktop shell, the eval harness and CI all exist and are
+> tested.
+>
+> **The one run to check this README against** is
+> [`38531271957`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38531271957)
+> (commit `651bcef`, 2026-10-14): **13 of 13 jobs green.** Its two `test` jobs
+> (Python 3.12 and 3.13) each report **911 passed, 23 skipped**; its
+> `web-e2e` job reports **60 passed**. Verify with
+> `gh run view 38531271957`. The local suite is **915 passed, 19 skipped**
+> (`pytest`, 2026-10-14) — four more tests run on Windows than on the Linux
+> runner, which is where the skip-count difference comes from.
+>
+> What is **not** done is listed honestly — `issues.create` is implemented and
+> tested in isolation but the golden path does not call it (see the trace
+> below), and the golden path needs PostgreSQL for retrieval (SQLite is a
+> tests-only path). The compose services have been run on a machine with a Docker
+> daemon: `api`, `worker`, `web` and `postgres` come up, `api`, `web` and
+> `postgres` healthy and `worker` up. The same stack also comes up on CI's
+> runner: the `docker-build` job builds every image, runs
+> `docker compose up -d --wait`, and checks `/ready`. The golden path is walked
+> in a real browser on every push: `web-e2e` brings up postgres, migrate, api
+> and worker through Compose and clicks through the dashboard — reindex, submit
+> the ticket, follow the run to its trace, approve the parked refund — asserting
+> against PostgreSQL, so retrieval is cross-process the way the terminal
+> recording never was. What is still *not* met is M9's criterion in full: the
 > three MCP servers are not Compose services at all. They are spawned on
 > demand by the worker as stdio subprocesses (boundary D12a), and the worker
 > here reports the default `MCP_TRANSPORT=inprocess`, which builds them
 > inside the process instead. The full list is in
 > [`docs/limitations.md`](docs/limitations.md), and each milestone's outcome is
 > in [`docs/progress.md`](docs/progress.md).
+
+### Every number in this README, and where it came from
+
+P2-E's rule is that no figure appears here without a file or a run behind it.
+This repository has twice committed the opposite — `6d79fbe`'s message claimed a
+CI job that was never committed, and `8c558b1` miscounted documents — so the
+table below is the check. Anything not listed here is either a count this README
+does not make or a value you can recompute from a cited file.
+
+| Figure | Value | Source — verify it |
+|---|---|---|
+| CI green | 13 of 13 jobs | run [`38531271957`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38531271957) |
+| Python tests (CI) | 911 passed, 23 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs |
+| Python tests (local) | 915 passed, 19 skipped | `pytest` on 2026-10-14; the 4-test delta is the Windows-only skips in the CI log |
+| Browser walkthrough | 60 passed | same run, the `web-e2e (browser golden path)` job |
+| Tools | 9 registered, 3 permission levels | `domain/tools.py::TOOL_REGISTRY` — 7 `READ`, 1 `SAFE_WRITE`, 1 `HIGH_RISK_WRITE` |
+| MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
+| Policy documents | 17 documents → 98 chunks | click **Reindex** on the Knowledge screen; see [`02-knowledge-reindexed.png`](docs/assets/screenshots/02-knowledge-reindexed.png) |
+| Eval cases | 70 across 4 datasets | [`evals/results/2026-10-11T15-39-42.json`](evals/results/2026-10-11T15-39-42.json) (`results[]` length and `dataset` counts) |
+| Eval metrics | 12 | [`docs/evals.md`](docs/evals.md) §1 |
+| classification | 0.800 (16/20) | `2026-10-11T15-39-42.json` → `metrics[]` |
+| retrieval recall@5 | 0.700 (14/20) | same |
+| retrieval precision@5 | 0.170 | same — and its ceiling is **0.250**, see the caveat below |
+| abstention correctness | 1.000 (5/5) | same |
+| tool selection | 0.200 (3/15) | same — **and it does not reproduce; read the caveat** |
+| tool argument validity | 0.471 (80/170 calls) | same — 80 of 170 carry arguments; the 90 that do not are `{}` |
+| approval-policy compliance | 1.000 (1/1 live, 2/2 synthetic) | same |
+| unsafe execution count | **0** | same — the security property, and a gate |
+| task completion | 1.000 (9/9) | same |
+| Tool-call split | 170 attempted: 77 executed, 90 rejected, 3 failed | same, summed over every case's `executed_tool_calls` |
+| All 90 rejections | `arguments: {}` + `rejection_reason: gate_1_schema_validation` | same |
+| Latency / tokens / cost | p50 26.8 s, p95 276.7 s, in 1146 / out 646 per run, $0.0000 | same file: p50 is the median of `results[].latency_ms` and p95 the nearest-rank percentile (`metrics.py::_median` / `_percentile`); tokens are the mean per run over the 140 `model_calls` carrying a usage record |
+| Model-call accounting | 358 calls, 5.1 per run; 140 with usage, 218 without | same, summed over every case's `model_calls` |
+| Tool-selection repeat runs | 3/15 and 2/15 | [`2026-10-13T18-24-25.json`](evals/results/2026-10-13T18-24-25.json), [`2026-10-13T18-40-10.json`](evals/results/2026-10-13T18-40-10.json) |
+| Acceptance criteria / DoD | 84 ticked of 90; DoD 18 of 19 | [`docs/milestones.md`](docs/milestones.md) |
+
+**The numbers this README deliberately does not print:** a tool-selection figure
+without its two-run disagreement; a "percent of documents cited" for a retriever
+whose precision ceiling is 0.250; and any count of documents, tests or jobs that
+was not read out of the artifact it describes.
 
 ---
 
@@ -151,6 +231,108 @@ record on this machine (its ttyd capture renders blank without WebGL, and its
 GIF encoder writes no file), so the frames were captured the same way — real
 screenshots of the real terminal — and encoded with the system ffmpeg. The tape
 says so at the top, so nobody re-runs it expecting it to work.
+
+### The same path, in a browser, against the real two-process stack
+
+The GIF above is one process on SQLite. These are **ten screenshots from one run
+of the deployed stack** — PostgreSQL with pgvector, the `api` service, the
+`worker` service and the dashboard, driven in a real Chromium by clicking, in the
+order a person would. They are in
+[`docs/assets/screenshots/`](docs/assets/screenshots/) and they come from the run
+written up in full in
+**[`docs/case-study-duplicate-charge.md`](docs/case-study-duplicate-charge.md)**.
+
+**Exactly how they were taken, because it matters.** `postgres`, `migrate`, `api`
+and `worker` are the real Compose containers. The **dashboard** is the
+host-built Next.js standalone server — the same one the `web-e2e` CI job drives —
+running on port 3100, **not** the containerised `web` service. They were
+captured while that service was broken (every bundle 404'd, so the page was
+inert), which is recorded and fixed under
+[Running it](#running-it); the fix changed the image, not these captures. The
+token was read from the gitignored `.env` and injected into the server process
+at runtime; it appears in no screenshot, no command line and no document.
+
+**1 — the dashboard, on a freshly brought-up stack**
+
+![Dashboard after docker compose up: no runs, nothing parked, zero documents indexed until you press Reindex](docs/assets/screenshots/01-dashboard.png)
+
+**2 — reindex: 17 documents seen, 17 indexed, 98 chunks written**
+
+![Knowledge screen after clicking Reindex: 17 documents, 98 chunks, every document listed with its source file and chunk count](docs/assets/screenshots/02-knowledge-reindexed.png)
+
+**3 and 4 — the ticket, submitted through the dashboard's own form**
+
+![The Tickets form filled with the README's ticket: subject We were charged twice for invoice INV-2026-384, customer billing@acme.example](docs/assets/screenshots/03-ticket-submitted.png)
+
+![The ticket accepted, returning a link to the new run 011b6a81](docs/assets/screenshots/04-ticket-accepted.png)
+
+**5 — the run parks on the approval gate. This is the whole project in one screen.**
+
+![The run parked at Waiting approval: a 17-step timeline, the classified duplicate_charge at 0.93, five cited sources including refund-policy.md and duplicate-charge-sop.md, four tool calls with their arguments and results, and billing.issue_refund held at Awaiting approval with its idempotency key](docs/assets/screenshots/05-run-parked-for-approval.png)
+
+The Timeline is the trace rendered from `GET /api/runs/{id}/trace`, server-ordered.
+The Sources panel is what retrieval actually returned. The `billing.issue_refund`
+row at the bottom is marked `High risk write` and **Awaiting approval**, with its
+arguments and its idempotency key — not executed, not going to be, until a person
+acts.
+
+**6 — the operator's decision surface**
+
+![The Approvals screen with the parked refund: the deterministic policy-engine explanation in green, the model's own justification labelled untrusted below it, and Approve and Reject buttons](docs/assets/screenshots/06-approval-pending.png)
+
+Two explanations, deliberately separated. The green one is computed by the policy
+engine from the tool's permission class and the arguments — the same call produces
+the same sentence every time, and **no model wrote it**. The grey one is the
+model's justification, labelled untrusted because nothing verifies it before it
+reaches this screen.
+
+**7 and 8 — the approved run, executed once**
+
+![The Approvals inbox empty: Nothing is waiting for a decision](docs/assets/screenshots/07-approval-decided.png)
+
+![The completed run: 21 steps, terminal status Completed, the customer reply composed against the cited sources, and billing.issue_refund Executed returning REF-10091 with replayed false and its idempotency key](docs/assets/screenshots/08-refund-executed-audited.png)
+
+**9 and 10 — the audit trail afterwards**
+
+![The Runs list with the completed golden-path run](docs/assets/screenshots/09-runs-list.png)
+
+![The Approvals screen, Approved tab: the decided record with its deterministic explanation, its snapshotted arguments, who approved it and when](docs/assets/screenshots/10-approval-recorded.png)
+
+> **What these screenshots are, precisely.** One run on `MODEL_PROVIDER=fake`,
+> so the model's *proposal* came from the hand-written fixture — these prove the
+> gates hold and the system is wired correctly, not that the model is good. The
+> CRM, Billing and Issues data behind them is **in-repo seed data**, not a real
+> finance system. And no credential appears in any of them: the operator token is
+> read only in the dashboard's server process and never reaches the renderer.
+
+### Why there is no video, and what it would take
+
+There is no screen recording in this repository, and the honest reason is worth
+more than a placeholder would be. Three things make one hard, and only the first
+is a tooling problem:
+
+1. **Capture tooling is not wired up.** Playwright is a devDependency and drives
+   the dashboard in CI, but nothing records video — `web/playwright.config.ts`
+   sets `trace: "retain-on-failure"` and `screenshot: "only-on-failure"`, and
+   Playwright's video output is off. A recording is `use: { video: "on" }` plus a
+   commit of the `.webm` — small change, but it is application configuration, not
+   documentation, and it was out of scope here.
+2. **A recording of what?** The interesting run is the two-process one, and it
+   needs a full image build, four Compose services, a reindex, and up to three
+   minutes of worker polling per capture. A CI artifact would be the honest home
+   for it — recorded on `web-e2e`, uploaded like the compose logs already are.
+3. **A screen recording is weaker evidence than the screenshots above.** Each of
+   these ten is a state a human can reach and check; a video is a state someone
+   else recorded. This repository's own habit is to ask the billing server what it
+   did rather than take the run's word for it, and that argues for images and a
+   transcript over moving pictures.
+
+What would actually be worth recording, in priority order: the `web-e2e`
+golden-path walkthrough (it already exists as a test — recording it is a config
+change plus a CI artifact), and the failure states in
+`web/e2e/failure-states.spec.ts`, which are what an operator actually has to
+debug. The **case study** above covers the narrative the video would have
+covered, and every number in it can be checked against a file.
 
 ## Why this is not another chatbot
 
@@ -266,7 +448,7 @@ rather than re-planning.
         │                    │                    │
         ▼                    │         ┌──────────┼──────────┐
    pgvector                  │         ▼          ▼          ▼
-   16 documents              │       CRM      Billing     Issues
+   17 documents             │       CRM      Billing     Issues
                              │       MCP        MCP         MCP
                              ▼
                      ┌───────────────┐
@@ -333,7 +515,7 @@ classification                  20   0.800   (16/20)
 retrieval recall@5              20   0.700   (14/20)
 retrieval precision@5           20   0.170
 abstention correctness           5   1.000   (5/5)
-tool selection                  15   0.200   (3/15)
+tool selection                  15   0.200   (3/15)   ← does not reproduce; see below
 tool argument validity          --   0.471   (80/170 calls)
 approval-policy compliance       1   1.000   (1/1) (2/2 synthetic)
 unsafe execution count          15   0         ← gate, must be 0
@@ -344,7 +526,23 @@ tokens    in 1146   out 646   (mean per run)
 cost      $0.0000 mean per run
 ```
 
-**Read these as a measurement of one route, not of this system's design.**
+**`tool selection` is the one row here you must not quote on its own.** It was
+re-measured twice on **unmodified code** against the same endpoint and the same
+15 cases and scored **3/15 and 2/15**, proposing an identical tool set for only
+8 of the 15 — every case that failed in both failed *differently* the second
+time. Both runs are committed:
+[`2026-10-13T18-24-25.json`](evals/results/2026-10-13T18-24-25.json) (3/15,
+p50 34.3 s) and
+[`2026-10-13T18-40-10.json`](evals/results/2026-10-13T18-40-10.json) (2/15,
+p50 33.0 s), both `tool_selection` only, no code changed between them. The
+case-by-case comparison is in
+[`docs/progress.md`](docs/progress.md#two-runs-of-the-same-code-b2-is-not-measurable-against-this-endpoint).
+The spread between two runs of the *same* code is as large as any plausible
+improvement, so a single tool-selection figure from this endpoint measures noise.
+That is why P2-B2 is deferred rather than tuned — see
+[`docs/phase2-plan.md`](docs/phase2-plan.md) §P2-B2.
+
+**Read the rest as a measurement of one route, not of this system's design.**
 
 - **`provider=openai` is a protocol, not a vendor.** The endpoint is MiniMax's
   official OpenAI-compatible API, `https://api.minimaxi.com/v1`, reached through
@@ -515,7 +713,7 @@ opspilot/
 │   ├── api/          FastAPI routers
 │   └── worker/       run-claiming poll loop
 ├── mcp_servers/      crm/ billing/ issues/  (real MCP over stdio)
-├── knowledge/        16 policy documents, including the injection fixture
+├── knowledge/        17 policy documents (98 chunks), including the injection fixture
 ├── evals/            datasets/ runner.py metrics.py results/
 ├── tests/            unit/ integration/ agent/ security/ evals/
 ├── migrations/       Alembic
@@ -528,6 +726,7 @@ The specification was written before the code, and it is the artifact to review:
 
 | Document | Contents |
 |---|---|
+| [case-study-duplicate-charge.md](docs/case-study-duplicate-charge.md) | **One real run, intake to audited refund, every figure traced** |
 | [architecture.md](docs/architecture.md) | Layering, the five gates, the worker model, scope control |
 | [agent-state-machine.md](docs/agent-state-machine.md) | The nine states, the transition table, failure semantics |
 | [tool-permissions.md](docs/tool-permissions.md) | The permission model and the CI gates that enforce it |
@@ -538,29 +737,98 @@ The specification was written before the code, and it is the artifact to review:
 | [risks.md](docs/risks.md) | Eight technical risks and four specification conflicts |
 | [limitations.md](docs/limitations.md) | **What this does not do.** Read this one |
 | [milestones.md](docs/milestones.md) | M0–M9 with acceptance criteria per milestone |
+| [phase2-plan.md](docs/phase2-plan.md) | Phase 2's work packages and their acceptance conditions |
+| [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
+| [progress.md](docs/progress.md) | The running record, including the measurements that disagree |
 | [adr/](docs/adr/) | Five architecture decision records |
 
 ## Running it
 
+**What you need:** Docker Desktop (or any Docker daemon with Compose v2). Nothing
+else — no Python environment, no model API key. The stack is four images.
+
 ```bash
 git clone https://github.com/gg320324492-lgtm/OpsPilot && cd OpsPilot
-cp .env.example .env          # add OPSPILOT_OPERATOR_TOKEN; no model key needed
 docker compose up
 ```
 
-> `docker compose up` is the intended entry point and the Compose file is
-> committed, and **it has now been run on a machine with a Docker daemon**: the
-> four services (api, worker, web, postgres) came up on this machine's WSL
-> Docker daemon — `api`, `web` and `postgres` healthy, `worker` up, which
-> carries no healthcheck because it serves no HTTP endpoint. The `docker-build`
-> CI job still builds the images on a Linux runner. See
-> [limitations.md](docs/limitations.md) §6.
+That is the whole quick start. It brings up `postgres`, `migrate`, `api`,
+`worker` and `web`; the dashboard is on <http://localhost:3000> and the API on
+<http://localhost:8000>. **`.env` is optional for a first look** — compose falls
+back to local-development defaults so a fresh clone comes up with no
+configuration at all. You need it for two things: setting your own
+`OPSPILOT_OPERATOR_TOKEN` (any non-empty string works for a local demo — it
+authenticates the API's write routes), and pointing at a live model.
+
+Then, to walk the golden path by hand:
+
+1. **Knowledge** → click **Reindex knowledge/**. Expect `17 seen · 17 indexed ·
+   98 chunks written`. Nothing runs until this happens: the API does not ingest
+   at start-up, and a fresh database has no vectors for the worker to retrieve.
+2. **Tickets** → **Fill with the README's ticket** → **Submit ticket**. You get
+   back a link to the run.
+3. **Runs** → open that run and reload it. The Run Detail page is a Server
+   Component with no client polling, so the worker's progress appears on the
+   next navigation — the dashboard's own affordance is "watch it on the run
+   page, or reload in a moment". It takes a few seconds on `MODEL_PROVIDER=fake`
+   and minutes against a live endpoint. It parks at **Waiting approval**.
+4. **Approvals** → read the deterministic explanation, then **Approve**.
+   Approving does *not* execute the refund; it releases the run to the worker.
+5. Back on the run, reload until the status is **Completed**. The
+   `billing.issue_refund` row reads `Executed` with `REF-10091` and
+   `replayed: false`.
+
+The same walkthrough as an assertion, including the billing server's own answer
+about how many transactions ended up refunded:
+
+```bash
+cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
+```
+
+> **The containerised `web` service is fixed.** The `web` service used to serve a
+> page whose JavaScript 404'd, so the Reindex, Submit and Approve buttons did
+> nothing. `web/Dockerfile` copied `public/` and `.next/static/` to
+> `/app/web/public` and `/app/web/.next/static`, but the standalone server
+> `chdir`s to its own directory and resolves both relative to *that* — with
+> `server.js` at `/app/server.js` it reads `/app/public` and
+> `/app/.next/static`, where the copies never landed. Both destinations are now
+> `./public` and `./.next/static`, the siblings Next's own documentation names.
+> Nothing about the deployment changed: the page is the same page, on the same
+> published port, with the same controls.
+>
+> **What it looked like from outside, and why CI was green.** `GET /` returned
+> 200, so the container's healthcheck passed and the document rendered, so every
+> HTML-level assertion passed. Only the browser disagreed — no stylesheet, no
+> hydration. `web-e2e` never caught it because the walkthrough runs the dashboard
+> on the host, where the standalone tree is assembled by hand
+> (`web/e2e/stack.ts` copies those same two directories in before spawning
+> `server.js`), and `web-service.spec.ts` asserted only that pages *render*.
+>
+> **Verified against the running container**, not against the HTML alone. With
+> `postgres`/`migrate`/`api`/`web` up, every script and stylesheet the page
+> requests returns 200 (8 of 8, real bodies), the Tailwind custom properties
+> resolve (`--background` = `#fff`, one stylesheet applied), the **Reindex**
+> click issued `POST /api/knowledge/reindex` → 200 and repainted the table, and
+> **Submit ticket** posted the README's ticket → 201 with a run. Rebuilding the
+> same image with the old destinations reproduces it exactly — `GET /` 200 and
+> all 8 bundles 404 — which is what the fix is measured against. The loopback
+> binding (`127.0.0.1:3000`), the origin check (a cross-origin POST is refused
+> with 403) and the token's absence from every served bundle all still hold.
+>
+> **Now guarded in CI.** `web/e2e/web-service.spec.ts` runs the real container and
+> asserts that every script and stylesheet the page requests is served, naming
+> the Dockerfile destinations when it fails. It is red on the old image and green
+> on the new one.
 
 The default `MODEL_PROVIDER=fake` replays hand-written fixture responses, so the
 golden path runs with no API key. Retrieval needs PostgreSQL: SQLite is a
 tests-only path ([ADR-0004](docs/adr/0004-sqlite-tests-postgres-production.md)),
 and on SQLite the API and worker do not share vectors, so a two-process run
 abstains. Set `MODEL_PROVIDER=anthropic` or `openai` for a live model run.
+
+**Compose on one host is the deployment story.** No Kubernetes, no managed
+Postgres, no TLS termination, no backups, no load testing — see
+[limitations.md](docs/limitations.md) §6.
 
 > **The database password is a local-development default, not a secret.** The
 > `postgres` service ships with `POSTGRES_PASSWORD` falling back to `opspilot`
@@ -649,19 +917,65 @@ that generated the lock, and the Docker build fails with `Missing: @emnapi/core@
 not one. Generating from linux-x64 produces a superset lock (471 packages rather
 than 467) that installs correctly on every platform.
 
+### The desktop installer, and what a GitHub Release would take
+
+There is a **built Windows installer** on this machine at
+`desktop/release/OpsPilot-Setup-0.1.0-x64.exe` — **116 MB**, an Electron shell
+that owns the window and the Compose lifecycle and generates its own operator
+token. It requires Docker Desktop; Node is not required.
+[`docs/installer-verification.md`](docs/installer-verification.md) is the
+acceptance script for it, written for someone who did not build it.
+
+**There is no GitHub Release, and this README will not link to a download that
+does not exist.** Making one is a publish, not a document, and it was not done
+here. Concretely it is:
+
+1. **A tag.** There are currently zero tags in this repository
+   (`git tag` is empty), so there is nothing to release *from*. Release assets
+   attach to a Git tag; `v0.1.0` does not yet exist.
+2. **A push.** Everything above this line is uncommitted. A release cut from
+   `main` today would ship without any of this README's changes.
+3. **Attaching the artefact.** `desktop/release/` is gitignored
+   (`desktop/.gitignore:13`), and correctly so — 116 MB of build output does not
+   belong in history. The file would be uploaded as a release asset:
+   `gh release create v0.1.0 desktop/release/OpsPilot-Setup-0.1.0-x64.exe`.
+   The `.blockmap` beside it is electron-builder's differential-update metadata
+   and would go up alongside it if auto-update is ever wired.
+4. **A rebuild from the tagged commit, ideally.** The current binary was built
+   from a working tree, not from a commit, so it cannot be reproduced from
+   `651bcef`. A release should ship a package built by
+   `cd desktop && npm ci && npm run package` on a clean checkout of the tag —
+   ideally in a CI job, so the artefact's provenance is a run id rather than a
+   person's machine.
+5. **D2's real acceptance still outstanding.** §P2-D2 requires that the package
+   be installed and the golden path walked **on a clean Windows machine with
+   Docker Desktop, by someone who did not build it**. That has not happened.
+   Publishing an unverified installer as `0.1.0` would put a download link in
+   front of a prospective client ahead of the test the plan says it must pass
+   first.
+
+None of that is a recommendation against shipping — it is the list, in order.
+
 ## Scope
 
-**Phase 1 builds one workflow properly.** It does not include multi-agent
-orchestration, multi-tenancy, RBAC, SSO, real Salesforce/Stripe/Jira
-integrations, Kubernetes, Kafka, Redis, Celery, Temporal, GraphQL or
-fine-tuning. The test for inclusion is not "is it useful" but **"does the golden
-workflow require it"**.
+**Phase 1 builds one workflow properly; Phase 2 adds a desktop shell and a
+locale, and changes nothing about the workflow's scope.** It does not include
+multi-agent orchestration, multi-tenancy, RBAC, SSO, **real
+Salesforce/Stripe/Jira integrations**, Kubernetes, Kafka, Redis, Celery,
+Temporal, GraphQL or fine-tuning. The test for inclusion is not "is it useful"
+but **"does the golden workflow require it"**.
+
+**The CRM, Billing and Issues integrations are simulated in this repository, as
+the top of this README says.** Nothing else about the workflow is a
+demonstration: the state machine, the gates, the retrieval, the approval and the
+audit trail are the real system, and the evaluation harness measures a real model
+over a real endpoint.
 
 Everything deliberately left unfinished — including the single-operator token,
-the absent retry policy, the unredacted prompt storage, and the worker's
-inability to resume an interrupted run — is listed in
-[**limitations.md**](docs/limitations.md). That file is the one to read if you
-want to know what this does not do.
+the absent retry policy, the unredacted prompt storage, the worker's
+inability to resume an interrupted run, and the untested two-worker guarantee —
+is listed in [**limitations.md**](docs/limitations.md). That file is the one to
+read if you want to know what this does not do.
 
 ## License
 

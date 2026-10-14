@@ -36,6 +36,15 @@
  *      and the "fetch failed" banner are absent. This is the Server Component
  *      read the published container path performs; it failed before the fix and
  *      passes after it.
+ *   4. **The bundles:** every script and stylesheet the page requests is served.
+ *      This spec used to stop at (3), and that is exactly why a second, entirely
+ *      separate image defect shipped green: `web/Dockerfile` copied
+ *      `.next/static` and `public` to `./web/...` while the standalone server
+ *      reads them as siblings of `server.js`, so every bundle 404'd. The page
+ *      still rendered -- (3) passed -- the container still reported `Healthy`
+ *      (its healthcheck is `GET /`), and only the browser knew: Reindex, Submit
+ *      and Approve did nothing. See `every bundle the page requests is served`
+ *      below for what that assertion is and why it belongs here.
  *
  * Skipped cleanly where Docker is unavailable, per ADR-0004 (see `stack.ts`); a
  * stack Docker could attempt and did not bring up is a failure, not a skip.
@@ -122,4 +131,87 @@ test("the containerised dashboard renders live API data", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Recent runs/i })).toBeVisible();
   await expect(page.getByText(/Could not load recent runs/i)).toHaveCount(0);
   await expect(page.getByText(/Could not read the index/i)).toHaveCount(0);
+});
+
+/**
+ * Every bundle the containerised page requests is served.
+ *
+ * WHY THIS TEST EXISTS AT ALL
+ * --------------------------
+ * `web/Dockerfile` copied the dashboard's `.next/static` and `public` trees to
+ * `/app/web/...`, but the standalone server `chdir`s to its own directory and
+ * resolves both relative to *that* (`base-server.js`: `distDir = join(dir,
+ * config.distDir)`; `next-server.js`: `getPublicDir() = join(dir, 'public')`),
+ * so with `server.js` at `/app/server.js` it reads `/app/.next/static` and
+ * `/app/public`. Nothing was there. Every JavaScript bundle and stylesheet
+ * 404'd, and the failure was shaped exactly like success:
+ *
+ *   - `GET /` returned 200, so the container's HEALTHCHECK passed.
+ *   - The document rendered, so the tests above passed -- every assertion in
+ *     this spec is about server-rendered HTML and server-side API reads.
+ *   - Only the browser disagreed: no CSS, and no client component ever
+ *     hydrated, so Reindex, Submit and Approve did nothing at all.
+ *
+ * `golden-path.spec.ts` cannot catch it either, and not by accident: it runs the
+ * dashboard on the host, where `e2e/stack.ts` copies those same two directories
+ * into the standalone tree by hand before spawning `server.js`, so the host path
+ * has always been correct.
+ *
+ * WHY IT IS AN ASSET CHECK AND NOT A CLICK
+ * ----------------------------------------
+ * A click-through would be the more behavioural assertion, and it would also be
+ * a broader one to keep honest -- it would duplicate the golden path's coverage
+ * of the Reindex button while depending on a seeded knowledge directory and a
+ * live worker. This assertion instead names the precise mechanism: the browser
+ * asked for these files and the server had them. It is also robust in the way a
+ * click is not. The requests happen whatever the page does, because the browser
+ * fetches every `<script src>` and `<link rel=stylesheet>` in the document
+ * before any of it can run -- so this fails on the inert page rather than
+ * skipping past it -- and it cannot be satisfied by a page that served the
+ * document but not its assets.
+ *
+ * `resourceType()` is filtered to `script` and `stylesheet` on purpose. The
+ * kinds this deliberately ignores are the ones that are legitimately absent from
+ * a freshly brought-up stack and would make this flaky: `image` (the screenshots
+ * a run has not produced yet), `fetch`/`xhr` (panel data), and `other`, which is
+ * where a favicon lands.
+ */
+test("every bundle the page requests is served", async ({ page }) => {
+  skipUnlessUp();
+
+  const requested: string[] = [];
+  const failed: string[] = [];
+  page.on("response", (response) => {
+    const kind = response.request().resourceType();
+    if (kind !== "script" && kind !== "stylesheet") {
+      return;
+    }
+    const label = `${response.status()} ${kind} ${new URL(response.url()).pathname}`;
+    requested.push(label);
+    if (!response.ok()) {
+      failed.push(label);
+    }
+  });
+
+  await page.goto(WEB_SERVICE_URL, { waitUntil: "networkidle" });
+
+  // Guarded before it is asserted, because a page that requested nothing would
+  // otherwise pass a "nothing failed" assertion vacuously -- which is the shape
+  // of the bug this file exists to prevent, one level up. A rendered dashboard
+  // always pulls at least one chunk and one stylesheet; zero of either means the
+  // page did not load as a page, and the message says so.
+  expect(
+    requested.length,
+    `expected the dashboard to request scripts and stylesheets, but it ` +
+      `requested none. The document rendered without its assets.`,
+  ).toBeGreaterThan(0);
+
+  // Named in the failure, because "an asset 404'd" is the whole diagnosis and
+  // this is the first time anyone would be told which one.
+  expect(
+    failed,
+    `these bundles did not load; the dashboard will render but never hydrate, ` +
+      `so its buttons do nothing. Check web/Dockerfile's \`public\` and ` +
+      `\`\.next/static\` destinations -- they must be siblings of server.js.`,
+  ).toEqual([]);
 });
