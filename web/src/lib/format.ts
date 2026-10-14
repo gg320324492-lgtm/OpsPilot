@@ -12,6 +12,8 @@
  * than inferred at six call sites.
  */
 
+import type { TFunction } from "@/i18n/format";
+
 /**
  * Parse a timestamp the API sent, as an absolute instant.
  *
@@ -106,8 +108,19 @@ export function formatClock(value: string | null | undefined): string {
  * is the classic dashboard lie: "3 minutes ago" on a page that has been open
  * for ten is wrong and reads as live, so every use here sits beside
  * `formatTimestamp`'s output rather than replacing it.
+ *
+ * `t` is required rather than optional. An optional translator here would be
+ * silently defaulted by every call site that forgot it, which is the one way an
+ * English string reaches a Chinese page; making it a parameter means the
+ * compiler names every caller that has to decide. It is a Server-Component-only
+ * helper for exactly that reason -- a Client Component cannot read the cookie
+ * the locale lives in.
  */
-export function formatRelative(value: string | null | undefined, now = Date.now()): string {
+export function formatRelative(
+  value: string | null | undefined,
+  t: TFunction,
+  now = Date.now(),
+): string {
   if (!value) {
     return "";
   }
@@ -117,20 +130,20 @@ export function formatRelative(value: string | null | undefined, now = Date.now(
   }
   const seconds = Math.round((now - parsed.getTime()) / 1000);
   if (seconds < 5) {
-    return "just now";
+    return t("format.justNow");
   }
   if (seconds < 60) {
-    return `${seconds}s ago`;
+    return t("format.secondsAgo", { count: seconds });
   }
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return t("format.minutesAgo", { count: minutes });
   }
   const hours = Math.round(minutes / 60);
   if (hours < 24) {
-    return `${hours}h ago`;
+    return t("format.hoursAgo", { count: hours });
   }
-  return `${Math.round(hours / 24)}d ago`;
+  return t("format.daysAgo", { count: Math.round(hours / 24) });
 }
 
 /**
@@ -187,7 +200,17 @@ export function statusTone(status: string): string {
   }
 }
 
-/** `waiting_approval` -> `Waiting approval`. Never throws on an unknown status. */
+/**
+ * `waiting_approval` -> `Waiting approval`. Never throws on an unknown status.
+ *
+ * **This is the untranslated path, and it is deliberate.** It is what renders a
+ * trace step's `step_type` (`state_change`, `classification`, ...) and it is the
+ * fallback every enum label in `src/i18n/enums.ts` falls through to. §P2-F
+ * names `step_type` explicitly as a machine identifier: the timeline is read
+ * against `docs/agent-state-machine.md` and against a run's own steps, and a
+ * translated `state_change` is neither. A run status that this dashboard *owns*
+ * as a situation goes through `runStatusLabel` instead; see that module.
+ */
 export function humanise(value: string): string {
   if (!value) {
     return "—";

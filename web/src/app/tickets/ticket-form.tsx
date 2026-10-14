@@ -1,29 +1,39 @@
 "use client";
 
 /**
- * The ticket submission form, and the client component that owns it.
+ * The ticket form, and the success panel that names the run it enqueued.
  *
- * A Client Component because it needs state and an event handler -- everything
- * else on this screen is a Server Component that reads. The split is the one
- * the whole app is built on: **this file never calls the API.** It POSTs to a
- * Route Handler on the same origin, and that handler calls the API with the
- * server-side token. That is what keeps `OPSPILOT_OPERATOR_TOKEN` out of the
- * browser bundle; a `fetch` here would either have no token or tempt someone
- * into adding a `NEXT_PUBLIC_` prefix and shipping a refund-capable credential
- * to anyone who can view the page. See the module comment on
- * `lib/api/client.ts`.
+ * ## THE GOLDEN PATH'S VALUES ARE FIXTURES, NOT COPY
+ *
+ * `GOLDEN_PATH` below is the README's ticket, verbatim, and it is deliberately
+ * **not** in the catalogue: the e2e suite submits through the one-click fill and
+ * then asserts `toHaveValue(SUBJECT)` against the same literal, and the API
+ * fixture `billing@acme.example` is what the fake provider matches on. A
+ * localised fixture would be a fixture the suite could not assert and the API
+ * could not match.
+ *
+ * The *labels* and *placeholders* around those fields are copy, and they are in
+ * the catalogue. The placeholders are localised; the ones that are themselves
+ * data (an email address, an external id) are not, and saying so is the whole of
+ * `emailPlaceholder`'s and `externalIdPlaceholder`'s treatment in the catalogue.
+ *
+ * ## WHY IT TAKES `copy`
+ *
+ * See `reindex-button.tsx`: a Client Component cannot read the locale cookie,
+ * and a catalogue import here would ship the whole dashboard's strings to the
+ * browser. The server parent passes the sections down.
  */
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { createScopedT } from "@/i18n/format";
+
+import type en from "@/i18n/dictionaries/en.json";
 
 /**
- * The README's ticket, verbatim.
- *
- * Offered as a one-click fill rather than left in the docs as an instruction,
- * because "submit the ticket from the README and watch it park" is the
- * golden path this dashboard exists to demonstrate -- and a demo a reader has
- * to retype is a demo most readers get wrong.
+ * The README's ticket, verbatim -- the same values `golden-path.spec.ts`,
+ * `failure-states.spec.ts` and `claim-lease.spec.ts` assert against, and the
+ * values the fake provider's recorded scenario matches. A fixture, not copy.
  */
 const GOLDEN_PATH = {
   subject: "We were charged twice for invoice INV-2026-384",
@@ -33,8 +43,12 @@ const GOLDEN_PATH = {
 
 type Submitted = { ticketId: string; runId: string; runStatus: string } | null;
 
-export function TicketForm() {
+/** Exactly the catalogue sections this component renders. */
+export type TicketFormCopy = Pick<typeof en, "common" | "ticketForm">;
+
+export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: string }) {
   const router = useRouter();
+  const t = createScopedT(copy, locale);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [email, setEmail] = useState("");
@@ -61,28 +75,31 @@ export function TicketForm() {
       });
       const payload = (await response.json()) as unknown;
       if (!response.ok) {
-        setFailure(describeFailure(payload, response.status));
+        setFailure(describeFailure(payload, response.status, t));
         return;
       }
       const created = payload as { ticket: { id: string }; run: { id: string; status: string } };
       setSubmitted({
         ticketId: created.ticket.id,
         runId: created.run.id,
+        // The run's status is a contract enum. It is interpolated **verbatim** --
+        // no `runStatusLabel` here -- because it sits inside a sentence about
+        // what the run is doing right now, and an operator who is about to watch
+        // it on the run page will meet the same token there. A localised
+        // `received` here and an untranslated `Received` badge there would be
+        // two names for one state.
         runStatus: created.run.status,
       });
       setSubject("");
       setBody("");
       setEmail("");
       setExternalId("");
-      // The list on this page now has a row that only the server knows about.
-      // `refresh()` rather than `router.refresh()` because the list is rendered
-      // by the same server component that owns the data, and re-fetching it is
-      // the only way the new ticket appears.
+
+      // Cleared before the refresh so a half-filled form cannot be submitted a
+      // second time while the page re-renders.
       router.refresh();
     } catch {
-      setFailure(
-        "The dashboard could not reach its own submission endpoint. Check that the Next.js server is still running.",
-      );
+      setFailure(t("common.unreachable", { endpoint: "/api/tickets" }));
     } finally {
       setBusy(false);
     }
@@ -91,48 +108,45 @@ export function TicketForm() {
   return (
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Subject" required>
+        <Field label={t("ticketForm.subject")} required>
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             required
             maxLength={200}
             className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-            placeholder="Charged twice for invoice INV-2026-384"
+            placeholder={t("ticketForm.subjectPlaceholder")}
           />
         </Field>
-        <Field label="Customer email" required>
+        <Field label={t("ticketForm.customerEmail")} required>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
             className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-            placeholder="billing@acme.example"
+            placeholder={t("ticketForm.emailPlaceholder")}
           />
         </Field>
       </div>
 
-      <Field label="Body" required>
+      <Field label={t("ticketForm.body")} required>
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           required
           rows={3}
           className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-          placeholder="We were charged twice for invoice INV-2026-384. Please investigate and fix it."
+          placeholder={t("ticketForm.bodyPlaceholder")}
         />
       </Field>
 
-      <Field
-        label="External id"
-        hint="Optional. Your own ticket reference. Sending one twice returns 409 ticket_exists rather than creating a duplicate."
-      >
+      <Field label={t("ticketForm.externalId")} hint={t("ticketForm.externalIdHint")}>
         <input
           value={externalId}
           onChange={(e) => setExternalId(e.target.value)}
           className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-          placeholder="ZD-55102"
+          placeholder={t("ticketForm.externalIdPlaceholder")}
         />
       </Field>
 
@@ -142,7 +156,7 @@ export function TicketForm() {
           disabled={busy}
           className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
         >
-          {busy ? "Submitting…" : "Submit ticket"}
+          {busy ? t("ticketForm.submitting") : t("ticketForm.submit")}
         </button>
         <button
           type="button"
@@ -154,29 +168,29 @@ export function TicketForm() {
           }}
           className="rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700"
         >
-          Fill with the README&rsquo;s ticket
+          {t("ticketForm.fillExample")}
         </button>
       </div>
 
       {submitted ? (
         <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
           <p>
-            Ticket <span className="font-mono">{submitted.ticketId.slice(0, 8)}</span> created. Run{" "}
+            {t("ticketForm.createdTitle", { ticket: submitted.ticketId.slice(0, 8) })}{" "}
             <a
               href={`/runs/${submitted.runId}`}
               className="font-mono underline underline-offset-2"
             >
               {submitted.runId.slice(0, 8)}
             </a>{" "}
-            is <strong>{submitted.runStatus}</strong>.
+            {t("ticketForm.createdIs")} <strong>{submitted.runStatus}</strong>
+            {t("ticketForm.createdAfter")}
           </p>
           <p className="mt-1 text-xs">
-            The worker claims it on its next poll, so it will not have moved yet. Watch it on the
-            run page, or reload in a moment. A refund proposal parks for approval &mdash; go to{" "}
+            {t("ticketForm.createdNote_before")}{" "}
             <a href="/approvals" className="underline underline-offset-2">
-              Approvals
+              {t("ticketForm.approvalsLink")}
             </a>{" "}
-            when it does.
+            {t("ticketForm.createdNote_after")}
           </p>
         </div>
       ) : null}
@@ -211,25 +225,33 @@ function Field({
         {required ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
       </span>
       <span className="mt-1 block">{children}</span>
-      {hint ? <span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">{hint}</span> : null}
+      {hint ? (
+        <span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">{hint}</span>
+      ) : null}
     </label>
   );
 }
 
 /**
- * Turn the contract's error envelope into one sentence.
+ * The failure as the API wrote it, with the one case this form has an opinion
+ * about appended.
  *
- * `docs/api-contract.md` §6: `code` is the stable branch key and `message` is
- * for humans. Both are shown. A 409 is named explicitly because the most likely
- * cause is submitting the same `external_id` twice, and "conflict" alone would
- * not tell an operator what to change.
+ * `ticket_exists` names a mistake an operator can fix -- they sent an
+ * `external_id` the API already has -- so the form adds the instruction. The
+ * `code` and the API's `message` stay verbatim in front of it, for the reason
+ * `decision-error.ts` gives.
  *
- * The response is parsed as `unknown` and then narrowed by hand: this file is
- * a Client Component and has no compile-time tie to the generated error shape,
- * so an unchecked cast here would be exactly the hand-written-copy problem the
- * generated types exist to prevent.
+ * Note that `routers/tickets.py::create_ticket` does not currently raise
+ * `409 ticket_exists`; it answers a 500 `internal_error` for a duplicate
+ * `external_id`. `failure-states.spec.ts` records that as a finding rather than
+ * pinning it. This branch is what renders *if* the API ever does raise it, and
+ * it is the same branch either way.
  */
-function describeFailure(payload: unknown, status: number): string {
+function describeFailure(
+  payload: unknown,
+  status: number,
+  t: ReturnType<typeof createScopedT>,
+): string {
   if (
     payload &&
     typeof payload === "object" &&
@@ -243,9 +265,9 @@ function describeFailure(payload: unknown, status: number): string {
   ) {
     const { code, message } = payload.error as { code: string; message: string };
     if (code === "ticket_exists") {
-      return `409 ${code}: ${message} — this external_id already has a ticket. Clear the field to create a genuinely new one.`;
+      return `${status} ${code}: ${message} ${t("ticketForm.ticketExistsSuffix")}`;
     }
     return `${status} ${code}: ${message}`;
   }
-  return `The API answered ${status} with a body this page could not read.`;
+  return t("common.apiUnreadable", { status });
 }

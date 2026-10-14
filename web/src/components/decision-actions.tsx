@@ -23,18 +23,38 @@
  * click teaches the operator the click worked, which is exactly the belief the
  * two-tabs case punishes; the truth is the server's, and it arrives in the
  * response.
+ *
+ * ## WHY IT TAKES `copy` AND NOT A LOCALE
+ *
+ * This is a Client Component. It cannot read the locale cookie, and importing a
+ * catalogue to find out what language it is would put every string in the
+ * dashboard into the browser bundle for the sake of the ten this component
+ * renders. So the Server Component that renders it (`approval-card.tsx` and
+ * `approval-summary.tsx`) passes the `decision` section of the catalogue, and
+ * `createScopedT` builds the same `t` the server builds. The prop is typed as
+ * `typeof en.decision`, so a key renamed in the catalogue is a compile error here
+ * rather than a blank button.
  */
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DecisionPanel } from "@/components/decision-panel";
-import { formatTimestamp, humanise } from "@/lib/format";
+import { formatTimestamp } from "@/lib/format";
+import { createScopedT } from "@/i18n/format";
+import { approvalStatusLabel, runStatusLabel } from "@/i18n/enums";
 import {
   parseDecisionFailure,
   transportFailure,
   type Decision,
   type DecisionFailure,
 } from "@/lib/decision-error";
+
+import type { TFunction } from "@/i18n/format";
+
+import type en from "@/i18n/dictionaries/en.json";
+
+/** Exactly the catalogue section this component renders. Nothing else crosses. */
+export type DecisionCopy = typeof en.decision;
 
 /** The 200 body's fields this component needs, narrowed on arrival. */
 type Decided = {
@@ -47,22 +67,30 @@ type Decided = {
 export function DecisionActions({
   approvalId,
   alreadyDecided,
+  copy,
+  locale,
 }: {
   approvalId: string;
-  /** Set when the API already reports this approval as decided. */
+  /**
+   * Set when the approval is already decided, so the server-rendered card shows
+   * the statement of what happened instead of the buttons. The 409's own
+   * rendering of the same fact goes through `DecisionPanel` below.
+   */
   alreadyDecided?: Decided | null;
+  /** The `decision` catalogue section, passed down from the Server Component. */
+  copy: DecisionCopy;
+  /** The locale the copy is in, which is also the plural rule and the status label set. */
+  locale: string;
 }) {
   const router = useRouter();
+  const t = createScopedT({ decision: copy }, locale);
   const [busy, setBusy] = useState<Decision | null>(null);
   const [failure, setFailure] = useState<DecisionFailure | null>(null);
   const [decided, setDecided] = useState<Decided | null>(null);
 
-  // A decided approval renders as a statement, not as a control. Keeping the
-  // buttons on a decided row would invite the second click whose whole purpose
-  // here is to be shown what the second click does.
   const settled = decided ?? alreadyDecided ?? null;
   if (settled) {
-    return <DecidedLine decided={settled} />;
+    return <DecidedLine decided={settled} t={t} />;
   }
 
   async function decide(decision: Decision) {
@@ -76,21 +104,21 @@ export function DecisionActions({
       });
       const payload = (await response.json()) as unknown;
       if (!response.ok) {
-        // The status is forwarded verbatim by the Route Handler, so a 409
-        // arrives here as a 409 and `parseDecisionFailure` reads the envelope
-        // the API wrote -- including the actor and the moment in `message`.
-        setFailure(parseDecisionFailure(payload, response.status));
+        // The 409 reaches here with the Route Handler's own status and the
+        // API's own `code`; nothing in this component rewrites either.
+        setFailure(parseDecisionFailure(payload, response.status, t));
         return;
       }
       setDecided(asDecided(payload));
-      // The card is still on the server's page. A refresh is what removes it
-      // from the pending filter; without it the screen would keep showing a row
-      // the API no longer considers pending.
+
+      // The refresh is what removes the card from the pending inbox. Without it
+      // the card would still be on screen with no buttons and no statement, and
+      // an operator could not tell whether the click landed.
       router.refresh();
     } catch {
       setFailure(
         transportFailure(
-          "The dashboard could not reach its own decision endpoint. Check that the Next.js server is still running.",
+          t("common.unreachable", { endpoint: `/api/approvals/${approvalId}/${decision}` }),
         ),
       );
     } finally {
@@ -107,7 +135,7 @@ export function DecisionActions({
           disabled={busy !== null}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
         >
-          {busy === "approve" ? "Approving…" : "Approve"}
+          {busy === "approve" ? t("decision.approving") : t("decision.approve")}
         </button>
         <button
           type="button"
@@ -115,39 +143,52 @@ export function DecisionActions({
           disabled={busy !== null}
           className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-neutral-700"
         >
-          {busy === "reject" ? "Rejecting…" : "Reject"}
+          {busy === "reject" ? t("decision.rejecting") : t("decision.reject")}
         </button>
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
-          Approving does not run the refund here &mdash; it releases the run and the worker
-          performs it.
+          {t("decision.approveNote")}
         </span>
       </div>
-      {failure ? <DecisionPanel failure={failure} onDismiss={() => setFailure(null)} /> : null}
-    </div>
-  );
-}
-
-function DecidedLine({ decided }: { decided: Decided }) {
-  return (
-    <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <p className="font-medium">{humanise(decided.status)}</p>
-      <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
-        {decided.decidedBy ? `by ${decided.decidedBy}` : "by an operator"}
-        {decided.decidedAt ? ` at ${formatTimestamp(decided.decidedAt)}` : ""}
-        {decided.runStatus ? ` · the run moved to ${humanise(decided.runStatus)}` : ""}
-      </p>
+      {failure ? (
+        <DecisionPanel failure={failure} onDismiss={() => setFailure(null)} t={t} />
+      ) : null}
     </div>
   );
 }
 
 /**
- * Narrow the 200 body.
+ * The decided state as a statement rather than a control.
  *
- * `ApprovalDecisionResponse` is a generated type, but this file is a Client
- * Component and the body arrives as `unknown` over `fetch`, so the shape is
- * asserted field by field rather than cast wholesale -- a cast would compile
- * while the API changed underneath it.
+ * `decidedBy` is an operator id from the ledger, not copy, and is interpolated
+ * verbatim; `runStatus` is a contract enum whose *label* is localised through
+ * the same rule as the badge on the runs list.
  */
+function DecidedLine({
+  decided,
+  t,
+}: {
+  decided: Decided;
+  /** The `t` this component built from its `copy` slice; see the component. */
+  t: TFunction;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <p className="font-medium">{approvalStatusLabel(decided.status, t)}</p>
+      <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+        {decided.decidedBy
+          ? t("decision.decidedBy", { who: decided.decidedBy })
+          : t("decision.decidedByUnknown")}
+        {decided.decidedAt
+          ? ` ${t("decision.decidedAt", { time: formatTimestamp(decided.decidedAt) })}`
+          : ""}
+        {decided.runStatus
+          ? ` ${t("decision.runMovedTo", { status: runStatusLabel(decided.runStatus, t) })}`
+          : ""}
+      </p>
+    </div>
+  );
+}
+
 function asDecided(payload: unknown): Decided {
   if (!payload || typeof payload !== "object") {
     return { status: "decided", decidedAt: null, decidedBy: null, runStatus: null };

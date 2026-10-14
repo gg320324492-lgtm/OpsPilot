@@ -815,7 +815,12 @@ function diagnoseWorker(env: NodeJS.ProcessEnv, stateLine: string): string {
  * here; that is the price of a capture a reader can attribute from the artifact
  * listing alone.
  */
-export type DiagnosticLabel = "golden-path" | "failure-states" | "web-service" | "claim-lease";
+export type DiagnosticLabel =
+  | "golden-path"
+  | "failure-states"
+  | "web-service"
+  | "claim-lease"
+  | "i18n";
 
 /** The directory `label`'s capture goes in, relative to `web/`. */
 const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;

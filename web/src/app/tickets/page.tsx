@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EmptyState, ErrorPanel, Page, Panel, Time } from "@/components/ui";
 import { formatTimestamp } from "@/lib/format";
 import { loadTickets } from "@/lib/data";
+import { getCopy } from "@/i18n/server";
 import { TicketForm } from "./ticket-form";
 
 /**
@@ -17,23 +18,30 @@ import { TicketForm } from "./ticket-form";
  * claims the run on its next poll (contract §2). So the form says so, because a
  * reader who submits and sees an unmoved run has to be able to tell "the
  * dashboard is broken" from "the worker has not come back yet".
+ *
+ * Everything a ticket carries -- `subject`, `body`, `customer_email`,
+ * `external_id`, the id -- is the operator's own input and the database's own
+ * value, rendered verbatim in every locale. Translating a customer's own words
+ * back to them would be a data-corruption bug wearing a localisation feature's
+ * clothes. The screen's own copy is the headings, the empty state, and the
+ * `runs` link label.
  */
 export default async function TicketsPage() {
-  const tickets = await loadTickets();
+  const [tickets, { t, locale, copy }] = await Promise.all([
+    loadTickets(),
+    getCopy("common", "ticketForm"),
+  ]);
 
   return (
-    <Page
-      title="Tickets"
-      description="Submitting a ticket enqueues an agent run in the same transaction. The worker picks it up on its next poll and it appears in Runs."
-    >
+    <Page title={t("tickets.title")} description={t("tickets.description")}>
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <Panel
-            title="Tickets"
-            aside={tickets.data ? `${tickets.data.total} total` : undefined}
+            title={t("tickets.title")}
+            aside={tickets.data ? `${tickets.data.total} ${t("tickets.totalSuffix")}` : undefined}
           >
             {tickets.error ? (
-              <ErrorPanel error={tickets.error} title="Could not load tickets" />
+              <ErrorPanel error={tickets.error} title={t("tickets.couldNotLoad")} />
             ) : tickets.data && tickets.data.items.length > 0 ? (
               <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {tickets.data.items.map((ticket) => (
@@ -62,24 +70,21 @@ export default async function TicketsPage() {
                         href={`/runs?ticket=${ticket.id}`}
                         className="underline underline-offset-2"
                       >
-                        runs
+                        {t("tickets.runsLink")}
                       </Link>
                     </p>
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState
-                title="No tickets yet"
-                hint="Use the form to submit one. A run is enqueued with it, in the same transaction, so a ticket can never exist without having been investigated."
-              />
+              <EmptyState title={t("tickets.noTicketsTitle")} hint={t("tickets.noTicketsHint")} />
             )}
           </Panel>
         </div>
 
         <div className="lg:col-span-2">
-          <Panel title="Submit a ticket">
-            <TicketForm />
+          <Panel title={t("tickets.submitPanel")}>
+            <TicketForm copy={copy} locale={locale} />
           </Panel>
         </div>
       </div>

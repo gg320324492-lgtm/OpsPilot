@@ -1,26 +1,40 @@
 "use client";
 
 /**
- * The reindex button, and the client component that owns its result.
+ * The one button that rebuilds the knowledge index, and the panel that states
+ * what it did.
  *
- * A Client Component for the same reason as the ticket form: it needs state and
- * a click handler, and it cannot hold the operator token. It POSTs to
- * `app/api/knowledge/reindex/route.ts`, same-origin, and that handler calls the
- * API with the server-side token.
+ * ## WHY THE ZERO CASE IS HALF OF THIS FILE
  *
- * **The copy that matters on this screen is the zero case.** Reindex is
- * idempotent (contract §9): documents are re-hashed and unchanged ones are
- * skipped, so a second call on an unchanged tree returns
- * `documents_indexed == 0`. That is a correct answer, not a failure, and it is
- * the most likely answer an operator will see -- they press the button, nothing
- * changes, and `0` is the only number on screen. An interface that lets that be
- * read as "the reindex did not work" has misled the operator about a working
- * system, so the zero case is stated explicitly and in the same tone as the
- * non-zero case rather than as a warning.
+ * `POST /api/knowledge/reindex` is idempotent (contract §9): every document is
+ * re-hashed and only the ones whose hash changed are re-embedded. So a second
+ * run on an unchanged tree returns `documents_indexed == 0` -- and that is the
+ * answer an operator sees most often, because pressing the button again is the
+ * natural thing to do when nothing appears to happen.
+ *
+ * Saying so is the one piece of copy on this screen that matters. An interface
+ * that lets `0` be read as failure has misled the operator about a working
+ * system, and the misleading version is the one that gets written by default --
+ * a bare `0` next to a button labelled "reindex" reads as nothing happening.
+ * `ResultPanel` therefore states the zero case explicitly, in the same tone as
+ * the non-zero case rather than as a warning, and distinguishes it from
+ * `documents_seen == 0`, which is a genuinely empty tree and a real problem.
+ *
+ * ## WHY IT TAKES `copy`
+ *
+ * A Client Component cannot read the locale cookie, and importing a catalogue to
+ * find out what language it is in would put every string in the dashboard into
+ * the browser bundle for the sake of the fifteen this component renders. The
+ * server parent (`knowledge/page.tsx`) passes the `common` and `knowledge`
+ * sections down instead. See `decision-actions.tsx` for the same arrangement
+ * spelled out at more length.
  */
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { createScopedT } from "@/i18n/format";
+
+import type en from "@/i18n/dictionaries/en.json";
 
 type Result = {
   documentsSeen: number;
@@ -28,8 +42,12 @@ type Result = {
   chunksWritten: number;
 };
 
-export function ReindexButton() {
+/** Exactly the catalogue sections this component renders. */
+export type ReindexCopy = Pick<typeof en, "common" | "knowledge">;
+
+export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: string }) {
   const router = useRouter();
+  const t = createScopedT(copy, locale);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -42,18 +60,16 @@ export function ReindexButton() {
       const response = await fetch("/api/knowledge/reindex", { method: "POST" });
       const payload = (await response.json()) as unknown;
       if (!response.ok) {
-        setFailure(describeFailure(payload, response.status));
+        setFailure(describeFailure(payload, response.status, t));
         return;
       }
       setResult(asResult(payload));
-      // The document list is server-rendered from `GET /api/knowledge`; a
-      // reindex that added or changed a document is only visible after the
-      // server re-reads it.
+
+      // The refresh is what makes the new counts appear in the table above,
+      // which is where the operator actually reads them.
       router.refresh();
     } catch {
-      setFailure(
-        "The dashboard could not reach its own reindex endpoint. Check that the Next.js server is still running.",
-      );
+      setFailure(t("common.unreachable", { endpoint: "/api/knowledge/reindex" }));
     } finally {
       setBusy(false);
     }
@@ -68,15 +84,16 @@ export function ReindexButton() {
           disabled={busy}
           className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
         >
-          {busy ? "Reindexing…" : "Reindex knowledge/"}
+          {busy ? t("knowledge.reindex.reindexing") : t("knowledge.reindex.button")}
         </button>
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
-          Re-hashes every <code>*.md</code> under <code>knowledge/</code> and re-embeds what
-          changed. Unchanged documents are skipped, so repeating it is safe.
+          {t("knowledge.reindex.hint_before")} <code>{t("knowledge.reindex.glob")}</code>{" "}
+          {t("knowledge.reindex.hint_middle")} <code>{t("knowledge.reindex.dir")}</code>{" "}
+          {t("knowledge.reindex.hint_after")}
         </span>
       </div>
 
-      {result ? <ResultPanel result={result} /> : null}
+      {result ? <ResultPanel result={result} t={t} /> : null}
 
       {failure ? (
         <div
@@ -91,15 +108,15 @@ export function ReindexButton() {
 }
 
 /**
- * The three counts, with the zero case stated.
+ * What the reindex actually did.
  *
- * `documents_indexed == 0` gets its own sentence rather than being left to be
- * inferred from a number, because it is the answer an operator sees most often
- * and the one most easily misread. `documents_seen == 0` is a *different*
- * zero and is not conflated with it: no documents seen means the tree was not
- * found, which is a real problem worth saying so about.
+ * `unchanged` is the state that reads as failure and is not, so the panel's
+ * border and ground are *emerald* on it -- the same tone as a successful
+ * non-zero run, not a warning -- and the copy below says why. A panel that
+ * turned red on `0 indexed` would be the misleading version this component
+ * exists to prevent.
  */
-function ResultPanel({ result }: { result: Result }) {
+function ResultPanel({ result, t }: { result: Result; t: ReturnType<typeof createScopedT> }) {
   const unchanged = result.documentsIndexed === 0;
 
   return (
@@ -111,39 +128,32 @@ function ResultPanel({ result }: { result: Result }) {
       }`}
     >
       <p className="font-medium">
-        {result.documentsSeen} seen &middot; {result.documentsIndexed} indexed &middot;{" "}
-        {result.chunksWritten} chunks written
+        {result.documentsSeen} {t("knowledge.reindex.seenSuffix")} {result.documentsIndexed}{" "}
+        {t("knowledge.reindex.indexedSuffix")} {result.chunksWritten}{" "}
+        {t("knowledge.reindex.chunksWrittenSuffix")}
       </p>
       {result.documentsSeen === 0 ? (
         <p className="mt-1 text-xs">
-          No documents were found. The API reads <code>knowledge/*.md</code> beside{" "}
-          <code>src/</code> in the repository root; if that directory is missing or empty there
-          is nothing to index, and retrieval will have nothing to cite.
+          {t("knowledge.reindex.emptyTree_before")}{" "}
+          <code>knowledge/*.md</code> {t("knowledge.reindex.emptyTree_after")}
         </p>
       ) : unchanged ? (
-        <p className="mt-1 text-xs">
-          <strong>0 indexed is the expected result here, not a failure.</strong> Reindex is
-          idempotent (contract §9): every document was re-hashed, none of the hashes changed, so
-          nothing was re-embedded. The index is up to date. Edit a document and run it again to
-          see a non-zero count.
-        </p>
+        <>
+          <p className="mt-1 text-xs font-medium">
+            {t("knowledge.reindex.zeroIndexedNote")}
+          </p>
+          <p className="mt-1 text-xs">{t("knowledge.reindex.zeroIndexedBody")}</p>
+        </>
       ) : (
         <p className="mt-1 text-xs">
-          {result.documentsIndexed} of {result.documentsSeen} had a changed{" "}
-          <code>content_hash</code> and were re-embedded.
+          {t("knowledge.reindex.someIndexed", { count: result.documentsIndexed })}{" "}
+          {t("knowledge.reindex.someIndexedAfter")}
         </p>
       )}
     </div>
   );
 }
 
-/**
- * Narrow the 200 body field by field.
- *
- * A Client Component has no compile-time tie to the generated
- * `KnowledgeReindexResponse`, and the body arrives over `fetch` as `unknown`, so
- * an unchecked cast would compile while the API changed underneath it.
- */
 function asResult(payload: unknown): Result {
   if (!payload || typeof payload !== "object") {
     return { documentsSeen: 0, documentsIndexed: 0, chunksWritten: 0 };
@@ -164,8 +174,18 @@ function asResult(payload: unknown): Result {
   };
 }
 
-/** Turn the forwarded envelope into one sentence. */
-function describeFailure(payload: unknown, status: number): string {
+/**
+ * The failure as the API wrote it, or a statement that it wrote nothing usable.
+ *
+ * The envelope's `code` and `message` are the API's own text and go out
+ * verbatim, for the reason `decision-error.ts`'s module docstring gives: the
+ * contract fixes several `message`s and Python tests assert them.
+ */
+function describeFailure(
+  payload: unknown,
+  status: number,
+  t: ReturnType<typeof createScopedT>,
+): string {
   if (
     payload &&
     typeof payload === "object" &&
@@ -180,5 +200,5 @@ function describeFailure(payload: unknown, status: number): string {
     const { code, message } = payload.error as { code: string; message: string };
     return `${status} ${code}: ${message}`;
   }
-  return `The API answered ${status} with a body this page could not read.`;
+  return t("common.apiUnreadable", { status });
 }

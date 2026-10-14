@@ -11,7 +11,10 @@
 
 import type { ReactNode } from "react";
 import { ApiError } from "@/lib/api/client";
-import { humanise, statusTone } from "@/lib/format";
+import { statusTone } from "@/lib/format";
+import { runStatusLabel } from "@/i18n/enums";
+import { getT } from "@/i18n/server";
+import type { TFunction } from "@/i18n/format";
 
 /** The `max-w-7xl` frame every screen's content sits in, matching the nav. */
 export function Page({
@@ -70,13 +73,25 @@ export function Panel({
   );
 }
 
-/** A run status pill. */
-export function StatusBadge({ status }: { status: string }) {
+/**
+ * A run status pill.
+ *
+ * The label is localised (`runStatusLabel`) while the status itself is not:
+ * `statusTone(status)` still switches on the raw contract value, so the colour
+ * that means "a person is needed" is decided by `waiting_approval` and nothing
+ * else. See `src/i18n/enums.ts` for the rule this follows and why a run status
+ * is a label while an error `code` is not.
+ *
+ * `t` is a prop rather than a `getT()` call because this component renders on
+ * four screens and every one of them already resolved the locale; taking it as
+ * a prop keeps the badge synchronous and the locale read at one place per page.
+ */
+export function StatusBadge({ status, t }: { status: string; t: TFunction }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${statusTone(status)}`}
     >
-      {humanise(status)}
+      {runStatusLabel(status, t)}
     </span>
   );
 }
@@ -144,20 +159,31 @@ export function EmptyState({ title, hint }: { title: string; hint?: ReactNode })
  * The status line and code are shown rather than the stack: `code` is the
  * contract's stable branch key (`docs/api-contract.md` §6) and is what a bug
  * report needs. `message` is shown because it is written for humans -- the
- * contract's own examples name the approval and the operator in it.
+ * contract's own examples name the approval and the operator in it -- and
+ * because **the API's own message text is out of scope for this project**
+ * (`docs/phase2-plan.md` §P2-F): `api-contract.md` fixes several of them
+ * verbatim and Python tests assert them. So `error.message` is interpolated
+ * untranslated, in every locale, while the sentences this component writes
+ * around it are localised. An operator reading the Chinese dashboard who copies
+ * a failure into a bug report gets the API's English sentence, exactly as they
+ * did before, and the Chinese sentences around it are the part this project owns.
  */
-export function ErrorPanel({ error, title }: { error: unknown; title?: string }) {
+export async function ErrorPanel({ error, title }: { error: unknown; title?: string }) {
+  const t = await getT();
+  const heading = title ? `${title}: ` : "";
+
   if (error instanceof ApiError) {
     if (error.isAuthFailure) {
       return (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <p className="font-medium">
-            {title ? `${title}: ` : ""}the API rejected the operator token
+            {heading}
+            {t("common.apiRejectedToken")}
           </p>
           <p className="mt-1">
-            Every request to the API failed authentication, so nothing on this screen could be
-            loaded. Set <code>OPSPILOT_OPERATOR_TOKEN</code> in the dashboard&apos;s environment to
-            the value the API process was started with, then reload.
+            {t("common.apiRejectedTokenDetail_before")}{" "}
+            <code>{t("common.envOperatorToken")}</code>{" "}
+            {t("common.apiRejectedTokenDetail_after")}
           </p>
         </div>
       );
@@ -165,9 +191,13 @@ export function ErrorPanel({ error, title }: { error: unknown; title?: string })
     return (
       <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
         <p className="font-medium">
-          {title ? `${title}: ` : ""}the API returned {error.status}
+          {heading}
+          {t("common.apiReturned", { status: error.status })}
         </p>
+        {/* The API's own message, verbatim and untranslated. See the docstring. */}
         <p className="mt-1">{error.message}</p>
+        {/* And the contract's stable branch key. Untranslated in every locale --
+            `docs/api-contract.md` §6 fixes it, and so does every consumer. */}
         <p className="mt-1 font-mono text-xs opacity-80">code: {error.code}</p>
       </div>
     );
@@ -176,7 +206,10 @@ export function ErrorPanel({ error, title }: { error: unknown; title?: string })
   if (error instanceof Error) {
     return (
       <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-        <p className="font-medium">{title ? `${title}: ` : ""}unexpected error</p>
+        <p className="font-medium">
+          {heading}
+          {t("common.unknownError")}
+        </p>
         <p className="mt-1">{error.message}</p>
       </div>
     );
@@ -184,7 +217,10 @@ export function ErrorPanel({ error, title }: { error: unknown; title?: string })
 
   return (
     <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-      <p className="font-medium">{title ? `${title}: ` : ""}unexpected error</p>
+      <p className="font-medium">
+        {heading}
+        {t("common.unknownError")}
+      </p>
     </div>
   );
 }

@@ -1,25 +1,20 @@
 import { checkApiReachability } from "@/lib/api/client";
+import { getT } from "@/i18n/server";
 
 /**
- * The dashboard's connection banner.
+ * The banner across the top of every screen when the API is not usable.
  *
- * Its whole job is the failure case. A missing or wrong operator token makes
- * every request fail, and a dashboard that renders an empty list in that state
- * is asserting something false and entirely plausible -- "no tickets yet" -- so
- * an operator would have no reason to look for a configuration problem. A
- * console error is not a user interface.
+ * A Server Component, so the two sentences that name the failure are resolved
+ * from the operator's locale before the first byte is written. That matters more
+ * here than on most screens: this is the one message an operator sees when the
+ * dashboard has nothing else to show them, and it is the one that tells them
+ * which environment variable to set.
  *
- * So the token is checked once on load, server-side, and the outcome is stated
- * in words on the page. Three states, deliberately distinct:
- *
- * - unreachable: the API is not answering at all (not running, wrong port).
- * - unauthenticated: the API answered and refused the token.
- * - ready: render nothing, so the shell stays quiet when things work.
- *
- * Reads the token server-side (see `client.ts`); the token never reaches here.
+ * `status.message` is the client's own sentence about the transport failure and
+ * is passed through as it was, for the reason `ErrorPanel`'s docstring gives.
  */
 export async function ApiStatus() {
-  const status = await checkApiReachability();
+  const [status, t] = await Promise.all([checkApiReachability(), getT()]);
 
   if (status.reachable && status.authenticated) {
     return null;
@@ -37,13 +32,15 @@ export async function ApiStatus() {
       }
     >
       <div className="mx-auto max-w-7xl">
-        <strong>{isAuthProblem ? "API rejected the operator token" : "Cannot reach the API"}</strong>
+        <strong>
+          {isAuthProblem ? t("apiStatus.tokenRejected") : t("apiStatus.unreachable")}
+        </strong>
         <span className="ml-2">{status.message}</span>
         {isAuthProblem ? (
           <p className="mt-1 text-xs opacity-80">
-            The dashboard reads <code>OPSPILOT_OPERATOR_TOKEN</code> on the server and
-            never sends it to the browser. Set it in <code>web/.env.local</code> to the
-            same value the API process was started with, then restart the dev server.
+            {t("apiStatus.tokenHelp_before")} <code>{t("common.envOperatorToken")}</code>{" "}
+            {t("apiStatus.tokenHelp_middle")} <code>{t("apiStatus.envFile")}</code>{" "}
+            {t("apiStatus.tokenHelp_after")}
           </p>
         ) : null}
       </div>

@@ -37,15 +37,26 @@
  * state in which an operator might approve both. A decided pair is history, and a
  * notice explaining a replay on it would be describing a state nobody can act on
  * any more. So the notice is gated on `pending` here.
+ *
+ * ## What crosses to the browser
+ *
+ * `t` renders this file, and `copy` + `locale` are handed to the one Client
+ * Component below it (`DecisionActions`). Both are typed against the English
+ * catalogue. The `arguments_snapshot` heading, the `tool_call_id` label and the
+ * tool name are **not** in the catalogue: they are a contract field name, a
+ * field name and a tool identifier, and an operator greps for all three.
  */
 
 import Link from "next/link";
-import { DecisionActions } from "@/components/decision-actions";
+import { DecisionActions, type DecisionCopy } from "@/components/decision-actions";
 import { TrustedExplanation, UntrustedExplanation } from "@/components/explanation";
 import { Pill, Time } from "@/components/ui";
 import { formatRelative, formatTimestamp } from "@/lib/format";
+import { approvalStatusLabel, permissionLabel } from "@/i18n/enums";
 import { deriveRisk, riskProvenance, type Permission } from "@/lib/risk";
 import type { Approval, ToolCall } from "@/lib/data";
+import type { TFunction } from "@/i18n/format";
+
 
 export function ApprovalCard({
   approval,
@@ -55,12 +66,21 @@ export function ApprovalCard({
   identicalArguments,
   /** How many pending cards this run holds, for the duplicate banner's wording. */
   duplicateCount,
+  t,
+  locale,
+  copy,
 }: {
   approval: Approval;
   toolCall?: ToolCall;
   duplicated?: boolean;
   identicalArguments?: boolean;
   duplicateCount?: number;
+  /** The request's `t`, resolved by the page that renders this card. */
+  t: TFunction;
+  /** The request's locale, needed to build the Client Component's own `t`. */
+  locale: string;
+  /** The `decision` catalogue section, handed straight to `DecisionActions`. */
+  copy: DecisionCopy;
 }) {
   const risk = deriveRisk(toolCall?.permission, toolCall?.tool_name ?? null);
   const pending = approval.status === "pending";
@@ -83,34 +103,34 @@ export function ApprovalCard({
           identicalArguments={identicalArguments ?? false}
           count={duplicateCount ?? 2}
           runId={approval.run_id}
+          t={t}
         />
       ) : null}
 
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <RiskPill level={risk.level} />
-          {toolCall ? <Pill>{humanisePermission(toolCall.permission)}</Pill> : null}
+          <RiskPill level={risk.level} t={t} />
+          {toolCall ? <Pill>{permissionLabel(toolCall.permission, t)}</Pill> : null}
           <Pill tone={pending ? "warn" : "neutral"}>
-            {approval.status.replace(/_/g, " ")}
+            {approvalStatusLabel(approval.status, t)}
           </Pill>
         </div>
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
-          parked{" "}
+          {t("approvalCard.parked")}{" "}
           <Time value={approval.created_at}>
             {formatTimestamp(approval.created_at)}
-            {` (${formatRelative(approval.created_at)})`}
+            {` (${formatRelative(approval.created_at, t)})`}
           </Time>
         </span>
       </div>
 
       <div className="mt-3">
         <p className="font-mono text-sm font-semibold">
-          {toolCall?.tool_name ?? "Tool unknown"}
+          {toolCall?.tool_name ?? t("approvalCard.toolUnknown")}
         </p>
         {!toolCall ? (
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-            The run&rsquo;s tool calls were not available to read this call&rsquo;s name from.
-            The arguments below are the API&rsquo;s own snapshot and are still exact.
+            {t("approvalCard.toolCallUnavailable")}
           </p>
         ) : null}
       </div>
@@ -118,39 +138,41 @@ export function ApprovalCard({
       {/* Deterministic first, model's second: reading order is the order the
           reasoning is safe in. See explanation.tsx. */}
       <div className="mt-3 space-y-3">
-        <TrustedExplanation text={approval.risk_explanation} />
-        <UntrustedExplanation text={approval.reason} />
+        <TrustedExplanation text={approval.risk_explanation} t={t} />
+        <UntrustedExplanation text={approval.reason} t={t} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
+          {/* A contract field name, verbatim. See the module docstring. */}
           <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            arguments_snapshot
+            {t("approvalCard.argumentsLabel")}
           </p>
           <pre className="mt-1 overflow-x-auto rounded bg-neutral-50 p-2 font-mono text-xs dark:bg-neutral-950">
             {JSON.stringify(approval.arguments_snapshot, null, 2)}
           </pre>
           <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-            tool_call_id <span className="font-mono">{approval.tool_call_id}</span>
+            {t("approvalCard.toolCallIdLabel")}{" "}
+            <span className="font-mono">{approval.tool_call_id}</span>
           </p>
         </div>
         <div>
           <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            risk level
+            {t("approvalCard.riskLevelLabel")}
           </p>
           <p className="mt-1 text-sm">
-            {risk.level ? humanisePermission(risk.level) : "Unknown"}
+            {risk.level ? permissionLabel(risk.level, t) : t("risk.levelUnknown")}
           </p>
           {/* The provenance is on the card, not behind a tooltip: a derived level
               presented as though the API had sent it is the dashboard inventing
               evidence. See lib/risk.ts. */}
           <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
-            {riskProvenance(risk.source)}
+            {riskProvenance(risk.source, t)}
           </p>
           {approval.context ? (
             <div className="mt-3">
               <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                context
+                {t("approvalCard.contextLabel")}
               </p>
               <p className="mt-1 text-sm">
                 {approval.context.company ? (
@@ -169,7 +191,11 @@ export function ApprovalCard({
 
       <div className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800">
         {pending ? (
-          <DecisionActions approvalId={approval.id} />
+          <DecisionActions
+            approvalId={approval.id}
+            copy={copy}
+            locale={locale}
+          />
         ) : (
           <DecisionActions
             approvalId={approval.id}
@@ -179,13 +205,16 @@ export function ApprovalCard({
               decidedBy: approval.decided_by ?? null,
               runStatus: null,
             }}
+            copy={copy}
+            locale={locale}
           />
         )}
         <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
           <Link href={`/runs/${approval.run_id}`} className="underline underline-offset-2">
-            Open run {approval.run_id.slice(0, 8)}
+            {t("approvalCard.openRun")} {approval.run_id.slice(0, 8)}
           </Link>{" "}
-          &middot; approval <span className="font-mono">{approval.id.slice(0, 8)}</span>
+          &middot; {t("approvalCard.approvalSuffix")}{" "}
+          <span className="font-mono">{approval.id.slice(0, 8)}</span>
         </p>
       </div>
     </li>
@@ -212,65 +241,69 @@ export function ApprovalCard({
  * run with *different* arguments are two genuinely different proposals (a
  * customer owed two refunds), and calling that a replay would be the dashboard
  * inventing a claim -- so the two cases get different sentences.
+ *
+ * `EXECUTING` is rendered as a `<code>` element from the component rather than
+ * interpolated from the catalogue. It is a `RunStatus` value, it is what the run
+ * page's own timeline will show for the same run, and a translator has no reason
+ * to be able to change it.
  */
 function DuplicateNotice({
   identicalArguments,
   count,
   runId,
+  t,
 }: {
   identicalArguments: boolean;
   count: number;
   runId: string;
+  t: TFunction;
 }) {
   return (
     <div className="mb-3 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100">
       <p className="font-semibold">
         {identicalArguments
-          ? "This run is showing the same proposal twice."
-          : "This run is holding more than one pending approval."}
+          ? t("approvalCard.duplicateIdenticalTitle")
+          : t("approvalCard.duplicateDistinctTitle")}
       </p>
       <p className="mt-1">
         {identicalArguments ? (
           <>
-            A run resumed from <code>EXECUTING</code> re-proposes the same refund under a new
-            tool call id, so one refund produced{" "}
-            <strong>{count} pending cards with identical arguments</strong>. The money moves{" "}
-            <strong>once</strong> &mdash; the idempotency key blocks the replay &mdash; but both
-            cards are real and both are shown rather than collapsed into one, because hiding one
-            would misreport what the API has pending. Approving this card does not decide the
-            other; it is still waiting and will need its own decision.
+            {t("approvalCard.duplicateIdentical_before")} <code>EXECUTING</code>{" "}
+            {t("approvalCard.duplicateIdentical_middle")}{" "}
+            <strong>
+              {t("approvalCard.duplicateIdentical_emphasis", { count })}
+            </strong>
+            . {t("approvalCard.duplicateIdentical_moves")}{" "}
+            <strong>{t("approvalCard.duplicateIdentical_once")}</strong>{" "}
+            {t("approvalCard.duplicateIdentical_after")}
           </>
         ) : (
           <>
-            This run holds {count} pending approvals whose arguments differ, so these are{" "}
-            <strong>{count} separate proposals</strong> rather than one proposal proposed twice.
-            Each needs its own decision.
+            {t("approvalCard.duplicateDistinct_before")}{" "}
+            <strong>{t("approvalCard.duplicateDistinct_emphasis", { count })}</strong>{" "}
+            {t("approvalCard.duplicateDistinct_after")}
           </>
         )}
       </p>
       <p className="mt-1">
         <Link href={`/runs/${runId}`} className="underline underline-offset-2">
-          Open run {runId.slice(0, 8)}
+          {t("approvalCard.openRun")} {runId.slice(0, 8)}
         </Link>{" "}
-        to see the tool calls it proposed.
+        {t("approvalCard.duplicateOpenRunSuffix")}
       </p>
     </div>
   );
 }
 
-function RiskPill({ level }: { level: Permission | null }) {
+function RiskPill({ level, t }: { level: Permission | null; t: TFunction }) {
   if (!level) {
-    return <Pill tone="warn">Risk unknown</Pill>;
+    return <Pill tone="warn">{t("risk.level_unknown")}</Pill>;
   }
   if (level === "high_risk_write") {
-    return <Pill tone="danger">High risk write</Pill>;
+    return <Pill tone="danger">{t("risk.level_highRiskWrite")}</Pill>;
   }
   if (level === "safe_write") {
-    return <Pill tone="warn">Safe write</Pill>;
+    return <Pill tone="warn">{t("risk.level_safeWrite")}</Pill>;
   }
-  return <Pill tone="neutral">Read</Pill>;
-}
-
-function humanisePermission(value: string): string {
-  return value.replace(/_/g, " ");
+  return <Pill tone="neutral">{t("risk.level_read")}</Pill>;
 }

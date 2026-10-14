@@ -1,6 +1,7 @@
 import { EmptyState, ErrorPanel, Page, Panel, Time } from "@/components/ui";
 import { formatTimestamp } from "@/lib/format";
 import { loadKnowledge } from "@/lib/data";
+import { getCopy } from "@/i18n/server";
 import { ReindexButton } from "./reindex-button";
 
 /**
@@ -28,46 +29,56 @@ import { ReindexButton } from "./reindex-button";
  * `reindex-button.tsx` states the zero case explicitly, in the same tone as the
  * non-zero case rather than as a warning, and distinguishes it from
  * `documents_seen == 0`, which is a genuinely empty tree and a real problem.
+ *
+ * The same reasoning is why this page reads the locale once and hands the button
+ * its `copy`: the zero case has to read as reassuring in every locale, and the
+ * button is where it is read.
+ *
+ * The table itself is almost entirely identifiers -- `doc.source` is a path,
+ * `doc.title` and `doc.content_hash` come from the corpus -- and is rendered
+ * verbatim. The headers and the two explanatory paragraphs are copy.
  */
 export default async function KnowledgePage() {
-  const knowledge = await loadKnowledge();
+  const [knowledge, { t, locale, copy }] = await Promise.all([
+    loadKnowledge(),
+    getCopy("common", "knowledge"),
+  ]);
   const docs = knowledge.data?.items ?? [];
   const chunks = docs.reduce((total, doc) => total + doc.chunk_count, 0);
   const zeroChunk = docs.filter((doc) => doc.chunk_count === 0);
 
   return (
-    <Page
-      title="Knowledge"
-      description="The documents retrieval can cite. A run can only cite a chunk that is indexed here, so this screen is where 'the agent found nothing' is explained."
-    >
+    <Page title={t("knowledge.title")} description={t("knowledge.description")}>
       <div className="space-y-6">
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <Panel
-              title="Indexed documents"
+              title={t("knowledge.indexedPanel")}
               aside={
                 knowledge.data
-                  ? `${knowledge.data.total} documents · ${chunks} chunks`
+                  ? `${t("knowledge.asideDocuments", { count: knowledge.data.total })} · ${t(
+                      "knowledge.asideChunks",
+                      { count: chunks },
+                    )}`
                   : undefined
               }
             >
               {knowledge.error ? (
-                <ErrorPanel error={knowledge.error} title="Could not read the index" />
+                <ErrorPanel error={knowledge.error} title={t("knowledge.couldNotRead")} />
               ) : docs.length === 0 ? (
-                <EmptyState
-                  title="Nothing is indexed."
-                  hint="The API reads knowledge/*.md beside src/ in the repository root. With nothing indexed, knowledge.search has nothing to retrieve and a run either abstains or answers from the model alone — press Reindex to ingest the tree."
-                />
+                <EmptyState title={t("knowledge.emptyTitle")} hint={t("knowledge.emptyHint_before")} />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                        <th className="py-2 pr-4 font-medium">Document</th>
-                        <th className="py-2 pr-4 font-medium">Source</th>
-                        <th className="py-2 pr-4 font-medium text-right">Chunks</th>
-                        <th className="py-2 pr-4 font-medium">Indexed</th>
-                        <th className="py-2 font-medium">Content hash</th>
+                        <th className="py-2 pr-4 font-medium">{t("knowledge.colDocument")}</th>
+                        <th className="py-2 pr-4 font-medium">{t("knowledge.colSource")}</th>
+                        <th className="py-2 pr-4 font-medium text-right">
+                          {t("knowledge.colChunks")}
+                        </th>
+                        <th className="py-2 pr-4 font-medium">{t("knowledge.colIndexed")}</th>
+                        <th className="py-2 font-medium">{t("knowledge.colContentHash")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -76,6 +87,8 @@ export default async function KnowledgePage() {
                           key={doc.source}
                           className="border-b border-neutral-100 align-top last:border-0 dark:border-neutral-800"
                         >
+                          {/* `title`, `source` and `content_hash` verbatim: they
+                              are the corpus's own strings and a path. */}
                           <td className="py-2 pr-4 font-medium">{doc.title}</td>
                           <td className="py-2 pr-4 font-mono text-xs text-neutral-600 dark:text-neutral-400">
                             {doc.source}
@@ -84,7 +97,7 @@ export default async function KnowledgePage() {
                             {doc.chunk_count === 0 ? (
                               <span
                                 className="text-amber-700 dark:text-amber-300"
-                                title="Zero chunks: retrieval cannot cite this document."
+                                title={t("knowledge.zeroChunkTitle")}
                               >
                                 0
                               </span>
@@ -110,12 +123,12 @@ export default async function KnowledgePage() {
           </div>
 
           <div className="space-y-6">
-            <Panel title="Reindex">
-              <ReindexButton />
+            <Panel title={t("knowledge.reindexPanel")}>
+              <ReindexButton copy={copy} locale={locale} />
             </Panel>
 
             {zeroChunk.length > 0 ? (
-              <Panel title="Documents with no chunks">
+              <Panel title={t("knowledge.noChunksPanel")}>
                 <ul className="space-y-1 text-sm">
                   {zeroChunk.map((doc) => (
                     <li key={doc.source} className="font-mono text-xs">
@@ -124,9 +137,7 @@ export default async function KnowledgePage() {
                   ))}
                 </ul>
                 <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
-                  A zero-chunk document is indexed as a row but has nothing to retrieve, so
-                  retrieval cannot cite it. That is not an error the API reports &mdash; it is
-                  visible only here and in a run that returns no sources.
+                  {t("knowledge.noChunksBody")}
                 </p>
               </Panel>
             ) : null}

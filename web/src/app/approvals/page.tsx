@@ -2,6 +2,11 @@ import Link from "next/link";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState, ErrorPanel, Page, Panel } from "@/components/ui";
 import { loadApprovals, loadApprovalsWithTools, type ApprovalStatus } from "@/lib/data";
+import { approvalStatusLabel } from "@/i18n/enums";
+import { getCopy } from "@/i18n/server";
+import type { TFunction } from "@/i18n/format";
+
+import type en from "@/i18n/dictionaries/en.json";
 
 /**
  * Approvals: the pending inbox, and the human half of gate 5.
@@ -28,25 +33,37 @@ import { loadApprovals, loadApprovalsWithTools, type ApprovalStatus } from "@/li
  * and it would do it on the one screen where an operator is deciding whether to
  * move money. `groupApprovals` detects the case; each card carries a notice that
  * says what it is and why. See `components/approval-card.tsx`.
+ *
+ * ## The filter labels
+ *
+ * They are `approvalStatusLabel` of the enum value, which is the same lookup the
+ * card's own status pill uses -- so the filter and the thing it filters can
+ * never disagree about what "Rejected" is called. The `value` each link carries
+ * is untouched, so `?status=rejected` is the same query it always was. See
+ * `src/i18n/enums.ts`.
  */
 
 /** The filters the API accepts, in the order an operator reaches for them. */
-const FILTERS: { value: ApprovalStatus; label: string; hint: string }[] = [
-  {
-    value: "pending",
-    label: "Pending",
-    hint: "Waiting for a decision. This is the inbox.",
-  },
-  { value: "approved", label: "Approved", hint: "Decided. The run was released to the worker." },
-  { value: "rejected", label: "Rejected", hint: "Decided. The run went on to an escalation reply." },
-  { value: "expired", label: "Expired", hint: "No longer decidable." },
-];
+const FILTERS = [
+  { value: "pending", key: "pending" },
+  { value: "approved", key: "approved" },
+  { value: "rejected", key: "rejected" },
+  { value: "expired", key: "expired" },
+] as const satisfies readonly { value: ApprovalStatus; key: keyof typeof en.approvals.filterHint }[];
 
 export default async function ApprovalsPage({
   searchParams,
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
+  // One read of the cookie serves the page's own copy and the `decision`
+  // catalogue section the cards' Client Component is handed. Only `decision`
+  // crosses: the card itself renders from this page's `t`.
+  const {
+    t,
+    locale,
+    copy: { decision },
+  } = await getCopy("decision");
   const { status } = await searchParams;
   const filter = isApprovalStatus(status) ? status : "pending";
 
@@ -59,48 +76,49 @@ export default async function ApprovalsPage({
   // name. See lib/data.ts.
   const toolCalls = await loadApprovalsWithTools(items);
 
+  const activeFilter = FILTERS.find((f) => f.value === filter);
+
   return (
     <Page
-      title="Approvals"
-      description={
-        <>
-          Gate 5. A tool call that can move money stops here until a person decides. Approving
-          releases the run to the worker &mdash; it does not execute the refund in the request.
-        </>
-      }
-      actions={<StatusFilter current={filter} />}
+      title={t("approvals.title")}
+      description={t("approvals.description_before")}
+      actions={<StatusFilter current={filter} t={t} />}
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
           <p>
-            Each card shows the deterministic explanation from the policy engine and the
-            model&rsquo;s own reason, labelled differently.{" "}
-            <strong>Only the deterministic one is evidence</strong> &mdash; the model&rsquo;s text
-            is untrusted and nothing verifies it before it reaches this screen.
+            {t("approvals.evidenceNote_before")} <strong>{t("approvals.evidenceEmphasis")}</strong>{" "}
+            {t("approvals.evidenceNote_after")}
           </p>
         </div>
 
         <Panel
-          title={FILTERS.find((f) => f.value === filter)?.label ?? "Pending"}
+          title={
+            activeFilter ? approvalStatusLabel(activeFilter.value, t) : t("status.approval.pending")
+          }
           aside={
             approvals.data
-              ? `${approvals.data.total} ${filter === "pending" ? "waiting" : "recorded"}`
+              ? `${approvals.data.total} ${
+                  filter === "pending"
+                    ? t("approvals.waitingSuffix")
+                    : t("approvals.recordedSuffix")
+                }`
               : undefined
           }
         >
           {approvals.error ? (
-            <ErrorPanel error={approvals.error} title="Could not load approvals" />
+            <ErrorPanel error={approvals.error} title={t("approvals.couldNotLoad")} />
           ) : items.length === 0 ? (
             <EmptyState
               title={
                 filter === "pending"
-                  ? "Nothing is waiting for a decision."
-                  : `No approvals are ${filter}.`
+                  ? t("approvals.emptyPendingTitle")
+                  : t("approvals.emptyFilteredTitle", { status: approvalStatusLabel(filter, t) })
               }
               hint={
                 filter === "pending"
-                  ? "That is a real answer from the API, not an error. A refund proposal parks here; a run that reaches an answer without a risky write never does."
-                  : "Clear the filter to see the pending inbox."
+                  ? t("approvals.emptyPendingHint")
+                  : t("approvals.emptyFilteredHint")
               }
             />
           ) : (
@@ -115,6 +133,9 @@ export default async function ApprovalsPage({
                     duplicated={group?.duplicated ?? false}
                     identicalArguments={group?.identicalArguments ?? false}
                     duplicateCount={group?.approvals.length}
+                    t={t}
+                    locale={locale}
+                    copy={decision}
                   />
                 );
               })}
@@ -140,9 +161,9 @@ function isApprovalStatus(value: string | undefined): value is ApprovalStatus {
   );
 }
 
-function StatusFilter({ current }: { current: ApprovalStatus }) {
+function StatusFilter({ current, t }: { current: ApprovalStatus; t: TFunction }) {
   return (
-    <nav aria-label="Filter approvals by status" className="flex flex-wrap items-center gap-1 text-xs">
+    <nav aria-label={t("approvals.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
       {FILTERS.map((filter) => (
         <Link
           key={filter.value}
@@ -152,14 +173,14 @@ function StatusFilter({ current }: { current: ApprovalStatus }) {
               : `/approvals?status=${filter.value}`
           }
           aria-current={current === filter.value ? "page" : undefined}
-          title={filter.hint}
+          title={t(`approvals.filterHint.${filter.key}`)}
           className={
             current === filter.value
               ? "rounded-full bg-neutral-900 px-2.5 py-1 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
               : "rounded-full px-2.5 py-1 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
           }
         >
-          {filter.label}
+          {approvalStatusLabel(filter.value, t)}
         </Link>
       ))}
     </nav>

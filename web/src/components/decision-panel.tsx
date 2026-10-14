@@ -1,34 +1,41 @@
-/**
- * The panel that renders a failed or refused decision.
- *
- * This component is the 409 made visible, and it is the acceptance criterion
- * "a second click surfaces the 409" reduced to a place on screen. Two tones,
- * deliberately:
- *
- * - **Amber (`conflict`).** The API refused because the guard held. Nothing
- *   failed; the system declined to write a second grant and said so. Rendering
- *   this in the red failure styling would teach an operator that a correctly
- *   refused double-click is a bug, and the next thing they do is click again.
- * - **Red (`failure`).** The request did not do its job: 401, 404, 500.
- *
- * The `code` and the status are always shown. `code` is the contract's stable
- * branch key (§6) and is what a bug report needs; `message` is shown because
- * the API writes it for humans and it is the only place the deciding actor and
- * moment appear. `details.approval_id` and `details.status` are shown
- * separately, as structured values, because they are the two facts the caller
- * can actually rely on.
- */
-
 import { describeDecisionFailure, type DecisionFailure } from "@/lib/decision-error";
+import type { TFunction } from "@/i18n/format";
 
+/**
+ * The one place a failed decision is shown, on both screens that can fail one.
+ *
+ * ## THE THREE STRINGS, AND WHY ONLY ONE OF THEM IS TRANSLATED
+ *
+ * `view.headline` and `view.detail` are the dashboard explaining itself, so they
+ * are localised. The mono row underneath them is the machine's account of what
+ * happened, and every part of it is **verbatim in every locale**:
+ *
+ * | Rendered | Why it is not translated |
+ * |---|---|
+ * | `HTTP 409` / `no response` | The status line a bug report quotes. |
+ * | `code: approval_already_decided` | `docs/api-contract.md` §6 fixes it; every consumer switches on it. |
+ * | `approval_id: …`, `status: …`, `trace_id: …` | Field names and ids, from `details`. |
+ * | the API's own `message`, inside `detail` | Out of scope by name in §P2-F: the contract fixes several verbatim and Python tests assert them. |
+ *
+ * So a Chinese operator reading the 409 sees the Chinese explanation wrapped
+ * around an English, greppable `HTTP 409 · code: approval_already_decided` line
+ * -- which is the thing they would have had to search for otherwise.
+ *
+ * `t` arrives as a prop because `describeDecisionFailure` builds the sentences
+ * and this component is a Client Component that cannot read the locale cookie;
+ * see `decision-actions.tsx` for how the `t` is built.
+ */
 export function DecisionPanel({
   failure,
   onDismiss,
+  t,
 }: {
   failure: DecisionFailure;
   onDismiss: () => void;
+  /** A `t` over the `decision` catalogue section, built by `createScopedT`. */
+  t: TFunction;
 }) {
-  const view = describeDecisionFailure(failure);
+  const view = describeDecisionFailure(failure, t);
   const conflict = view.tone === "conflict";
 
   return (
@@ -45,19 +52,27 @@ export function DecisionPanel({
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded px-1.5 text-xs underline underline-offset-2 opacity-80 hover:opacity-100"
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs underline underline-offset-2 opacity-80 hover:opacity-100"
         >
-          Dismiss
+          {t("decision.dismiss")}
         </button>
       </div>
       <p className="mt-1">{view.detail}</p>
+      {/* The machine's own account, in monospace and untranslated. See above. */}
       <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs opacity-80">
         <span>
-          {view.status > 0 ? `HTTP ${view.status}` : "no response"} &middot; code: {view.code}
+          {view.status > 0
+            ? `HTTP ${view.status}`
+            : t("common.noResponse")}{" "}
+          {t("decision.codeLabel", { code: view.code })}
         </span>
-        {view.approvalId ? <span>approval_id: {view.approvalId}</span> : null}
-        {view.approvalStatus ? <span>status: {view.approvalStatus}</span> : null}
-        {view.traceId ? <span>trace_id: {view.traceId}</span> : null}
+        {view.approvalId ? (
+          <span>{t("decision.approvalIdLabel", { id: view.approvalId })}</span>
+        ) : null}
+        {view.approvalStatus ? (
+          <span>{t("decision.statusLabel", { status: view.approvalStatus })}</span>
+        ) : null}
+        {view.traceId ? <span>{t("decision.traceIdLabel", { id: view.traceId })}</span> : null}
       </p>
     </div>
   );

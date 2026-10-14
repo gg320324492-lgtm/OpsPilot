@@ -60,6 +60,17 @@
  * sentence that reads as cautious.
  */
 
+import type { TFunction } from "@/i18n/format";
+
+/**
+ * Where a displayed risk level came from. Three sources, three sentences.
+ *
+ * Named in prose rather than as a code, because it is not a value the API sends
+ * and not a value anything else consumes -- it exists only to pick one of the
+ * three sentences below.
+ */
+export type RiskSource = "tool call" | "tool name" | "unknown";
+
 /** The three permission levels, mirroring the generated `Permission` union. */
 export type Permission = "read" | "safe_write" | "high_risk_write";
 
@@ -95,7 +106,7 @@ export function permissionForTool(toolName: string): Permission | null {
 export function deriveRisk(
   toolPermission: string | null | undefined,
   toolName: string | null,
-): { level: Permission | null; source: "tool call" | "tool name" | "unknown" } {
+): { level: Permission | null; source: RiskSource } {
   if (isPermission(toolPermission)) {
     return { level: toolPermission, source: "tool call" };
   }
@@ -112,14 +123,21 @@ function isPermission(value: string | null | undefined): value is Permission {
   return value === "read" || value === "safe_write" || value === "high_risk_write";
 }
 
-/** A sentence stating where the displayed risk level came from. */
-export function riskProvenance(source: "tool call" | "tool name" | "unknown"): string {
+/**
+ * A sentence stating where the displayed risk level came from.
+ *
+ * `t` is required rather than optional for the reason `formatRelative` gives: an
+ * optional translator here would be silently defaulted by a caller that forgot
+ * it, which is the one way an English sentence reaches a Chinese page. All three
+ * callers are Server Components that have already resolved the locale.
+ */
+export function riskProvenance(source: RiskSource, t: TFunction): string {
   switch (source) {
     case "tool call":
-      return "From the tool call's permission field, read back from the run.";
+      return t("risk.provenance_toolCall");
     case "tool name":
-      return "Derived from the tool's name against OpsPilot's static tool registry. The API does not return a risk level on an approval; this is the closest available reading.";
+      return t("risk.provenance_toolName");
     case "unknown":
-      return "The API does not return a risk level for this approval, and no tool call was available to read one from. The deterministic explanation below still states what will happen.";
+      return t("risk.provenance_unknown");
   }
 }

@@ -108,6 +108,38 @@ than retrying or spinning:
 Each carries the daemon's or Compose's own words as well, because that is the
 part an operator can match against their machine.
 
+## Why this window is English even when the dashboard is not
+
+The dashboard is localised (`web/src/i18n/`; Chinese is the first translation,
+English is the source locale). **This window is not, deliberately**, and the
+reason is timing rather than taste.
+
+The bootstrap page renders *before* the dashboard is reachable. It is what the
+operator sees when `docker compose up` takes two minutes on a first launch, and
+it is the page that has to say "Docker is not installed" when nothing will ever
+come up. The dashboard's locale is a cookie in the **system browser's** profile,
+set on a page this window has not reached yet and will never read — it hands the
+browser off with `window.location.assign` and stops existing. So there is no
+mechanism by which this window could follow the dashboard's locale, only a
+mechanism by which it could be *wrong*: Electron's own `app.getLocale()` would
+answer for the OS while the dashboard answers for the cookie, and one app would
+speak two languages to the same person at the same moment.
+
+Two further reasons, both about the failure path specifically:
+
+- **These strings are the remedy.** `Install Docker Desktop and start it` is the
+  instruction an operator acts on with nothing else working. It is the worst
+  possible string to be reading in a second language by accident.
+- **`test:lifecycle` asserts them verbatim.** The three messages above are pinned
+  in `desktop/e2e/`. Localising them is possible; it is a decision with a cost,
+  and this is the decision.
+
+If this ever changes, the shape that works is: the dashboard passes its locale on
+the hand-off URL, the shell reads it there and applies it only from the second
+window onwards, and the *first* window stays English because it is the one that
+runs before anything knows anything. That is a larger change than a translation
+table and it is not this package's.
+
 ## The security configuration
 
 `src/security-policy.ts` holds the policy; `src/security.ts` holds the six

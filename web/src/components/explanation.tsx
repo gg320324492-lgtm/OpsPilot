@@ -35,33 +35,44 @@
  * wrong, helpful and coincidental, or accurate — the point is that accuracy is
  * the one property it cannot be relied on to have, because nothing verifies it
  * before it reaches this screen.
+ *
+ * ## WHY THE BADGES ARE IN THE CATALOGUE AND THE TEXT IS NOT
+ *
+ * `text` here is `risk_explanation` and `reason` -- strings the **API** and the
+ * **model** produced. They are passed through verbatim, in every locale, and are
+ * not in either catalogue. Translating them would be the one change that could
+ * make a reviewer believe the policy engine wrote something it did not, and
+ * `failure-states.spec.ts` asserts the 409's `failure.message` for exactly this
+ * reason on a neighbouring surface.
  */
 
-export function TrustedExplanation({ text }: { text: string }) {
+import type { TFunction } from "@/i18n/format";
+
+export function TrustedExplanation({ text, t }: { text: string; t: TFunction }) {
   return (
     <div className="rounded-md border border-emerald-300 bg-emerald-50/70 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <Badge tone="trusted">Deterministic</Badge>
+        <Badge tone="trusted">{t("explanation.deterministic")}</Badge>
         <span className="text-xs font-medium text-emerald-900 dark:text-emerald-200">
-          Computed by the policy engine
+          {t("explanation.trustedAttribution")}
         </span>
       </div>
+      {/* The policy engine's own sentence, verbatim and untranslated. */}
       <p className="text-sm text-emerald-950 dark:text-emerald-50">{text}</p>
       <p className="mt-2 text-xs text-emerald-800/80 dark:text-emerald-300/80">
-        Derived from the tool&rsquo;s permission class and the arguments below. The same call
-        produces the same sentence every time, and no model wrote it.
+        {t("explanation.trustedFooter")}
       </p>
     </div>
   );
 }
 
-export function UntrustedExplanation({ text }: { text: string }) {
+export function UntrustedExplanation({ text, t }: { text: string; t: TFunction }) {
   return (
     <div className="rounded-md border-l-4 border-neutral-400 bg-neutral-100 p-3 dark:border-neutral-600 dark:bg-neutral-800/60">
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <Badge tone="untrusted">Untrusted</Badge>
+        <Badge tone="untrusted">{t("explanation.untrusted")}</Badge>
         <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
-          Written by the model
+          {t("explanation.untrustedAttribution")}
         </span>
       </div>
       {/* Monospace and quotation marks, together, are what make this read as a
@@ -71,10 +82,9 @@ export function UntrustedExplanation({ text }: { text: string }) {
         &ldquo;{text}&rdquo;
       </blockquote>
       <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
-        The model&rsquo;s own justification. It is shown because an operator may find it useful,
-        not because it has been verified &mdash; nothing checks it before it reaches this screen,
-        and retrieved text can induce a model to write something reassuring. Weigh the
-        deterministic explanation above, the tool, and the arguments.
+        {t("explanation.untrustedFooter_before")}{" "}
+        <span className="font-medium">{t("explanation.untrustedFooter_emphasis")}</span>{" "}
+        {t("explanation.untrustedFooter_after")}
       </p>
     </div>
   );

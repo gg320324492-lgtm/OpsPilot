@@ -2,6 +2,9 @@ import Link from "next/link";
 import { EmptyState, ErrorPanel, Page, Panel, StatusBadge, Time } from "@/components/ui";
 import { formatTimestamp } from "@/lib/format";
 import { loadRuns } from "@/lib/data";
+import { runStatusLabel } from "@/i18n/enums";
+import { getT } from "@/i18n/server";
+import type { TFunction } from "@/i18n/format";
 
 /**
  * The Runs list, filterable by status through `GET /api/runs?status=`.
@@ -14,6 +17,14 @@ import { loadRuns } from "@/lib/data";
  * rather than a `<select onChange>` because the filtered view has to be a URL --
  * an operator needs to paste "the failed runs" into a colleague's chat and have
  * it mean the same thing.
+ *
+ * ## The filter labels are labels; the filter values are identifiers
+ *
+ * `?status=waiting_approval` is the contract's enum and is written into the
+ * href untouched. The word on the button is `runStatusLabel` of that same value
+ * -- the same lookup the row's own `StatusBadge` uses, so the filter and the
+ * thing it filters can never disagree. `src/i18n/enums.ts` is where that rule is
+ * written down; `e2e/i18n.spec.ts` holds it.
  */
 export default async function RunsPage({
   searchParams,
@@ -22,39 +33,41 @@ export default async function RunsPage({
 }) {
   // Async `searchParams` is required from Next.js 16: synchronous access was
   // removed with the rest of the request APIs.
-  const { status } = await searchParams;
+  const [{ status }, t] = await Promise.all([searchParams, getT()]);
   const valid = isRunStatus(status) ? status : undefined;
   const runs = await loadRuns(valid ? { status: valid } : {});
 
   return (
     <Page
-      title="Runs"
-      description="Every agent run, newest first. Filter by status to see what is moving, what is parked, and what broke."
-      actions={<StatusFilter current={valid} />}
+      title={t("runs.title")}
+      description={t("runs.description")}
+      actions={<StatusFilter current={valid} t={t} />}
     >
       <Panel
-        title="Runs"
+        title={t("runs.panelTitle")}
         aside={
           runs.data
-            ? `${runs.data.total} shown${valid ? ` · filtered to ${label(valid)}` : ""}`
+            ? `${runs.data.total} ${t("runs.shownSuffix")}${
+                valid ? ` ${t("runs.filteredTo", { status: runStatusLabel(valid, t) })}` : ""
+              }`
             : undefined
         }
       >
         {runs.error ? (
-          <ErrorPanel error={runs.error} title="Could not load runs" />
+          <ErrorPanel error={runs.error} title={t("runs.couldNotLoad")} />
         ) : runs.data && runs.data.items.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                  <th className="py-2 pr-4 font-medium">Run</th>
-                  <th className="py-2 pr-4 font-medium">Ticket</th>
-                  <th className="py-2 pr-4 font-medium">Status</th>
-                  <th className="py-2 pr-4 font-medium">Model</th>
-                  <th className="py-2 pr-4 font-medium">Created</th>
-                  <th className="py-2 pr-4 font-medium">Started</th>
-                  <th className="py-2 pr-4 font-medium">Completed</th>
-                  <th className="py-2 font-medium">Failure reason</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colRun")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colTicket")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colStatus")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colModel")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colCreated")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colStarted")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("runs.colCompleted")}</th>
+                  <th className="py-2 font-medium">{t("runs.colFailureReason")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -80,7 +93,7 @@ export default async function RunsPage({
                       </Link>
                     </td>
                     <td className="py-2 pr-4">
-                      <StatusBadge status={run.status} />
+                      <StatusBadge status={run.status} t={t} />
                     </td>
                     <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
                       {run.model_provider}/{run.model_name}
@@ -94,6 +107,7 @@ export default async function RunsPage({
                     <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
                       {run.completed_at ? formatTimestamp(run.completed_at) : "—"}
                     </td>
+                    {/* `failure_reason` verbatim: a contract enum. */}
                     <td className="py-2 text-xs">
                       {run.failure_reason ? (
                         <span className="text-red-700 dark:text-red-300">{run.failure_reason}</span>
@@ -108,11 +122,15 @@ export default async function RunsPage({
           </div>
         ) : (
           <EmptyState
-            title={valid ? `No runs are ${label(valid)}.` : "No runs yet."}
+            title={
+              valid
+                ? t("runs.emptyFilteredTitle", { status: runStatusLabel(valid, t) })
+                : t("runs.emptyUnfilteredTitle")
+            }
             hint={
               valid
-                ? "That is a real answer from the API, not an error. Clear the filter to see every run."
-                : "A run is created when a ticket is submitted. Nothing here means nothing has been submitted."
+                ? t("runs.emptyFilteredHint")
+                : t("runs.emptyUnfilteredHint")
             }
           />
         )}
@@ -146,10 +164,6 @@ function isRunStatus(value: string | undefined): value is (typeof RUN_STATUSES)[
   return value !== undefined && (RUN_STATUSES as readonly string[]).includes(value);
 }
 
-function label(status: string): string {
-  return status.replace(/_/g, " ");
-}
-
 /**
  * The filter control.
  *
@@ -157,26 +171,46 @@ function label(status: string): string {
  * moving*, *what is stuck on me*, *what broke*. Grouping by urgency rather than
  * alphabetically is the same argument the Dashboard makes -- the order is the
  * answer to "what should I look at".
+ *
+ * The `href`s carry the raw enum and the labels carry the locale, which is the
+ * split this screen's docstring describes.
  */
-function StatusFilter({ current }: { current?: string }) {
+function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
   return (
-    <nav aria-label="Filter runs by status" className="flex flex-wrap items-center gap-1 text-xs">
-      <FilterLink href="/runs" label="All" active={current === undefined} />
+    <nav aria-label={t("runs.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
+      <FilterLink href="/runs" label={t("runs.filterAll")} active={current === undefined} />
       <span className="px-1 text-neutral-400" aria-hidden="true">
         |
       </span>
-      <FilterLink href="/runs?status=waiting_approval" label="Waiting approval" active={current === "waiting_approval"} />
-      <FilterLink href="/runs?status=executing" label="Executing" active={current === "executing"} />
-      <FilterLink href="/runs?status=planning" label="Planning" active={current === "planning"} />
-      <FilterLink href="/runs?status=retrieving" label="Retrieving" active={current === "retrieving"} />
-      <FilterLink href="/runs?status=classifying" label="Classifying" active={current === "classifying"} />
-      <FilterLink href="/runs?status=responding" label="Responding" active={current === "responding"} />
-      <FilterLink href="/runs?status=received" label="Received" active={current === "received"} />
+      {(
+        [
+          "waiting_approval",
+          "executing",
+          "planning",
+          "retrieving",
+          "classifying",
+          "responding",
+          "received",
+        ] as const
+      ).map((status) => (
+        <FilterLink
+          key={status}
+          href={`/runs?status=${status}`}
+          label={runStatusLabel(status, t)}
+          active={current === status}
+        />
+      ))}
       <span className="px-1 text-neutral-400" aria-hidden="true">
         |
       </span>
-      <FilterLink href="/runs?status=failed" label="Failed" active={current === "failed"} />
-      <FilterLink href="/runs?status=completed" label="Completed" active={current === "completed"} />
+      {(["failed", "completed"] as const).map((status) => (
+        <FilterLink
+          key={status}
+          href={`/runs?status=${status}`}
+          label={runStatusLabel(status, t)}
+          active={current === status}
+        />
+      ))}
     </nav>
   );
 }
