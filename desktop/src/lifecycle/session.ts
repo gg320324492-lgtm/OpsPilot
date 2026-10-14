@@ -86,6 +86,82 @@ function readyUrl(deps: SessionDeps): string {
   return `${deps.apiUrl}/ready`;
 }
 
+/**
+ * An authenticated read the API guards with the operator token.
+ *
+ * `/ready` is deliberately unauthenticated — it has to answer for a Compose
+ * healthcheck that holds no credential — which is exactly why it cannot answer
+ * the question below. `GET /api/runs` is the cheapest route that does.
+ */
+const AUTHENTICATED_PROBE_PATH = "/api/runs";
+
+/**
+ * Is a backend that is already running holding a *different* operator token?
+ *
+ * ## The failure this exists to prevent
+ *
+ * `/ready` answering does not mean this app and that API agree about anything.
+ * It means a process is listening. A stack left over from a previous install,
+ * or one an operator started by hand, keeps whatever token it was started with,
+ * and this app would adopt it, hand its own token to the dashboard, and produce
+ * the worst-shaped failure in this application: **a dashboard that renders
+ * perfectly and refuses every approval**, because the Route Handlers proxy with
+ * one token and the API checks another. `lifecycle/token.ts` calls this out by
+ * name — "a 200 page that looks healthy" — and nothing about it names its cause.
+ *
+ * ## Why it is asked only of a backend this app did not start
+ *
+ * A stack this app brings up gets its token from `deps.env`, which is the same
+ * object the dashboard is started from, so they agree by construction and the
+ * question has no answer to give. The one case where it can be wrong is the one
+ * case where this app cannot know, and that is the only case asked.
+ *
+ * ## Why any answer other than 401/403 means "no mismatch"
+ *
+ * A probe that throws, or answers 404 because this API predates the route, is
+ * not evidence of a disagreement. Reporting a mismatch on a failure to *ask*
+ * would replace one confusing failure with a more confusing one.
+ */
+async function tokenDisagrees(deps: SessionDeps): Promise<boolean> {
+  const token = deps.env.OPSPILOT_OPERATOR_TOKEN;
+  if (token === undefined || token.trim() === "") {
+    return false;
+  }
+  try {
+    const { status } = await deps.authorizedHttp(`${deps.apiUrl}${AUTHENTICATED_PROBE_PATH}`, token);
+    return status === 401 || status === 403;
+  } catch {
+    return false;
+  }
+}
+
+function tokenDisagreement(deps: SessionDeps, endpoint: string) {
+  // `--env-file` is not decoration. `docker-compose.yml` gives
+  // `OPSPILOT_OPERATOR_TOKEN` the `:?` form, so Compose refuses to render the
+  // project without it — `down` included. An installed machine has exactly one
+  // file holding that value and this is it, so the command printed here is the
+  // one that runs. In a checkout the repository's own `.env` sits beside the
+  // compose file and Compose finds it by itself.
+  const envFile = deps.composeEnvFile;
+  const composeArgs = envFile === undefined ? "" : `--env-file "${envFile}" `;
+  return {
+    title: "The backend already running does not accept this app's operator token",
+    detail:
+      `The API on ${endpoint} answered its readiness check, so this app adopted it instead of ` +
+      "starting its own. It then refused an authenticated read with the operator token this " +
+      "app is about to give its dashboard. The two halves disagree about the token, so every " +
+      "approval would be refused while the dashboard still rendered normally — which is a " +
+      "healthy-looking screen that cannot do its one job.",
+    remedy:
+      "This app will not stop a stack it did not start, so stop that one and start this app " +
+      "again:\n\n" +
+      `    cd "${deps.repoRoot}" && docker compose ${composeArgs}down --remove-orphans\n\n` +
+      "That leaves your runs and approvals in place — only the containers are removed. If you " +
+      "started the stack by hand, it is running with a different OPSPILOT_OPERATOR_TOKEN; " +
+      "export the same value this app is using before launching it, or remove the stack.",
+  };
+}
+
 /** The URL the window loads, and the origin it is served from. Loopback only. */
 export function dashboardUrl(deps: SessionDeps): string {
   return `http://127.0.0.1:${deps.dashboardPort}`;
@@ -120,6 +196,11 @@ export async function startBackend(deps: SessionDeps, emit: Emit): Promise<Backe
 
   const endpoint = deps.apiUrl;
   if (await isHttpReady(readyUrl(deps), deps.http)) {
+    if (await tokenDisagrees(deps)) {
+      const problem = tokenDisagreement(deps, endpoint);
+      emit({ kind: "failed", note: problem.title, problem });
+      throw new StartupError(problem);
+    }
     const why = `the API was already answering on ${endpoint} when the app started`;
     emit({ kind: "backend-already-running", note: `Using the backend already running on ${endpoint}.`, endpoint });
     return {
@@ -253,7 +334,13 @@ export async function startDashboard(deps: SessionDeps, emit: Emit): Promise<Das
     throw new StartupError({
       title: "The dashboard has not been built",
       detail: `${serverJs} does not exist, so there is nothing to serve.`,
-      remedy: "Run `npm run build` in web/ (or `npm run build` in desktop/, which builds it), then start the app again.",
+      remedy:
+        deps.packaged === true
+          ? "That file ships inside the installed app, so its absence means the install is " +
+            "incomplete rather than unbuilt. Reinstall it from the same installer."
+          : "Run `npm run build` in web/ — which writes this file — then start the app again. " +
+            "The desktop package's own `npm run build` does not build the dashboard; it only " +
+            "compiles the shell.",
     });
   }
 

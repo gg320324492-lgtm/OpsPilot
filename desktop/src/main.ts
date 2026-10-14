@@ -25,6 +25,9 @@
  * `shell.openExternal` on anything a page chose, and no token anywhere near the
  * bridge. The operator token is read by the dashboard's *own* server process and
  * is still absent from every browser bundle — the property P2-A2 exists to keep.
+ * Where it is *read from* is `lifecycle/token.ts`'s decision; an installed copy
+ * keeps a generated one in this Windows user's application-data folder, which is
+ * the same place Chromium keeps its own profile.
  */
 
 import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
@@ -48,7 +51,8 @@ import { StartupError, toUserFacing } from "./lifecycle/errors";
 import { dashboardUrl, startApplication, type Application } from "./lifecycle/session";
 import { resolveOperatorToken } from "./lifecycle/token";
 import type { Progress, SessionDeps, UserFacing } from "./lifecycle/types";
-import { buildDependencies, readEnvValue, resolveDashboardPort } from "./runtime/dependencies";
+import { buildDependencies, readEnvValue, resolveDashboardPort, resolveStackRoot } from "./runtime/dependencies";
+import { ensureOperatorToken, TOKEN_ENV_FILENAME } from "./runtime/operator-token";
 
 // Before `app.whenReady()`: scheme privileges are fixed at registration, and
 // registering afterwards does not retroactively apply them.
@@ -127,7 +131,8 @@ function createWindow(): BrowserWindow {
       detail: `${preloadPath} failed to load: ${error.message}\n\nWithout it the window cannot report what the app is doing, so it will sit on an empty page.`,
       remedy:
         "This is a bug in the shell rather than something about your machine. Quit and start the " +
-        "app again; if it repeats, rebuild it with `npm run build` in desktop/.",
+        "app again; if it repeats in an installed copy, reinstall it, and tell whoever packaged " +
+        "it — the preload ships inside the app and nothing on your machine can remove it.",
     };
     lastFailure = problem;
     emit({ kind: "failed", note: problem.title, problem });
@@ -202,12 +207,20 @@ function registerIpc(): void {
  * none. `docker-compose.yml` sets it with the `:?` form, so an unset token
  * stops Compose rendering the project at all — a start-up that got this wrong
  * would show a Compose parse error instead of the instruction below.
+ *
+ * A packaged launch adds the fourth source `resolveOperatorToken` knows about,
+ * and the order decides who wins: an operator who exports the token still
+ * overrides, and the generated value is only reached when nothing else is
+ * there. A development launch passes `undefined` for it, because a checkout
+ * has a `.env` and an operator working in one should be told to fill it in
+ * rather than have a token invented behind them.
  */
 function attachOperatorToken(deps: SessionDeps): boolean {
   const resolution = resolveOperatorToken({
     fromEnvironment: process.env.OPSPILOT_OPERATOR_TOKEN,
     fromRepositoryEnv: readEnvValue(path.join(deps.repoRoot, ".env"), "OPSPILOT_OPERATOR_TOKEN"),
     fromWebEnvLocal: readEnvValue(path.join(deps.webDir, ".env.local"), "OPSPILOT_OPERATOR_TOKEN"),
+    fromAppDataEnv: app.isPackaged ? ensureOperatorToken(app.getPath("userData")) : undefined,
   });
   if (!resolution.ok) {
     lastFailure = resolution.problem;
@@ -229,7 +242,21 @@ function attachOperatorToken(deps: SessionDeps): boolean {
 }
 
 async function launch(): Promise<void> {
-  const deps = buildDependencies({ dashboardPort: resolveDashboardPort(process.env.OPSPILOT_DESKTOP_PORT) });
+  // The stack root is a checkout when this runs from one and `resources/stack`
+  // when it does not. `resolveStackRoot` checks the marker in both cases, so a
+  // launch that cannot find either fails here with a message naming which of
+  // the two was missing — not three steps later inside Compose.
+  const deps = buildDependencies({
+    repoRoot: resolveStackRoot({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+    packaged: app.isPackaged,
+    // Only a packaged launch has an env file of its own to name. In a checkout
+    // Compose reads the repository's `.env` from beside the compose file, so
+    // naming one there would point the remedy at a file that does not exist.
+    composeEnvFile: app.isPackaged
+      ? path.join(app.getPath("userData"), TOKEN_ENV_FILENAME)
+      : undefined,
+    dashboardPort: resolveDashboardPort(process.env.OPSPILOT_DESKTOP_PORT),
+  });
 
   // Known before the window opens, so the navigation allowlist is complete the
   // first time it is installed.

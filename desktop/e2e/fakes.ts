@@ -176,7 +176,9 @@ export function fakeClock(start = 0): Clock & { advance(ms: number): void } {
  * spec says "refused twice, then ready", and the retry count becomes an
  * assertion.
  */
-export function fakeHttp(answers: Record<string, number | ((attempt: number) => number | Error)> = {}): {
+export function fakeHttp(
+  answers: Record<string, number | Error | ((attempt: number) => number | Error)> = {},
+): {
   probe: (url: string) => Promise<{ status: number }>;
   asked: string[];
 } {
@@ -198,12 +200,50 @@ export function fakeHttp(answers: Record<string, number | ((attempt: number) => 
   };
 }
 
+/**
+ * The authenticated probe, as a table of answers like `fakeHttp`.
+ *
+ * Defaults to answering 200 rather than to "not implemented", because a fake
+ * that refused the question would make every test that does not care about it
+ * look like a test about it.
+ */
+export function fakeAuthorizedHttp(
+  answers: Record<string, number | Error | ((attempt: number) => number | Error)> = {},
+): {
+  probe: (url: string, token: string) => Promise<{ status: number }>;
+  asked: string[];
+} {
+  const attempts = new Map<string, number>();
+  const asked: string[] = [];
+  return {
+    asked,
+    async probe(url: string, _token: string) {
+      asked.push(url);
+      const attempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, attempt);
+      const answer = answers[url];
+      const resolved = typeof answer === "function" ? answer(attempt) : (answer ?? 200);
+      if (resolved instanceof Error) {
+        throw resolved;
+      }
+      return { status: resolved };
+    },
+  };
+}
+
 export interface FakeSessionOptions {
   readonly runner: CommandRunner;
   readonly clock?: Clock;
   readonly http?: ReturnType<typeof fakeHttp>["probe"];
+  readonly authorizedHttp?: ReturnType<typeof fakeAuthorizedHttp>["probe"];
   readonly portBusy?: (port: number) => Promise<boolean>;
   readonly exists?: (path: string) => boolean;
+  /**
+   * The environment Compose and the dashboard inherit — and, because both are
+   * started from it, the one place a test can put the operator token.
+   */
+  readonly env?: NodeJS.ProcessEnv;
+  readonly composeEnvFile?: string;
   readonly apiUrl?: string;
   readonly dashboardPort?: number;
   readonly backendReadyTimeoutMs?: number;
@@ -217,13 +257,15 @@ export function fakeDeps(options: FakeSessionOptions): SessionDeps {
     runner: options.runner,
     clock: options.clock ?? fakeClock(),
     http: options.http ?? fakeHttp().probe,
+    authorizedHttp: options.authorizedHttp ?? fakeAuthorizedHttp().probe,
     portBusy: options.portBusy ?? (async () => false),
     exists: options.exists ?? (() => true),
     repoRoot: "/repo",
     webDir: "/repo/web",
+    composeEnvFile: options.composeEnvFile,
     apiUrl: options.apiUrl ?? "http://127.0.0.1:8000",
     dashboardPort: options.dashboardPort ?? 3210,
-    env: {},
+    env: options.env ?? {},
     docker: "docker",
     node: "/bin/node",
     copyDir: () => undefined,

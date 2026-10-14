@@ -2,10 +2,16 @@
   "name": "opspilot-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Electron shell for the OpsPilot dashboard (docs/phase2-plan.md P2-D1)",
+  "productName": "OpsPilot",
+  "description": "Electron shell for the OpsPilot dashboard (docs/phase2-plan.md P2-D1, P2-D2)",
+  "author": "gg320324492-lgtm",
+  "license": "MIT",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-renderer.mjs",
+    "stage": "node scripts/stage-stack.mjs",
+    "package": "npm run build && npm run stage && electron-builder --win --x64",
+    "package:dir": "npm run build && npm run stage && electron-builder --win --x64 --dir",
     "start": "npm run build && electron .",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -13,13 +19,13 @@
     "test:lifecycle": "playwright test --project lifecycle",
     "test:shell": "playwright test --project shell"
   },
-  "dependencies": {
-    "electron": "44.7.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@eslint/js": "^9.39.0",
     "@playwright/test": "1.64.0",
     "@types/node": "^20",
+    "electron": "44.7.1",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.39.5",
     "typescript": "^5",
     "typescript-eslint": "^8.71.2"

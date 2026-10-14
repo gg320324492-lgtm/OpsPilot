@@ -82,6 +82,16 @@ export interface Clock {
  */
 export type HttpProbe = (url: string) => Promise<{ readonly status: number }>;
 
+/**
+ * "Does this URL answer 2xx **with this operator token**?"
+ *
+ * Separate from `HttpProbe` because the answer is the only evidence available
+ * for something that cannot be seen: whether the API a desktop app is about to
+ * adopt was started with the same token this app is about to hand its dashboard.
+ * `/ready` is unauthenticated by design and so cannot answer it.
+ */
+export type AuthorizedHttpProbe = (url: string, token: string) => Promise<{ readonly status: number }>;
+
 /** "Is something already listening on this port?" */
 export type PortProbe = (port: number) => Promise<boolean>;
 
@@ -170,12 +180,35 @@ export interface SessionDeps {
   readonly runner: CommandRunner;
   readonly clock: Clock;
   readonly http: HttpProbe;
+  /** The same question, with the operator token. Used only when adopting a backend. */
+  readonly authorizedHttp: AuthorizedHttpProbe;
   readonly portBusy: PortProbe;
   readonly exists: FileProbe;
-  /** The repository root — the directory holding `docker-compose.yml`. */
+  /**
+   * The stack root — the directory holding `docker-compose.yml`.
+   *
+   * A checkout in development; the tree the installer ships when packaged. The
+   * two are the same directory as far as every command in this file is
+   * concerned, which is the point: `docker compose` is invoked with this as its
+   * working directory either way and cannot tell the difference.
+   */
   readonly repoRoot: string;
   /** The `web/` directory, which holds the built dashboard. */
   readonly webDir: string;
+  /** Whether this is a packaged launch rather than a development one. */
+  readonly packaged?: boolean;
+  /**
+   * An env file Compose should read, when this app has one of its own.
+   *
+   * Exists because `docker-compose.yml` gives `OPSPILOT_OPERATOR_TOKEN` the `:?`
+   * form, which means **Compose refuses to render the project at all** without
+   * it — including for `down`. So a command that stops the stack also needs the
+   * variable, and on an installed machine the only file holding it is the one
+   * this app wrote. Without this field the remedy this app prints is a command
+   * that fails with an interpolation error, which is the exact dead end
+   * `lifecycle/token.ts`'s docstring complains about.
+   */
+  readonly composeEnvFile?: string;
   /** The API's published URL, as the dashboard must reach it. */
   readonly apiUrl: string;
   /** The port the desktop-hosted dashboard binds, on loopback only. */

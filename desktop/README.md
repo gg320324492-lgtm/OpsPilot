@@ -1,7 +1,8 @@
 # OpsPilot desktop
 
-The Electron shell: `docs/phase2-plan.md` **P2-D1**. It starts the backend,
-shows the operator what it is doing, and stops what it started on quit.
+The Electron shell: `docs/phase2-plan.md` **P2-D1** (shell and lifecycle) and
+**P2-D2** (installer). It starts the backend, shows the operator what it is
+doing, stops what it started on quit, and ships as a Windows installer.
 
 ## Running it
 
@@ -19,6 +20,61 @@ must be built first:
 ```bash
 cd ../web && npm ci && npm run build && cd ../desktop && npm run start
 ```
+
+## Packaging it
+
+```bash
+cd ../web && npm run build && cd ../desktop
+npm run package        # -> release/OpsPilot-Setup-0.1.0-x64.exe  (NSIS, per-user)
+npm run package:dir    # the same, unpacked, for a smoke test
+```
+
+`npm run package` is three steps: compile the shell (`tsc` + the renderer
+copy), stage the runtime tree, then run `electron-builder`. What each one is
+for is below; the configuration itself is `electron-builder.yml`.
+
+**The dashboard is built before packaging, not at first run.** `next build
+--output standalone` traces exactly what the server needs and emits it to
+`web/.next/standalone/`; `scripts/stage-stack.mjs` copies that tree plus the
+Python build context into `stage/stack/`, and `electron-builder.yml` ships it
+as `resources/stack/`. The staged tree is a build output and is gitignored —
+`.next/` is too — so `web/` must be built before `npm run package`, and the
+staging script fails with that instruction rather than shipping nothing. A
+first-run build was the alternative and is worse on every axis that matters:
+it needs Node on the target machine (the plan's premise is a clean Windows box
+with Docker Desktop and nothing else), it makes the user's first launch slow
+and surprising, and it buys nothing — the dashboard server is already spawned
+with Electron's own binary as the Node runtime via `ELECTRON_RUN_AS_NODE`, so
+there is no second copy of Node anywhere.
+
+**Two trees, two reasons.** `resources/app.asar` holds `dist/**` and nothing
+else — no `e2e/`, no `scripts/`, no `node_modules` — because a whitelist is a
+statement and a blacklist is a list of what someone remembered to exclude.
+`resources/stack/` is real files on disk, because `docker compose` runs with it
+as its working directory and `node server.js` has to `require` inside it; an
+asar archive is a virtual filesystem the Node that runs the dashboard does not
+have a reader for.
+
+**The security posture is not in the packaging configuration**, and cannot be
+weakened by it. `contextIsolation`, `nodeIntegration: false`, `sandbox` and
+`webviewTag: false` live in `src/security-policy.ts` and are properties of the
+compiled code; `desktop/e2e/security.spec.ts` asserts them against the same
+module the app builds its window from. What packaging owns is the `files`
+whitelist, which keeps the test runner and the build scripts out of the
+archive.
+
+**No credential ships.** `OPSPILOT_OPERATOR_TOKEN` is required by
+`docker-compose.yml` with the `:?` form, which means Compose refuses to render
+the project without it — so a `.env` next to the shipped compose file would be a
+refund-capable credential in a file everyone who downloads the installer has.
+Instead the app generates one on the target machine's first launch and writes it
+to `%APPDATA%\OpsPilot\opspilot.env`. `scripts/stage-stack.mjs` walks the
+staged tree and fails the build if any dotenv file is in it, because that is the
+one file most likely to be added by someone who did not mean to.
+
+**Verifying the built artefact** — including what to do when Docker Desktop is
+missing — is `docs/installer-verification.md`. It is written to be followed by
+someone who did not build this.
 
 ## What it owns, and what it does not
 
@@ -112,7 +168,7 @@ Docker.
 | Variable | Default | What it is for |
 |---|---|---|
 | `OPSPILOT_DESKTOP_PORT` | `3210` | The dashboard port. Not 3000 (the compose `web` service) and not 3100 (the e2e host dashboard) — see `dashboard-port.ts` for why those two used to collide. |
-| `OPSPILOT_OPERATOR_TOKEN` | read from `.env` / `web/.env.local` | Overrides the token. `docker-compose.yml` requires it with the `:?` form, so without one Compose will not render the project at all. |
+| `OPSPILOT_OPERATOR_TOKEN` | read from `.env` / `web/.env.local`, or generated | Overrides the token. `docker-compose.yml` requires it with the `:?` form, so without one Compose will not render the project at all. An **installed** copy has no `.env` to read, so `src/runtime/operator-token.ts` generates one into `%APPDATA%\OpsPilot\opspilot.env` on first launch and consults it last. |
 | `OPSPILOT_CORS_ORIGINS` | appended to | The window's own origin is added, never substituted. The API's allowlist defaults to `http://localhost:3000`, which is `npm run dev`; this window is `http://127.0.0.1:3210`. |
 
 The dashboard is served from `web/.next/standalone/server.js` with

@@ -50,7 +50,21 @@ const BROWSER_GLOBALS = {
 
 const eslintConfig = tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "test-results/**", "playwright-report/**"],
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "test-results/**",
+      "playwright-report/**",
+      // The two build outputs of the packaging pipeline. `stage/stack/` is the
+      // repository's own Python and the dashboard's own build trace, copied
+      // verbatim — linting Next's generated `server.js` would report ~12,000
+      // errors against code nobody in this package wrote, and `no-floating-
+      // promises` on a bundle is not a finding. `release/` is electron-builder's
+      // output, which contains a copy of `dist/` plus the unpacked Electron
+      // runtime.
+      "stage/**",
+      "release/**",
+    ],
   },
   js.configs.recommended,
   {

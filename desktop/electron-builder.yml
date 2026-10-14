@@ -1,0 +1,111 @@
+# electron-builder.yml -- how the desktop shell becomes an installer.
+#
+# ## Why this file is separate from package.json
+#
+# A JSON file cannot carry a comment, and every line below is a decision somebody
+# could reasonably get wrong. `asar`, the `files` whitelist and
+# `extraResources` are the three that decide whether the app is a working program
+# on a machine with no repository, and each of them has a reason that is worth
+# more than the default it replaces.
+#
+# ## The shape of the package
+#
+# Two trees, for two different reasons:
+#
+#   * `resources/app.asar` — the shell. `dist/**` (the compiled main process,
+#     preload, renderer page and renderer assets) and `package.json`. Nothing
+#     else. No `e2e/`, no `scripts/`, no Playwright, no TypeScript, no
+#     `node_modules`. A whitelist rather than a blacklist because a blacklist is
+#     a list of what someone remembered to exclude.
+#   * `resources/stack/` — everything the app reads at run time, as **real files
+#     on disk**. `src/runtime/dependencies.ts::resolveStackRoot` points here when
+#     `app.isPackaged`, and both consumers need real paths: `docker compose` runs
+#     with this as its working directory and `build: context: .` sends it to the
+#     Docker daemon, and `node server.js` has to `require` and `readFile` inside
+#     it. An asar archive is a virtual filesystem the Node that runs the
+#     dashboard does not have a reader for. This is why it is `extraResources`
+#     and not `asarUnpack`.
+#
+# ## The security posture, and where it comes from
+#
+# Nothing in this file touches `webPreferences`. Those live in
+# `src/security-policy.ts` — `contextIsolation: true`, `nodeIntegration: false`,
+# `sandbox: true`, `webviewTag: false` — and they are properties of the compiled
+# code, not of the packager, so packaging cannot weaken them: there is no
+# `nodeIntegration` switch anywhere in this configuration, and
+# `desktop/e2e/security.spec.ts` asserts the values against the same module the
+# app builds its window from. What packaging *could* weaken is the guarantee
+# that the renderer has no Node to reach, so the `files` whitelist keeps the
+# `e2e/` specs and the `scripts/` out of the archive: a shipped test runner is a
+# shipped tool for reading and writing this installation.
+#
+# The one Electron setting that packaging does own is below.
+
+appId: com.opspilot.desktop
+productName: OpsPilot
+# The handle from LICENSE, not an address: `author` becomes the file version's
+# Publisher in the installed exe, which is a property of the file rather than
+# something to put a private contact address into.
+copyright: Copyright (c) 2026 gg320324492-lgtm
+
+directories:
+  # Not `dist`: that is `tsc`'s output, and an installer sitting next to the
+  # files it was built from is a build directory that lies about what it holds.
+  output: release
+
+# The whitelist. See "The shape of the package" above.
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# `asar: true` is the default and is stated because it is the default: the
+# archive is one file Electron reads with its own reader, and it is the setting
+# that makes `__dirname` inside `main.js` a path Electron — rather than plain
+# Node — resolves. Nothing needs to be unpacked: the only things that needed to
+# be real files are in `extraResources`, and no native module is shipped, so
+# `asarUnpack` stays empty rather than being spelled out and going stale.
+asar: true
+asarUnpack: []
+
+extraResources:
+  - from: stage/stack
+    to: stack
+
+# No production dependency to install: the app requires only `electron` — which
+# *is* the runtime, not a library shipped inside it — plus Node built-ins and
+# its own relative modules. So there is nothing to rebuild and nothing to
+# resolve, and saying so saves a build step that would only look for work.
+npmRebuild: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # The dashboard's own icon, rather than a new asset invented for the
+  # installer. It carries 16/32/48/256, which is what NSIS wants for its own
+  # icons. Pointed at the checkout rather than copied, because a second copy of
+  # a binary icon in two places is one more thing to go stale.
+  icon: ../web/src/app/favicon.ico
+  artifactName: OpsPilot-Setup-${version}-${arch}.${ext}
+
+nsis:
+  # An assisted installer, not one-click. One-click runs with elevation and no
+  # dialog, and D2's acceptance is that somebody who did not build this installs
+  # it — which means they should see where it is going and be able to cancel.
+  oneClick: false
+  # Per-user by default: no administrator rights needed, no UAC prompt, and no
+  # install into Program Files, which is also why `resources/stack` is written
+  # at run time only into the user-data folder and never back into itself.
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OpsPilot
+  # The operator token lives in the user-data folder, generated on first launch.
+  # Removing it would silently re-key a database that still holds the records
+  # written under the old one, so uninstalling must not take the data with it.
+  deleteAppDataOnUninstall: false
+
+compression: normal

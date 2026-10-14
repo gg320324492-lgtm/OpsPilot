@@ -4,12 +4,17 @@
  *
  * ## The one thing this module is allowed to know
  *
- * Where the repository is. `web/e2e/stack.ts::findRepoRoot` walks up from the
+ * Where the stack is. `web/e2e/stack.ts::findRepoRoot` walks up from the
  * working directory looking for `docker-compose.yml`, and this does the same,
  * because that is the only definition of "the repository root" this repository
  * has and a second one would be a second thing to keep correct. Everything
  * else about the layout — the `web/` directory, the standalone server — is
  * derived from that one answer.
+ *
+ * A packaged build has no working directory above it that means anything, so
+ * `resolveStackRoot` is the other answer to the same question: it points at
+ * the tree the installer ships under Electron's `resources/`, and checks the
+ * marker rather than trusting the path.
  *
  * ## Why the ports are what they are
  *
@@ -27,26 +32,90 @@ import { cpSync, existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import path from "node:path";
 
-import type { Clock, HttpProbe, PortProbe, SessionDeps } from "../lifecycle/types";
+import type { AuthorizedHttpProbe, Clock, HttpProbe, PortProbe, SessionDeps } from "../lifecycle/types";
 
 import { nodeCommandRunner } from "./node-runner";
+
+/**
+ * The one file that makes a directory a stack root.
+ *
+ * Named once because there are now two of them — a checkout and the tree the
+ * installer ships — and "which directory holds `docker-compose.yml`" is the
+ * question both answers the same way. A packaged app has no checkout above it,
+ * which is exactly what `resolveStackRoot` is for.
+ */
+export const STACK_MARKER = "docker-compose.yml";
+
+/** The directory, under Electron's `resources/`, holding the shipped stack. */
+export const PACKAGED_STACK_DIR = "stack";
 
 /** The nearest ancestor of the working directory holding `docker-compose.yml`. */
 export function findRepoRoot(): string {
   let dir = process.cwd();
   for (;;) {
-    if (existsSync(path.join(dir, "docker-compose.yml"))) {
+    if (existsSync(path.join(dir, STACK_MARKER))) {
       return dir;
     }
     const parent = path.dirname(dir);
     if (parent === dir) {
       throw new Error(
-        "No docker-compose.yml was found in this directory or any parent of it, so there is " +
+        `No ${STACK_MARKER} was found in this directory or any parent of it, so there is ` +
           "no stack for this app to start. Start the app from inside the repository.",
       );
     }
     dir = parent;
   }
+}
+
+/** Where this process is running from, as plain values rather than Electron's. */
+export interface StackLocation {
+  /** `app.isPackaged`. A boolean, so this module keeps importing nothing from Electron. */
+  readonly packaged: boolean;
+  /** `process.resourcesPath`. Only meaningful when `packaged` is true. */
+  readonly resourcesPath: string | undefined;
+}
+
+/**
+ * The stack root this launch reads from: the shipped tree when packaged, the
+ * checkout otherwise.
+ *
+ * ## Why this exists
+ *
+ * `findRepoRoot` alone is a development-only answer, and the installer exposed
+ * that. It walks *up from `process.cwd()`*, which for a double-clicked app is
+ * `C:\Windows\System32` — so a packaged launch found no `docker-compose.yml`,
+ * threw, and produced a window whose only message was "start the app from
+ * inside the repository", which is an instruction a machine with no repository
+ * cannot follow. Everything downstream inherited the same mistake: `webDir` was
+ * `<root>/web`, and the dashboard server and the Docker build context both
+ * needed files that exist only in a checkout.
+ *
+ * So a packaged app reads `resources/stack/`, which the installer populated
+ * from the repository at package time (see `desktop/scripts/stage-stack.mjs`),
+ * and a development launch is unchanged. The marker is checked rather than
+ * assumed: an install whose resources are missing the stack is a broken
+ * install, and saying so is better than letting `docker compose` fail later
+ * with a working directory it does not recognise.
+ */
+export function resolveStackRoot(location: StackLocation): string {
+  if (!location.packaged) {
+    return findRepoRoot();
+  }
+  const { resourcesPath } = location;
+  if (resourcesPath === undefined) {
+    throw new Error(
+      "This app is running as a packaged build but Electron reported no resources directory, " +
+        "so there is no stack for it to start. Reinstall it; the installer is incomplete.",
+    );
+  }
+  const stackRoot = path.join(resourcesPath, PACKAGED_STACK_DIR);
+  if (!existsSync(path.join(stackRoot, STACK_MARKER))) {
+    throw new Error(
+      `The installed copy of this app is missing its stack directory: ${stackRoot} does not ` +
+        `contain ${STACK_MARKER}, so there is nothing for it to start. Reinstall it.`,
+    );
+  }
+  return stackRoot;
 }
 
 /**
@@ -96,6 +165,27 @@ export const isPortBusy: PortProbe = async (port) => {
  */
 export const httpProbe: HttpProbe = async (url) => {
   const response = await fetch(url, { redirect: "manual" });
+  return { status: response.status };
+};
+
+/**
+ * The same probe, carrying the operator token — and never reading the body.
+ *
+ * The body is the run list, which can be large and is of no use here: the only
+ * question is whether the status is 401. Cancelling the stream rather than
+ * leaving it unread means a database with thousands of runs does not cost this
+ * app a full download on every launch.
+ *
+ * The token goes in a header and nowhere else. This is the same token the
+ * dashboard's own server holds; it is not the one the browser has, because the
+ * browser never has one.
+ */
+export const authorizedHttpProbe: AuthorizedHttpProbe = async (url, token) => {
+  const response = await fetch(url, {
+    redirect: "manual",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  await response.body?.cancel();
   return { status: response.status };
 };
 
@@ -176,6 +266,17 @@ export const DEFAULT_DOCKER = "docker";
 export interface BuildDependenciesOptions {
   /** Overridable so a test — or an operator with an unusual install — can say. */
   readonly repoRoot?: string;
+  /**
+   * Whether this launch is a packaged one. Plain boolean rather than
+   * `app.isPackaged` read here, so this module keeps importing nothing from
+   * Electron and stays drivable from the lifecycle tests.
+   */
+  readonly packaged?: boolean;
+  /**
+   * The app-data env file holding the generated operator token, for the one
+   * remedy that has to name it. Plain path rather than Electron's `getPath`.
+   */
+  readonly composeEnvFile?: string;
   readonly env?: NodeJS.ProcessEnv;
   /** The Node runtime used to serve the dashboard. Defaults to Electron's own. */
   readonly node?: string;
@@ -220,10 +321,13 @@ export function buildDependencies(options: BuildDependenciesOptions = {}): Sessi
     runner: nodeCommandRunner,
     clock: systemClock,
     http: httpProbe,
+    authorizedHttp: authorizedHttpProbe,
     portBusy: isPortBusy,
     exists: existsSync,
     repoRoot,
     webDir,
+    packaged: options.packaged === true,
+    composeEnvFile: options.composeEnvFile,
     apiUrl,
     dashboardPort,
     env,
@@ -235,7 +339,13 @@ export function buildDependencies(options: BuildDependenciesOptions = {}): Sessi
     // is served" rather than to "what the shell is".
     node: options.node ?? process.execPath,
     copyDir: (from, to) => {
-      if (existsSync(from)) {
+      // `from` and `to` being the same directory is not an error to work around
+      // by copying anyway. `stage-stack.mjs` ships a standalone tree that
+      // already carries `public/` and `.next/static/`, so copying them onto
+      // themselves would be a no-op in a development checkout and a write into
+      // Program Files in an installed one, where the directory is not writable
+      // by the account running the app.
+      if (existsSync(from) && path.resolve(from) !== path.resolve(to)) {
         cpSync(from, to, { recursive: true });
       }
     },
