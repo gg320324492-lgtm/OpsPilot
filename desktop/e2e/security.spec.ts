@@ -45,6 +45,7 @@ import {
   originOf,
   SECURE_WEB_PREFERENCES,
 } from "../src/security-policy";
+import { restrictWebContents } from "../src/security";
 
 const DASHBOARD_ORIGIN = "http://127.0.0.1:3210";
 // Origins, not URLs: `isAllowedUrl` compares `protocol + "//" + host`, so
@@ -161,5 +162,85 @@ test.describe("the bootstrap page", () => {
     expect(BOOTSTRAP_CSP).not.toContain("*");
     expect(BOOTSTRAP_CSP).not.toContain("unsafe-inline");
     expect(BOOTSTRAP_CSP).not.toContain("unsafe-eval");
+  });
+});
+/**
+ * The navigation guard reads the allow-list at navigation time, not at install
+ * time — the defect of 2026-10-16, pinned so it cannot come back.
+ *
+ * `main.ts` installs the guard from `app.on("web-contents-created", …)`, which
+ * fires while `createWindow()` runs. The dashboard's origin is assigned to a
+ * module-level `allowedOrigins` later still, inside `launch()`:
+ *
+ *     mainWindow = createWindow();   // web-contents-created fires here
+ *     await launch();                // allowedOrigins = […] happens in here
+ *
+ * The guard used to take the array itself, so it captured `[BOOTSTRAP_ORIGIN]`
+ * — the pre-launch value — and refused **every page-initiated navigation in the
+ * running app**. Nothing noticed for a whole phase because Next.js client-side
+ * routing does not fire `will-navigate`: the five nav links are client
+ * transitions. The first control that performed a real document navigation was
+ * the language switcher, whose click was silently preventDefault-ed. The user's
+ * symptom was "the 中文 button does nothing".
+ *
+ * ## Why this is driven with a fake `WebContents`
+ *
+ * The bug is in *when the list is read*, not in what the list contains, so it is
+ * testable without Electron, a display, or a running stack — which is what lets
+ * it run in the `lifecycle` project on a bare CI runner. `restrictWebContents`
+ * only ever calls `contents.on(...)`, so a recorder for that is the whole
+ * collaborator.
+ */
+
+/** A stand-in for Electron's `WebContents` that records its `on` handlers. */
+function fakeWebContents() {
+  const handlers = new Map<string, (event: unknown, url: string) => void>();
+  return {
+    contents: {
+      on(name: string, handler: (event: unknown, url: string) => void) {
+        handlers.set(name, handler);
+        return this;
+      },
+      setWindowOpenHandler() {
+        /* not exercised here */
+      },
+    } as unknown as Parameters<typeof restrictWebContents>[0],
+    /** Fire the recorded `will-navigate` handler and report whether it was allowed. */
+    navigate(url: string): boolean {
+      let prevented = false;
+      handlers.get("will-navigate")?.({ preventDefault: () => (prevented = true) }, url);
+      return !prevented;
+    },
+  };
+}
+
+test.describe("the navigation guard reads its allow-list late", () => {
+  test("allows a dashboard navigation installed before the origin was known", () => {
+    // Exactly main.ts's ordering: the guard is installed while the module
+    // variable still holds only the bootstrap origin...
+    let allowedOrigins: string[] = [BOOTSTRAP_ORIGIN];
+    const fake = fakeWebContents();
+    restrictWebContents(fake.contents, () => allowedOrigins);
+
+    // ...and only afterwards does `launch()` learn the dashboard's origin.
+    allowedOrigins = [BOOTSTRAP_ORIGIN, DASHBOARD_ORIGIN];
+
+    expect(
+      fake.navigate(`${DASHBOARD_ORIGIN}/api/locale?locale=zh-CN&returnTo=%2F`),
+      "the language switcher's navigation was refused; the guard captured the " +
+        "allow-list before launch() assigned the dashboard origin, which is the " +
+        "2026-10-16 defect. The origin list must be read per navigation.",
+    ).toBe(true);
+  });
+
+  test("still refuses a foreign origin after the same late assignment", () => {
+    // The fix must not have widened into "allow everything once launch() runs".
+    let allowedOrigins: string[] = [BOOTSTRAP_ORIGIN];
+    const fake = fakeWebContents();
+    restrictWebContents(fake.contents, () => allowedOrigins);
+    allowedOrigins = [BOOTSTRAP_ORIGIN, DASHBOARD_ORIGIN];
+
+    expect(fake.navigate("https://example.com/")).toBe(false);
+    expect(fake.navigate(`${DASHBOARD_ORIGIN}.attacker.example/`)).toBe(false);
   });
 });

@@ -408,6 +408,37 @@ milestone log.
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
 
+- **The packaged app refused every page-initiated navigation, so the language
+  switcher did nothing.** Found on 2026-10-16 by the person running D2, who
+  reported that clicking 中文 had no effect. The guard was not wrong about
+  *which* origins to allow — it was holding a stale copy of them.
+  `main.ts` installs `restrictWebContents` from
+  `app.on("web-contents-created", …)`, which fires inside `createWindow()`;
+  the dashboard's origin is assigned to the module-level `allowedOrigins` later,
+  inside `launch()`. The guard took the **array**, so it captured
+  `[BOOTSTRAP_ORIGIN]` — the pre-launch value — and `http://127.0.0.1:3210` was
+  never in the list. Every `will-navigate` from the page was `preventDefault`-ed
+  with only a `console.warn`.
+
+  **It survived a whole phase because Next.js client-side routing does not fire
+  `will-navigate`.** The five nav links are client transitions, so the app looked
+  fully navigable. The first control that performed a real document navigation
+  was the language switcher — which is why the symptom was "the 中文 button is
+  dead" rather than "the app is broken". It was reproduced as a minimal Electron
+  program before being fixed: the guard received `["opspilot://ui"]` while the
+  module variable already held both origins. The fix takes a **getter**, so the
+  list is read at navigation time, which is the only moment it is complete;
+  `e2e/security.spec.ts` pins it with a fake `WebContents`, and a mutation that
+  restores the array parameter fails that test.
+
+  **The same session found a second, quieter defect in the packaging.** `npm run
+  package` never built `web/` — it ran the desktop TypeScript build, then
+  `stage-stack.mjs`, which copies `web/.next/standalone` if it exists and tells
+  you to build web first if it does not. So a package could ship whatever the
+  dashboard was last built from, silently, and did: an installer built during
+  this session carried a `.next` from the previous day. `package` and
+  `package:dir` now run `build:web` first.
+
 - **Two gate-1 schemas rejected the arguments the contract documents.** Found on
   2026-10-15 while chasing the live recording's `crm.get_customer` failure.
   `docs/mcp-contracts.md` §1 offers `customer_email` **or** `customer_id` for

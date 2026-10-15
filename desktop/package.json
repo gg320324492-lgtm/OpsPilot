@@ -9,9 +9,10 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-renderer.mjs",
+    "build:web": "npm --prefix ../web run build",
     "stage": "node scripts/stage-stack.mjs",
-    "package": "npm run build && npm run stage && electron-builder --win --x64",
-    "package:dir": "npm run build && npm run stage && electron-builder --win --x64 --dir",
+    "package": "npm run build:web && npm run build && npm run stage && electron-builder --win --x64",
+    "package:dir": "npm run build:web && npm run build && npm run stage && electron-builder --win --x64 --dir",
     "start": "npm run build && electron .",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",

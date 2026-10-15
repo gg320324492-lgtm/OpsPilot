@@ -313,7 +313,11 @@ async function teardownAndQuit(): Promise<void> {
 // which also covers a `webContents` this app did not construct by hand. This
 // app creates exactly one.
 app.on("web-contents-created", (_event, contents) => {
-  restrictWebContents(contents, allowedOrigins);
+  // A getter, not the array: this fires while `createWindow()` runs, and
+  // `launch()` assigns the dashboard's origin afterwards. Passing the array
+  // captured the pre-launch value — see the block comment on
+  // `restrictWebContents` for the defect that caused.
+  restrictWebContents(contents, () => allowedOrigins);
 });
 
 void app

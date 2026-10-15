@@ -57,10 +57,36 @@ export function denyAllPermissions(target: Session = session.defaultSession): vo
  * URL to `shell.openExternal` — item 15: `openExternal` on content a renderer
  * chose is a documented way to run something on the user's machine, and this
  * app has no reason to open anything at all.
+ *
+ * ## WHY `allowedOrigins` IS A FUNCTION AND NOT AN ARRAY
+ *
+ * It used to be an array, and that was a live defect. `main.ts` installs this
+ * from `app.on("web-contents-created", …)`, which fires while `createWindow()`
+ * runs — and the dashboard's origin is only known *later*, inside `launch()`,
+ * which assigns it to a module-level variable:
+ *
+ *     mainWindow = createWindow();   // web-contents-created fires here
+ *     await launch();                // allowedOrigins = […] happens in here
+ *
+ * An array passed at install time captured the value from *before* that
+ * assignment — `[BOOTSTRAP_ORIGIN]` alone — so the dashboard's
+ * `http://127.0.0.1:3210` was never in the allow-list and **every
+ * page-initiated navigation in the running app was refused.** Next.js
+ * client-side routing hid it, because a client transition does not fire
+ * `will-navigate`; the first control that did a real document navigation was
+ * the language switcher, which simply did nothing. Reproduced as a minimal
+ * Electron program: the guard received `["opspilot://ui"]` while the module
+ * variable already held both origins.
+ *
+ * Reading the origins through a function defers the lookup to the moment of the
+ * navigation, which is the only moment the answer is known to be complete.
  */
-export function restrictWebContents(contents: WebContents, allowedOrigins: readonly string[]): void {
+export function restrictWebContents(
+  contents: WebContents,
+  allowedOrigins: () => readonly string[],
+): void {
   contents.on("will-navigate", (event, url) => {
-    if (!isAllowedUrl(url, allowedOrigins)) {
+    if (!isAllowedUrl(url, allowedOrigins())) {
       event.preventDefault();
       console.warn(`[opspilot] refused a navigation to ${url}`);
     }
