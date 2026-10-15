@@ -5748,3 +5748,34 @@ ours. Two of the three CRM tools' document-and-code mismatches are now closed;
 the argument-naming failure is the model's and remains open.
 
 937 passed / 20 skipped; mypy 190 files clean; ruff and format clean.
+
+## The schema repair, replayed against the recording
+
+The re-run against the live endpoint could not be made on 2026-10-15: the key
+returned `HTTP 429` / MiniMax code 2056 (Token Plan exhausted) on every attempt,
+three times eight seconds apart, the same spent quota the first recording hit at
+its start. Nothing about the fix is implicated — the endpoint was never reached.
+
+But the question the re-run was meant to answer does not need the endpoint. The
+recording already holds what the model proposed; replaying those calls through
+the **repaired** gate answers it exactly. `test_the_live_recording_replays_through_the_current_gate`
+does that, and the outcome is two-sided:
+
+| Recorded call | Before the fix | After |
+|---|---|---|
+| `issues.create {title, description, …}` | refused (`body` was required, `description` forbidden) | **accepted** |
+| `crm.get_customer {"email": …}` | refused | **still refused** |
+| `done` (no tool) | nothing to validate | nothing to validate |
+
+**The first row is the repair working on real traffic**, not on a case built to
+pass. **The second is the repair declining to overreach**: `email` is still not
+`customer_email`, and a schema that accepted it would have stopped enforcing the
+contract it exists to enforce. The test asserts both directions, and a mutation
+that adds `email` to the schema fails it — which is the check that the fix
+cannot quietly widen into "accept whatever the model sends".
+
+So the honest summary of what this changed: **the 0.471 argument-validity figure
+does not move.** The model's own wrong argument is counted before and after. What
+is gone is the other way to fail — reading the contract correctly and being
+refused by our gate — which is now impossible in `crm.get_customer` and
+`issues.create` alike.

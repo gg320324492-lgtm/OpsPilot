@@ -40,13 +40,14 @@ checking the schema against itself.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
 import pytest
 from pydantic import ValidationError
 
-from opspilot.domain.tools import TOOL_ARGUMENT_SCHEMAS
+from opspilot.domain.tools import TOOL_ARGUMENT_SCHEMAS, InvalidArgumentsError, validate_tool_call
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT = REPO_ROOT / "docs" / "mcp-contracts.md"
@@ -180,3 +181,67 @@ def test_get_customer_still_refuses_both_identifiers_at_once() -> None:
 
     with pytest.raises(ValidationError):
         schema.model_validate({"customer_email": "billing@acme.example", "customer_id": "CUS-1001"})
+
+
+def test_the_live_recording_replays_through_the_current_gate() -> None:
+    """The recorded calls, replayed against the fixed schemas.
+
+    `docs/evidence/live-run-2026-10-15.json` holds what a real model actually
+    proposed. Replaying it is the only way to see what this file's fix did to
+    real traffic rather than to a constructed case — and, just as importantly,
+    what it did not.
+
+    Three outcomes, and the third is the one worth keeping:
+
+    * ``issues.create`` now **passes**. Before the fix it was refused at gate 1
+      because the schema declared ``body`` where the contract and the server
+      take ``description``/``priority``/``labels``. This is the fix working on
+      real input.
+    * ``crm.get_customer`` with ``email`` **still fails**, and must.
+    * ``done`` carries no tool, so there is nothing to validate.
+
+    The second point is the reason this test exists rather than a looser one
+    that just asserts "the recording validates". The recorded call sent
+    ``email``; the contract spells it ``customer_email``. That argument is wrong
+    under either schema, so a fix that made it pass would be a fix that stopped
+    enforcing the contract — which is the opposite of what
+    ``docs/limitations.md`` §8 records. The 0.471 argument-validity figure is
+    unchanged by the schema repair, and this test is where that stays true.
+    """
+    recorded = json.loads(
+        (REPO_ROOT / "docs" / "evidence" / "live-run-2026-10-15.json").read_text(encoding="utf-8")
+    )
+    proposals = [
+        call["response"]["value"]
+        for call in recorded
+        if call["method"] == "choose_tool" and call["response"]["value"].get("tool_name")
+    ]
+    assert proposals, "the recording holds no tool proposals; the evidence file changed shape"
+
+    outcomes: dict[str, bool] = {}
+    for proposal in proposals:
+        name = proposal["tool_name"]
+        try:
+            validate_tool_call(name, dict(proposal["arguments"]))
+        except InvalidArgumentsError:
+            outcomes[f"{name} {proposal['arguments']}"] = False
+        else:
+            outcomes[f"{name} {proposal['arguments']}"] = True
+
+    # `issues.create` with the contract's own fields is accepted now.
+    created = [ok for key, ok in outcomes.items() if key.startswith("issues.create")]
+    assert created, "the recording's issues.create proposal was not replayed"
+    assert all(created), (
+        "the recording's issues.create call is refused again; the schema repair "
+        f"was reverted. Outcomes: {outcomes}"
+    )
+
+    # `email` is still not `customer_email`, and must still be refused.
+    customer = [ok for key, ok in outcomes.items() if key.startswith("crm.get_customer")]
+    assert customer, "the recording's crm.get_customer proposal was not replayed"
+    assert not any(customer), (
+        "a crm.get_customer call carrying `email` now validates. The contract "
+        "spells it `customer_email`; accepting the wrong name would make this "
+        "schema stop enforcing the contract it exists to enforce. "
+        f"Outcomes: {outcomes}"
+    )
