@@ -434,8 +434,13 @@ def test_empty_argument_proposals_distinguishes_wrong_keys_from_nothing() -> Non
     The distinction `7acea37` made recoverable: `{}` is the model proposing nothing,
     a non-empty dict that fails the schema is the model proposing the wrong shape.
     Only the former is an empty-argument proposal.
+
+    Both halves are asserted, because either metric alone would pass if the other
+    counted everything: a `malformed_argument_proposals` that also swallowed the
+    empty call, or an `empty_argument_proposals` that swallowed the wrong-key one,
+    would each report 1.0 above and hide the conflation this pair exists to undo.
     """
-    from opspilot.evals.metrics import empty_argument_proposals
+    from opspilot.evals.metrics import empty_argument_proposals, malformed_argument_proposals
 
     results = [
         _tools(
@@ -453,6 +458,59 @@ def test_empty_argument_proposals_distinguishes_wrong_keys_from_nothing() -> Non
         ),
     ]
     assert empty_argument_proposals(results).value == 1.0
+    assert malformed_argument_proposals(results).value == 1.0
+
+
+def test_malformed_argument_proposals_names_the_wrong_name_from_the_live_recording() -> None:
+    """The recording's real call, classified as malformed rather than empty.
+
+    `docs/evidence/live-run-2026-10-15.json` holds a `crm.get_customer` proposal
+    carrying `{"email": ...}` where the contract spells it `customer_email`. It is
+    a **non-empty** dict the schema refused, so it belongs to the malformed count
+    and must not inflate the empty one -- the two want opposite fixes (better
+    prompting versus a corrected schema), which is why the pooled
+    `tool_argument_validity` is not enough on its own.
+
+    This is the first non-empty wrong-argument instance in any committed result:
+    the baseline's 90 gate-1 rejections are all `{}`, so before this recording the
+    malformed bucket had no evidence behind it.
+    """
+    from opspilot.evals.metrics import (
+        empty_argument_proposals,
+        malformed_argument_proposals,
+        tool_argument_validity,
+    )
+
+    results = [
+        _tools(
+            "t1",
+            [],
+            [],
+            executed=[
+                {
+                    "tool_name": "crm.get_customer",
+                    "arguments": {"email": "billing@acme.example"},
+                    "arguments_valid": False,
+                    "status": "rejected",
+                    "rejection_reason": "gate_1_schema_validation",
+                },
+                {
+                    "tool_name": "crm.get_customer",
+                    "arguments": {"customer_email": "billing@acme.example"},
+                    "arguments_valid": True,
+                    "status": "executed",
+                },
+            ],
+        ),
+    ]
+    assert malformed_argument_proposals(results).value == 1.0
+    assert empty_argument_proposals(results).value == 0.0, (
+        "a wrong parameter name is not an empty proposal; counting it as one is "
+        "the conflation malformed_argument_proposals exists to undo"
+    )
+    # The pooled figure counts the same call as a miss, and that is correct --
+    # what it cannot do is say *which* kind of miss it was.
+    assert tool_argument_validity(results).value == 0.5
 
 
 def test_gate_rejected_calls_counts_by_the_gate_that_refused() -> None:
@@ -928,6 +986,7 @@ def test_summarize_returns_every_metric_docs_evals_lists() -> None:
         "task_completion_rate",
         "abstention_correctness",
         "empty_argument_proposals",
+        "malformed_argument_proposals",
         "latency_p50_ms",
         "latency_p95_ms",
         "tokens_input_mean",

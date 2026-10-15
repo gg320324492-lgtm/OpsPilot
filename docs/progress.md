@@ -5779,3 +5779,32 @@ does not move.** The model's own wrong argument is counted before and after. Wha
 is gone is the other way to fail — reading the contract correctly and being
 refused by our gate — which is now impossible in `crm.get_customer` and
 `issues.create` alike.
+
+## `malformed_argument_proposals`: the other half of what row 5 pools
+
+`tool_argument_validity` has always counted both kinds of argument failure into
+one ratio. `empty_argument_proposals` names one of them; nothing named the other,
+so a wrong-parameter-name call was counted but unattributable — it showed up only
+as `model_malformed` inside `_argument_outcome`, and no metric read that bucket.
+
+That was survivable while the bucket was empty. The baseline run's 90 gate-1
+rejections are all `{}`, so "wrong arguments" had no instance in any committed
+result, and one split metric looked like the whole story. The live recording of
+2026-10-15 supplied the missing instance — `crm.get_customer` proposed with
+`{"email": ...}` where the contract says `customer_email` — which made the gap
+concrete rather than theoretical.
+
+`malformed_argument_proposals` (`metrics.py`) is the sibling metric: a count of
+attempted calls whose arguments were non-empty and refused by the schema. Same
+shape as `empty_argument_proposals` — `cases` is every attempted call, `value` is
+a count, nothing asserted about it being zero — and recorded in the results
+file's `breakdown` key alongside it, because reading one without the other is
+misleading in a way the pooled figure cannot reveal: 90 empty and 0 malformed
+reads very differently from 0 and 90.
+
+The two tests that pin the pair assert **both halves in one scenario**, so
+neither can pass by swallowing the other's calls. A mutation that widens the
+malformed predicate to include empties fails
+`test_empty_argument_proposals_distinguishes_wrong_keys_from_nothing` — which it
+would not have, before this change, since that test asserted only the empty
+count.

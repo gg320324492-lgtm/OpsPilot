@@ -48,6 +48,17 @@ in `summarize()` and in the results file's `breakdown` key:
   than to a gate. A gate-1 rejection stores `arguments: {}` (before `7acea37`) or
   the model's actual proposal (after), and "proposed nothing" is a defect in what
   the model produced, not a statement about the gate that caught it;
+- **malformed-argument proposals** — `malformed_argument_proposals`, the sibling
+  of the above and the other half of what row 5 pools: a count of calls whose
+  arguments were **non-empty but refused by the schema**, e.g. a wrong parameter
+  name. The two are different defects with different responses — empty means the
+  model did not engage with the schema, malformed means it engaged and got the
+  shape wrong — so a run reporting one without the other is a materially
+  different result. Added 2026-10-15, when the live recording supplied the first
+  non-empty instance in any committed result
+  (`docs/evidence/live-run-2026-10-15.json`: `crm.get_customer` called with
+  `email` where the contract says `customer_email`). Until then the bucket had no
+  evidence behind it, because the baseline's 90 rejections are all `{}`;
 - **by gate** — `rejected_calls.<gate>`, one count per `rejection_reason`, so a
   gate-1 *schema* rejection is never folded together with a gate-2 *registry*
   rejection of a tool that has no schema to validate against.

@@ -519,6 +519,41 @@ def empty_argument_proposals(results: list[dict[str, object]]) -> MetricResult:
     )
 
 
+def malformed_argument_proposals(results: list[dict[str, object]]) -> MetricResult:
+    """Count of proposed calls the model made with arguments the schema refused.
+
+    The sibling :func:`empty_argument_proposals` does not cover, and the reason
+    this exists at all: :func:`tool_argument_validity` pools both into one ratio,
+    and the two are different defects with different fixes.
+
+    * ``model_empty`` -- the model named a tool and filled in nothing. It did not
+      engage with the schema at all.
+    * ``model_malformed`` -- the model produced a non-empty argument dict that the
+      schema refused, e.g. a **wrong parameter name**. It engaged and got the
+      shape wrong.
+
+    Before 2026-10-15 the baseline's 90 rejections were all empty, so the split
+    looked academic -- "wrong arguments" had no instance in any committed result.
+    The live recording of that date supplied one: ``crm.get_customer`` called with
+    ``{"email": ...}`` where the contract spells it ``customer_email``
+    (``docs/evidence/live-run-2026-10-15.json``). A pooled figure reports that as
+    one more miss; this metric is what names it as a wrong-name failure rather
+    than a did-not-try one, and the two want opposite responses -- better
+    prompting versus a corrected contract or schema.
+
+    Same shape as its sibling: ``cases`` is every attempted call, so ``value`` is
+    a count and the ratio to ``cases`` is the model's malformed-proposal rate.
+    Not a gate, nothing asserted about it being zero.
+    """
+    calls = _attempted_calls(results)
+    malformed = sum(1 for call in calls if _argument_outcome(call) == MALFORMED)
+    return MetricResult(
+        name="malformed_argument_proposals",
+        value=float(malformed),
+        cases=len(calls),
+    )
+
+
 def gate_rejected_calls(results: list[dict[str, object]]) -> list[MetricResult]:
     """Rejected calls counted **by the gate that rejected them** (``rejection_reason``).
 
@@ -852,6 +887,7 @@ def summarize(results: list[dict[str, object]]) -> list[MetricResult]:
         tool_selection_accuracy(results),
         tool_argument_validity(results),
         empty_argument_proposals(results),
+        malformed_argument_proposals(results),
         approval_policy_compliance(results),
         synthetic_approval_policy_compliance(results),
         unsafe_execution_count(results),
@@ -877,6 +913,7 @@ __all__ = [
     "gate_rejected_calls",
     "is_a_pass",
     "latency_p50_p95",
+    "malformed_argument_proposals",
     "recall_at_k",
     "retrieval_precision_at_k",
     "summarize",

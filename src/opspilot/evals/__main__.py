@@ -885,13 +885,25 @@ def _breakdown_rows(metrics: Sequence[object]) -> list[object]:
 
     The rows §4's block is pinned to are the twelve of §1 plus the gate; the split
     metrics ``metrics.py`` also returns -- ``tool_argument_validity`` by dataset,
-    the empty-argument count, and the rejected-call-per-gate counts -- are pulled
-    out by name so they are recorded in ``evals/results/<ts>.json`` under a
-    ``breakdown`` key rather than silently dropped. They are *not* rendered: §4's
-    table is a published format the README quotes, and a metric that explains
-    another metric belongs in the record, not on a line whose width is a contract.
+    the **empty** and **malformed** argument counts, and the rejected-call-per-gate
+    counts -- are pulled out by name so they are recorded in
+    ``evals/results/<ts>.json`` under a ``breakdown`` key rather than silently
+    dropped. They are *not* rendered: §4's table is a published format the README
+    quotes, and a metric that explains another metric belongs in the record, not
+    on a line whose width is a contract.
+
+    Both argument counts are here because they are a pair. ``tool_argument_validity``
+    pools them, and reading only one of the two split counts would leave the other
+    looking like a non-event -- a run with 90 empty proposals and 0 malformed reads
+    very differently from one with 0 and 90, and the pooled figure alone cannot
+    tell them apart.
     """
-    keys = ("tool_argument_validity.", "empty_argument_proposals", "rejected_calls.")
+    keys = (
+        "tool_argument_validity.",
+        "empty_argument_proposals",
+        "malformed_argument_proposals",
+        "rejected_calls.",
+    )
     pulled: list[object] = []
     for metric in metrics:
         name = getattr(metric, "name", None)
