@@ -467,6 +467,21 @@ legible):
   `server_unavailable` every time. `adapters/tools/composite_gateway.py::CompositeToolGateway`
   now routes on `TOOL_REGISTRY[name].server` at call time, and
   `tests/integration/test_composite_gateway.py` proves it at both wiring points.
+
+  **Re-verified 2026-10-15, against a running PostgreSQL.** The claim above was
+  checked rather than re-read, because "fixed" is the word this list is least
+  entitled to take on trust. A bare `MCPToolGateway` handed `knowledge.search`
+  still answers `ok=False, error=server_unavailable` — the pre-fix behaviour,
+  reproduced directly — while `build_worker()`'s `CompositeToolGateway` answers
+  `ok=True` with five hits from the committed corpus
+  (`duplicate-charge-sop.md`, `refund-policy.md`). Both assembly points are
+  pinned: `test_the_worker_runs_on_a_gateway_that_serves_every_registered_tool`
+  asserts `build_worker`'s gateway *is* a `CompositeToolGateway` and that the
+  internal tool executes through it, and
+  `test_the_eval_harness_wires_a_real_retriever_into_the_knowledge_half` drives
+  a real case and dispatches through the gateway that case ran with, so
+  "wired to this case's stack" is distinguished from "wired to something". Nine
+  tests, all passing with the database up.
 - The containerised `web` service's static assets — `web/Dockerfile` copied
   `public/` and `.next/static/` to `/app/web/public` and
   `/app/web/.next/static`, and the standalone server reads neither. It `chdir`s
