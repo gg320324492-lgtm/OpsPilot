@@ -67,6 +67,33 @@ const REPO_ROOT = path.resolve(DESKTOP_DIR, "..");
 const UNPACKED_DIR = path.join(DESKTOP_DIR, "release", "win-unpacked");
 const PACKAGED_STACK = path.join(UNPACKED_DIR, "resources", "stack");
 
+/** A file in an asar header: where its bytes are, and how many there are. */
+interface AsarEntry {
+  offset: string;
+  size: number;
+}
+
+/** A directory in an asar header: named children, or none. */
+interface AsarDirectory {
+  files?: Record<string, AsarEntry | AsarDirectory>;
+}
+
+/** Either kind of asar header node. */
+type AsarNode = AsarEntry | AsarDirectory;
+
+/** The parsed header: directories only at the top. */
+interface AsarHeader {
+  files?: Record<string, AsarNode>;
+}
+
+function isEntry(node: AsarNode): node is AsarEntry {
+  return "offset" in node;
+}
+
+function isDirectory(node: AsarNode): node is AsarDirectory {
+  return !("offset" in node);
+}
+
 /**
  * The installed tree, or `null` with a recorded reason.
  *
@@ -107,7 +134,17 @@ function walk(dir: string): string[] {
 
 /** The published port bindings in a compose file, as written. */
 function publishedPorts(composeText: string): string[] {
-  return [...composeText.matchAll(/^\s*-\s*"([^"]*:\d+)"\s*$/gm)].map((m) => m[1]);
+  const bindings: string[] = [];
+  for (const match of composeText.matchAll(/^\s*-\s*"([^"]*:\d+)"\s*$/gm)) {
+    // The capture group is optional under `noUncheckedIndexedAccess`; a line
+    // that matches the pattern without it is a binding of nothing, so it is
+    // skipped rather than pushed as a hole in the array.
+    const captured = match[1];
+    if (captured !== undefined) {
+      bindings.push(captured);
+    }
+  }
+  return bindings;
 }
 
 test.describe("A1: the shipped stack binds to loopback", () => {
@@ -221,7 +258,15 @@ test.describe("D3: the packaged shell keeps the renderer untrusted", () => {
     // parses a header that stops short and reports every entry as missing.
     const buffer = readFileSync(asar);
     const headerStringSize = buffer.readUInt32LE(12);
-    const header = JSON.parse(buffer.subarray(16, 16 + headerStringSize).toString("utf8"));
+    // Parsed as `unknown` and stepped through as a record rather than cast to
+    // `any`: everything below walks this shape by key, and an untyped header
+    // would let a typo compile as a lookup that always misses.
+    const parsed: unknown = JSON.parse(buffer.subarray(16, 16 + headerStringSize).toString("utf8"));
+    if (typeof parsed !== "object" || parsed === null) {
+      test.skip(true, "app.asar's header did not parse into an object");
+      return;
+    }
+    const header = parsed as AsarHeader;
 
     /**
      * The offset and size of a packaged file, from the asar header.
@@ -232,22 +277,26 @@ test.describe("D3: the packaged shell keeps the renderer untrusted", () => {
      * holding the next map. Getting that wrong reports every entry as absent,
      * which is indistinguishable from a package that genuinely lacks the file.
      */
-    function findEntry(node: unknown, target: string[]): { offset: string; size: number } | null {
-      if (typeof node !== "object" || node === null || target.length === 0) {
+    function findEntry(node: AsarNode | undefined, target: string[]): AsarEntry | null {
+      if (node === undefined || !isDirectory(node) || target.length === 0) {
         return null;
       }
-      const files = (node as { files?: Record<string, unknown> }).files;
-      if (files === undefined) {
+      const children = node.files;
+      if (children === undefined) {
         return null;
       }
-      const next = files[target[0]];
+      const [head, ...rest] = target;
+      if (head === undefined) {
+        return null;
+      }
+      const next = children[head];
       if (next === undefined) {
         return null;
       }
-      if (target.length === 1) {
-        return "offset" in (next as object) ? (next as { offset: string; size: number }) : null;
+      if (rest.length === 0) {
+        return isEntry(next) ? next : null;
       }
-      return findEntry(next, target.slice(1));
+      return findEntry(isDirectory(next) ? next : undefined, rest);
     }
 
     const entry = findEntry(header, ["dist", "security-policy.js"]);
@@ -273,6 +322,6 @@ test.describe("D3: the packaged shell keeps the renderer untrusted", () => {
 
 /** The value of a key in a dotenv-shaped file, or `""`. */
 function readEnvToken(file: string): string {
-  const match = readFileSync(file, "utf8").match(/^OPSPILOT_OPERATOR_TOKEN=(.*)$/m);
-  return match === null ? "" : match[1].trim();
+  const captured = readFileSync(file, "utf8").match(/^OPSPILOT_OPERATOR_TOKEN=(.*)$/m)?.[1];
+  return captured === undefined ? "" : captured.trim();
 }

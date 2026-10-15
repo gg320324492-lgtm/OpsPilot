@@ -5828,10 +5828,10 @@ because the first pass was wrong.
 
 **C1 read "met". It is not met.** The row cited the claim lease, and the lease
 does close the half `limitations.md` §2 explains: the 30/30 concurrent
-double-claim is gone, and `test_worker_claim_lease.py` proves it on a real
-PostgreSQL. What the row missed is that C1's acceptance is **unconditional** —
-"a test that starts two workers against one PostgreSQL and asserts no run is
-claimed twice" — while the repository asserts the opposite case in
+double-claim is gone. What the row missed is that C1's acceptance is
+**unconditional** — "a test that starts two workers against one PostgreSQL and
+asserts no run is claimed twice" — while the repository asserts the opposite
+case in
 `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode`: drive a run, let
 an unrenewed lease expire, and a second worker **does** claim it. In its own
 words, "two workers driving one run. That is the honest cost of a lease." And
@@ -5850,3 +5850,27 @@ things a "met" is easiest to fake: exactly three published ports all loopback,
 exactly three mutating routes all origin-checked, 32 holdout cases, 334/330
 dictionary leaves whose difference is the four `.one` plurals, and
 `packaged-posture.spec.ts` genuinely never launching the packaged exe.
+
+### C1's citation was wrong in a second way, one level down
+
+The corrected C1 row was checked again before Phase 2 closed, and it had named
+the wrong file. It said `test_worker_claim_lease.py` exercises the lease "against
+a real PostgreSQL". That file is dialect-independent SQLite — `:77` builds its
+factory over `sqlite+pysqlite:///:memory:` and carries zero `postgres` markers —
+and its own docstring points elsewhere, twice (`:12`, `:19`), naming
+`test_worker_claim_postgres.py::test_a_leased_claim_is_withheld_from_a_second_worker`
+(`:439`, one of seven marked tests). So the evidence was in the room, labelled
+with the wrong filename. The same sentence had been written into this entry as
+well; both are corrected.
+
+The state was right both times and the reasoning was right, so this is not
+another C1 — it is what C1's correction was supposed to prevent, at the level
+beneath it. A row that says "partial" and cites a file that does not contain the
+measurement is only distinguishable from a row that says "met" and cites the
+right one by a reader who opens the file. Since the table's stated premise is
+that the next reader checks them the same way, the citation is the mechanism, not
+decoration.
+
+It is also the third instance of one shape in this repository's documents:
+a claim that survives because the surrounding prose reads as evidence. The guard
+that worked here was the second adversarial pass, not the table.
