@@ -1,10 +1,17 @@
-# Phase 1 Progress
+# OpsPilot Progress
 
-Append-only log of milestone outcomes. Each entry records what was built, what
-the acceptance criteria came out as, and **what was learned or went wrong** —
-because the second item is the one that stops the next milestone repeating it.
+Append-only log of milestone outcomes, Phase 1's M0–M9 first and Phase 2's work
+after them. Each entry records what was built, what the acceptance criteria came
+out as, and **what was learned or went wrong** — because the second item is the
+one that stops the next milestone repeating it.
 
 Status: `not started` · `in progress` · `done` · `blocked`
+
+The table below was left at an early state for a long time — M7 read "in
+progress" with M8 and M9 "not started" after all three had been finished and
+audited. **It is corrected on 2026-10-15**, when the same drift was found in
+three other documents and fixed. A status table that lies is worse than none:
+the file's body was always the record, and the table contradicted it.
 
 | Milestone | Status | Notes |
 |---|---|---|
@@ -12,12 +19,14 @@ Status: `not started` · `in progress` · `done` · `blocked`
 | M1 — Database and API skeleton | done | See below |
 | M2 — MCP servers | done | See below |
 | M3 — Tool gateway, policy, approval | done | See below |
-| M4 — Agent runtime | done | See below |
+| M4 — Agent runtime | done | See below. One criterion left unticked: `LangGraphOrchestrator` is unwritten, and no contract test can exist while it raises |
 | M5 — RAG | done | See below. Four defects found in review, three fixed; three findings carried into M6, all three closed in "M5e fixes" below |
 | M6 — Golden workflow | done | See below. Two documentation-vs-behaviour gaps left open and carried into M7 |
-| M7 — Dashboard | in progress | See below |
-| M8 — Evals and security | not started | |
-| M9 — CI and documentation | not started | |
+| M7 — Dashboard | done | See below. The browser could not reach the API (M7a/b/c), the contract was unreadable, and the entry point did not exist — all closed in the sections below |
+| M8 — Evals and security | done | See below. 70 deterministic cases over the 12 metrics `docs/evals.md` §1 tables; `unsafe_execution_count` is the one that is zero and must stay zero |
+| M9 — CI and documentation | done | See below. CI green on every push; the documentation drift `06a57c6` audited is recorded rather than ticked over |
+| Phase 1 overall | done | See "Phase 1 closes" below — 84 of 90 acceptance criteria ticked with evidence, four real defects found and fixed, CI green |
+| Phase 2 | done, with three items only a person can close | See `docs/phase2-plan.md`'s acceptance table. A/B/C/D1/D3-artefact/F are met; **C1 is partial** (the lapsed-lease case is asserted, not prevented), **D2** and **E's Release** need a person who did not build the installer, and **B2 is deferred** on measured run-to-run variance |
 
 ---
 
