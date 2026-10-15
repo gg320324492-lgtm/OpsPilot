@@ -3,6 +3,11 @@
 **For someone who did not build it.** Everything below is run on the machine
 being tested. Nothing here assumes a repository, Node, or a build toolchain.
 
+> **中文对照版：** [`installer-verification.zh-CN.md`](installer-verification.zh-CN.md)，
+> 供执行验证的人照着做。**本文件是权威原文**，两者冲突以本文件为准。
+> (A Chinese companion for the person running the verification. **This file is
+> authoritative**; where they disagree, this one wins.)
+
 **What this is.** `OpsPilot-Setup-<version>-x64.exe` installs the OpsPilot
 desktop shell. The shell owns a window and the local service lifecycle. The
 backend — PostgreSQL, the API and the worker — runs in Docker Desktop, and the

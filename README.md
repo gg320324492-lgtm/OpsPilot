@@ -743,6 +743,7 @@ The specification was written before the code, and it is the artifact to review:
 | [milestones.md](docs/milestones.md) | M0–M9 with acceptance criteria per milestone |
 | [phase2-plan.md](docs/phase2-plan.md) | Phase 2's work packages and their acceptance conditions |
 | [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
+| [installer-verification.zh-CN.md](docs/installer-verification.zh-CN.md) | The same procedure in Chinese, for the person running it (the English file is authoritative) |
 | [progress.md](docs/progress.md) | The running record, including the measurements that disagree |
 | [adr/](docs/adr/) | Five architecture decision records |
 
