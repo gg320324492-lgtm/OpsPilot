@@ -352,6 +352,51 @@ defects hide.
 
 ---
 
+## Acceptance status, checked against the tree
+
+Recorded 2026-10-15, each row verified against the repository at the commit this
+section landed in rather than against the work package's own prose. **The plan's
+rule is that a package which cannot produce its evidence is not finished, however
+complete the code looks**, so this is the table that decides.
+
+| | Acceptance | State | Evidence |
+|---|---|---|---|
+| **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all `127.0.0.1`: 5432 (`:68`), 8000 (`:256`), 3000 (`:478`); `tests/unit/test_compose_settings_are_wired.py` pins it |
+| **A2** | A privileged write is refused unless it came from the dashboard | **met** | all three write routes call `foreignOriginRefusal`: `tickets/route.ts`, `knowledge/reindex/route.ts`, `approvals/[approvalId]/[decision]/route.ts`; `web/e2e/write-origin.spec.ts` holds each to a test |
+| **A3** | The database password is configurable and the default is named as one | **met** | `${POSTGRES_PASSWORD:-opspilot}` with the argument in situ; `test_compose_postgres_password_is_configurable.py` |
+| **A4** | "No document describes the browser as calling the API directly, and none describes a capability `limitations.md` §8 records as absent" | **met** | the two sentences §P2-A4 names are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process" nor that the screens are "routing stubs"; `docker-compose.yml` carries neither either |
+| **B1** | The tool-selection failures are diagnosed before anything is changed | **met** | `docs/progress.md` — the twelve misses are the tool *set*, not the arguments |
+| **B2** | A change moves the score, twice over | **deferred, deliberately** | two identical runs scored 3/15 and 2/15; the spread equals any plausible improvement, so the target is unmeasurable against this endpoint (`docs/progress.md`, "Two runs of the same code") |
+| **B3** | The metric's name matches what it counts | **met** | `docs/evals.md` §1 now states what row 5 counts and that it pools empty and malformed arguments; the malformed half gained its own metric on 2026-10-15 |
+| **B4** | A holdout set exists and tuning never consults it | **met** | `evals/datasets/tool_selection_holdout.jsonl`, 32 cases; `_OPT_IN_DATASETS` in `evals/__main__.py` |
+| **C1** | "A test that starts two workers against one PostgreSQL and asserts no run is claimed twice" | **partial — and the row first read "met", which was wrong** | The lease (`0002_claim_lease.py`, the predicate in `SqlRunStore.claim_next`) closes the *live-worker* half: the documented 30/30 concurrent double-claim is gone, and `tests/integration/test_worker_claim_lease.py` exercises it against a real PostgreSQL. But the acceptance as written is **unconditional**, and the repository's own test asserts the opposite case: `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode` drives a run, lets an unrenewed lease expire, and asserts a second worker **does** claim it — "two workers driving one run. That is the honest cost of a lease." `docs/limitations.md` §8 item 2 still lists the end-to-end promise as open and calls the production fix C1's open half. So the boundary is *stated and tested*, not removed — the same shape C2 chose, recorded here rather than read as a stronger guarantee than the code makes |
+| **C2** | The refund guarantee is made and tested, or its boundary is stated and tested | **met**, by the second route | `tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded` asserts the *failure* the contract does not cover, rather than denying it |
+| **C3** | An operator can tell a claimed-but-stalled run from an unclaimed one | **met** | the lease is projected to the run page (`web/src/app/runs/[runId]/page.tsx`); `web/e2e/claim-lease.spec.ts` |
+| **C4** | The worker-startup gap the e2e job hit | **met** | `tests/integration/test_worker_entry_point.py` |
+| **D1** | The shell owns the stack lifecycle and stops only what it started | **met** | `desktop/src/lifecycle/` (no Electron import) + `desktop/e2e/shell.spec.ts`, which launches a real window |
+| **D2** | Installed on a clean machine and walked, **by someone who did not build it** | **outstanding, and only a person can close it** | `docs/installer-verification.md` is the script. The installer was built by the author, so running it here is self-certification and does not meet the criterion |
+| **D3** | The **packaged** app is checked against A1–A3 the same way the dev stack is | **met for the artefact, partial for a running instance** | `desktop/e2e/packaged-posture.spec.ts` inspects what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env`/token, and the security policy inside `app.asar`. It does **not** launch `OpsPilot.exe`: doing so spawns Docker and writes a token into `%APPDATA%`, which is the manual step `installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit |
+| **E** | A stranger can clone, follow the README, and reproduce the golden path | **partial** | README positioning, the simulated-billing statement, the case study, the GIF (359,981 bytes) and **ten** screenshots are committed. **No GitHub Release**: `git tag` returns nothing and `gh release list` is empty, and the tag is held back on purpose — see D2 |
+| **F** | A locale the operator chooses, English by default | **met** for the first catalogue | `web/src/i18n/` with `en` (334 leaves) and `zh-CN` (330); the four-leaf difference is the `.one` plural forms Chinese does not have. `i18n.spec.ts` and `i18n-catalogue.spec.ts`. Adding further languages is a product decision this document does not make, per §P2-F |
+
+**Three rows are not clean "met" (C1, D2/D3, E), and they are not the same kind
+of gap.** D3's remaining half and D2 both need a person to run the installer, and
+E's Release is blocked on D2 by design — publishing an unverified installer would
+put a download link ahead of the test the plan says it passes first. Those are
+sequencing, not defects. **C1 is different: the guarantee the plan asked for is
+not the guarantee the code makes**, and the repository says so in two places
+(`limitations.md` §8 item 2, and the test that asserts the lapsed-lease case). The
+honest state is "boundary stated and tested", which is what the row now reads.
+
+**This table was wrong on its first pass and is left recorded that way.** C1
+first read "met", against a `limitations.md` that had already called the
+end-to-end promise open. A second pair of eyes caught it, and the correction is
+noted in the 2026-10-15 `docs/progress.md` entry. That is the defect class §8
+exists for — a document reading as evidence of something the tree does not say —
+and this section is exactly the kind of document that commits it: a summary
+written from intent rather than from the files. The rows above cite a file or a
+test each, so the next reader can check them the same way.
+
 ## Ordering
 
 A → B → C → D → E, with the caveat that A must finish before anything is

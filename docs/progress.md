@@ -5808,3 +5808,36 @@ malformed predicate to include empties fails
 `test_empty_argument_proposals_distinguishes_wrong_keys_from_nothing` — which it
 would not have, before this change, since that test asserted only the empty
 count.
+
+## Phase 2's acceptance table, and the row it got wrong
+
+`docs/phase2-plan.md` now carries an "Acceptance status, checked against the
+tree" table: one row per work package, each citing the file or test that decides
+it. It was written from the tree rather than from the packages' own prose, and
+then handed to a second agent to falsify — which is the part worth recording,
+because the first pass was wrong.
+
+**C1 read "met". It is not met.** The row cited the claim lease, and the lease
+does close the half `limitations.md` §2 explains: the 30/30 concurrent
+double-claim is gone, and `test_worker_claim_lease.py` proves it on a real
+PostgreSQL. What the row missed is that C1's acceptance is **unconditional** —
+"a test that starts two workers against one PostgreSQL and asserts no run is
+claimed twice" — while the repository asserts the opposite case in
+`test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode`: drive a run, let
+an unrenewed lease expire, and a second worker **does** claim it. In its own
+words, "two workers driving one run. That is the honest cost of a lease." And
+`limitations.md` §8 item 2 had already called the end-to-end promise open.
+
+So the table's first pass committed the defect this repository keeps recording:
+a document reading as evidence of a guarantee the code does not make. It is
+corrected, and the correction is noted in the table itself rather than quietly
+fixed — a summary assembled from intent is exactly the document that will drift,
+and the reader who catches the next one is owed the pattern.
+
+Every other row survived the check unchanged in substance: A1–A4, B1, B3, B4,
+C2–C4, D1, D3, F and the two honest non-met rows (B2 deferred with its 3/15-vs-
+2/15 reason, D2 and E blocked on a person). The verifier also confirmed the
+things a "met" is easiest to fake: exactly three published ports all loopback,
+exactly three mutating routes all origin-checked, 32 holdout cases, 334/330
+dictionary leaves whose difference is the four `.one` plurals, and
+`packaged-posture.spec.ts` genuinely never launching the packaged exe.
