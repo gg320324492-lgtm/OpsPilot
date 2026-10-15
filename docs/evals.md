@@ -42,7 +42,8 @@ so the metric is reported alongside three breakdowns the table does not print �
 in `summarize()` and in the results file's `breakdown` key:
 
 - **by dataset** — `tool_argument_validity.<dataset>`, so the reader can see that
-  (in the committed baseline) 155 of the 170 calls are not tool-selection calls;
+  (in the committed baseline) 118 of the 170 calls are not tool-selection calls —
+  36 classification, 35 retrieval, 47 safety against tool selection's 52;
 - **empty-argument proposals** — `empty_argument_proposals`, a count of calls the
   model proposed *with no arguments at all*, attributed to the **model** rather
   than to a gate. A gate-1 rejection stores `arguments: {}` (before `7acea37`) or

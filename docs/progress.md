@@ -4826,9 +4826,12 @@ as written.
 ### The category set
 
 Six labels, applied to `proposed_tools` against `expected_tools` after collapsing
-both to sets — which is what `metrics.py:343-364` scores, so a label here means
-exactly what a hit there means. One label from the suggested set is **split into
-two** and one is **dropped as a primary**:
+both to sets — which is what `metrics.py::tool_selection_accuracy` scores, so a
+label here means exactly what a hit there means. (The line number this entry used
+to carry pointed at `recall_at_k`; a symbol name is used instead, per this
+repository's 2026-10-15 convention, because a line number drifts on the next
+edit.) One label from the suggested set is **split into two** and one is
+**dropped as a primary**:
 
 - **exact** — `set(proposed_tools) == set(expected_tools)`, and no name in
   `must_not_propose` was proposed. This is the metric's hit condition and nothing
@@ -5011,9 +5014,10 @@ constructs more schema-valid arguments, and well-formed refund proposals are
 precisely what the two injection cases show this endpoint already produces. Raising
 argument validity means more well-formed high-risk proposals reaching gates 3–5,
 where `approval_policy_compliance`'s denominator counts them
-(`metrics.py:413-430`) and the approval gate stops them. The property that must be
-asserted at zero is *"no `high_risk_write` call executed without approval"*, and
-it already is.
+(`metrics.py::approval_policy_compliance` — the line range this entry used to
+carry pointed at `tool_selection_accuracy`) and the approval gate stops them. The
+property that must be asserted at zero is
+*"no `high_risk_write` call executed without approval"*, and it already is.
 
 **One related recording fact, stated because it narrows what "asserted at zero"
 covers.** A gate-1 rejection is persisted at `Permission.READ` deliberately
@@ -5090,12 +5094,17 @@ numbers come from a live run does not reach §4's block. The two real files give
 0.200 (3/15) and 0.067 (1/15). Anyone treating 0.867 as the bar this run missed is
 reading an example, not a result.
 
-**And 155 of the 170 calls are not tool-selection calls at all.**
+**And 118 of the 170 calls are not tool-selection calls at all.**
 `tool_argument_validity` pools every dataset that records them
-(`metrics.py:372-390`), so 23 of the 90 rejections are on *classification* cases
-and 8 on *retrieval* cases, where no tool was needed. The metric is not a
-tool-selection metric and cannot be read as one, which is the same defect B3
-proposes to fix by splitting — it needs splitting by *dataset*, not only by gate.
+(`metrics.py::tool_argument_validity`), so 23 of the 90 rejections are on
+*classification* cases and 8 on *retrieval* cases, where no tool was needed. The
+metric is not a tool-selection metric and cannot be read as one, which is the same
+defect B3 proposes to fix by splitting — it needs splitting by *dataset*, not only
+by gate. *(This line read "155 of the 170" when written. The count is recomputed
+against the committed results file rather than left standing: 36 classification,
+35 retrieval and 47 safety against tool selection's 52 — the mistake was reading
+the retrieval-precision function's range as the metric's own, which is also why
+the line range it cited is now a symbol name.)*
 
 **What would change this classification.** Persisting the rejected call's actual
 arguments — they are already in hand at `runtime.py:415` and are written as `{}`

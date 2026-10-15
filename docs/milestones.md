@@ -597,9 +597,12 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       the method has **no call sites in `src/`** — its only caller anywhere is
       `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would
       have changed nothing observable. M7a decided the NULL is correct and
-      recorded why (`docs/progress.md:2375`): between two run statuses there is
-      no external work, so a number there would measure a database UPDATE rather
-      than the agent. The dashboard renders it as a dash and says why —
+      recorded why (`docs/progress.md`, the M7a section: between two run statuses
+      there is no external work, so a number there would measure a database UPDATE
+      rather than the agent. The line number this entry used to carry was
+      `docs/progress.md:2375`, which no longer holds that text — a number drifts
+      on the next edit, so the section is named instead). The dashboard renders it
+      as a dash and says why —
       `web/src/lib/format.ts:136` ("a null here is not missing data and is not
       rendered as zero … a column that showed `0` for fourteen rows would teach
       a reader that the column measures something when it does not") and
@@ -625,10 +628,14 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       (`settings.py:301`), the lowest-scoring hit clears it at 0.2408, and the
       two extra documents **outrank** the expected `refund-policy.md` (0.2818 and
       0.2676 against 0.2408), so no cutoff yields the pair. The repo already
-      records this reading: `docs/evals.md:58` pairs
+      records this reading: `evals/datasets/retrieval.jsonl` line 1 (`ret-001`)
+      pairs
       `"expected_documents": ["duplicate-charge-sop.md", "refund-policy.md"]`
-      with `"k": 5`, and `docs/progress.md:1549` logged the same five rows with
-      those two "both among them" when citations were first persisted. Stronger
+      with `"k": 5`, and `docs/progress.md`'s "Finding F2 — the memory store
+      writes chunk rows" logged the same five rows with those two "both among
+      them" when citations were first persisted. (Both of these entry's line
+      numbers — `docs/evals.md:58` and `docs/progress.md:1549` — had drifted; the
+      dataset's line 1 and the F2 section are named instead.) Stronger
       still, `evals/datasets/retrieval.jsonl:3` (`ret-003`) asks essentially this
       question — the $129 enterprise duplicate — and expects **three**
       documents, `enterprise-billing.md` among them, at `"k": 5`.
@@ -816,13 +823,22 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `test_eval_cli.py::test_fake_provider_suppresses_the_table_and_exits_zero`
       and `::test_fake_provider_allow_fake_scores_prints_the_table`, both pass.)
 - [x] All twelve metrics from `evals.md §1` computed and printed, with counts.
-      (`metrics.summarize` returns all twelve — fourteen `MetricResult`s, latency
-      and tokens each split in two — every one carrying an int `cases`; pinned by
-      `test_metrics_definitions.py::test_summarize_returns_every_metric_docs_evals_lists`.
-      Printed as §4 specifies: nine table rows with the `cases` column and an
-      `(n/N)` suffix, plus a three-line footer for latency/tokens/cost. So
-      "twelve" is twelve metrics available across table and footer, not twelve rows
-      in one table — and the three footer lines render no count.)
+      (`metrics.summarize` returns all twelve — **seventeen** `MetricResult`s now,
+      latency and tokens each split in two, plus the empty/malformed pair that
+      §1's "three breakdowns" describe — every one carrying an int `cases`; pinned
+      by `test_metrics_definitions.py::test_summarize_returns_every_metric_docs_evals_lists`.
+      The count was fourteen until 2026-10-15, when `malformed_argument_proposals`
+      was added as the sibling of `empty_argument_proposals` — the live recording
+      supplied the first non-empty instance any committed result had, and a
+      wrongly-named argument is a different defect from a missing one, so it
+      needed its own count rather than being pooled away. Seventeen is the floor
+      every result set reaches, including an empty one; the committed baseline
+      `2026-10-11T15-39-42.json` recomputes to twenty-two, the extra five being
+      the four per-dataset splits of row 5 and the one gate its 90 rejections
+      report. Printed as §4 specifies: nine table rows with the `cases` column
+      and an `(n/N)` suffix, plus a three-line footer for latency/tokens/cost. So
+      "twelve" is twelve metrics available across table and footer, not twelve
+      rows in one table — and the three footer lines render no count.)
 - [x] `unsafe execution count` exits non-zero when non-zero. (`_gate_exit_code`
       returns `_EXIT_GATE` (3) and `main` raises `SystemExit` with it;
       `test_eval_cli.py::test_unsafe_execution_count_trips_a_non_zero_exit` and

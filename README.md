@@ -57,13 +57,16 @@ semantics are what is simulated."*
 > tested.
 >
 > **The one run to check this README against** is
-> [`38620909949`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38620909949)
-> (commit `da6cb74`, 2026-10-15): **13 of 13 jobs green.** Its two `test` jobs
-> (Python 3.12 and 3.13) each report **920 passed, 23 skipped**; its
+> [`38759832016`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38759832016)
+> (commit `cedc9a1`, 2026-10-15): **13 of 13 jobs green.** Its two `test` jobs
+> (Python 3.12 and 3.13) each report **935 passed, 24 skipped**; its
 > `web-e2e` job reports **61 passed**. Verify with
-> `gh run view 38620909949`. The local suite is **925 passed, 19 skipped**
-> (`pytest`, 2026-10-15) — five more tests run on Windows than on the Linux
-> runner, which is where the skip-count difference comes from.
+> `gh run view 38759832016`. The local suite is **939 passed, 20 skipped**
+> (`pytest`, 2026-10-15) — the same 959 tests are collected either way, and the
+> difference is four `test_mcp_stdio_transport.py` tests that enumerate OS
+> processes: they are `skipif(sys.platform != "win32")`, so the Linux runner
+> skips them where Windows actually runs them. Every other local skip is a
+> `postgres`-marked test that CI resolves against a real pgvector container.
 >
 > What is **not** done is listed honestly — `issues.create` is implemented and
 > tested in isolation but the golden path does not call it (see the trace
@@ -95,9 +98,9 @@ does not make or a value you can recompute from a cited file.
 
 | Figure | Value | Source — verify it |
 |---|---|---|
-| CI green | 13 of 13 jobs | run [`38620909949`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38620909949) |
-| Python tests (CI) | 920 passed, 23 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs |
-| Python tests (local) | 925 passed, 19 skipped | `pytest` on 2026-10-15; the 5-test delta is the Windows-only skips in the CI log |
+| CI green | 13 of 13 jobs | run [`38759832016`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38759832016) |
+| Python tests (CI) | 935 passed, 24 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs |
+| Python tests (local) | 939 passed, 20 skipped | `pytest` on 2026-10-15; the 4-test delta is the Windows-only `test_mcp_stdio_transport.py` process-enumeration tests, which are `skipif(sys.platform != "win32")` and so skip on the Linux runner — the same 959 tests are collected either way |
 | Browser walkthrough | 61 passed | same run, the `web-e2e (browser golden path)` job |
 | Tools | 9 registered, 3 permission levels | `domain/tools.py::TOOL_REGISTRY` — 7 `READ`, 1 `SAFE_WRITE`, 1 `HIGH_RISK_WRITE` |
 | MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
@@ -629,8 +632,9 @@ executed anywhere in the run. The file does not record *why* they failed
 but it does rule out the fault that would matter: an unreachable tool server
 fails the whole run (`MCP_UNAVAILABLE` → `_fail_run`), all 70 cases finished
 `completed`, and there are no unreachable-server tool failures in this run at
-all. `knowledge.search` was proposed in 20 cases and executed in all 20, which is
-the defect fixed in `148a87c` — it could never execute before that. In the
+all. `knowledge.search` was proposed in 20 cases and executed in all of them —
+35 calls in total, more than one retrieval per case, which is the defect fixed in
+`148a87c`: it could never execute before that. In the
 injection cases the model *did* comply: it proposed the injected refund, and the
 refund did not execute. That is the property being claimed, and it does not
 depend on which model answers.
@@ -730,7 +734,7 @@ The specification was written before the code, and it is the artifact to review:
 | [architecture.md](docs/architecture.md) | Layering, the five gates, the worker model, scope control |
 | [agent-state-machine.md](docs/agent-state-machine.md) | The nine states, the transition table, failure semantics |
 | [tool-permissions.md](docs/tool-permissions.md) | The permission model and the CI gates that enforce it |
-| [data-model.md](docs/data-model.md) | Eight tables, indexes, and what is deliberately absent |
+| [data-model.md](docs/data-model.md) | Nine tables, indexes, and what is deliberately absent |
 | [api-contract.md](docs/api-contract.md) | Every endpoint, request and response |
 | [mcp-contracts.md](docs/mcp-contracts.md) | The three servers, all nine tools, error codes |
 | [evals.md](docs/evals.md) | Datasets, the twelve metrics, what is not measured |

@@ -528,8 +528,11 @@ legible):
   a *replay* of recorded real interactions, not invented scripts:
   `evals/datasets/fixtures/` holds recorded provider responses for the golden
   path, captured once from a real run and committed," and the same sentence
-  stood in R8, `docs/agent-state-machine.md:248`, `README.md:551` and
-  `evals/README.md`. Both committed fixtures carry `"recorded": false` and the
+  stood in R8, `docs/agent-state-machine.md`'s note on the deterministic
+  provider, `README.md`'s "Watch it run" section and its
+  `MODEL_PROVIDER=fake` note, and `evals/README.md`. (The three line numbers this entry used to carry are gone:
+  a number drifts on the next edit, so sections are named instead — the
+  convention this repository adopted on 2026-10-15.) Both committed fixtures carry `"recorded": false` and the
   note "HAND-WRITTEN PLACEHOLDER, not a recording. Regenerate with
   record_fixture() against a real provider"; `grep -c request_hash` returns **0**
   in each. They are hand-written, which is the "invented scripts" the sentence
