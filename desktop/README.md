@@ -84,12 +84,34 @@ too. `python scripts/make_assets.py favicon` regenerates it. Next.js's App
 Router picks the file up by convention, so nothing in the dashboard's
 source names it.
 
+**The `.ico` container is written by the script, not by Pillow.** Pillow
+reads an `.ico` perfectly well and the script uses it for that: every frame
+of a committed icon is read back through `image.ico.getimage(size)`. Writing
+one is the part Pillow cannot do the way this repository wants it done. Its
+ICO writer opens a fresh buffer for each frame and calls
+`frame.save(image_io, "png")` with no arguments at all, so every frame is
+encoded at the PNG encoder's defaults — `compress_level=6`,
+`optimize=False` — and there is no parameter a caller could pass to change
+that. `optimize=True` is worth having, and it is worth more than a higher
+compression level: on the 256-pixel frame the default comes out at 80,707
+bytes, level 7 at 77,475, level 9 at 75,678, and level 6 with
+`optimize=True` at 75,186. It is lossless, because a PNG's row filters are
+part of the format rather than a compression of it, so a different
+combination of them is different bytes and the same picture, and every
+decoder reads every combination. Over the whole set of frames that is
+146,728 bytes down to 138,716 for the shell's icon and 98,231 down to 92,226
+for the favicon, so the script writes the container itself: six bytes of
+`ICONDIR`, sixteen bytes of `ICONDIRENTRY` per frame, and the PNG frames
+themselves. The pixels are checked after the write rather than assumed — the
+file is read back and every frame compared with the frame that went in, so a
+container that is well formed but holds the wrong pictures fails the build.
+
 **The 256 frame is most of the favicon's bytes, and that is the price of
 it.** An `.ico` is downloaded whole — a browser does not fetch the one frame
 it is going to use, it fetches the file and picks a frame out of it — so the
-256 frame's 80,707 bytes of PNG arrive whether the browser wanted that size
-or not. The favicon is therefore 98,231 bytes against 17,508 without the
-256: 5.6 times as much, and about 80 KB of extra download on the first visit
+256 frame's 75,186 bytes of PNG arrive whether the browser wanted that size
+or not. The favicon is therefore 92,226 bytes against 17,508 without the
+256: 5.3 times as much, and about 75 KB of extra download on the first visit
 to the domain, after which it comes out of the cache like any other asset.
 That is the trade: a larger frame for a reader that wants the largest one, a
 tool that wants a single picture out of the file, and a more usual `sizes`

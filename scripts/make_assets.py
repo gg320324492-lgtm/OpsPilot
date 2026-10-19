@@ -80,8 +80,8 @@ well.
 **The 256 frame is most of the file, and that is the cost of it.** An `.ico`
 is fetched whole -- a browser does not ask for the one frame it is going to
 use, it fetches the file and picks a frame out of it -- so the 256 frame's
-80,707 bytes of PNG arrive whether the browser wanted that size or not. The
-favicon grows from 17,508 bytes to 98,231, 5.6 times as much, paid on the
+75,186 bytes of PNG arrive whether the browser wanted that size or not. The
+favicon grows from 17,508 bytes to 92,226, 5.3 times as much, paid on the
 first visit to a domain and out of the cache on every visit after that.
 That is what the 256 buys and what it costs, and the number is here so that
 the next reader can weigh it rather than guess at it.
@@ -97,6 +97,37 @@ injects a `<link rel="icon">` for it with a content-hashed URL, so no code
 names the file and there is nothing to update when it changes. That is
 exactly why it needed the guard this script provides: an artefact nothing
 refers to is an artefact nobody notices has drifted.
+
+Why the script writes the `.ico` itself
+---------------------------------------
+Pillow reads an `.ico` perfectly well, and this script uses it for that:
+every frame of a committed icon is read back through
+`image.ico.getimage(size)`. What Pillow cannot do is *write* one the way
+this repository wants it written.
+
+The reason is in Pillow's ICO writer, and it is a limitation of the writer
+rather than of the format. Its `_save()` opens a fresh buffer for each frame
+and calls `frame.save(image_io, "png")` with no arguments at all, so every
+frame is encoded at the PNG encoder's defaults -- `compress_level=6`,
+`optimize=False` -- and the caller cannot ask for anything else, because
+there is no parameter for the request to travel in.
+
+`optimize=True` is worth having, and it is worth more than a higher
+compression level. On the 256-pixel frame the default comes out at 80,707
+bytes, level 7 at 77,475, level 9 at 75,678, and level 6 with
+`optimize=True` at 75,186 -- the same 75,186 as level 9 with
+`optimize=True`, and smaller than any level without it. It is lossless
+too: a PNG's row filters are part of the format rather than a compression of
+it, so choosing a different combination of them changes the bytes and not
+the picture, and every decoder reads every combination.
+
+Over the whole set of frames that is 146,728 bytes down to 138,716 for the
+shell's icon and 98,231 down to 92,226 for the favicon -- 5.5% and 6.1%.
+So the container is written here: six bytes of `ICONDIR`, sixteen bytes of
+`ICONDIRENTRY` per frame, and the PNG frames themselves. And the pixels are
+checked after the write rather than assumed: the file is read back and every
+frame is compared with the frame that went in, so a container that is well
+formed but holds the wrong pictures fails the build instead of shipping.
 
 Why the white ground is cut away
 --------------------------------
@@ -285,7 +316,9 @@ prevent.)
 from __future__ import annotations
 
 import argparse
+import io
 import pathlib
+import struct
 import sys
 import tempfile
 from typing import NamedTuple
@@ -560,32 +593,96 @@ def _crop_to_artwork(image: Image.Image) -> Image.Image:
     return image.crop((origin_x, origin_y, origin_x + side, origin_y + side))
 
 
+def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> bytes:
+    """Pack frames into the bytes of an `.ico`.
+
+    The container is written here rather than by Pillow's ICO writer, and the
+    reason is that writer's: its `_save()` opens a fresh buffer for each
+    frame and calls `frame.save(image_io, "png")` with no arguments, so every
+    frame is encoded at the PNG encoder's defaults -- `compress_level=6`,
+    `optimize=False` -- and there is no parameter a caller could pass to
+    change that. `optimize=True` is worth having and is worth more than a
+    higher compression level: on the 256-pixel frame the default comes out at
+    80,707 bytes, level 7 at 77,475, level 9 at 75,678, and level 6 with
+    `optimize=True` at 75,186. It is lossless, because a PNG's row filters
+    are part of the format rather than a compression of it, so a different
+    combination of them is a different set of bytes and the same picture.
+
+    The structure is the one Windows reads: a six-byte `ICONDIR`, one
+    sixteen-byte `ICONDIRENTRY` per frame, and then the frames themselves.
+    A width or a height of 0 means 256, and an entry's offset is counted
+    from the start of the file rather than from the start of the payload.
+    The colour count, the reserved byte, the planes and the bit count are
+    written the way Pillow writes them, so the directory a reader sees is
+    the directory it saw before the frames were re-encoded.
+    """
+    encoded: list[tuple[tuple[int, int], bytes]] = []
+    for size, frame in frames:
+        buffer = io.BytesIO()
+        frame.save(buffer, format="PNG", optimize=True)
+        encoded.append((size, buffer.getvalue()))
+
+    entries = b""
+    payload = b""
+    offset = 6 + 16 * len(encoded)
+    for (width, height), data in encoded:
+        entries += struct.pack(
+            "<BBBBHHII",
+            width if width < 256 else 0,
+            height if height < 256 else 0,
+            0,
+            0,
+            0,
+            32,
+            len(data),
+            offset,
+        )
+        payload += data
+        offset += len(data)
+
+    return struct.pack("<HHH", 0, 1, len(encoded)) + entries + payload
+
+
+class _IconBuild(NamedTuple):
+    """An icon that has been packed: the sizes it holds, and their pixels.
+
+    The pixels are carried out of the builder so that the file it wrote can
+    be read back and compared with them. A write that reports success and
+    produces a file whose frames are not the frames that went in is a write
+    that has to be caught, and the only way to catch it is to have kept what
+    went in.
+    """
+
+    sizes: list[tuple[int, int]]
+    pixels: dict[tuple[int, int], bytes]
+
+
 def build_icon(
     source: pathlib.Path,
     target: pathlib.Path,
     sizes: tuple[int, ...],
-) -> list[tuple[int, int]]:
-    """Write `source` into `target` as a multi-size ICO, and return the sizes.
+) -> _IconBuild:
+    """Write `source` into `target` as a multi-size ICO, and return its frames.
 
     The sizes are a parameter rather than a constant because two artefacts
     are packed this way -- the shell's icon and the dashboard's favicon --
     and they are the same picture at different sizes.
+
+    The container is written by `_pack_ico` rather than by Pillow, so that
+    every frame is a PNG encoded with `optimize=True`; that function's
+    docstring says why Pillow's own writer cannot be asked for it.
     """
     artwork = _crop_to_artwork(_cut_ground(Image.open(source)))
     target.parent.mkdir(parents=True, exist_ok=True)
     frames = [(size, size) for size in sizes]
     # The frames are scaled here rather than left to the ICO writer, which
     # would scale them on each channel on its own and halo the badge's edge.
-    # The writer takes them as `append_images`, and the first one is the
-    # image being saved.
     images = [_resize(artwork, size) for size in frames]
-    images[-1].save(
-        target,
-        format="ICO",
+    target.write_bytes(_pack_ico(list(zip(frames, images, strict=True))))
+    return _IconBuild(
         sizes=frames,
-        append_images=images[:-1],
+        pixels={size: image.tobytes() for size, image in zip(frames, images, strict=True)},
     )
-    return frames
 
 
 def _frames(path: pathlib.Path) -> dict[tuple[int, int], bytes]:
@@ -659,16 +756,17 @@ def check_icon(
     distinction is not pedantry. An `.ico` holds PNG frames, and what a PNG
     encoder writes for a given image depends on the compressor: the same
     pixels at compression levels 6, 7 and 9 come out as 80,707, 77,475 and
-    75,678 bytes. So the bytes of an icon depend on the zlib that packed
-    them -- the Windows wheels bundle one zlib and the manylinux wheels
-    another -- and on the Pillow that chose the deflate parameters, which
-    changed between Pillow 11.0.0 and 11.1.0. A byte comparison would then
-    report the icon as stale on a tree where nothing had changed, and the
-    failure would be "regenerate the icon" -- advice that changes the file
-    and not the problem. The decoded pixels, by contrast, are the same
-    across every Pillow from 10.0.0 to 13.0.0 and on both platforms. The
-    pictures are what the question is about: is the icon in the tree still
-    the icon the artwork makes?
+    75,678 bytes, and the 256 frame the tree ships is the 75,186 of an
+    `optimize=True` encoding of the very same pixels. So the bytes of an
+    icon depend on the zlib that packed them -- the Windows wheels bundle
+    one zlib and the manylinux wheels another -- and on the Pillow that
+    chose the deflate parameters, which changed between Pillow 11.0.0 and
+    11.1.0. A byte comparison would then report the icon as stale on a tree
+    where nothing had changed, and the failure would be "regenerate the
+    icon" -- advice that changes the file and not the problem. The decoded
+    pixels, by contrast, are the same across every Pillow from 10.0.0 to
+    13.0.0 and on both platforms. The pictures are what the question is
+    about: is the icon in the tree still the icon the artwork makes?
 
     The regeneration happens in a temporary directory, and the file being
     checked is never written to: a check that repairs the tree it is checking
@@ -1241,17 +1339,35 @@ def _check_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> i
 def _build_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> int:
     """Build one asset, and report what was written."""
     if asset.sizes is not None:
-        sizes = build_icon(source, target, asset.sizes)
-        print(f"wrote {target} ({target.stat().st_size} bytes) with {len(sizes)} sizes")
+        built = build_icon(source, target, asset.sizes)
+        print(f"wrote {target} ({target.stat().st_size} bytes) with {len(built.sizes)} sizes")
 
         # Read it back, because a write that reports success and produces a
         # file nobody can open is worse than one that fails.
         with Image.open(target) as written:
             found = sorted(written.info.get("sizes", []))
-        if found != sorted(sizes):
+        if found != sorted(built.sizes):
             print(f"the icon does not contain the sizes it should: {found}", file=sys.stderr)
             return 1
         print(f"verified: {target} opens and contains {len(found)} sizes")
+
+        # The pictures as well as the sizes, because a container can be
+        # perfectly well formed, hold the right number of frames and still
+        # hold the wrong frames, and the sizes cannot see that.
+        read_back = _frames(target)
+        differing = [
+            size for size in sorted(built.pixels) if read_back.get(size) != built.pixels[size]
+        ]
+        if differing:
+            print(
+                f"the icon's frames do not read back as the frames that were "
+                f"packed: {_format_sizes(differing)}",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"verified: {target} reads back as the {len(built.pixels)} frames that were packed",
+        )
         return 0
 
     size = build_apple(source, target) if asset.size is not None else build_wordmark(source, target)

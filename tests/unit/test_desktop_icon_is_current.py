@@ -72,8 +72,19 @@ The favicon has four:
 4. **It carries the five sizes a browser may ask for** -- 16, 32, 48, 64
    and 256 -- and nothing else. The 256 is the frame a reader takes when
    it reads the `.ico` for a single picture, and it is most of the file:
-   an `.ico` is fetched whole, so its 80,707 bytes of PNG are downloaded
+   an `.ico` is fetched whole, so its 75,186 bytes of PNG are downloaded
    whether the browser wanted that size or not.
+
+Both of them are packed by the builder's own writer rather than by Pillow's,
+because Pillow's ICO writer cannot be told how to encode the frames -- it
+opens a fresh buffer for each one and saves with no arguments at all, so
+every frame comes out at the PNG encoder's defaults. That makes the
+container at the head of each file the builder's own code, and the directory
+is the part Windows reads: the offset and the length of every frame. So it
+is checked here too. Pillow seeks to an entry's offset and lets the PNG's
+own length decide where the frame ends, so a wrong length can pass a
+decode; Windows copies the length out of the resource, so a wrong one
+produces a truncated frame.
 
 And it has the favicon's own invariant, which the icon's rule does not
 express: the corners are transparent and the middle is opaque. The favicon
@@ -129,6 +140,7 @@ import pathlib
 import struct
 import subprocess
 import sys
+from itertools import pairwise
 
 import pytest
 
@@ -311,11 +323,13 @@ def test_the_check_compares_pictures_and_not_bytes(tmp_path: pathlib.Path) -> No
 
     The frames of an ``.ico`` are PNGs, and what a PNG encoder writes for an
     image depends on the compressor: the same pixels at compression levels
-    6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes. So the bytes of
-    an icon depend on the zlib that packed them, and the zlib on a CI runner
-    is not the zlib on the machine that committed the file. A byte
-    comparison would then call an unchanged tree stale, and its remedy --
-    regenerate the icon -- would change the file and not the problem.
+    6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes, and the 256
+    frame the tree ships is the 75,186 of an ``optimize=True`` encoding of
+    the very same pixels. So the bytes of an icon depend on the zlib that
+    packed them, and the zlib on a CI runner is not the zlib on the machine
+    that committed the file. A byte comparison would then call an unchanged
+    tree stale, and its remedy -- regenerate the icon -- would change the
+    file and not the problem.
 
     So the icon here is repacked with a different compression level, which
     makes the same pictures into different bytes, and the check has to call
@@ -365,6 +379,81 @@ def test_the_committed_icon_carries_every_size_windows_may_ask_for() -> None:
         "different one, and Windows picks by what it is rendering rather than "
         "by asking."
     )
+
+
+def test_the_committed_icons_are_well_formed_containers() -> None:
+    """The directory at the head of each `.ico` describes the file exactly.
+
+    The two `.ico` artefacts are packed by the builder's own writer rather
+    than by Pillow's, because Pillow's ICO writer cannot be told how to
+    encode the frames -- it opens a fresh buffer for each one and saves
+    with no arguments at all, so every frame comes out at the PNG encoder's
+    defaults. The container is therefore the builder's own code, and its
+    directory is the part Windows reads: where every frame is and how long
+    it is.
+
+    A reader is more forgiving than the format in one direction and less in
+    another. Pillow seeks to an entry's offset and lets the PNG's own length
+    decide where the frame ends, so a wrong length can pass a decode;
+    Windows copies that many bytes out of the resource, so a wrong one
+    produces a truncated frame. Neither notices an offset that points into
+    the middle of another frame.
+
+    So the invariants are asserted here rather than left to the reader: the
+    frames start where the directory ends, they do not overlap, and the
+    last one ends exactly at the end of the file.
+    """
+    for path in (_ICON, _FAVICON):
+        data = path.read_bytes()
+        reserved, kind, count = struct.unpack("<HHH", data[:6])
+        assert (reserved, kind) == (0, 1), (
+            f"{path} does not begin with an icon directory: the reserved word "
+            f"is {reserved} and the type is {kind}. The type is 1 for an icon "
+            "and 2 for a cursor, and a file that is neither is not an icon."
+        )
+        assert count > 0, f"{path} holds no frames at all."
+
+        directory_end = 6 + 16 * count
+        spans: list[tuple[int, int]] = []
+        for index in range(count):
+            record = 6 + index * 16
+            width, height, _colors, _reserved, _planes, _bits, size, offset = struct.unpack(
+                "<BBBBHHII", data[record : record + 16]
+            )
+            assert offset >= directory_end, (
+                f"{path}'s frame {index} starts at {offset}, which is inside "
+                f"the directory -- the directory ends at {directory_end}. A "
+                "frame that overlaps the directory is read as a directory."
+            )
+            assert offset + size <= len(data), (
+                f"{path}'s frame {index} claims {size} bytes at {offset}, "
+                f"which runs past the end of the {len(data)}-byte file. A "
+                "reader that copies that many bytes out of the resource gets "
+                "a truncated frame."
+            )
+            frame = data[offset : offset + size]
+            assert frame[:8] == b"\x89PNG\r\n\x1a\n", (
+                f"{path}'s {width or 256}x{height or 256} frame is not a PNG. "
+                "The frames of an `.ico` are PNGs, and a reader that finds "
+                "something else there has no picture to show."
+            )
+            spans.append((offset, offset + size))
+
+        for earlier, later in pairwise(spans):
+            assert earlier[1] <= later[0], (
+                f"{path} has two frames that overlap: one runs to byte "
+                f"{earlier[1]} and the next starts at {later[0]}. A reader "
+                "that took both would show the same picture twice."
+            )
+        assert spans[0][0] == directory_end, (
+            f"{path}'s first frame starts at {spans[0][0]} and its directory "
+            f"ends at {directory_end}. The frames follow the directory."
+        )
+        assert spans[-1][1] == len(data), (
+            f"{path}'s last frame ends at {spans[-1][1]} and the file is "
+            f"{len(data)} bytes. The writer packs the frames end to end, with "
+            "nothing after the last one."
+        )
 
 
 def test_the_committed_favicon_is_current_with_the_artwork() -> None:
@@ -493,8 +582,8 @@ def test_the_committed_favicon_carries_the_sizes_a_browser_may_ask_for() -> None
     single picture out of it is handed the largest frame, and a high-zoom or
     large-icon view wants that size too. The price is written down in
     `desktop/README.md` and in the builder's docstring -- an `.ico` is
-    fetched whole, so the 256 frame's 80,707 bytes of PNG are downloaded
-    whether the browser wanted that size or not, and the artefact is 98,231
+    fetched whole, so the 256 frame's 75,186 bytes of PNG are downloaded
+    whether the browser wanted that size or not, and the artefact is 92,226
     bytes rather than 17,508.
     """
     assert _FAVICON.exists(), (
