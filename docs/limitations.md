@@ -351,6 +351,24 @@ messier shapes — missing fields, multiple currencies, partial refunds across
 periods — and the fake servers return clean records. The agent's argument
 validation is exercised against a schema, not against real-world messiness.
 
+**The native menu is localized; the operating system around it is not.** The
+application's own menu bar is built in the operator's language and follows the
+*same* cookie the dashboard renders from (`opspilot_locale`), so the menu and
+the page cannot disagree. The shell reads that cookie out of the session's
+cookie store rather than being told by the page (`desktop/src/menu.ts`), which
+is what makes the menu correct at start-up — the operator's choice from last
+time — and not only after a switch inside the running application. What is
+**not** translated is everything Chromium and the OS draw for themselves: a
+right-click context menu, a native file dialog, a system error bubble, the
+window's own title bar. Those speak the platform's language on a platform
+whose language the application cannot change. The menu's words are also the
+shell's own copy of the dashboard's catalogue
+(`desktop/src/menu-policy.ts`), because a native menu is drawn by the main
+process, which has no Next.js runtime to read `web/`'s dictionaries from;
+`desktop/e2e/menu.spec.ts` reads `web/src/i18n/config.ts` and fails if the
+locale list or the cookie name drifts, so adding a language to the dashboard
+cannot leave the menu behind without a red test.
+
 ---
 
 ## 8. Documented but not implemented

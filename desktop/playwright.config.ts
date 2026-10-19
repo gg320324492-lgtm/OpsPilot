@@ -26,6 +26,15 @@
  * The split is by *precondition*, so each spec states what it needs and CI can
  * run the cheap one everywhere: `npm run test:lifecycle` needs nothing, and
  * `npm run test:shell` needs a machine that can open a window.
+ *
+ * ## Three projects, since the menu needed one of its own
+ *
+ * The `menu` project is the middle: it launches a real Electron — so it needs
+ * the binary, but not a display on Windows and no Docker — and it needs
+ * `dist/menu.js`, so it is run through `npm run test:menu`, which builds
+ * first. It is separate from `shell` because the shell needs a whole Compose
+ * stack and this needs a cookie, and a test that needs a stack to prove
+ * something about a menu is a test that will not be run.
  */
 
 import { defineConfig } from "@playwright/test";
@@ -50,7 +59,14 @@ export default defineConfig({
       // Pure functions, fakes, no Electron and no Docker. Runs everywhere.
       name: "lifecycle",
       testMatch: /.*\.spec\.ts/,
-      testIgnore: /shell\.spec\.ts/,
+      testIgnore: /shell\.spec\.ts|menu-electron\.spec\.ts/,
+    },
+    {
+      // A real Electron and a real cookie store, with no stack behind it.
+      // Needs the compiled `dist/menu.js`, so it is run through
+      // `npm run test:menu`, which builds first.
+      name: "menu",
+      testMatch: /menu-electron\.spec\.ts/,
     },
     {
       // The real app, in a real window.

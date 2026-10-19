@@ -28,13 +28,22 @@
  * Where it is *read from* is `lifecycle/token.ts`'s decision; an installed copy
  * keeps a generated one in this Windows user's application-data folder, which is
  * the same place Chromium keeps its own profile.
+ *
+ * ## THE MENU BAR, AND WHOSE LANGUAGE IT IS IN
+ *
+ * The menu is built in the operator's language, and it learns that language
+ * from the same cookie the dashboard renders from — the main process reads it
+ * out of the session's cookie store, which is the one place the locale is
+ * written down. `src/menu.ts` says why that is the channel and why it is not
+ * an IPC message, and `src/menu-policy.ts` holds the words.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, session } from "electron";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { PROGRESS_CHANNEL, STATE_CHANNEL, type BootstrapState } from "./ipc";
+import { installMenu, syncMenuToCookie, watchLocaleCookie } from "./menu";
 import { denyAllPermissions, registerPrivilegedSchemes, restrictWebContents } from "./security";
 import {
   BOOTSTRAP_CSP,
@@ -260,7 +269,16 @@ async function launch(): Promise<void> {
 
   // Known before the window opens, so the navigation allowlist is complete the
   // first time it is installed.
-  allowedOrigins = [BOOTSTRAP_ORIGIN, originOf(dashboardUrl(deps)) ?? dashboardUrl(deps)];
+  const url = dashboardUrl(deps);
+  allowedOrigins = [BOOTSTRAP_ORIGIN, originOf(url) ?? url];
+
+  // The menu bar speaks the operator's language, and the locale is the
+  // dashboard's cookie — which lives on the dashboard's origin, so this is
+  // the first moment the cookie can be read. It is read once here and then
+  // followed for as long as the app is open, so switching language in the
+  // dashboard moves the menu with it.
+  watchLocaleCookie(session.defaultSession, url);
+  await syncMenuToCookie(session.defaultSession, url);
 
   if (!attachOperatorToken(deps)) {
     return;
@@ -326,6 +344,11 @@ void app
     serveBootstrapPage();
     denyAllPermissions();
     registerIpc();
+
+    // Installed before the window opens, in the default language, and
+    // corrected from the operator's cookie a moment later — see `src/menu.ts`.
+    // A packaged build does not get the development items.
+    installMenu({ debug: !app.isPackaged });
 
     mainWindow = createWindow();
     mainWindow.on("closed", () => {

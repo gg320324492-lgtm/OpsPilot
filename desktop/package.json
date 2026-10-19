@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "playwright test",
     "test:lifecycle": "playwright test --project lifecycle",
+    "test:menu": "npm run build && playwright test --project menu",
     "test:shell": "playwright test --project shell"
   },
   "dependencies": {},
