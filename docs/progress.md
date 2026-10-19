@@ -6268,18 +6268,17 @@ Two further boundaries are recorded rather than ticked, and neither is waiting o
 anybody: **B2**, deferred on measured run-to-run variance, with its own section
 above; and **P2-F's error copy**, in `docs/limitations.md` §7.
 
-CI was green on the last push to `main` as of 2026-10-20 — run `39316991857`,
-commit `07ef46e`, **15 of 15** jobs, where the 15 are the 14 job ids with `test`
-expanded across its 3.12/3.13 matrix (one id, two runs). The closing review's
-fixes are no longer in the working tree: they are committed — the four deployment
-defects in `34904dd`, the two previously-unreached checks in `6c55d8d`, the
-verification-doc text fix in `7cc7c38`, the closing record in `0eaf4b7`, and the
-lint-gate fix for the new test files in `3da3a9f` — and `39316991857` ran against
-a tree that carries all of them, so this run is evidence about the commits that
-carry those fixes and not merely about `60cda57`. The earlier run `39299905779` at
-`60cda57` was 14 of 14 but predates the `desktop-package` job the current tree
-adds, and a green conclusion that does not say which tree it was checked against
-is one nobody can re-check.
+CI was green when Phase 2 closed — run `39306904131`, commit `3da3a9f`, **15 of
+15** jobs, where the 15 are the 14 job ids with `test` expanded across its
+3.12/3.13 matrix (one id, two runs). The closing review's fixes are no longer in
+the working tree: they are committed — the four deployment defects in `34904dd`,
+the two previously-unreached checks in `6c55d8d`, the verification-doc text fix in
+`7cc7c38`, the closing record in `0eaf4b7`, and the lint-gate fix for the new test
+files in `3da3a9f` — and `39306904131` ran against that very tree, so this run is
+evidence about the commits that carry those fixes and not merely about `60cda57`.
+The earlier run `39299905779` at `60cda57` was 14 of 14 but predates the
+`desktop-package` job the closing review adds, and a green conclusion that does not
+say which tree it was checked against is one nobody can re-check.
 
 ## The app's own icon, and the two checks that were wrong about it
 
