@@ -1,15 +1,23 @@
 """The committed artwork must still be what the artwork generates.
 
-`desktop/assets/icon.ico` and `docs/assets/logo.png` are build artefacts that
-live in the repository: `desktop/scripts/make-assets.py` generates the icon
-from `docs/assets/icon-source.png` and the wordmark from
-`docs/assets/logo-source.png`, and `desktop/electron-builder.yml` points the
-Windows build at the committed `.ico` while the root README carries the
-committed `.png`. Nothing in the build regenerates them, so the two drift the
-moment the artwork changes and nobody reruns the script -- and the drift is
+`desktop/assets/icon.ico`, `web/src/app/favicon.ico` and
+`docs/assets/logo.png` are build artefacts that live in the repository:
+`scripts/make_assets.py` generates the icon and the favicon from
+`docs/assets/icon-source.png` and the wordmark from
+`docs/assets/logo-source.png`, `desktop/electron-builder.yml` points the
+Windows build at the committed `.ico`, the root README carries the committed
+`.png`, and Next.js picks the committed favicon up by the App Router's file
+convention. Nothing in the build regenerates them, so they drift the moment
+the artwork changes and nobody reruns the script -- and the drift is
 invisible in a review, because a binary is not something a diff shows. The
 icon that ships is then the badge from three artwork revisions ago, and the
 only symptom is that nobody can say why the icon looks wrong.
+
+The favicon is the one that needed this most. Nothing in the dashboard's
+source names `web/src/app/favicon.ico`: Next.js finds it by the file
+convention alone, so there is no reference to follow and no compiler to
+complain. A favicon three artwork revisions old is exactly as invisible as
+the icon was, and it is the one an operator sees in every browser tab.
 
 The wordmark was the same failure with less of it: it had a committed
 artefact and a reference to it, and neither a source nor a guard. That is the
@@ -26,7 +34,7 @@ logic, not that the committed artefact is current.
 
 The icon has four things checked:
 
-1. **The committed icon is what the artwork generates.** `make-assets.py
+1. **The committed icon is what the artwork generates.** `make_assets.py
    --check` regenerates the icon into a temporary directory and compares it
    with the committed file -- picture against picture, not byte against byte
    -- and never writes to that file.
@@ -43,6 +51,32 @@ The icon has four things checked:
    PNGs, and the bytes of a PNG depend on the zlib that packed it, which is
    not the same zlib on a CI runner as on the machine that committed the
    file.
+
+The favicon has four:
+
+1. **The committed favicon is what the artwork generates**, and the check
+   does not write to it.
+2. **The guard is not empty for it either**: a favicon built in a temporary
+   directory from different artwork has to be reported as stale, and the
+   report has to name the favicon. The favicon and the shell's icon are the
+   same picture, so a report that said "the icon" would send the reader to
+   the wrong file -- and a report that named neither would be a report
+   nobody could act on.
+3. **The check tells the two icons apart.** Both are `.ico` files holding
+   the same picture, and the only thing that distinguishes them is the
+   sizes they pack. A check that could not tell them apart would either
+   compare the favicon against the icon and call it stale forever, or
+   compare both against the icon and call the favicon's four sizes a
+   difference.
+4. **It carries the four sizes a browser asks for** -- 16, 32, 48 and 64 --
+   and nothing else. A 256-pixel frame is the slot a PWA's large icon goes
+   in, and this is not a PWA.
+
+And it has the favicon's own invariant, which the icon's rule does not
+express: the corners are transparent and the middle is opaque. The favicon
+sits in a browser's tab strip, where an opaque white square is a bright
+block beside the other tabs, and the badge in the middle of it is the
+drawing -- a hole where the badge should be is not a favicon either.
 
 The wordmark has three:
 
@@ -79,9 +113,10 @@ pytest.importorskip("PIL")
 from PIL import Image, ImageChops
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-_BUILDER = _REPO_ROOT / "desktop" / "scripts" / "make-assets.py"
+_BUILDER = _REPO_ROOT / "scripts" / "make_assets.py"
 _ARTWORK = _REPO_ROOT / "docs" / "assets" / "icon-source.png"
 _ICON = _REPO_ROOT / "desktop" / "assets" / "icon.ico"
+_FAVICON = _REPO_ROOT / "web" / "src" / "app" / "favicon.ico"
 _WORDMARK_ARTWORK = _REPO_ROOT / "docs" / "assets" / "logo-source.png"
 _WORDMARK = _REPO_ROOT / "docs" / "assets" / "logo.png"
 
@@ -102,6 +137,22 @@ EXPECTED_SIZES = frozenset(
         (256, 256),
     }
 )
+
+#: The sizes a browser may ask a favicon for. Written out here for the same
+#: reason as the sizes above, and for the same reason it matters more: these
+#: four are the whole contract with the browser, and the favicon's identity
+#: is carried by its size set -- it is what tells the favicon apart from the
+#: shell's icon, which holds the same picture at ten sizes.
+EXPECTED_FAVICON_SIZES = frozenset({(16, 16), (32, 32), (48, 48), (64, 64)})
+
+#: The alpha a favicon's corners must have: nothing at all. The favicon sits
+#: in a browser's tab strip, and an opaque white square there is a bright
+#: block beside the other tabs.
+_TRANSPARENT = 0
+
+#: The alpha the middle of a favicon must have: full. The badge is the
+#: drawing, and a hole where the badge should be is not a favicon.
+_OPAQUE = 255
 
 #: How far from white a pixel may be and still count as the drawing rather
 #: than the export's ground. The same measure the builder uses to find the
@@ -141,7 +192,7 @@ def test_the_committed_icon_is_current_with_the_artwork() -> None:
 
     assert result.returncode == 0, (
         "desktop/assets/icon.ico has drifted from docs/assets/icon-source.png.\n"
-        "Run `python desktop/scripts/make-assets.py icon` and commit the result.\n\n"
+        "Run `python scripts/make_assets.py icon` and commit the result.\n\n"
         f"{result.stdout}\n{result.stderr}"
     )
     # The check must not have written the file it was checking. A check that
@@ -274,6 +325,180 @@ def test_the_committed_icon_carries_every_size_windows_may_ask_for() -> None:
     )
 
 
+def test_the_committed_favicon_is_current_with_the_artwork() -> None:
+    """The committed favicon is exactly what the artwork generates.
+
+    The same contract as the icon, and for a sharper reason: nothing in the
+    dashboard's source names this file. Next.js finds it by the App Router's
+    file convention, so there is no reference to follow, no import to fail
+    and no compiler to complain. A favicon that is three artwork revisions
+    old is exactly as invisible as the icon was.
+    """
+    before = _FAVICON.read_bytes()
+
+    result = _run_builder("--check", _FAVICON)
+
+    assert result.returncode == 0, (
+        "web/src/app/favicon.ico has drifted from docs/assets/icon-source.png.\n"
+        "Run `python scripts/make_assets.py favicon` and commit the result.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert _FAVICON.read_bytes() == before, (
+        "`--check` modified web/src/app/favicon.ico. A check that repairs the "
+        "tree it is checking is not a check -- the failure it exists to report "
+        "would be invisible in CI, where the working tree comes back clean."
+    )
+
+
+def test_the_check_fails_on_a_favicon_the_artwork_does_not_generate(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The guard is not empty for the favicon either.
+
+    The stale favicon is built in a temporary directory from a different
+    piece of artwork, and the real ``web/src/app/favicon.ico`` is never
+    touched.
+
+    The report has to name the favicon. The favicon and the shell's icon are
+    the same picture at the same sizes, so a report that said "the icon"
+    would send the reader to the wrong file, and one that named neither
+    would be a report nobody could act on.
+    """
+    other_artwork = tmp_path / "other.png"
+    Image.new("RGBA", (256, 256), (255, 0, 255, 255)).save(other_artwork)
+    stale = tmp_path / "favicon.ico"
+    built = _run_builder("favicon", other_artwork, stale)
+    assert built.returncode == 0, (
+        "the builder could not produce the favicon to compare against.\n\n"
+        f"{built.stdout}\n{built.stderr}"
+    )
+
+    result = _run_builder("--check", stale)
+
+    assert result.returncode != 0, (
+        "the check reported success for a favicon the artwork does not "
+        "generate, so the guard is empty.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert "the committed favicon is stale" in result.stderr, (
+        "the check failed but did not say which artefact was stale, so the "
+        "failure cannot be acted on.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+
+
+def test_the_check_tells_the_shell_icon_from_the_favicon(tmp_path: pathlib.Path) -> None:
+    """Two `.ico` files holding the same picture are told apart by their sizes.
+
+    The favicon and the shell's icon are the same badge, cut the same way and
+    resampled the same way, so the pixels cannot say which one a file is: the
+    favicon's 16, 32, 48 and 64 frames *are* the icon's 16, 32, 48 and 64
+    frames. What differs is the sizes packed into the file -- four against
+    ten -- and that is the artefact's contract with whatever consumes it.
+
+    The copies here live in a temporary directory, so neither is one of the
+    committed targets and the check has to work the size set out for itself.
+    A check that always took the icon would report the favicon copy as
+    stale; one that always took the favicon would report the icon copy as
+    stale. Both would be a guard that fails on a correct tree, which is
+    worse than no guard at all, because it sends the developer to regenerate
+    a file that is already right.
+    """
+    icon_copy = tmp_path / "icon.ico"
+    favicon_copy = tmp_path / "favicon.ico"
+    for asset, target in (("icon", icon_copy), ("favicon", favicon_copy)):
+        built = _run_builder(asset, _ARTWORK, target)
+        assert built.returncode == 0, (
+            f"the builder could not produce the {asset} to compare against.\n\n"
+            f"{built.stdout}\n{built.stderr}"
+        )
+
+    checked_icon = _run_builder("--check", icon_copy)
+    assert checked_icon.returncode == 0, (
+        "the check called a copy of the shell's icon stale. The copy holds "
+        "the ten sizes the icon holds, so it is the icon.\n\n"
+        f"{checked_icon.stdout}\n{checked_icon.stderr}"
+    )
+    assert "the committed icon is current" in checked_icon.stdout, (
+        "the check did not report the ten-size file as the icon.\n\n"
+        f"{checked_icon.stdout}\n{checked_icon.stderr}"
+    )
+
+    checked_favicon = _run_builder("--check", favicon_copy)
+    assert checked_favicon.returncode == 0, (
+        "the check called a copy of the favicon stale. The copy holds the "
+        "four sizes the favicon holds, so it is the favicon.\n\n"
+        f"{checked_favicon.stdout}\n{checked_favicon.stderr}"
+    )
+    assert "the committed favicon is current" in checked_favicon.stdout, (
+        "the check did not report the four-size file as the favicon. It was "
+        "compared against the shell's icon instead, and the difference in "
+        "sizes was read as a drift.\n\n"
+        f"{checked_favicon.stdout}\n{checked_favicon.stderr}"
+    )
+
+
+def test_the_committed_favicon_carries_the_sizes_a_browser_asks_for() -> None:
+    """The committed favicon holds the four sizes a browser asks for.
+
+    Sixteen is the Windows tab strip and the bookmark bar; thirty-two is the
+    macOS tab and the macOS bookmark; forty-eight is Windows' medium icon
+    view; sixty-four is what a high-density screen asks for.
+
+    There is no 256-pixel frame, and that is a decision rather than an
+    oversight: a 256 frame is the slot a PWA's large icon goes in, this is
+    not a PWA, and a frame nothing will ever ask for is committed binary
+    that only has to be kept in step with the artwork.
+    """
+    assert _FAVICON.exists(), (
+        "web/src/app/favicon.ico is missing. Next.js's App Router finds it by "
+        "the file convention, so without it the dashboard serves the Next "
+        "template's placeholder instead."
+    )
+    with Image.open(_FAVICON) as image:
+        found = {(int(width), int(height)) for width, height in image.info.get("sizes", ())}
+
+    assert found == EXPECTED_FAVICON_SIZES, (
+        f"web/src/app/favicon.ico contains {sorted(found)}, not "
+        f"{sorted(EXPECTED_FAVICON_SIZES)}. These four are the whole contract "
+        "with the browser, and the size set is what tells the favicon apart "
+        "from the shell's icon, which holds the same picture at ten sizes."
+    )
+
+
+def test_the_favicon_is_a_badge_and_not_a_white_square() -> None:
+    """The favicon's corners are transparent and its middle is solid.
+
+    The icon's white is cut away, and the favicon is cut the same way: it
+    sits in a browser's tab strip beside the other tabs, and an opaque white
+    square there is a bright block in the middle of the strip. The badge in
+    the middle is opaque, because the badge is the drawing -- a hole where
+    the badge should be is not a favicon either.
+    """
+    for size, frame in _icon_frames(_FAVICON):
+        alpha = frame.getchannel("A")
+        corners = {
+            "top left": alpha.getpixel((0, 0)),
+            "top right": alpha.getpixel((frame.width - 1, 0)),
+            "bottom left": alpha.getpixel((0, frame.height - 1)),
+            "bottom right": alpha.getpixel((frame.width - 1, frame.height - 1)),
+        }
+        for corner, value in corners.items():
+            assert value == _TRANSPARENT, (
+                f"the {size[0]}x{size[1]} frame of web/src/app/favicon.ico has an "
+                f"opaque {corner} (alpha {value}). The favicon is the badge on "
+                "transparency: a white square in a browser's tab strip is a "
+                "bright block beside the other tabs."
+            )
+
+        centre = alpha.getpixel((frame.width // 2, frame.height // 2))
+        assert centre == _OPAQUE, (
+            f"the {size[0]}x{size[1]} frame of web/src/app/favicon.ico is "
+            f"transparent in the middle (alpha {centre}). The badge is the "
+            "drawing, and a hole where the badge should be is not a favicon."
+        )
+
+
 def test_the_committed_wordmark_is_current_with_the_artwork() -> None:
     """The committed wordmark is exactly what the artwork generates.
 
@@ -286,7 +511,7 @@ def test_the_committed_wordmark_is_current_with_the_artwork() -> None:
 
     assert result.returncode == 0, (
         "docs/assets/logo.png has drifted from docs/assets/logo-source.png.\n"
-        "Run `python desktop/scripts/make-assets.py wordmark` and commit the "
+        "Run `python scripts/make_assets.py wordmark` and commit the "
         "result.\n\n"
         f"{result.stdout}\n{result.stderr}"
     )
@@ -347,6 +572,13 @@ def test_the_check_without_a_path_covers_every_artefact() -> None:
     )
     assert "the committed icon is current" in result.stdout, (
         f"the check did not report on the icon.\n\n{result.stdout}\n{result.stderr}"
+    )
+    assert "the committed favicon is current" in result.stdout, (
+        "the check did not report on the favicon, so the favicon is still an "
+        "orphan: a committed artefact with no reference to it anywhere in the "
+        "source, because Next.js finds it by the file convention alone, and "
+        "nothing that would notice it drifting.\n\n"
+        f"{result.stdout}\n{result.stderr}"
     )
     assert "the committed wordmark is current" in result.stdout, (
         "the check did not report on the wordmark, so the wordmark is still "
@@ -432,6 +664,24 @@ def test_the_wordmark_is_a_horizontal_lockup() -> None:
 
 
 # -- helpers -----------------------------------------------------------------
+
+
+def _icon_frames(path: pathlib.Path) -> list[tuple[tuple[int, int], Image.Image]]:
+    """The frames of an ICO, each with its size, smallest first.
+
+    The frames are read through the icon's directory rather than off the
+    opened image, because the opened image is only the largest frame.
+    """
+    with Image.open(path) as image:
+        # `Image.open` is typed as returning the base `ImageFile`; the `.ico`
+        # accessor is on `IcoImageFile`, which is what an `.ico` opens as.
+        directory = image.ico  # type: ignore[attr-defined]
+        # `convert` loads the frame, so the pixels are read while the file
+        # is still open.
+        return [
+            (size, directory.getimage(size).convert("RGBA"))
+            for size in sorted(image.info.get("sizes", []))
+        ]
 
 
 def _drawing_box(image: Image.Image) -> tuple[int, int, int, int] | None:

@@ -84,7 +84,7 @@ win:
       arch:
         - x64
   # The app's own icon: the artwork in `docs/assets/`, packed into one
-  # multi-size `.ico` by `desktop/scripts/make-assets.py`. It carries all ten
+  # multi-size `.ico` by `scripts/make_assets.py`. It carries all ten
   # sizes Windows asks for -- 16/20/24 for the taskbar at the three DPI
   # scales Windows ships with, 32/48 for the shell's medium and large icon
   # views, 64/96 for Explorer's large and extra-large tiles, 128/256 for the

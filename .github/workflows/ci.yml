@@ -76,13 +76,14 @@ jobs:
       - name: The committed artwork is current with its source
         # WHY THIS STEP IS HERE
         # ------------------
-        # `desktop/assets/icon.ico` and `docs/assets/logo.png` are build
-        # artefacts that live in the repository:
-        # `desktop/scripts/make-assets.py` generates the icon from
+        # `desktop/assets/icon.ico`, `web/src/app/favicon.ico` and
+        # `docs/assets/logo.png` are build artefacts that live in the
+        # repository:
+        # `scripts/make_assets.py` generates the icon and the favicon from
         # `docs/assets/icon-source.png` and the wordmark from
         # `docs/assets/logo-source.png`, and `desktop/electron-builder.yml`
         # points the Windows build at the committed `.ico`. Nothing in the
-        # build regenerates them, so the two drift the moment the artwork
+        # build regenerates them, so they drift the moment the artwork
         # changes and nobody reruns the script -- and the drift is invisible
         # in a review, because a binary is not something a diff shows. The
         # failure this prevents is the icon that ships being the badge from
@@ -91,6 +92,13 @@ jobs:
         # The wordmark was the worse half of it: before this step it had a
         # committed artefact, a reference to it in the README, and neither a
         # source nor a guard -- the icon's own failure mode, one file over.
+        #
+        # The favicon is the third one, and it is the one that needed the
+        # guard most: nothing in the dashboard's source names the file.
+        # Next.js's App Router picks up `app/favicon.ico` by the file
+        # convention alone, so there is no reference to follow and no
+        # compiler to complain. A favicon that is three artwork revisions
+        # old is exactly as invisible as the icon was.
         #
         # THE PRECEDENT, AND WHY IT IS CITED
         # ----------------------------------
@@ -101,7 +109,7 @@ jobs:
         # `tests/integration/test_web_client_types.py` asserts it by calling
         # that `--check` mode rather than reimplementing the comparison in the
         # test -- because a guard that compares with its own logic tests the
-        # guard's logic, not the artefact. `make-assets.py --check` is the same
+        # guard's logic, not the artefact. `make_assets.py --check` is the same
         # contract for the artwork: it regenerates into a temporary directory
         # and deliberately never writes the file it is checking. A check that
         # repairs the tree it is checking is not a check.
@@ -129,7 +137,7 @@ jobs:
         # costs nothing here. This job already installs `.[dev]`, and Pillow
         # is in that extra, so the step is one more command in a job that has
         # the interpreter and the library already.
-        run: python desktop/scripts/make-assets.py --check
+        run: python scripts/make_assets.py --check
 
   # ------------------------------------------------------------------------- #
   # typecheck — bare `mypy`, no path argument.
@@ -758,9 +766,9 @@ jobs:
   # ---------------------------------------------------
   # The shell's Windows icon is artwork: `docs/assets/icon-source.png` is
   # resampled into `desktop/assets/icon.ico` by
-  # `desktop/scripts/make-assets.py`, and `electron-builder` embeds that file
+  # `scripts/make_assets.py`, and `electron-builder` embeds that file
   # into the executable. The `lint` job already proves the first half —
-  # `make-assets.py --check` says the committed `.ico` is the artwork — but
+  # `make_assets.py --check` says the committed `.ico` is the artwork — but
   # nothing proved the second half, that the `.ico` is in the executable at
   # all. The symptom of that not being so is a user looking at the previous
   # icon, with no error anywhere: the artefact is gitignored, so it is not in

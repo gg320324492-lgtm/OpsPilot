@@ -1,15 +1,29 @@
-"""Build the artwork the repository ships: the Windows icon and the wordmark.
+"""Build the artwork the repository ships: the Windows icon, the web favicon
+and the wordmark.
 
-Two artefacts, one script
--------------------------
-The shell ships a Windows icon, and the README carries a wordmark. Both are
-derived from artwork rather than drawn by hand, both are committed to the
-repository, and both need the same two things: a command that derives them
-from the artwork, and a check that notices when the committed file and the
-artwork have drifted apart. One script keeps those two things in one place.
-The two derivations are the same *kind* of derivation -- an export becomes an
-artefact -- and a second script would be a second copy of the same "generate,
-then compare" skeleton, and a copied skeleton is the copy that drifts.
+Three artefacts, one script
+---------------------------
+The shell ships a Windows icon, the dashboard ships a favicon, and the README
+carries a wordmark. All three are derived from artwork rather than drawn by
+hand, all three are committed to the repository, and all three need the same
+two things: a command that derives them from the artwork, and a check that
+notices when the committed file and the artwork have drifted apart. One
+script keeps those two things in one place. The three derivations are the
+same *kind* of derivation -- an export becomes an artefact -- and a second
+script would be a second copy of the same "generate, then compare" skeleton,
+and a copied skeleton is the copy that drifts.
+
+Why this script lives at the repository root
+--------------------------------------------
+The artwork is repository-level art: `docs/assets/icon-source.png`. The three
+artefacts it becomes live in three different trees -- the shell's
+`desktop/assets/`, the dashboard's `web/src/app/`, and the README's
+`docs/assets/`. A generator that sits under one of the three and produces the
+other two is in the wrong place: it reads as though the artwork belonged to
+the shell, and the moment the dashboard needs an asset of its own the
+generator has to move again -- this time for a second reason. `scripts/` is
+where the repository's other Python tools already live, and a tool that
+produces artefacts for the whole repository belongs with them.
 
 Why the icon is generated and not drawn
 ---------------------------------------
@@ -35,6 +49,38 @@ asks for when it renders the icon big. 40 is not one of the shell's standard
 sizes; it is here because a size Windows asks for and does not have is a
 blurry render, and a size it never asks for costs a few kilobytes. A subset
 would render, and would render worse.
+
+The favicon, which is the same picture at fewer sizes
+-----------------------------------------------------
+The dashboard's favicon is the same badge, cut the same way and resampled the
+same way. The only differences are how many sizes are packed into the file
+and where the file lands.
+
+**It is built from the artwork, not from the committed icon.** Deriving the
+favicon from `desktop/assets/icon.ico` would make one committed artefact
+depend on another, and a stale icon would then be reproduced faithfully as a
+stale favicon -- a drift copied rather than caught. Both come from
+`docs/assets/icon-source.png`.
+
+**It is cut, not cropped.** The white ground is cut away for the favicon
+exactly as it is for the icon, and for the same reason: a favicon sits in a
+browser's tab strip beside the other tabs, and a white square is a bright
+block in the middle of the strip. The badge on transparency is the icon; the
+badge on white is a white square with a badge in it.
+
+**It has four sizes: 16, 32, 48 and 64.** 16 is the Windows tab strip and the
+bookmark bar. 32 is the macOS tab and the macOS bookmark. 48 is Windows'
+medium icon view. 64 is what a high-density screen asks for. There is no
+256-pixel frame, and that is a decision rather than an oversight: a 256
+frame is the slot a PWA's large icon goes in, this is not a PWA, and a frame
+nothing will ever ask for is committed binary that only has to be kept in
+step with the artwork.
+
+**Nothing refers to it.** Next.js's App Router picks up `app/favicon.ico` and
+injects a `<link rel="icon">` for it with a content-hashed URL, so no code
+names the file and there is nothing to update when it changes. That is
+exactly why it needed the guard this script provides: an artefact nothing
+refers to is an artefact nobody notices has drifted.
 
 Why the white ground is cut away
 --------------------------------
@@ -122,23 +168,46 @@ invisible in CI, where the working tree comes back clean, and it would
 destroy the only record of what drifted. `--check` reports and stops; the
 developer runs the build and looks at the difference themselves.
 
+Which artefact a path names
+----------------------------
+Two of the three artefacts are `.ico` files, so the check has to be able to
+say which one a given path is. A path that is exactly one of the committed
+targets names that one. Anything else is read by its shape: a `.png` is the
+wordmark, and an `.ico` is whichever icon it *is* by the sizes it holds --
+four sizes is the favicon, ten is the shell's icon.
+
+The size set is what tells them apart because the pixels cannot. The favicon
+and the icon are the same picture made the same way: the same artwork, the
+same ground cut away, the same premultiplied resampling. The favicon's 16,
+32, 48 and 64 frames are the icon's 16, 32, 48 and 64 frames, frame for
+frame. What differs is only which sizes are packed into the file -- and that
+is the artefact's contract with whatever consumes it: Windows asks the
+shell's icon for ten sizes, and a browser asks the favicon for four.
+
+The file name is deliberately not what tells them apart. The check has to
+work on a path in a temporary directory, because that is how the guard is
+proved not to be empty, and the name of a temporary copy is the test's choice
+rather than the artefact's. The pixels cannot be used either, because they
+are the same pixels.
+
 Run
 ---
-`python desktop/scripts/make-assets.py` rebuilds every artefact from the
-checked-in artwork.
+`python scripts/make_assets.py` rebuilds every artefact from the checked-in
+artwork.
 
-`python desktop/scripts/make-assets.py icon` rebuilds just the icon, and
-`python desktop/scripts/make-assets.py wordmark` just the wordmark. Each takes
-two optional paths after the asset name -- the artwork to derive it from, and
-the file to write -- and both default to the checked-in ones.
+`python scripts/make_assets.py icon` rebuilds just the icon,
+`python scripts/make_assets.py favicon` just the favicon, and
+`python scripts/make_assets.py wordmark` just the wordmark. Each takes two
+optional paths after the asset name -- the artwork to derive it from, and the
+file to write -- and both default to the checked-in ones.
 
-`python desktop/scripts/make-assets.py --check` compares every committed
-artefact against the artwork rather than writing it. Given one path it
-compares that artefact alone; the artwork is always the checked-in source,
-because the whole point is to ask whether the artefact matches the source the
-tree owns. (A check mode that let you name the source too would let you point
-it at a stale artefact and call the match a pass -- which is the thing it
-exists to prevent.)
+`python scripts/make_assets.py --check` compares every committed artefact
+against the artwork rather than writing it. Given one path it compares that
+artefact alone; the artwork is always the checked-in source, because the
+whole point is to ask whether the artefact matches the source the tree owns.
+(A check mode that let you name the source too would let you point it at a
+stale artefact and call the match a pass -- which is the thing it exists to
+prevent.)
 """
 
 from __future__ import annotations
@@ -152,7 +221,11 @@ from typing import NamedTuple
 from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
 
 #: The sizes Windows may ask for. See the module docstring for why each.
-SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+
+#: The sizes a browser may ask a favicon for. See the module docstring for
+#: why each, and for why there is no 256.
+FAVICON_SIZES = (16, 32, 48, 64)
 
 #: How far from white a pixel may be and still count as the white ground.
 #: The ground beside the artwork is flat white with a noise of about three
@@ -220,25 +293,42 @@ class _Asset(NamedTuple):
     """One artefact, the artwork it is derived from, and where it lives.
 
     The name is what a person types on the command line, so it is the
-    artefact's own name and not a path: `icon` and `wordmark`.
+    artefact's own name and not a path: `icon`, `favicon` and `wordmark`.
+
+    The sizes are the frames an icon-shaped artefact is packed at, and None
+    for the wordmark, which is a single picture rather than a set of them.
+    They are carried here rather than looked up by name because they are
+    what tells the two `.ico` artefacts apart -- see `_asset_for`.
     """
 
     name: str
     source: pathlib.Path
     target: pathlib.Path
+    sizes: tuple[int, ...] | None
 
 
 #: The assets this script owns, in the order they are built and checked.
+#: The two that come from the icon's artwork are adjacent, because they are
+#: the same picture at different sizes, and the wordmark is a different
+#: derivation from a different export.
 ASSETS: dict[str, _Asset] = {
     "icon": _Asset(
         name="icon",
         source=REPO_ROOT / "docs" / "assets" / "icon-source.png",
         target=REPO_ROOT / "desktop" / "assets" / "icon.ico",
+        sizes=ICON_SIZES,
+    ),
+    "favicon": _Asset(
+        name="favicon",
+        source=REPO_ROOT / "docs" / "assets" / "icon-source.png",
+        target=REPO_ROOT / "web" / "src" / "app" / "favicon.ico",
+        sizes=FAVICON_SIZES,
     ),
     "wordmark": _Asset(
         name="wordmark",
         source=REPO_ROOT / "docs" / "assets" / "logo-source.png",
         target=REPO_ROOT / "docs" / "assets" / "logo.png",
+        sizes=None,
     ),
 }
 
@@ -360,23 +450,32 @@ def _crop_to_artwork(image: Image.Image) -> Image.Image:
     return image.crop((origin_x, origin_y, origin_x + side, origin_y + side))
 
 
-def build_icon(source: pathlib.Path, target: pathlib.Path) -> list[tuple[int, int]]:
-    """Write `source` into `target` as a multi-size ICO, and return the sizes."""
+def build_icon(
+    source: pathlib.Path,
+    target: pathlib.Path,
+    sizes: tuple[int, ...],
+) -> list[tuple[int, int]]:
+    """Write `source` into `target` as a multi-size ICO, and return the sizes.
+
+    The sizes are a parameter rather than a constant because two artefacts
+    are packed this way -- the shell's icon and the dashboard's favicon --
+    and they are the same picture at different sizes.
+    """
     artwork = _crop_to_artwork(_cut_ground(Image.open(source)))
     target.parent.mkdir(parents=True, exist_ok=True)
-    sizes = [(size, size) for size in SIZES]
+    frames = [(size, size) for size in sizes]
     # The frames are scaled here rather than left to the ICO writer, which
     # would scale them on each channel on its own and halo the badge's edge.
     # The writer takes them as `append_images`, and the first one is the
     # image being saved.
-    frames = [_resize(artwork, size) for size in sizes]
-    frames[-1].save(
+    images = [_resize(artwork, size) for size in frames]
+    images[-1].save(
         target,
         format="ICO",
-        sizes=sizes,
-        append_images=frames[:-1],
+        sizes=frames,
+        append_images=images[:-1],
     )
-    return sizes
+    return frames
 
 
 def _frames(path: pathlib.Path) -> dict[tuple[int, int], bytes]:
@@ -405,7 +504,7 @@ def _format_sizes(sizes: list[tuple[int, int]]) -> str:
     return ", ".join(f"{width}x{height}" for width, height in sizes)
 
 
-def _drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
+def _drift_lines(target: pathlib.Path, candidate: pathlib.Path, name: str) -> list[str]:
     """Lines naming what differs between the committed icon and the fresh one.
 
     The comparison says *that* the two differ; these lines say *what*
@@ -416,19 +515,19 @@ def _drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
     try:
         committed = _frames(target)
     except (OSError, SyntaxError, ValueError, AttributeError) as exc:
-        return [f"the committed icon could not be read as an ICO: {exc}"]
+        return [f"the committed {name} could not be read as an ICO: {exc}"]
     try:
         regenerated = _frames(candidate)
     except (OSError, SyntaxError, ValueError, AttributeError) as exc:
-        return [f"the regenerated icon could not be read as an ICO: {exc}"]
+        return [f"the regenerated {name} could not be read as an ICO: {exc}"]
 
     lines: list[str] = []
     only_committed = sorted(set(committed) - set(regenerated))
     only_regenerated = sorted(set(regenerated) - set(committed))
     if only_committed:
-        lines.append(f"sizes only in the committed icon: {_format_sizes(only_committed)}")
+        lines.append(f"sizes only in the committed {name}: {_format_sizes(only_committed)}")
     if only_regenerated:
-        lines.append(f"sizes only in the regenerated icon: {_format_sizes(only_regenerated)}")
+        lines.append(f"sizes only in the regenerated {name}: {_format_sizes(only_regenerated)}")
     shared = set(committed) & set(regenerated)
     differing = sorted(size for size in shared if committed[size] != regenerated[size])
     if differing:
@@ -438,7 +537,12 @@ def _drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
     return lines
 
 
-def check_icon(source: pathlib.Path, target: pathlib.Path) -> int:
+def check_icon(
+    source: pathlib.Path,
+    target: pathlib.Path,
+    sizes: tuple[int, ...],
+    name: str,
+) -> int:
     """Compare the committed icon with a freshly generated one.
 
     The comparison is between the *pictures*, not between the bytes, and the
@@ -463,13 +567,13 @@ def check_icon(source: pathlib.Path, target: pathlib.Path) -> int:
     either.
     """
     if not target.exists():
-        print(f"no such icon: {target}", file=sys.stderr)
+        print(f"no such {name}: {target}", file=sys.stderr)
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="opspilot-icon-") as scratch:
+    with tempfile.TemporaryDirectory(prefix=f"opspilot-{name}-") as scratch:
         candidate = pathlib.Path(scratch) / target.name
         try:
-            build_icon(source, candidate)
+            build_icon(source, candidate, sizes)
         except UnidentifiedImageError:
             print(
                 f"the artwork could not be read as an image: {source}",
@@ -481,8 +585,8 @@ def check_icon(source: pathlib.Path, target: pathlib.Path) -> int:
 
         if committed_bytes == regenerated_bytes:
             print(
-                f"the committed icon is current: {target} "
-                f"({len(committed_bytes)} bytes, {len(SIZES)} sizes)",
+                f"the committed {name} is current: {target} "
+                f"({len(committed_bytes)} bytes, {len(sizes)} sizes)",
                 flush=True,
             )
             return 0
@@ -501,21 +605,21 @@ def check_icon(source: pathlib.Path, target: pathlib.Path) -> int:
                 # drifted, and saying otherwise would send a developer to
                 # regenerate a file that is already right.
                 print(
-                    f"the committed icon is current: {target} "
-                    f"({len(committed_bytes)} bytes, {len(SIZES)} sizes) -- "
+                    f"the committed {name} is current: {target} "
+                    f"({len(committed_bytes)} bytes, {len(sizes)} sizes) -- "
                     "the frames are the same pictures, encoded differently",
                     flush=True,
                 )
                 return 0
 
-        print(f"the committed icon is stale: {target}", file=sys.stderr)
+        print(f"the committed {name} is stale: {target}", file=sys.stderr)
         print(f"  committed:   {len(committed_bytes)} bytes", file=sys.stderr)
         print(f"  regenerated: {len(regenerated_bytes)} bytes", file=sys.stderr)
-        for line in _drift_lines(target, candidate):
+        for line in _drift_lines(target, candidate, name):
             print(f"  {line}", file=sys.stderr)
         print(
-            "\nRun:  python desktop/scripts/make-assets.py icon\n"
-            "Then commit the regenerated icon together with the artwork change.",
+            f"\nRun:  python scripts/make_assets.py {name}\n"
+            f"Then commit the regenerated {name} together with the artwork change.",
             file=sys.stderr,
         )
         return 1
@@ -684,29 +788,68 @@ def check_wordmark(source: pathlib.Path, target: pathlib.Path) -> int:
         for line in _wordmark_drift_lines(target, candidate):
             print(f"  {line}", file=sys.stderr)
         print(
-            "\nRun:  python desktop/scripts/make-assets.py wordmark\n"
+            "\nRun:  python scripts/make_assets.py wordmark\n"
             "Then commit the regenerated wordmark together with the artwork change.",
             file=sys.stderr,
         )
         return 1
 
 
+def _ico_sizes(path: pathlib.Path) -> frozenset[tuple[int, int]] | None:
+    """The frame sizes an ICO holds, or None when it cannot be read as one.
+
+    The sizes are in the directory at the head of the file, so they are
+    known without decoding a frame -- which is what makes a file whose
+    pixels are damaged still recognisable as an icon.
+    """
+    try:
+        with Image.open(path) as image:
+            sizes = image.info.get("sizes")
+    except (OSError, SyntaxError, ValueError):
+        return None
+    if not sizes:
+        return None
+    return frozenset((int(width), int(height)) for width, height in sizes)
+
+
+def _icon_asset_for(target: pathlib.Path) -> _Asset | None:
+    """The icon-shaped asset an `.ico` path holds, recognised by its sizes.
+
+    Two of the artefacts are icons -- the shell's and the dashboard's
+    favicon -- and they are the same picture at different sizes, so the
+    pixels cannot say which one a file is. The sizes can: four frames is
+    the favicon and ten is the shell's icon, and the sizes are the
+    artefact's contract with whatever consumes it.
+
+    A file that is neither is refused rather than guessed at, because a
+    check pointed at the wrong asset is a check that proves nothing.
+    """
+    sizes = _ico_sizes(target)
+    if sizes is None:
+        return None
+    for asset in ASSETS.values():
+        if asset.sizes is None:
+            continue
+        if sizes == frozenset((size, size) for size in asset.sizes):
+            return asset
+    return None
+
+
 def _asset_for(target: pathlib.Path) -> _Asset | None:
     """The asset a `--check` path names, or None when it names none.
 
     A path that is exactly one of the committed artefacts names that asset.
-    Anything else is read by its shape: an `.ico` is the icon and a `.png` is
-    the wordmark, because those are the two artefacts and their shapes are
-    what they are. A path that is neither is refused rather than guessed at,
-    because a check pointed at the wrong asset is a check that proves
-    nothing.
+    Anything else is read by its shape: a `.png` is the wordmark, and an
+    `.ico` is whichever of the two icons it holds by the sizes it packs.
+    A path that is neither is refused rather than guessed at, because a
+    check pointed at the wrong asset is a check that proves nothing.
     """
     for asset in ASSETS.values():
         if target == asset.target or target.resolve() == asset.target.resolve():
             return asset
     suffix = target.suffix.lower()
     if suffix == ".ico":
-        return ASSETS["icon"]
+        return _icon_asset_for(target)
     if suffix == ".png":
         return ASSETS["wordmark"]
     return None
@@ -714,15 +857,15 @@ def _asset_for(target: pathlib.Path) -> _Asset | None:
 
 def _check_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> int:
     """Check one asset, by name."""
-    if asset.name == "icon":
-        return check_icon(source, target)
+    if asset.sizes is not None:
+        return check_icon(source, target, asset.sizes, asset.name)
     return check_wordmark(source, target)
 
 
 def _build_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> int:
     """Build one asset, and report what was written."""
-    if asset.name == "icon":
-        sizes = build_icon(source, target)
+    if asset.sizes is not None:
+        sizes = build_icon(source, target, asset.sizes)
         print(f"wrote {target} ({target.stat().st_size} bytes) with {len(sizes)} sizes")
 
         # Read it back, because a write that reports success and produces a
@@ -762,8 +905,9 @@ def _check_all(target: pathlib.Path | None) -> int:
     asset = _asset_for(target)
     if asset is None:
         print(
-            f"--check cannot tell which asset {target} names: an .ico is the "
-            "icon and a .png is the wordmark.",
+            f"--check cannot tell which asset {target} names: an .ico is read "
+            "by the sizes it packs -- the favicon's four (16, 32, 48, 64) or "
+            "the shell icon's ten -- and a .png is the wordmark.",
             file=sys.stderr,
         )
         return 1
@@ -787,13 +931,13 @@ def _build_all() -> int:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="make-assets.py",
-        description="Build the Windows icon and the wordmark from the artwork.",
+        prog="make_assets.py",
+        description="Build the Windows icon, the web favicon and the wordmark from the artwork.",
         epilog=(
             "without --check: [ASSET [SOURCE [TARGET]]] -- the asset to build "
-            "('icon' or 'wordmark'), the artwork to derive it from and the "
-            "file to write. with --check: [PATH] -- the artefact to compare "
-            "against one regenerated from the checked-in artwork."
+            "('icon', 'favicon' or 'wordmark'), the artwork to derive it from "
+            "and the file to write. with --check: [PATH] -- the artefact to "
+            "compare against one regenerated from the checked-in artwork."
         ),
     )
     parser.add_argument(
