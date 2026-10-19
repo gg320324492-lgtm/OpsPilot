@@ -73,6 +73,54 @@ jobs:
         run: ruff check
       - name: ruff format --check
         run: ruff format --check
+      - name: The committed icon is current with the artwork
+        # WHY THIS STEP IS HERE
+        # ------------------
+        # `desktop/assets/icon.ico` is a build artefact that lives in the
+        # repository: `desktop/scripts/make-icon.py` generates it from
+        # `docs/assets/icon-source.png`, and `desktop/electron-builder.yml`
+        # points the Windows build at the committed file. Nothing in the build
+        # regenerates it, so the two drift the moment the artwork changes and
+        # nobody reruns the script -- and the drift is invisible in a review,
+        # because a binary is not something a diff shows. The failure this
+        # prevents is the icon that ships being the badge from three artwork
+        # revisions ago, with no symptom anyone can point at.
+        #
+        # THE PRECEDENT, AND WHY IT IS CITED
+        # ----------------------------------
+        # The dashboard's generated client types have exactly this failure
+        # mode, and the repository already guards them: `web/scripts/
+        # generate-types.mjs --check` regenerates the types into a temporary
+        # directory and compares them with the committed file, and
+        # `tests/integration/test_web_client_types.py` asserts it by calling
+        # that `--check` mode rather than reimplementing the comparison in the
+        # test -- because a guard that compares with its own logic tests the
+        # guard's logic, not the artefact. `make-icon.py --check` is the same
+        # contract for the icon: it regenerates into a temporary directory
+        # and deliberately never writes the file it is checking. A check that
+        # repairs the tree it is checking is not a check.
+        #
+        # The icon's comparison is picture against picture rather than byte
+        # against byte, and the difference is load-bearing here. An `.ico`
+        # holds PNG frames, and what a PNG encoder writes for an image
+        # depends on the compressor -- the same pixels at compression levels
+        # 6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes. So the
+        # bytes of an icon depend on the zlib that packed them, and the zlib
+        # on this runner is not the zlib on the machine that committed the
+        # file. A byte comparison would call an unchanged tree stale, and its
+        # remedy -- regenerate the icon -- would change the file and not the
+        # problem.
+        #
+        # WHY IT IS HERE AND NOT IN `desktop-package`
+        # ------------------------------------------
+        # `desktop-package` runs on a Windows runner that has no Python
+        # environment at all: it builds the Electron shell and the installer.
+        # Putting this check there would mean giving that job a second
+        # toolchain -- a Python install and Pillow -- to run a check that
+        # costs nothing here. This job already installs `.[dev]`, and Pillow
+        # is in that extra, so the step is one more command in a job that has
+        # the interpreter and the library already.
+        run: python desktop/scripts/make-icon.py --check
 
   # ------------------------------------------------------------------------- #
   # typecheck — bare `mypy`, no path argument.
@@ -697,6 +745,33 @@ jobs:
   # infrastructure, and it is the honest platform — the package is built for
   # Windows and checked on Windows.
   #
+  # THE ICON, WHICH IS A SEPARATE FILE AND THE SAME JOB
+  # ---------------------------------------------------
+  # The shell's Windows icon is artwork: `docs/assets/icon-source.png` is
+  # resampled into `desktop/assets/icon.ico` by `desktop/scripts/make-icon.py`,
+  # and `electron-builder` embeds that file into the executable. The `lint`
+  # job already proves the first half — `make-icon.py --check` says the
+  # committed `.ico` is the artwork — but nothing proved the second half, that
+  # the `.ico` is in the executable at all. The symptom of that not being so
+  # is a user looking at the previous icon, with no error anywhere: the
+  # artefact is gitignored, so it is not in a diff, and the icon is a binary,
+  # so it is not in a review.
+  #
+  # `desktop/e2e/packaged-posture-icon.spec.ts` reads the built
+  # `OpsPilot.exe` and asserts that its group icon lists the ten sizes the
+  # artwork is resampled to, that every one of them is backed by a real icon
+  # resource holding the committed icon's bytes, and that Windows itself pulls
+  # the committed 32-pixel frame out of the executable. The PE resource
+  # directory is read in Node, with nothing installed: `desktop/package.json`
+  # has no production dependency and deliberately so, and a checker that
+  # needed a library would mean adding one or installing it in this job alone.
+  #
+  # It is a separate file, and the file is named so that the filter in step 3
+  # picks it up: `packaged-posture` matches the *file path*, and a file
+  # without it would run only in the Linux `desktop-check` job, where it
+  # skips. The count assertion in step 4 is the second line of defence — a
+  # renamed file would leave five checks, and five is not six.
+  #
   # WHAT THE JOB DOES
   # -----------------
   #  1. `npm ci` in `web/` and in `desktop/`. The dashboard's dependencies are
@@ -707,10 +782,11 @@ jobs:
   #  2. `npm run package:dir` — the same script a developer runs. `--dir` builds
   #     the unpacked tree (`release/win-unpacked`) and not the NSIS installer,
   #     and that tree is what the spec reads and what the installer is made of.
-  #  3. `npx playwright test --project=lifecycle packaged-posture` — the spec
-  #     itself, in the project that needs no Electron, no display and no
-  #     Docker.
-  #  4. An assertion that the run was not a skip, and that it ran all five
+  #  3. `npx playwright test --project=lifecycle packaged-posture` — the specs
+  #     themselves, in the project that needs no Electron, no display and no
+  #     Docker. The filter is matched against the file path, so it selects
+  #     `packaged-posture.spec.ts` and `packaged-posture-icon.spec.ts`.
+  #  4. An assertion that the run was not a skip, and that it ran all six
   #     checks. A green *skipped* run would mean the job proved nothing while
   #     reporting success — the same rule the `desktop-menu` job applies to a
   #     skipped Electron test and the `verify` job applies to a skipped
@@ -778,10 +854,16 @@ jobs:
         # and the runtime tree the installer ships; the last one writes
         # `release/win-unpacked`, which is the artefact the next step reads.
         run: npm run package:dir
-      - name: Check the packaged artefact against A1–A3
+      - name: Check the packaged artefact against A1–A3, and against the icon it ships
         # `set -o pipefail` is what makes the `| tee` safe: without it the
         # step's status would be `tee`'s, and a failing check would leave this
         # step green.
+        #
+        # The filter is matched against the file path, so it selects
+        # `packaged-posture.spec.ts` (A1, A3 and D3) and
+        # `packaged-posture-icon.spec.ts` (the Windows icon) — the latter
+        # because its name carries the same words, which is what puts it in
+        # this job rather than only in the Linux one.
         run: |
           set -o pipefail
           npx playwright test --project=lifecycle packaged-posture 2>&1 | tee /tmp/posture.txt
@@ -791,11 +873,15 @@ jobs:
         # the environment failing to reach the test, and that is a failure,
         # not a pass.
         #
-        # The count is asserted as five because that is how many checks the
-        # spec has: two for A1 (the loopback bindings, and the packaged compose
+        # The count is asserted as six because that is how many checks the
+        # run has: two for A1 (the loopback bindings, and the packaged compose
         # file being the repository's and not a stale copy), two for A3 (no
         # dotenv file in the package, and the build's own token in no packaged
-        # file), and one for D3 (the security policy inside `app.asar`). A
+        # file), one for D3 (the security policy inside `app.asar`), and one
+        # for the Windows icon (the executable's group icon lists the ten
+        # sizes the artwork is resampled to, each is backed by an icon
+        # resource holding the committed icon's bytes, and Windows itself
+        # pulls the committed 32-pixel frame out of the executable). A
         # project that lost a test would otherwise look like a project that
         # passed.
         run: |
@@ -806,7 +892,7 @@ jobs:
           fi
           passed=$(grep -oE "[0-9]+ passed" /tmp/posture.txt | tail -1 | grep -oE "^[0-9]+")
           echo "packaged-artefact checks passed: ${passed:-0}"
-          [ "${passed:-0}" -eq 5 ] || { echo "::error::expected 5 packaged-artefact checks to pass (A1's two, A3's two, and D3's one); got ${passed:-0}. A lower number means a check was lost or skipped."; exit 1; }
+          [ "${passed:-0}" -eq 6 ] || { echo "::error::expected 6 packaged-artefact checks to pass (A1's two, A3's two, D3's one, and the Windows icon's one); got ${passed:-0}. A lower number means a check was lost or skipped."; exit 1; }
       - name: Assert the package was actually built
         # The assertion the spec cannot make for itself: the artefact is a
         # build output, and a job that quietly built nothing and then checked

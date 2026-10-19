@@ -17,10 +17,13 @@ apart from each other and from the artwork they came from.
 Why these sizes
 ---------------
 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256. 16, 20 and 24 are what the
-taskbar asks for at the three DPI scales Windows ships with; 32 and 48 are the
-shell's small and medium views; 64 and 96 are Explorer's large and extra-large
-tiles; 128 and 256 are what the modern shell asks for when it renders the icon
-big. A subset would render, and would render worse.
+taskbar asks for at the three DPI scales Windows ships with. 32 and 48 are the
+shell's medium and large icon views -- 16 is its small one. 64 and 96 are
+Explorer's large and extra-large tiles. 128 and 256 are what the modern shell
+asks for when it renders the icon big. 40 is not one of the shell's standard
+sizes; it is here because a size Windows asks for and does not have is a
+blurry render, and a size it never asks for costs a few kilobytes. A subset
+would render, and would render worse.
 
 Why the white ground is cut away
 --------------------------------
@@ -56,8 +59,18 @@ one-time act, and one-time acts need a second, cheaper act to notice when
 they have been forgotten.
 
 So the script has a second mode. `--check` regenerates the icon into a
-temporary directory and compares it, byte for byte, with the one in the tree,
-and reports which sizes moved and how far apart the two files are.
+temporary directory and compares it with the one in the tree, and reports
+which sizes moved and how far apart the two files are.
+
+The comparison is between the pictures, not the bytes, and the reason is
+that an `.ico` holds PNG frames: what a PNG encoder writes for an image
+depends on the compressor, so the bytes of an icon depend on the zlib that
+packed them and on the Pillow that chose the deflate parameters -- and
+both of those differ between a Linux CI runner and the machine that
+committed the file. A byte comparison would call an unchanged tree stale,
+and its remedy -- regenerate the icon -- changes the file and not the
+problem. The decoded pixels are the same across every Pillow from 10.0.0
+to 13.0.0 and on both platforms, so they are what the check compares.
 
 It deliberately does not write the icon it is checking. A check that repairs
 the tree it is checking is not a check: it would make the failure invisible
@@ -108,8 +121,30 @@ GROUND_TOLERANCE = 24
 #: "80% transparent blue", it is blue that happens to be dark.
 EDGE_WIDTH = 64
 
+
+def _find_repo_root() -> pathlib.Path:
+    """The repository root: the nearest ancestor holding a `pyproject.toml`.
+
+    Walking up to a marker file rather than counting directory levels, so
+    that the script still works if it is copied somewhere else, and says
+    something a person can act on if it cannot find one at all -- the other
+    ways this script can fail all say what went wrong in words.
+    """
+    here = pathlib.Path(__file__).resolve()
+    for candidate in here.parents:
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+    print(
+        f"cannot find the repository root: no pyproject.toml above {here}. "
+        "The script resolves the artwork and the icon relative to the "
+        "repository, so it has to live inside it.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
 #: The checked-in artwork, and the icon the packaging configuration points at.
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+REPO_ROOT = _find_repo_root()
 DEFAULT_SOURCE = REPO_ROOT / "docs" / "assets" / "icon-source.png"
 DEFAULT_TARGET = REPO_ROOT / "desktop" / "assets" / "icon.ico"
 
@@ -258,6 +293,19 @@ def _frames(path: pathlib.Path) -> dict[tuple[int, int], bytes]:
         return {size: directory.getimage(size).tobytes() for size in sizes}
 
 
+def _frames_or_none(path: pathlib.Path) -> dict[tuple[int, int], bytes] | None:
+    """The frames of an ICO, or None when the file is not one.
+
+    A file that cannot be read as an icon is a fact about the file rather
+    than an exception worth a traceback: the report it belongs in is the
+    one that says what drifted, not the one that says the script crashed.
+    """
+    try:
+        return _frames(path)
+    except (OSError, SyntaxError, ValueError, AttributeError):
+        return None
+
+
 def _format_sizes(sizes: list[tuple[int, int]]) -> str:
     """Frame sizes as ``16x16, 20x20``, for a message a person can read."""
     return ", ".join(f"{width}x{height}" for width, height in sizes)
@@ -266,8 +314,8 @@ def _format_sizes(sizes: list[tuple[int, int]]) -> str:
 def _drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
     """Lines naming what differs between the committed icon and the fresh one.
 
-    The byte comparison says *that* the two differ; these lines say *what*
-    differs. A person told only that two binaries are not equal has learned
+    The comparison says *that* the two differ; these lines say *what*
+    differs. A person told only that two icons are not equal has learned
     nothing they can act on, and "the 16-pixel frame moved" is the difference
     between a five-minute fix and an afternoon of comparing files.
     """
@@ -299,6 +347,21 @@ def _drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
 def check_ico(source: pathlib.Path, target: pathlib.Path) -> int:
     """Compare the committed icon with a freshly generated one.
 
+    The comparison is between the *pictures*, not between the bytes, and the
+    distinction is not pedantry. An `.ico` holds PNG frames, and what a PNG
+    encoder writes for a given image depends on the compressor: the same
+    pixels at compression levels 6, 7 and 9 come out as 80,707, 77,475 and
+    75,678 bytes. So the bytes of an icon depend on the zlib that packed
+    them -- the Windows wheels bundle one zlib and the manylinux wheels
+    another -- and on the Pillow that chose the deflate parameters, which
+    changed between Pillow 11.0.0 and 11.1.0. A byte comparison would then
+    report the icon as stale on a tree where nothing had changed, and the
+    failure would be "regenerate the icon" -- advice that changes the file
+    and not the problem. The decoded pixels, by contrast, are the same
+    across every Pillow from 10.0.0 to 13.0.0 and on both platforms. The
+    pictures are what the question is about: is the icon in the tree still
+    the icon the artwork makes?
+
     The regeneration happens in a temporary directory, and the file being
     checked is never written to: a check that repairs the tree it is checking
     is not a check. The temporary directory goes away with the `with` block,
@@ -319,19 +382,39 @@ def check_ico(source: pathlib.Path, target: pathlib.Path) -> int:
                 file=sys.stderr,
             )
             return 1
-        committed = target.read_bytes()
-        regenerated = candidate.read_bytes()
+        committed_bytes = target.read_bytes()
+        regenerated_bytes = candidate.read_bytes()
 
-        if committed == regenerated:
+        if committed_bytes == regenerated_bytes:
             print(
                 f"the committed icon is current: {target} "
-                f"({len(committed)} bytes, {len(SIZES)} sizes)"
+                f"({len(committed_bytes)} bytes, {len(SIZES)} sizes)"
             )
             return 0
 
+        committed = _frames_or_none(target)
+        regenerated = _frames_or_none(candidate)
+        if committed is not None and regenerated is not None:
+            same_sizes = set(committed) == set(regenerated)
+            differing = [
+                size
+                for size in sorted(set(committed) & set(regenerated))
+                if committed[size] != regenerated[size]
+            ]
+            if same_sizes and not differing:
+                # The same pictures, packed differently. The icon has not
+                # drifted, and saying otherwise would send a developer to
+                # regenerate a file that is already right.
+                print(
+                    f"the committed icon is current: {target} "
+                    f"({len(committed_bytes)} bytes, {len(SIZES)} sizes) -- "
+                    "the frames are the same pictures, encoded differently"
+                )
+                return 0
+
         print(f"the committed icon is stale: {target}", file=sys.stderr)
-        print(f"  committed:   {len(committed)} bytes", file=sys.stderr)
-        print(f"  regenerated: {len(regenerated)} bytes", file=sys.stderr)
+        print(f"  committed:   {len(committed_bytes)} bytes", file=sys.stderr)
+        print(f"  regenerated: {len(regenerated_bytes)} bytes", file=sys.stderr)
         for line in _drift_lines(target, candidate):
             print(f"  {line}", file=sys.stderr)
         print(
