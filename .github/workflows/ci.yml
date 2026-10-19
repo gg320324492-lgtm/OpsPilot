@@ -102,18 +102,30 @@ jobs:
         # old is exactly as invisible as the icon was.
         #
         # The favicon packs a 256-pixel frame as well as the 16, 32, 48 and
-        # 64 that the browser asks for, and that frame is most of the file:
-        # an `.ico` is fetched whole, so its 75,186 bytes of PNG are
-        # downloaded whether the browser wanted that size or not, and the
-        # artefact is 92,226 bytes rather than 17,508. The trade is
+        # 64 that the browser asks for, and that frame is the largest the
+        # file carries: an `.ico` is fetched whole, so its 11,079 bytes of
+        # PNG are downloaded whether the browser wanted that size or not,
+        # and the artefact is 28,119 bytes rather than 17,508. The trade is
         # deliberate -- the 256 is the frame a reader that takes one
         # picture out of an `.ico` is handed, and it is what makes the page
         # announce `sizes="256x256"` rather than `sizes="64x64"` -- and
         # the cost is written down here and in `desktop/README.md` so that
         # the next reader weighs it instead of rediscovering it. The guard
         # has to cover the 256 frame like any other: a 256 frame that
-        # drifted from the artwork is exactly the drift nobody sees, and
-        # it is the most expensive frame in the file.
+        # drifted from the artwork is exactly the drift nobody sees.
+        #
+        # That frame is also the one that is quantised. It is written as an
+        # 8-bit palette PNG with a `tRNS` chunk for the alpha, and every
+        # other frame is written as RGBA -- the encoding is chosen per
+        # frame, because the 256 frame is where nearly all the bytes are
+        # and the smaller frames have nothing to save. The quantisation is
+        # lossy: the 256 frame is the artwork's pixels reduced to 256
+        # colours, so it does not match the RGBA frame byte for byte, and
+        # the guard therefore compares it against a fresh build of the
+        # same quantisation rather than against the artwork. The banding
+        # that costs is visible -- contour bands across the badge's blue
+        # gradient -- and it is written down in `desktop/README.md` and in
+        # the builder's docstring.
         #
         # The apple-touch icon is the fourth, and it is the same orphan in
         # the same way: `app/apple-icon.png` is found by the file
@@ -139,8 +151,8 @@ jobs:
         # frames and a `.png` is a PNG, and what a PNG encoder writes for an
         # image depends on the compressor -- the same pixels at compression
         # levels 6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes, and
-        # the 256 frame the tree ships is the 75,186 of an `optimize=True`
-        # encoding of the very same pixels. So the bytes of either artefact
+        # an RGBA 256 frame at `optimize=True` is the 75,186 of the very same
+        # pixels. So the bytes of either artefact
         # depend on the zlib that packed them and on the Pillow that chose
         # the deflate parameters -- Pillow changed those between 11.0.0 and
         # 11.1.0, and the Windows and manylinux wheels bundle different

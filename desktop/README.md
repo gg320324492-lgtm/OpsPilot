@@ -93,29 +93,71 @@ ICO writer opens a fresh buffer for each frame and calls
 encoded at the PNG encoder's defaults — `compress_level=6`,
 `optimize=False` — and there is no parameter a caller could pass to change
 that. `optimize=True` is worth having, and it is worth more than a higher
-compression level: on the 256-pixel frame the default comes out at 80,707
+compression level: on a 256-pixel RGBA frame the default comes out at 80,707
 bytes, level 7 at 77,475, level 9 at 75,678, and level 6 with
 `optimize=True` at 75,186. It is lossless, because a PNG's row filters are
 part of the format rather than a compression of it, so a different
 combination of them is different bytes and the same picture, and every
-decoder reads every combination. Over the whole set of frames that is
-146,728 bytes down to 138,716 for the shell's icon and 98,231 down to 92,226
-for the favicon, so the script writes the container itself: six bytes of
-`ICONDIR`, sixteen bytes of `ICONDIRENTRY` per frame, and the PNG frames
+decoder reads every combination. That was the whole of the saving while
+every frame was RGBA: over the whole set of frames, 146,728 bytes down to
+138,716 for the shell's icon and 98,231 down to 92,226 for the favicon —
+5.5% and 6.1%. The script therefore writes the container itself: six bytes
+of `ICONDIR`, sixteen bytes of `ICONDIRENTRY` per frame, and the PNG frames
 themselves. The pixels are checked after the write rather than assumed — the
-file is read back and every frame compared with the frame that went in, so a
-container that is well formed but holds the wrong pictures fails the build.
+file is read back and every frame compared with the picture that was packed,
+so a container that is well formed but holds the wrong pictures fails the
+build.
 
-**The 256 frame is most of the favicon's bytes, and that is the price of
-it.** An `.ico` is downloaded whole — a browser does not fetch the one frame
-it is going to use, it fetches the file and picks a frame out of it — so the
-256 frame's 75,186 bytes of PNG arrive whether the browser wanted that size
-or not. The favicon is therefore 92,226 bytes against 17,508 without the
-256: 5.3 times as much, and about 75 KB of extra download on the first visit
-to the domain, after which it comes out of the cache like any other asset.
-That is the trade: a larger frame for a reader that wants the largest one, a
-tool that wants a single picture out of the file, and a more usual `sizes`
-declaration in the page.
+**The 256 frame is a palette PNG, and the other frames are RGBA.** The
+encoding is chosen per frame rather than per file, because the 256 frame is
+nearly all the bytes an `.ico` holds — as an RGBA frame it was 75,186 of the
+shell icon's 138,716 and of the favicon's 92,226, against a few kilobytes for
+every other frame together. It is now written as an 8-bit palette PNG with a
+`tRNS` chunk for the alpha, which takes it to 11,079 bytes and the shell's
+icon to 74,609 and the favicon to 28,119. Every other frame stays RGBA: there
+is nothing to save by quantising a 16-pixel frame and the picture is worth
+keeping whole.
+
+**This is lossy, and the loss is visible.** The 256 frame is the artwork's
+pixels reduced to 256 colours, so it no longer matches the RGBA frame
+byte for byte. Measured against it, the quantised frame comes out at
+35.87 dB PSNR over the four channels, with a worst single-channel error of
+43 of 255 and a mean error of 4.1. The alpha is kept — the transparent
+ground stays transparent — but the antialiased rim is stepped, and the rim's
+alpha moves by as much as 43 against a mean of 0.87. The banding is on the
+badge's own ground: the blue gradient comes out as contour bands, most
+obviously in the top-left quadrant and along the right-hand edge, where the
+gradient is steepest. The mark itself barely moves.
+
+Pillow will not quantise an RGBA image with MEDIANCUT at all — it raises,
+because MEDIANCUT has no answer for the alpha channel — and the obvious
+workaround, converting to RGB first, throws the alpha away on purpose: the
+transparent ground comes back opaque black and the rim comes back a hard
+edge. That measures 18.55 dB against FASTOCTREE's 35.87 and a worst error of
+255 rather than 43. FASTOCTREE is not merely the better of the two; it is
+the only one of the two that keeps the picture an icon.
+
+**The guard compares the 256 frame against a fresh build of the same
+quantisation.** A quantised frame does not decode back to the frame that was
+resampled, so there is no set of "the artwork's own pixels" for a palette
+frame to be compared against. The check compares the committed file's 256
+frame against the freshly built one's, both decoded to RGBA, and both are the
+quantised picture. The comparison is still byte for byte; what it is a
+reference *for* has moved from "the resampled artwork" to "the artwork as
+this script's encoder makes it". The loss is in the artefact, not in the
+guard.
+
+**The 256 frame is the biggest frame the favicon carries, and that is its
+price.**
+An `.ico` is downloaded whole — a browser does not fetch the one frame it is
+going to use, it fetches the file and picks a frame out of it — so the 256
+frame's 11,079 bytes of PNG arrive whether the browser wanted that size or
+not. The favicon is therefore 28,119 bytes against 17,508 without the 256:
+1.6 times as much, and about 11 KB of extra download on the first visit to
+the domain, after which it comes out of the cache like any other asset. That
+is the trade: a larger frame for a reader that wants the largest one, a tool
+that wants a single picture out of the file, and a more usual `sizes`
+declaration in the page — and, on the 256 frame, a quantised picture.
 
 **The `sizes` attribute follows the largest frame.** Next.js's metadata image
 loader writes the picture's largest frame into the `sizes` attribute of the
@@ -168,8 +210,10 @@ every artefact.
 temporary directory and compares them with the committed files, picture
 against picture and never byte against byte — a PNG's bytes depend on the
 compressor that packed it, and a CI runner's compressor is not the one that
-wrote the file. It writes nothing: a check that repairs the tree it is
-checking is not a check. `tests/unit/test_desktop_icon_is_current.py`
+wrote the file. (For the 256 frame, "the picture" is the quantised one; the
+paragraph on the palette frame above says why.) It writes nothing: a check
+that repairs the tree it is checking is not a check.
+`tests/unit/test_desktop_icon_is_current.py`
 asserts it, and the `lint` job in CI runs it on every push.
 
 **It is committed rather than built, and the reason is which side of the

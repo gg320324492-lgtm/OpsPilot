@@ -71,9 +71,9 @@ The favicon has four:
    difference.
 4. **It carries the five sizes a browser may ask for** -- 16, 32, 48, 64
    and 256 -- and nothing else. The 256 is the frame a reader takes when
-   it reads the `.ico` for a single picture, and it is most of the file:
-   an `.ico` is fetched whole, so its 75,186 bytes of PNG are downloaded
-   whether the browser wanted that size or not.
+   it reads the `.ico` for a single picture, and it is the largest frame
+   in the file: an `.ico` is fetched whole, so its 11,079 bytes of PNG are
+   downloaded whether the browser wanted that size or not.
 
 Both of them are packed by the builder's own writer rather than by Pillow's,
 because Pillow's ICO writer cannot be told how to encode the frames -- it
@@ -85,6 +85,20 @@ is checked here too. Pillow seeks to an entry's offset and lets the PNG's
 own length decide where the frame ends, so a wrong length can pass a
 decode; Windows copies the length out of the resource, so a wrong one
 produces a truncated frame.
+
+**The 256 frame is a palette PNG, and the other frames are RGBA.** The
+encoding is chosen per frame rather than per file: the 256 frame is nearly
+all the bytes an `.ico` holds, so it is the one frame where a smaller
+encoding is worth anything, and it is written as an 8-bit palette PNG with
+a `tRNS` chunk for the alpha. Every other frame stays RGBA, because there
+is nothing to save and a lossless frame costs nothing to keep lossless.
+That is a lossy change and it is checked as one: the 256 frame is the
+artwork's pixels reduced to 256 colours, so it does not decode to the
+artwork's own pixels, and the guard compares it against a fresh build of
+the same quantisation rather than against the artwork. The frame is
+checked here for the two things the guard cannot see -- that it really is
+a palette frame, that the other frames really are not, and that the
+palette frame's alpha survived the round trip through the PNG.
 
 And it has the favicon's own invariant, which the icon's rule does not
 express: the corners are transparent and the middle is opaque. The favicon
@@ -323,9 +337,9 @@ def test_the_check_compares_pictures_and_not_bytes(tmp_path: pathlib.Path) -> No
 
     The frames of an ``.ico`` are PNGs, and what a PNG encoder writes for an
     image depends on the compressor: the same pixels at compression levels
-    6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes, and the 256
-    frame the tree ships is the 75,186 of an ``optimize=True`` encoding of
-    the very same pixels. So the bytes of an icon depend on the zlib that
+    6, 7 and 9 come out as 80,707, 77,475 and 75,678 bytes, and an RGBA
+    256 frame at ``optimize=True`` is the 75,186 of the very same pixels.
+    So the bytes of an icon depend on the zlib that
     packed them, and the zlib on a CI runner is not the zlib on the machine
     that committed the file. A byte comparison would then call an unchanged
     tree stale, and its remedy -- regenerate the icon -- would change the
@@ -333,7 +347,9 @@ def test_the_check_compares_pictures_and_not_bytes(tmp_path: pathlib.Path) -> No
 
     So the icon here is repacked with a different compression level, which
     makes the same pictures into different bytes, and the check has to call
-    it current.
+    it current. The repack also re-encodes the palette frame as RGBA, so
+    the two files differ in their encoding rather than only in their
+    compression -- and the check still has to call them the same picture.
     """
     repacked = tmp_path / "repacked.ico"
     _repack_with_a_different_compressor(_ICON, repacked)
@@ -454,6 +470,72 @@ def test_the_committed_icons_are_well_formed_containers() -> None:
             f"{len(data)} bytes. The writer packs the frames end to end, with "
             "nothing after the last one."
         )
+
+
+def test_the_256_frame_is_a_palette_png_and_the_others_are_rgba() -> None:
+    """The 256 frame is quantised; every other frame is not.
+
+    The encoding is chosen per frame rather than per file, and the reason
+    is arithmetic: the 256 frame is nearly all the bytes an ``.ico`` holds,
+    so it is the one frame where a smaller encoding buys anything, and it
+    is the one frame anybody renders large enough for the quantisation to
+    show. Every other frame stays RGBA, because there is nothing to save
+    there and a lossless frame costs nothing to keep lossless.
+
+    Three things are asserted, and they are three different failures. That
+    the 256 frame is a palette frame at all: a reader that got an RGBA
+    256 frame would be reading a 75,186-byte picture where the file holds
+    an 11,079-byte one, and the artefact would have quietly gone back to
+    being five times the size it is. That the other frames are *not*
+    palette frames: a palette encoding of a 16-pixel frame saves 400 bytes
+    and costs the picture, which is a trade nobody should have made by
+    accident. And that the palette frame's alpha survived the round trip
+    through the PNG -- a PNG-8 carries its transparency in a ``tRNS``
+    chunk rather than in a channel, so a frame that lost it would decode
+    as an opaque rectangle, and the badge's transparent ground would be a
+    white square.
+    """
+    for path in (_ICON, _FAVICON):
+        for size, frame in _icon_frames_as_stored(path):
+            if size == (256, 256):
+                assert frame.mode == "P", (
+                    f"{path}'s 256x256 frame is a {frame.mode} frame, not a "
+                    "palette one. The 256 frame is written as a PNG-8 so that "
+                    "it is 11,079 bytes rather than 75,186, and an RGBA frame "
+                    "there means the artefact has quietly gone back to being "
+                    "five times the size it is."
+                )
+                assert "transparency" in frame.info, (
+                    f"{path}'s 256x256 frame carries no transparency table. A "
+                    "PNG-8 keeps its alpha in a tRNS chunk, and a frame that "
+                    "lost it decodes as an opaque rectangle -- the badge's "
+                    "transparent ground would be a white square."
+                )
+                # And the alpha is the badge's own: transparent in the
+                # corner, opaque in the middle. A palette frame that decoded
+                # with the right table but the wrong values would still be
+                # a white square where the ground should be.
+                alpha = frame.convert("RGBA").getchannel("A")
+                assert alpha.getpixel((0, 0)) == _TRANSPARENT, (
+                    f"{path}'s 256x256 frame has an opaque top-left corner "
+                    f"(alpha {alpha.getpixel((0, 0))}). The palette PNG's "
+                    "tRNS chunk is what carries the badge's transparent "
+                    "ground, and a frame that lost it is a white square."
+                )
+                assert alpha.getpixel((frame.width // 2, frame.height // 2)) == _OPAQUE, (
+                    f"{path}'s 256x256 frame is transparent in the middle "
+                    f"(alpha {alpha.getpixel((frame.width // 2, frame.height // 2))}). "
+                    "The badge is the drawing, and a hole where the badge "
+                    "should be is not an icon."
+                )
+            else:
+                assert frame.mode == "RGBA", (
+                    f"{path}'s {size[0]}x{size[1]} frame is a {frame.mode} "
+                    "frame, not an RGBA one. Only the 256 frame is quantised: "
+                    "the smaller frames are a few kilobytes each, so there is "
+                    "nothing to save by quantising them and the picture is "
+                    "worth keeping whole."
+                )
 
 
 def test_the_committed_favicon_is_current_with_the_artwork() -> None:
@@ -582,8 +664,8 @@ def test_the_committed_favicon_carries_the_sizes_a_browser_may_ask_for() -> None
     single picture out of it is handed the largest frame, and a high-zoom or
     large-icon view wants that size too. The price is written down in
     `desktop/README.md` and in the builder's docstring -- an `.ico` is
-    fetched whole, so the 256 frame's 75,186 bytes of PNG are downloaded
-    whether the browser wanted that size or not, and the artefact is 92,226
+    fetched whole, so the 256 frame's 11,079 bytes of PNG are downloaded
+    whether the browser wanted that size or not, and the artefact is 28,119
     bytes rather than 17,508.
     """
     assert _FAVICON.exists(), (
@@ -1021,6 +1103,28 @@ def _icon_frames(path: pathlib.Path) -> list[tuple[tuple[int, int], Image.Image]
             (size, directory.getimage(size).convert("RGBA"))
             for size in sorted(image.info.get("sizes", []))
         ]
+
+
+def _icon_frames_as_stored(path: pathlib.Path) -> list[tuple[tuple[int, int], Image.Image]]:
+    """The frames of an ICO in the mode they are stored in, smallest first.
+
+    The same read as `_icon_frames` without the conversion to RGBA, so the
+    mode a frame comes back in says which encoding it was written with: a
+    PNG-8 reads as `P` with a transparency table and an RGBA frame reads
+    as `RGBA`. The conversion is what makes the two comparable as
+    pictures; leaving it off is what makes them comparable as encodings.
+    """
+    with Image.open(path) as image:
+        directory = image.ico  # type: ignore[attr-defined]
+        frames = []
+        for size in sorted(image.info.get("sizes", [])):
+            frame = directory.getimage(size)
+            # `load` reads the frame's pixels while the file is still open:
+            # a frame left unloaded is read out of a file that has been
+            # closed by the time the caller looks at it.
+            frame.load()
+            frames.append((size, frame))
+        return frames
 
 
 def _drawing_box(image: Image.Image) -> tuple[int, int, int, int] | None:
