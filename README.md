@@ -1,5 +1,7 @@
 # OpsPilot
 
+<img src="docs/assets/logo.png" alt="OpsPilot" width="420">
+
 **A safety-gated AI operations agent for B2B support and billing.**
 
 OpsPilot takes a customer support ticket, investigates it through MCP tools,

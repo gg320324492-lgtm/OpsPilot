@@ -55,6 +55,41 @@ as its working directory and `node server.js` has to `require` inside it; an
 asar archive is a virtual filesystem the Node that runs the dashboard does not
 have a reader for.
 
+**The icon is generated, but by hand rather than by the build.** `win.icon`
+in `electron-builder.yml` points at `assets/icon.ico`; the artwork behind
+that file is `docs/assets/icon-source.png`, a 1024×1024 export of a
+hand-drawn neon badge on a dark blue ground, still carrying the white
+canvas it was exported on. `python desktop/scripts/make-icon.py` turns that
+export into the `.ico`: it cuts the white ground away, crops what is left
+to a square, resamples it to the ten sizes Windows may ask for — 16, 20, 24,
+32, 40, 48, 64, 96, 128 and 256 — and packs them into one multi-size
+`.ico`. The script's two arguments are optional and default to exactly
+those two paths, so that command with no arguments regenerates the
+committed icon.
+
+**It is committed rather than built, and the reason is which side of the
+line the file falls on.** The repository's root `.gitignore` ignores
+`build/` by bare name, so the rule reaches `desktop/build/` as well, and an
+icon written there could never be committed without an exception cut out
+for it; `desktop/.gitignore` is more exact about what its own rules are for
+— "Build outputs of desktop/, not source" — and lists `/stage/` and
+`/release/`, the two outputs that are large and reproducible from a
+checkout. The icon is neither. It is artwork somebody maintains, and the
+packager reads it rather than shipping it: the `files` whitelist is
+`dist/**` and `package.json`, so the `.ico` never reaches the installer's
+file tree at all — it is compiled into the exe's icon resource. Generating
+it during the build instead would have put a Python process and Pillow
+between a checkout and an installer, and left the packaging configuration
+pointing at a path that does not exist until something else had run.
+
+**Regenerating it belongs in the same commit as the change to the
+artwork.** The `.ico` is a binary, so its diff says that something changed
+and not what; the artwork is the part a reviewer can read, and the two are
+one decision. Committing the artwork alone is the failure this arrangement
+invites — the tree then builds an installer wearing the old badge — and it
+is a failure review cannot see, because the file that would show the drift
+is the one nobody opens.
+
 **The security posture is not in the packaging configuration**, and cannot be
 weakened by it. `contextIsolation`, `nodeIntegration: false`, `sandbox` and
 `webviewTag: false` live in `src/security-policy.ts` and are properties of the

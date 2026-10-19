@@ -111,6 +111,16 @@ dev = [
   "pyyaml>=6.0",
   "openai>=1.54",
   "anthropic>=0.39",
+  # Pillow resamples the artwork in `docs/assets/icon-source.png` into the
+  # multi-size `desktop/assets/icon.ico` that the packaging configuration
+  # points at. Exactly one thing imports it: the build-time tool
+  # `desktop/scripts/make-icon.py`, which is run by hand when the artwork
+  # changes and is not part of anything that ships. The icon itself is a
+  # committed asset -- the shell and the installer consume the `.ico`, never
+  # the code that made it -- so the dependency belongs to this extra and not
+  # to the core `dependencies`: a deployment that installs the package should
+  # not have to install an image library in order to run.
+  "pillow>=11",
 ]
 
 [project.scripts]
@@ -199,7 +209,18 @@ target-version = "py312"
 # demo -- both are shipped code that CI would otherwise never look at. That is
 # the same shape as the `mypy` `files` list, which sat unexecuted for the whole
 # of M0-M7 because every command named a narrower path than the config did.
-src = ["src", "tests", "evals", "mcp_servers", "scripts"]
+#
+# `desktop/` is here for the same reason, and the reason is worth stating
+# precisely, because it is not the reason a reader would assume. Ruff's `src`
+# does not decide which files are *found*: a bare `ruff check` walks the whole
+# repository recursively, minus `extend-exclude`. `src` decides which
+# directories count as first-party for import resolution. So
+# `desktop/scripts/make-icon.py` is linted today by coincidence, not by
+# decision -- and `extend-exclude` is one entry away from making it unlinted,
+# silently, at exactly the moment someone starts writing code under
+# `desktop/`. Listing the directory makes the intent explicit rather than
+# accidental: the icon builder is checked on purpose.
+src = ["src", "tests", "evals", "mcp_servers", "scripts", "desktop"]
 # `docs/` holds the human-authored specification. Ruff >= 0.16 reformats fenced
 # Python blocks inside Markdown, which would rewrite the spec text itself. The
 # spec is an input artifact and is reviewed as prose, so it is excluded.
@@ -286,6 +307,14 @@ ignore = [
 # many times the endpoint is retried, and reads better inside the function than at
 # module scope.
 "scripts/record_live_fixture.py" = ["T20", "ANN401", "N806"]
+# The icon builder is a command-line tool whose stdout *is* the deliverable:
+# it reports the file it wrote and the sizes it packed into it, and that
+# report is how the person running it knows the build produced what was asked
+# for. The same reason as the demo and the recorder above -- routing it
+# through logging would put the thing being reported one layer away from the
+# reader. T201 is the reason; the tool is invoked by hand from a terminal and
+# has no application whose log stream the output could be routed into.
+"desktop/scripts/make-icon.py" = ["T20"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation
