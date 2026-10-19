@@ -3,7 +3,7 @@
  *
  * ## The gap this closes
  *
- * `desktop/scripts/make-icon.py --check` runs in the `lint` job, and it is a
+ * `desktop/scripts/make-assets.py --check` runs in the `lint` job, and it is a
  * real guard: it regenerates `desktop/assets/icon.ico` from
  * `docs/assets/icon-source.png` into a temporary directory and compares the
  * two picture against picture -- the decoded pixels, not the bytes. An
@@ -57,7 +57,7 @@
  * ## Why bytes here, and pictures there
  *
  * The two checks in this repository compare different things, and that is
- * why they compare differently. `make-icon.py --check` asks whether the
+ * why they compare differently. `make-assets.py --check` asks whether the
  * icon in the tree is still the icon the artwork makes; the answer has to
  * survive a change of Pillow or of zlib, so it compares the decoded
  * pictures. This check asks whether the executable carries the icon the
@@ -68,7 +68,7 @@
  * comparison. It is also the one that catches the symptom this check
  * exists for: an icon that is the right size and the wrong picture.
  *
- * The sizes are a contract, not a decoration. `make-icon.py` has
+ * The sizes are a contract, not a decoration. `make-assets.py` has
  * `SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)` and resamples the
  * artwork to each of them, because Windows asks for an icon by what it is
  * drawing rather than by asking, and scales up whatever is missing. A
@@ -145,7 +145,7 @@ const PACKAGED_EXE = path.join(DESKTOP_DIR, "release", "win-unpacked", "OpsPilot
  * The sizes the artwork is resampled to, and the sizes the executable must
  * therefore carry.
  *
- * These are the same ten numbers as `make-icon.py`'s `SIZES`, written out
+ * These are the same ten numbers as `make-assets.py`'s `SIZES`, written out
  * rather than imported: that script is Python, this is TypeScript, and the
  * two are held together by this file's docstring and by the `lint` job's
  * `--check` rather than by a shared constant. Writing them down here is what

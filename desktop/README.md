@@ -60,12 +60,36 @@ the build.** `win.icon` in `electron-builder.yml` points at `assets/icon.ico`;
 the artwork behind that file is `docs/assets/icon-source.png`, a 1024×1024
 export of a hand-drawn neon mark set on a dark blue rounded square, still
 carrying the white canvas it was exported on.
-`python desktop/scripts/make-icon.py` turns that export into the `.ico`: it
-cuts the white ground away, crops what is left to a square, resamples it to
-the ten sizes Windows may ask for — 16, 20, 24, 32, 40, 48, 64, 96, 128 and
-256 — and packs them into one multi-size `.ico`. The script's two arguments
-are optional and default to exactly those two paths, so that command with no
-arguments regenerates the committed icon.
+`python desktop/scripts/make-assets.py icon` turns that export into the
+`.ico`: it cuts the white ground away, crops what is left to a square,
+resamples it to the ten sizes Windows may ask for — 16, 20, 24, 32, 40, 48,
+64, 96, 128 and 256 — and packs them into one multi-size `.ico`. The asset
+name is followed by two optional paths — the artwork to derive it from, and
+the file to write — and both default to exactly the two paths above, so
+that command with no paths after the asset name regenerates the committed
+icon.
+
+**The wordmark is generated too, by the same script.**
+`docs/assets/logo.png` — the badge beside the name, which the root README
+carries — is cropped out of `docs/assets/logo-source.png`, a 1254×1254
+export of the same drawing with the lockup across the middle of a white
+canvas. The result is 958×289: the export scaled to the 1024×1024 the
+artwork is drawn at, then cropped to the drawing itself plus six pixels of
+bare ground around it. The wordmark's white is **kept**, where the icon's
+is cut away: the wordmark is a dark badge and a dark name on white, and a
+transparent one would put its dark half on whatever is behind it.
+`python desktop/scripts/make-assets.py wordmark` regenerates it, and
+`python desktop/scripts/make-assets.py` with no arguments at all rebuilds
+both artefacts.
+
+**Both artefacts are guarded, and the guard is the script's second mode.**
+`python desktop/scripts/make-assets.py --check` regenerates them into a
+temporary directory and compares them with the committed files, picture
+against picture and never byte against byte — a PNG's bytes depend on the
+compressor that packed it, and a CI runner's compressor is not the one that
+wrote the file. It writes nothing: a check that repairs the tree it is
+checking is not a check. `tests/unit/test_desktop_icon_is_current.py`
+asserts it, and the `lint` job in CI runs it on every push.
 
 **It is committed rather than built, and the reason is which side of the
 line the file falls on.** The repository's root `.gitignore` ignores
@@ -81,7 +105,9 @@ never reaches the installer's file tree at all — it is compiled into the
 exe's icon resource. Generating it during the build instead would have put
 a Python process and Pillow between a checkout and an installer, and left
 the packaging configuration pointing at a path that does not exist until
-something else had run.
+something else had run. The wordmark is committed for the same reason, and
+one more: the root README references it by path, so a build-time artefact
+would break the README on a fresh checkout.
 
 **Regenerating it belongs in the same commit as the change to the
 artwork.** The `.ico` is a binary, so its diff says that something changed
@@ -89,7 +115,8 @@ and not what; the artwork is the part a reviewer can read, and the two are
 one decision. Committing the artwork alone is the failure this arrangement
 invites — the tree then builds an installer wearing the old badge — and it
 is a failure review cannot see, because the file that would show the drift
-is the one nobody opens.
+is the one nobody opens. The wordmark is the same arrangement, and the
+`--check` above is what makes the omission impossible to miss.
 
 **The security posture is not in the packaging configuration**, and cannot be
 weakened by it. `contextIsolation`, `nodeIntegration: false`, `sandbox` and
