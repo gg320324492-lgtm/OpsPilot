@@ -37,7 +37,7 @@ someone who did not build it."
 The app will not install Docker for you, and it will not half-work. It starts,
 opens a window, and tells you exactly what is wrong:
 
-> **Docker Desktop is not installed** — this app could not run `docker`.
+> **Docker is not installed** — this app could not run `docker`.
 > Install Docker Desktop from <https://www.docker.com/products/docker-desktop/>,
 > then start this app again.
 
@@ -46,7 +46,7 @@ in the system tray to stop animating before launching OpsPilot. The first launch
 of Docker Desktop itself can take a minute on a new machine.
 
 If Docker Desktop is installed but **not running**, the message is different —
-**"Docker is installed but not responding"** — and the remedy is to start it.
+**"Docker is installed but not running"** — and the remedy is to start it.
 These are kept apart because "Docker isn't working" is neither of them.
 
 ### A warning you will see and can ignore
@@ -97,8 +97,8 @@ Every launch after that reuses them and is fast. **Do not quit during the first
 launch** — a half-built image is rebuilt next time, not corrupted, but you will
 wait again.
 
-**Failed — Docker missing.** The window shows "Docker Desktop is not
-installed" or "Docker is installed but not responding" and stops. Go back to
+**Failed — Docker missing.** The window shows "Docker is not
+installed" or "Docker is installed but not running" and stops. Go back to
 §0.
 
 **Failed — the backend did not start.** The window shows the last lines Compose

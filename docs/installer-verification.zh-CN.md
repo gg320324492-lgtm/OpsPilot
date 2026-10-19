@@ -49,7 +49,7 @@
 应用**不会**替你装 Docker，也**不会**装到一半能用。它会启动、开窗、然后明确告诉你问题：
 
 ```
-Docker Desktop is not installed — this app could not run `docker`. Install
+Docker is not installed — this app could not run `docker`. Install
 Docker Desktop from https://www.docker.com/products/docker-desktop/, then start
 this app again.
 ```
@@ -61,8 +61,8 @@ this app again.
 
 | 状态 | 应用显示 |
 |---|---|
-| 没装 | `Docker Desktop is not installed…`（上面那段） |
-| 装了但没启动 | `Docker is installed but not responding` |
+| 没装 | `Docker is not installed…`（上面那段） |
+| 装了但没启动 | `Docker is installed but not running` |
 | "Docker 不好用" | **上面两者都不是** |
 
 原文特意把三者分开，因为**处理方法不同**：没装要去装，没启动去启动。
