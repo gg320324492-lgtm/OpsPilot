@@ -41,9 +41,10 @@ in the tool-selection set. But a pooled figure hides where the failures come fro
 so the metric is reported alongside three breakdowns the table does not print —
 in `summarize()` and in the results file's `breakdown` key:
 
-- **by dataset** — `tool_argument_validity.<dataset>`, so the reader can see that
-  (in the committed baseline) 118 of the 170 calls are not tool-selection calls —
-  36 classification, 35 retrieval, 47 safety against tool selection's 52;
+- **by dataset** — `tool_argument_validity.<dataset>`, row 5's own value split by
+  dataset, so the reader can see that (in the committed baseline) 118 of the 170
+  calls are not tool-selection calls — 36 classification, 35 retrieval, 47 safety
+  against tool selection's 52;
 - **empty-argument proposals** — `empty_argument_proposals`, a count of calls the
   model proposed *with no arguments at all*, attributed to the **model** rather
   than to a gate. A gate-1 rejection stores `arguments: {}` (before `7acea37`) or
@@ -88,11 +89,17 @@ try; wrong-name = the model tried and got the schema wrong), but row 5's value i
 one pooled ratio and **does not separate them**. The split exists, but only in the
 breakdown metrics the table does not print: `metrics._argument_outcome`
 (`metrics.py:231`) classifies each call as `model_supplied` / `model_empty` /
-`model_malformed` / `unknown_tool`, and `empty_argument_proposals`
-(`metrics.py:496`) reports the `model_empty` count. Wrong-parameter-name calls
-land in `model_malformed` — a third bucket with no dedicated metric — so a
-wrong-name failure is counted (as a miss on row 5) but is not separable from an
-empty one by anything the table shows.
+`model_malformed` / `unknown_tool`, `empty_argument_proposals`
+(`metrics.py:496`) reports the `model_empty` count, and
+`malformed_argument_proposals` (`metrics.py:522`) reports the `model_malformed`
+count. Wrong-parameter-name calls land in `model_malformed`, and that bucket has
+had a metric of its own since 2026-10-15 — so a wrong-name failure is counted
+(as a miss on row 5) *and* is separable from an empty one, by
+`malformed_argument_proposals` against `empty_argument_proposals`. That
+separation is not in the twelve rows above, which print row 5's pooled figure
+alone; it is in the metric list `summarize()` returns (`metrics.py:875`, which
+registers the two counts at `:889` and `:890`) and in the results file's
+`breakdown` key (`evals/__main__.py:904`).
 
 This is not hypothetical. The live recording at
 `docs/evidence/live-run-2026-10-15.json` (MiniMax-M3.1-Flash-Preview,

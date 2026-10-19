@@ -2046,7 +2046,7 @@ dataset says otherwise:
   twenty cases use exactly four labels: `billing_dispute` (8), `account_access`
   (5), `technical_issue` (4), `other` (3).
 - **Three of the eight `billing_dispute` cases are explicitly about a duplicate
-  charge**: `cls-001` ("charged twice �� the same $129.00 … 2 seconds apart"),
+  charge**: `cls-001` ("charged twice — the same $129.00 … 2 seconds apart"),
   `cls-009` ("double-charged again"), `cls-017` ("our duplicate charge"). Under
   my own proposed rule — twice ⇒ duplicate, wrongly ⇒ dispute — all three
   should have been `duplicate_charge`.
@@ -5593,21 +5593,34 @@ starts moving, because nothing will.
 
 - **Both hits:** `tool-011`, `tool-015`.
 - **Hit once:** `tool-009` — in run 1 only. Everything else that scored was a hit in both.
-- **The two runs proposed an identical tool set for 8 of the 15 cases.** Every case that
-  failed in both proposed *different* things the second time.
+- **The two runs proposed an identical tool set for 8 of the 15 cases.** Of the 12 that
+  failed in both runs, 6 proposed the identical set again (`tool-002`, `tool-004`,
+  `tool-005`, `tool-006`, `tool-012`, `tool-014`) and 6 proposed something different
+  (`tool-001`, `tool-003`, `tool-007`, `tool-008`, `tool-010`, `tool-013`). Of the 6
+  that repeated, `tool-005`, `tool-006` and `tool-012` proposed **no tool at all** in
+  either run.
 
-So two of the three baseline hits are stable and thirteen of the fifteen cases move
-between runs. The failure is not one wrong menu being applied consistently; it is a
-model that answers the same question differently on a second reading of it.
+So two of the three baseline hits are stable, and 7 of the 15 cases propose a
+different tool set on the second run than on the first. The six that repeated are not
+one wrong menu applied consistently either — they are four different wrong sets, three
+of them empty. What the failures have in common is not a menu: it is a model that
+answers the same question differently on a second reading of it.
 
 ### What this rules out
 
 P2-B2's acceptance is "the same 15 cases, at least 10 hits". **That target cannot be
 reached by changing the tool menu or the planning feedback, and the reason is not
-about the menu.** A change that moved the number from 3/15 to 5/15 would be
-indistinguishable from the 3/15-versus-2/15 spread measured here. Fitting the menu to
-these fifteen cases would be fitting noise, and the metric could not tell the
-difference between that and a real improvement.
+about the menu.** The reason is the one the counts above give: 7 of the 15 cases
+propose a *different* tool set on the second run than on the first, so these fifteen
+cases are not a stable instrument to read a score off. The one-case spread between
+the two runs (3/15 against 2/15) is a *weaker* statement than that, and the
+arithmetic that hung the target on it was wrong — 10/15 is seven cases above the
+baseline, not two, so a move to 5/15 would be twice the observed spread rather than
+indistinguishable from it. The conclusion stands on the stronger ground instead: a
+change judged on a sample that answers differently run to run is being judged against
+a number that has already moved once for no reason at all. Fitting the menu to these
+fifteen cases would be fitting noise, and the metric could not tell the difference
+between that and a real improvement.
 
 The honest position is the one `docs/phase2-plan.md` §P2-B2 already states — a change
 must move *both* runs or it is not a change — applied to a baseline that itself does
@@ -5883,3 +5896,379 @@ decoration.
 It is also the third instance of one shape in this repository's documents:
 a claim that survives because the surrounding prose reads as evidence. The guard
 that worked here was the second adversarial pass, not the table.
+
+---
+
+## P2-A — Deployment security and baseline hardening
+
+**Date:** 2026-10-12 → 2026-10-20. `e0b32c3` (A1, A2, A4), `5c044ec` (A3), and
+the closing review's correction to A3.
+
+### Scope
+
+The three verified findings of `docs/phase2-plan.md` §P2-A, plus the stale
+descriptions a hiring reviewer opens first. A is the P0 that gates everything
+else: two of its findings are about what is reachable from the network, and the
+third is about who may spend money through the dashboard.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| A1 | Nothing is reachable off the host | ✅ `docker-compose.yml` publishes three ports, all loopback: `127.0.0.1:5432:5432` (`:68`), `127.0.0.1:8000:8000` (`:256`), `127.0.0.1:3000:3000` (`:505`). `tests/unit/test_compose_settings_are_wired.py::test_every_published_port_is_bound_to_loopback` parses the mappings — short and long syntax — and fails on an entry it cannot resolve rather than passing it |
+| A2 | A privileged write is refused unless it came from the dashboard | ✅ all three mutating Route Handlers call `foreignOriginRefusal`: `tickets/route.ts:42`, `knowledge/reindex/route.ts:34`, `approvals/[approvalId]/[decision]/route.ts:45`. `web/e2e/write-origin.spec.ts` drives the three handlers directly in Node with `globalThis.fetch` replaced by a spy, so "the API was not called" is an observation and not an inference from a 403 |
+| A3 | The database password is configurable and the default is named as one | ✅ **and it was half-true until the 2026-10-20 review** — see below |
+| A4 | No document describes the browser as calling the API directly, and none describes a capability `limitations.md` §8 records as absent | ✅ the two sentences are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process", nor that the six screens are "routing stubs and the nav shell". Both were introduced in `a8582eb` and removed in `e0b32c3` |
+
+### Additional verification performed beyond the criteria
+
+- A second pass re-derived the counts the rows assert rather than quoting them:
+  exactly three published ports, all loopback; exactly three mutating routes, all
+  origin-checked.
+- **The 2026-10-20 review found A3 half-true, and the fix is in the tree.**
+  `POSTGRES_PASSWORD` was `${POSTGRES_PASSWORD:-opspilot}` on the `postgres`
+  service — configurable — but every service's `DATABASE_URL` carried **its own
+  literal password**: `postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot`.
+  The variable was present and overridable, and a deployment was still broken: set
+  `POSTGRES_PASSWORD` and the database was initialised with the new password while
+  the application connected with the old one, so every `migrate`/`api`/`worker`
+  authentication failed. The README's remedy — "change the password in
+  `DATABASE_URL` to match" — meant hand-editing a committed file. The password in
+  every `DATABASE_URL` now comes from the same variable (`docker-compose.yml:113`,
+  `:136`, `:315`), and the *host* is still deliberately not templated, because it
+  names the `postgres` service on the Compose network. The property now under
+  test is the **linkage**, not the presence of the variable.
+
+### Known gap carried forward
+
+None. A1–A4 are met, and A3's half-truth was closed by the review rather than
+left as a boundary.
+
+---
+
+## P2-D — Desktop delivery
+
+**Date:** 2026-10-14 → 2026-10-20. `493f1b5` (the shell), `15f939f` (the
+installer), `fe4127e` (the two files their work produced), `2dc2e24` (the
+navigation fix).
+
+### Scope
+
+`docs/phase2-plan.md` §P2-D: an Electron shell that owns the stack's lifecycle, a
+Windows installer that ships a staged stack and generates its own token, and the
+check that the packaged artefact has not widened the P0 that §P2-A closed. A
+Desktop **Demo** by decision, not by accident: the shell packages the dashboard and
+owns the local UI process, and the backend still requires Docker Desktop. Bundling
+PostgreSQL, the Python environment and the worker into one installer is a different
+project, and Phase 2 does not attempt it.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| D1 | The app starts the backend if it is not running, surfaces a real error when Docker is absent rather than a silent failure, and stops what it started on quit | ✅ `desktop/src/lifecycle/` holds the six modules that do it (`compose.ts`, `errors.ts`, `probe.ts`, `session.ts`, `token.ts`, `types.ts`), and none of them imports Electron, so the behaviour is assertable without a display. `desktop/e2e/shell.spec.ts` launches a real window: "opens the dashboard, keeps the renderer untrusted, and stops what it started", and "names what is missing when Docker is not installed" |
+| D2 | Installed on a clean Windows machine with Docker Desktop and walked end to end, **by someone who did not build it** | ❌ **outstanding, and only a person can close it** — see below |
+| D3 | The **packaged** app is checked against A1–A3 the same way the dev stack is | 🟡 **met for the artefact, partial for a running instance** — see below |
+
+### Additional verification performed beyond the criteria
+
+- The installer's own output was inspected rather than assumed:
+  `desktop/release/OpsPilot-Setup-0.1.0-x64.exe` is 121,654,288 bytes, with the
+  unpacked tree beside it. The release directory is a build output and is
+  gitignored (`desktop/.gitignore:13`), so the artefact is built, not committed.
+- `desktop/e2e/packaged-posture.spec.ts` inspects what the installer ships: the
+  packaged compose file's loopback bindings, the absence of any `.env` or token,
+  and the security policy inside `app.asar`. It does **not** launch `OpsPilot.exe`,
+  and the split is stated in the spec's own docstring rather than left implicit:
+  launching it spawns Docker and writes a token into `%APPDATA%`, which is the
+  manual step `docs/installer-verification.md` §5 exists for.
+- `docs/installer-verification.md` is the walk-through script, and
+  `docs/installer-verification.zh-CN.md` is its Chinese translation — added
+  2026-10-16, because the person who has to run the installer may not read
+  English.
+- **The closing review found the verification documents quoting error text the
+  application never displays.** The documents told a verifier to look for "Docker
+  Desktop is not installed" and "Docker is installed but not responding"; the
+  window says "Docker is not installed" and "Docker is installed but not running"
+  (`desktop/src/lifecycle/errors.ts`). Neither document was *wrong about the
+  world* — the application was telling the truth — but a person verifying against
+  the wrong literal reports a failure that did not happen, and a verification
+  procedure whose expected strings are wrong manufactures a finding. The
+  documents are corrected, and `desktop/e2e/error-text.spec.ts` now asserts the
+  documents' quoted spans against the functions the shell actually calls, in both
+  languages.
+- `2dc2e24` fixed the packaged app refusing every page navigation, so choosing
+  中文 did nothing. A localisation that renders but cannot navigate is not a
+  localisation.
+
+### Known gap carried forward
+
+**D2 is not closed and cannot be closed from inside this repository.** The
+acceptance is "on a clean Windows machine with Docker Desktop, install the built
+package and walk the golden path end to end... by someone who did not build it".
+The installer was built by the author, so running it here is self-certification and
+does not meet the criterion. `docs/installer-verification.md` is the script; the
+missing part is a stranger.
+
+---
+
+## P2-E — Portfolio delivery
+
+**Date:** 2026-10-15 → 2026-10-20.
+
+### Scope
+
+`docs/phase2-plan.md` §P2-E: not code, but the part a reviewer judges first, and
+the part this repository has already shown it can get wrong — `6d79fbe` claimed a CI
+job that was never committed, and `8c558b1` miscounted documents. Every number in
+the package must be reproducible from a file in the repository.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| E1 | README positioned as a safety-gated AI operations agent, with the simulated billing stated plainly and no implication of a real finance system | ✅ `README.md:3` positions it as "**A safety-gated AI operations agent for B2B support and billing**", and the first section under the title is "The billing in this project is simulated. Read this first." (`README.md:13`). `billing.get_invoice`, `billing.list_transactions` and `billing.issue_refund` are named as served by the billing MCP server in this repository. **It did not say this before `7ad9679`**: the README listed "3 MCP servers (CRM, Billing, Issues)" and nothing told a reviewer those are in-repo mocks, so "Billing" and "refund" could be read as a real payment integration |
+| E2 | A video, screenshots, and a case study that walk one duplicate charge from intake to the audited refund | ✅ `docs/assets/golden-path.gif` (359,981 bytes), ten screenshots in `docs/assets/screenshots/`, and `docs/case-study-duplicate-charge.md` (320 lines). The GIF is from before Phase 2 (`c989ffc`, 2026-10-08); the ten screenshots and the case study are from `7ad9679` |
+| E3 | A GitHub Release with the installer | ❌ **no tag exists** — `git tag` returns nothing and `gh release list` is empty. Deliberately held back pending D2 |
+| E4 | Every acceptance number in the document traced to the run that produced it | ✅ the README's figures table has a third column, "Source — verify it", and every row in it points at a file: the eval rows at `evals/results/2026-10-11T15-39-42.json` → `metrics[]`, the tool-selection repeat runs at the two 2026-10-13 files, the tool registry at `domain/tools.py::TOOL_REGISTRY` |
+
+### Additional verification performed beyond the criteria
+
+- The README's own figures table was checked against the run files rather than
+  read: `95c8e9e` corrected it when it pointed at a run two commits stale, and
+  `e906f8d` later corrected five drifted figures and eight line citations that
+  pointed elsewhere.
+- `7ad9679` added the sentence saying the billing is simulated in the same commit
+  that fixed the containerised dashboard serving 404s — the two were found
+  together, by a reviewer walking the quick start rather than reading the code.
+- `07e793d` corrected the release list, which had said the tree was uncommitted.
+  It is not.
+
+### Known gap carried forward
+
+**There is no GitHub Release, and the reason is sequencing rather than
+oversight.** Publishing an unverified installer would put a download link ahead of
+the test the plan says it passes first, so the tag is held until D2 has been
+walked by someone who did not build it. `git tag` returns nothing and `gh release
+list` is empty; the installer that would be attached is built locally and is not
+committed.
+
+---
+
+## P2-F — Internationalisation, and the half of it that is not done
+
+**Date:** 2026-10-14 → 2026-10-20. `651bcef` (the locale and the first
+catalogue), `60cda57` (the native menu bar), `2dc2e24` (the navigation fix).
+
+### Scope
+
+`docs/phase2-plan.md` §P2-F, requested 2026-10-13: a locale the operator chooses,
+English by default, with the API's own machine identifiers left untranslated. The
+plan measured the scope before starting, and the measurement is the part worth
+keeping: **246 user-visible strings, hardcoded, across eight files** (six pages
+and two components), no i18n framework in `web/` at all, and **50 e2e assertions
+that pin English prose** — several of them written in Phase 2 to prove that a
+failure state says something true and specific rather than something generic. So
+the work was never "wrap the strings in a function"; it was strings + catalogue +
+locale negotiation + 50 assertion updates, and the second half is where the
+defects hide.
+
+### Acceptance criteria and outcome
+
+| # | Criterion | Outcome |
+|---|---|---|
+| F1 | A fresh clone still runs in English with no configuration | ✅ `DEFAULT_LOCALE = "en"` (`web/src/i18n/config.ts`) and the locale is an explicit, sticky, operator-set cookie (`opspilot_locale`) rather than `Accept-Language` negotiation — a browser's language is not an operator's decision, and silence is a bug on a screen that governs "Approve". `web/e2e/i18n.spec.ts` asserts "a fresh browser renders English, with no cookie and no configuration" |
+| F2 | A locale the operator chooses, and a catalogue for it | ✅ `zh-CN` is the first translation: `web/src/i18n/dictionaries/zh-CN.json`, 330 leaves against English's 334. The four-leaf difference is the `.one` plural forms Chinese does not have, and `web/e2e/i18n-catalogue.spec.ts` fails on any key the new file is missing, so an incomplete catalogue cannot ship silently |
+| F3 | Switching locale does not change what the API speaks — the error `code`s and the trace `step_type`s are machine identifiers and must not be translated | ✅ `web/src/i18n/enums.ts` draws the line explicitly: a *label for a situation* is localised, a *quoted value an operator greps into a bug report* is verbatim in every locale. `i18n.spec.ts` asserts the "No" row in both locales |
+| F4 | The audit trail stays as recorded | ✅ the ledger records the same approval row whichever label an operator was reading, and `GET /api/runs?status=` accepts the same query it always did |
+| F5 | The desktop shell's messages are in the operator's language — §P2-F puts the shell in scope | 🟡 **half done** — the menu bar is localised, the shell's *error copy* is not. See below |
+
+### Additional verification performed beyond the criteria
+
+- 22 `web-e2e` cases across `i18n.spec.ts` (7) and `i18n-catalogue.spec.ts` (15),
+  plus 16 in `desktop/e2e/menu.spec.ts`.
+- The native menu bar was localised last, and it keeps **its own copy** of the
+  catalogue (`desktop/src/menu-policy.ts`), because a native menu is drawn by the
+  main process, which has no Next.js runtime to read `web/`'s dictionaries from.
+  `desktop/e2e/menu.spec.ts` reads `web/src/i18n/config.ts` and fails when the
+  locale list or the cookie name drifts, so a language added to the dashboard
+  cannot leave the menu behind without a red test. The shell reads the locale
+  cookie out of the session's cookie store rather than being told by the page,
+  which is what makes the menu right at start-up — the operator's choice from
+  last time — and not only after a switch inside the running application.
+- The dictionary leaf counts were recomputed from the two JSON files rather than
+  quoted: `en.json` 334, `zh-CN.json` 330.
+
+### Known gap carried forward
+
+**The application's own error copy is not localised, and §P2-F put the shell in
+scope.** Two surfaces are English:
+
+- the dashboard's own sentences about the transport, composed in
+  `web/src/lib/api/client.ts` (`The API answered {status} on /health.`, `Could
+  not reach the API at {base}…`, `The API rejected the operator token…`) and
+  rendered by `web/src/components/api-status.tsx:38` in a banner that appears on
+  every page. These are the *dashboard's* words, not the API's, so §P2-F's
+  carve-out for "the API's own user-facing text" does not cover them; and
+- every title and paragraph in `desktop/src/lifecycle/errors.ts` — the Docker
+  states, the token states, the Compose states — together with the probe's
+  failures, the session's shutdown messages and the bootstrap page's failure
+  panel.
+
+This is recorded in `docs/limitations.md` §7 rather than fixed, and the reason is
+given there: a half-localized application is worse than a documented one, because
+an operator reading a Chinese page and an English error banner has to decide
+which half to believe. The fix is mechanical — a second dictionary beside
+`desktop/src/menu-policy.ts`'s, and six more keys in the dashboard's — and it is a
+Phase 3 decision rather than a Phase 2 one.
+
+---
+
+## Phase 2 closes: the audit found seven real defects, and three items still need a person
+
+**Date:** 2026-10-20. Spans `7057bd2` (the Phase 2 plan) through `60cda57` (the
+native menu bar), 41 commits, plus the closing review recorded here.
+
+### What the audit found
+
+Phase 2 closed the way Phase 1 did. The acceptance table was written from the
+tree rather than from the work packages' prose (`c746ab0`), handed to a second
+reader to falsify, and **the first pass was wrong** — C1 read "met" when the
+guarantee the plan asked for is not the guarantee the code makes. That correction
+has its own section above, and it is not the end of the story.
+
+The closing review of 2026-10-20 went on to check the tree for the class of
+defect this repository keeps committing: **a document reading as evidence of
+something the code does not say.** It found seven real defects, and the test suite
+did not find one of them — two of them it had in fact blessed: the shared
+`WORKER_ID` was an accepted, documented exception in
+`tests/unit/test_compose_settings_are_wired.py`, and the password test asserted
+the *presence* of `POSTGRES_PASSWORD` rather than the linkage between it and the
+URL that has to agree with it.
+
+1. **A shared `WORKER_ID` default defeated the claim lease's `claimed_by` column.**
+   `docker-compose.yml` shipped `WORKER_ID: ${WORKER_ID:-worker-compose}` — one
+   value for a whole deployment, and therefore one value for every replica of the
+   worker service. But `agent_runs.claimed_by` is the second column of the lease,
+   and `SqlRunStore.renew_lease` is a conditional UPDATE on it — `WHERE id = ? AND
+   claimed_by = ?` (`repositories.py:552-553`) — for exactly the reason
+   `migrations/versions/0002_claim_lease.py` states: a worker whose lease expired
+   and whose run was stolen must not be able to extend the thief's lease. A shared
+   identity makes that condition true for the wrong worker, and the lease stops
+   excluding anybody. `docker compose up --scale worker=2` gave two processes one
+   identity. The default is now empty and the worker derives
+   `worker-<hostname>-<pid>` itself: the hostname is the container's, which Docker
+   makes unique per container, and the pid keeps two processes on one host apart.
+   `tests/unit/test_worker_identity_is_unique.py` pins the property, including
+   that the compose fallback is empty rather than a name.
+
+2. **A stale comment in `src/opspilot/worker/__main__.py` asserted the opposite,
+   and so hid the first.** The docstring on `resolve_worker_id` said "`SqlRunStore
+   .claim_next` ignores `worker_id` today -- mutual exclusion is the row lock, not
+   the identity", and quoted "the row's holder is the open transaction" — a
+   phrase that no longer exists in `repositories.py` at all; it described the
+   pre-lease implementation. The one place whose job was to catch a shared
+   identity was reassuring itself with a statement about a version of the code
+   that had been replaced. The docstring now states the real reason and quotes
+   the migration that says it.
+
+3. **`POSTGRES_PASSWORD` and the password in `DATABASE_URL` were not linked, so a
+   deployment that set one broke every authentication.** The database was
+   initialised with the new password and the application connected with the old
+   one, so every `migrate`/`api`/`worker` authentication failed, and the README's
+   remedy meant hand-editing a committed file. The variable was *present* and
+   *overridable* — which is precisely why A3's row read "met". Fixed; see the
+   P2-A entry above.
+
+4. **The README told a stranger `.env` was optional, and Compose refuses to render
+   the project without a token.** `docker-compose.yml` uses the `:?` form for
+   `OPSPILOT_OPERATOR_TOKEN` in four services, so `docker compose up` fails with
+   "required variable OPSPILOT_OPERATOR_TOKEN is missing a value" before a single
+   container starts. The quick start now copies `.env.example` and names the
+   variable. `tests/unit/test_readme_quick_start_matches_compose.py` asserts the
+   README and the compose file agree, and reads the required set out of the
+   compose file rather than maintaining it by hand — so the next required setting
+   is a red test rather than a stale sentence.
+
+5. **A newly-introduced falsehood in `web/README.md`.** `e0b32c3` wrote "It never
+   calls the API on `:8000` from the browser" into the same paragraph as "Reads go
+   direct, and the API's CORS policy (`docs/api-contract.md` §8.1) is what makes
+   those work" — and the two contradict each other. The sentence is now scoped to
+   writes.
+
+6. **The verification documents quoted error text the application never
+   displays.** "Docker Desktop is not installed" and "Docker is installed but not
+   responding" are strings the window has never shown; it says "Docker is not
+   installed" and "Docker is installed but not running". A verification procedure
+   whose expected strings are wrong manufactures a finding.
+   `desktop/e2e/error-text.spec.ts` now asserts the documents' quoted spans
+   against the functions the shell calls, in both languages.
+
+7. **The dashboard's own error copy and the desktop shell's messages are
+   English-only, while §P2-F put the shell in scope.** The menu bar is localised;
+   the sentences an operator reads when something breaks are not. This one is
+   recorded rather than fixed, in `docs/limitations.md` §7, with the reason given
+   there.
+
+### The score did not move
+
+**The Definition of Done is 18 of 19, unchanged.** D19a stays unmet for the
+reason it states. Phase 2 moved no eval metric: the committed baseline is still
+`evals/results/2026-10-11T15-39-42.json`, at `tool selection 0.200 (3/15)` and
+`unsafe execution count 0` — the property being claimed, and a gate. The only
+*committed* live runs since are the two `tool_selection` runs B2 was deferred on,
+and they were the evidence for the deferral rather than a change to anything.
+
+### What went wrong, since the rule is to record it
+
+- **The acceptance table's first pass was wrong, and it took a second reader to
+  catch it.** C1 read "met" against a `limitations.md` that had already called the
+  end-to-end promise open. A summary assembled from intent is exactly the
+  document that will drift.
+- **A3's row was half-true for the same reason, and nobody caught it in a
+  month.** The row cited a test that existed, and the test asserted the *presence*
+  of a variable rather than the *linkage* between two values that must agree. A
+  citation is not a reading.
+- **A stale docstring is a defect with a long fuse.** It was not merely wrong; it
+  was wrong in the direction that made the real defect look fine, and it was
+  written in the one place whose job was to catch exactly that.
+- **The B2 section in this file asserted two things that cannot both be true.**
+  "The two runs proposed an identical tool set for 8 of the 15 cases" and "every
+  case that failed in both proposed different things the second time" were both
+  in the same bullet, and the second was false: 6 of the 12 that failed in both
+  proposed the identical set again, and 3 of those proposed nothing at all in
+  either run. The section's conclusion was right and its supporting sentence was
+  not, and the arithmetic hanging the deferral on the one-case spread was off as
+  well. The B2 section above has been corrected against the result files; the
+  conclusion has not changed.
+
+### Where Phase 2 ends
+
+Three items are open, and **only a person can close any of them**:
+
+- **D2 — the installer walk-through.** The acceptance is "on a clean Windows
+  machine with Docker Desktop, install the built package and walk the golden path
+  end to end... by someone who did not build it". The installer was built by the
+  author, so running it here is self-certification and does not meet the
+  criterion. `docs/installer-verification.md` is the script; a stranger is the
+  missing part.
+- **E's GitHub Release — no tag exists.** `git tag` returns nothing and `gh
+  release list` is empty. This is sequencing, not oversight: publishing an
+  unverified installer would put a download link ahead of the test the plan says
+  it passes first. It is held until D2 is walked.
+- **C1 — the two-worker guarantee is boundary-stated-and-tested, not closed.** The
+  lease closes the live-worker half: the 30/30 concurrent double-claim is gone.
+  The repository asserts the opposite case in the other half — a run whose lease
+  lapses mid-drive *is* claimed by a second worker, "two workers driving one run.
+  That is the honest cost of a lease" — and `docs/limitations.md` §8 item 2
+  lists the end-to-end promise as open. The honest state is the one the
+  acceptance table now reads: the boundary is stated and tested.
+
+Two further boundaries are recorded rather than ticked, and neither is waiting on
+anybody: **B2**, deferred on measured run-to-run variance, with its own section
+above; and **P2-F's error copy**, in `docs/limitations.md` §7.
+
+CI was green on the last push to `main` — run `39299905779`, commit `60cda57`, 14
+jobs including the 3.12/3.13 matrix. The closing review's fixes are in the
+working tree and post-date that run, so that run is evidence about `60cda57` and
+not about them.

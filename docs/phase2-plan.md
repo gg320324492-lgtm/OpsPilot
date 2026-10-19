@@ -290,54 +290,112 @@ README, and reproduce the golden path without asking a question.
 
 ---
 
-## P2-F · Internationalisation (deferred, sequenced before the freeze)
+## P2-F · Internationalisation (landed 2026-10-14)
 
-**Requested 2026-10-13. Not started.** Recorded here rather than dropped, with
-its measured scope, because "add i18n" is a two-word request and a week's work.
+**Requested 2026-10-13. Landed 2026-10-14**, at `651bcef` — "a locale the
+operator chose, with Chinese as the first catalogue". The scope that was
+measured when it was requested is kept below, because that measurement is what
+justified the work; what the tree contains is recorded beside it.
 
-### What exists
+### What was measured, and what exists
 
 **246 user-visible strings, hardcoded, across eight files** — six pages
 (`approvals`, `knowledge`, `page`, `runs`, `runs/[runId]`,
 `runs/[runId]/approval-summary`) and two components (`approval-card`,
-`explanation`). **No i18n framework is a dependency of `web/`** — there is no
+`explanation`). **No i18n framework was a dependency of `web/`** — there was no
 message catalogue, no locale negotiation, and no `Accept-Language` handling
 anywhere.
 
-### The cost that is not obvious
+That was the measurement of 2026-10-13, and it is the record of what the
+request was. **It stopped being true at `651bcef`.** What exists now:
+
+- **A message catalogue.** `web/src/i18n/dictionaries/en.json` (334 leaves) and
+  `web/src/i18n/dictionaries/zh-CN.json` (330). The four-leaf difference is
+  exactly the `.one` plural forms Chinese does not have:
+  `dashboard.replay.one`, `dashboard.indexed.one`, `run.failedCalls.one` and
+  `knowledge.reindex.someIndexed.one`.
+- **A locale the operator chooses.** `web/src/i18n/config.ts` fixes
+  `DEFAULT_LOCALE = "en"`, `LOCALES = ["en", "zh-CN"]` and the cookie
+  `opspilot_locale`; `web/src/i18n/server.ts` reads that cookie server-side and
+  answers English when it is absent.
+- **No `Accept-Language` negotiation, by deliberate decision.** The Next guide
+  recommends it for a public website. This is an operator dashboard bound to
+  loopback that decides whether money moves, and a browser's language is a
+  property of a profile someone else configured — so the locale is an explicit
+  choice made on this screen, not a default inherited from a browser.
+- **The native menu bar speaks the same locale.** `desktop/src/menu-policy.ts`
+  carries a `zh-CN` `MENU_COPY` beside the English one, and `desktop/src/menu.ts`
+  reads the same `opspilot_locale` cookie out of the session's cookie store, so
+  the menu and the page cannot disagree and the menu is right at start-up,
+  before any navigation. `desktop/e2e/menu.spec.ts` and
+  `desktop/e2e/menu-electron.spec.ts` assert it, and `menu.spec.ts` fails if
+  the locale list or the cookie name drifts from the dashboard's.
+
+### The cost that was not obvious
 
 **The e2e suite asserts English prose, in 50 places.** `getByText(/the worker has
 not claimed it yet/)`, `getByText(/A worker claimed this run, and its claim
 expired at /)`, and so on. These are not incidental — several were written in
 Phase 2 to prove that a failure state says something *true and specific* rather
-than something generic. **Adding a locale silently invalidates all 50**, and a
-mechanical `data-i18n` or `data-testid` sweep would trade the suite's ability to
-say what the operator reads for a cheaper assertion.
+than something generic. **Adding a locale would have silently invalidated all
+50**, and a mechanical `data-i18n` or `data-testid` sweep would trade the
+suite's ability to say what the operator reads for a cheaper assertion.
 
-So i18n is not "wrap the strings in a function". It is **strings + catalogue +
-locale negotiation + 50 assertion updates**, and the second half is where the
-defects hide.
+So i18n was never "wrap the strings in a function". It is **strings + catalogue
++ locale negotiation + 50 assertion updates**, and the second half is where the
+defects hide. None of them hid: **no assertion was blanketed** — the English
+literals stayed, and there is still no `data-testid` anywhere in `web/src/` or
+`web/e2e/`. What was added instead is `web/e2e/i18n.spec.ts`, which doubles the
+Phase-2 specificity assertions in Chinese **written out literally rather than
+read from the catalogue** — an assertion derived from the catalogue would pass
+if the copy were replaced with something generic, which is the whole thing being
+guarded — and `web/e2e/i18n-catalogue.spec.ts`, which fails on any key a new
+locale file omits, so an incomplete catalogue cannot ship silently. 22 cases in
+all.
 
-### Proposed scope, in order
+### The scope that was proposed, in order, and what was decided
 
 1. **Chinese (Simplified) first**, then English as the source locale. The source
    locale must *remain* English in the repository; the Chinese catalogue is the
    first translation, not a replacement.
+   **Decided as proposed:** English is still the source catalogue, and still
+   what a fresh clone renders.
 2. **A framework, chosen deliberately.** `next-intl` is the usual fit for an App
    Router app with Server Components, and the app is Server Components
    throughout, so the choice is not arbitrary — but read the current Next
    version's guidance rather than trusting an older tutorial, the same way
    `web/AGENTS.md` insists for anything in that tree.
+   **Decided against.** Next 16.3.8's own internationalization guide offers a
+   `[lang]` segment or a library, and both were rejected: the segment turns `/`
+   into `/en` and changes every nav link, every spec's `page.goto` and every
+   pasted URL, and both `getDictionary` and `next-intl`'s `getRequestConfig`
+   fail on a missing catalogue, which the English-by-default requirement below
+   forbids. What ships is an `httpOnly SameSite=Lax` cookie read with `await
+   cookies()` — the app's own Server-Component mode, and the only `cookies()`
+   call in `web/src/` — with English on absence, no config file and **no new
+   dependency**. No i18n framework is a dependency of `web/`, and that is the
+   decision, not an omission.
 3. **Update the e2e assertions deliberately**, one at a time, deciding per
    assertion whether it should pin a *translated* string, a stable `data-testid`,
    or both. Pinning a translated string is what keeps the suite proving the
    operator reads something true, in whatever locale it renders.
+   **Done without blanketing anything:** the English literals stayed, no
+   `data-testid` was introduced, and the Chinese assertions are written-out
+   literals in `web/e2e/i18n.spec.ts` — see "The cost that was not obvious"
+   above.
 4. **Then, and only then, the remaining mainstream languages.** Which ones is a
    product decision this document does not make.
+   **Still unmade:** `zh-CN` is the only translation that ships.
 
-### What must be true when it lands
+### What had to be true when it landed, and is
 
-- A fresh clone still runs in English with no configuration, as D8 requires.
+- A fresh clone still runs in English with no configuration. **This section's own
+  requirement — not `docs/milestones.md`'s D8**, which is "Every setting the
+  code reads appears in `.env.example`", and which no ADR and no locale text
+  anywhere else in the repository mentions. The behaviour is real; the
+  provenance that used to stand here was not. It is true by construction:
+  `web/src/i18n/config.ts` answers English on the absence of the cookie, so a
+  fresh clone needs no configuration to be in English.
 - Switching locale does not change what the **API** speaks: the error `code`s
   (`origin_foreign`, `ticket_exists`, `approval_already_decided`) and the trace
   `step_type`s are machine identifiers, not copy, and must not be translated.
@@ -362,49 +420,62 @@ complete the code looks**, so this is the table that decides.
 | | Acceptance | State | Evidence |
 |---|---|---|---|
 | **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all `127.0.0.1`: 5432 (`:68`), 8000 (`:256`), 3000 (`:478`); `tests/unit/test_compose_settings_are_wired.py` pins it |
-| **A2** | A privileged write is refused unless it came from the dashboard | **met** | all three write routes call `foreignOriginRefusal`: `tickets/route.ts`, `knowledge/reindex/route.ts`, `approvals/[approvalId]/[decision]/route.ts`; `web/e2e/write-origin.spec.ts` holds each to a test |
-| **A3** | The database password is configurable and the default is named as one | **met** | `${POSTGRES_PASSWORD:-opspilot}` with the argument in situ; `test_compose_postgres_password_is_configurable.py` |
-| **A4** | "No document describes the browser as calling the API directly, and none describes a capability `limitations.md` §8 records as absent" | **met** | the two sentences §P2-A4 names are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process" nor that the screens are "routing stubs"; `docker-compose.yml` carries neither either |
+| **A2** | A privileged write is refused unless it came from the dashboard | **met** | all three write routes call `foreignOriginRefusal`: `web/src/app/api/tickets/route.ts`, `web/src/app/api/knowledge/reindex/route.ts`, `web/src/app/api/approvals/[approvalId]/[decision]/route.ts`; `web/e2e/write-origin.spec.ts` holds each to a test |
+| **A3** | The database password is configurable and the default is named as one | **met — and it was half-true until the 2026-10-20 review** | `${POSTGRES_PASSWORD:-opspilot}` with the argument in situ; the password in every service's `DATABASE_URL` is written from that same variable, so setting it once changes both sides. It did not, at first: the URL carried its own literal `opspilot` password, so `POSTGRES_PASSWORD` could be set and the stack would fail every `migrate`/`api`/`worker` authentication — and the README's remedy ("change the password in `DATABASE_URL` to match") meant hand-editing a committed file. The URL's *host* is still deliberately fixed. `test_compose_postgres_password_is_configurable.py` |
+| **A4** | "No document describes the browser as calling the API directly, and none describes a capability `docs/limitations.md` §8 records as absent" | **met** | the two sentences §P2-A4 names are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process" nor that the screens are "routing stubs"; `docker-compose.yml` carries neither either |
 | **B1** | The tool-selection failures are diagnosed before anything is changed | **met** | `docs/progress.md` — the twelve misses are the tool *set*, not the arguments |
 | **B2** | A change moves the score, twice over | **deferred, deliberately** | two identical runs scored 3/15 and 2/15; the spread equals any plausible improvement, so the target is unmeasurable against this endpoint (`docs/progress.md`, "Two runs of the same code") |
 | **B3** | The metric's name matches what it counts | **met** | `docs/evals.md` §1 now states what row 5 counts and that it pools empty and malformed arguments; the malformed half gained its own metric on 2026-10-15 |
-| **B4** | A holdout set exists and tuning never consults it | **met** | `evals/datasets/tool_selection_holdout.jsonl`, 32 cases; `_OPT_IN_DATASETS` in `evals/__main__.py` |
-| **C1** | "A test that starts two workers against one PostgreSQL and asserts no run is claimed twice" | **partial — and the row first read "met", which was wrong** | The lease (`0002_claim_lease.py`, the predicate in `SqlRunStore.claim_next`) closes the *live-worker* half: the documented 30/30 concurrent double-claim is gone. Two files carry it and the split matters — `tests/integration/test_worker_claim_lease.py` is the dialect-independent half on SQLite (`:77`), and `test_worker_claim_postgres.py::test_a_leased_claim_is_withheld_from_a_second_worker` (`:439`, one of seven `postgres`-marked tests) is the half that runs against a real PostgreSQL. But the acceptance as written is **unconditional**, and the repository's own test asserts the opposite case: `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode` drives a run, lets an unrenewed lease expire, and asserts a second worker **does** claim it — "two workers driving one run. That is the honest cost of a lease." `docs/limitations.md` §8 item 2 still lists the end-to-end promise as open and calls the production fix C1's open half. So the boundary is *stated and tested*, not removed — the same shape C2 chose, recorded here rather than read as a stronger guarantee than the code makes |
+| **B4** | A holdout set exists and tuning never consults it | **met** for the holdout's existence; the plan's third clause is **unmet** | `evals/datasets/tool_selection_holdout.jsonl`, 32 cases; `_OPT_IN_DATASETS` in `src/opspilot/evals/__main__.py:69` — not `evals/__main__.py`, which does not exist; the root `evals/` holds only `datasets/` and `results/`. §P2-B4 states the acceptance in three clauses — "≥30 new cases committed; tuning decisions cite the 15; the holdout is run once at the end and its result reported whether or not it improves" — and this row quoted two. The **third is unmet**: 0 of the 290 committed files in `evals/results/` touch the holdout, so it has never been run and no result has been reported. That is partly the design working as intended — `_OPT_IN_DATASETS` is opt-in and "never run by default", which is what "tuning never consults it" asks for — but the report the clause asks for does not exist |
+| **C1** | "A test that starts two workers against one PostgreSQL and asserts no run is claimed twice" | **partial — and the row first read "met", which was wrong** | The lease (`migrations/versions/0002_claim_lease.py`, the predicate in `SqlRunStore.claim_next` — `src/opspilot/adapters/persistence/repositories.py:453`) closes the *live-worker* half: the documented 30/30 concurrent double-claim is gone. Two files carry it and the split matters — `tests/integration/test_worker_claim_lease.py` is the dialect-independent half on SQLite (`:77`), and `tests/integration/test_worker_claim_postgres.py::test_a_leased_claim_is_withheld_from_a_second_worker` (`:439`, one of **five** `postgres`-marked tests — this row used to say seven, which counts two other `test_` functions in that file that carry no marker) is the half that runs against a real PostgreSQL. But the acceptance as written is **unconditional**, and the repository's own test asserts the opposite case: `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode` drives a run, lets an unrenewed lease expire, and asserts a second worker **does** claim it — "two workers driving one run. That is the honest cost of a lease." `docs/limitations.md` §8 item 2 still lists the end-to-end promise as open and calls the production fix C1's open half. So the boundary is *stated and tested*, not removed — the same shape C2 chose, recorded here rather than read as a stronger guarantee than the code makes |
 | **C2** | The refund guarantee is made and tested, or its boundary is stated and tested | **met**, by the second route | `tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded` asserts the *failure* the contract does not cover, rather than denying it |
 | **C3** | An operator can tell a claimed-but-stalled run from an unclaimed one | **met** | the lease is projected to the run page (`web/src/app/runs/[runId]/page.tsx`); `web/e2e/claim-lease.spec.ts` |
-| **C4** | The worker-startup gap the e2e job hit | **met** | `tests/integration/test_worker_entry_point.py` |
+| **C4** | The worker-startup gap the e2e job hit | **met**, on the second and third limbs of the plan's acceptance | `web/e2e/stack-diagnostics.spec.ts` — the `assessWorker` guard (the pure function the restart check moved into, asserted against a boot-then-crash log, a crash-looping container, a container that exited after booting, an absent container and a silent log) and `composeDiagnosticsDir` (the per-service log capture, asserted not to collide) — plus `docs/progress.md:5118` ("the cause is NOT established, and the artifact cannot establish it") and `docs/progress.md:5433` ("C4's three findings, two fixed and one recorded"). `tests/integration/test_worker_entry_point.py`, which this row used to cite, is about the `opspilot-worker` console-script entry point, not this. §P2-C4 states the acceptance in three limbs: "the cause is found and fixed, **or** the gate's evidence is shown to be sufficient to diagnose it next time, **and** `docs/limitations.md` records it as an open question rather than a closed one". The **first limb is unmet** — the cause was never diagnosed, which §P2-C4 says itself. The **second is met** by the two guards above. The **third is met in `docs/limitations.md` §2** ("Reliability"), **not §8**: the five-minute unclaimed window is described there as "the exact snapshot CI run 38202887580 could not explain" |
 | **D1** | The shell owns the stack lifecycle and stops only what it started | **met** | `desktop/src/lifecycle/` (no Electron import) + `desktop/e2e/shell.spec.ts`, which launches a real window |
 | **D2** | Installed on a clean machine and walked, **by someone who did not build it** | **outstanding, and only a person can close it** | `docs/installer-verification.md` is the script. The installer was built by the author, so running it here is self-certification and does not meet the criterion |
-| **D3** | The **packaged** app is checked against A1–A3 the same way the dev stack is | **met for the artefact, partial for a running instance** | `desktop/e2e/packaged-posture.spec.ts` inspects what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env`/token, and the security policy inside `app.asar`. It does **not** launch `OpsPilot.exe`: doing so spawns Docker and writes a token into `%APPDATA%`, which is the manual step `installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit |
+| **D3** | The **packaged** app is checked against A1–A3 the same way the dev stack is | **met for the artefact, partial for a running instance** | `desktop/e2e/packaged-posture.spec.ts` inspects what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env`/token, and the security policy inside `app.asar`. It does **not** launch `OpsPilot.exe`: doing so spawns Docker and writes a token into `%APPDATA%`, which is the manual step `docs/installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit |
 | **E** | A stranger can clone, follow the README, and reproduce the golden path | **partial** | README positioning, the simulated-billing statement, the case study, the GIF (359,981 bytes) and **ten** screenshots are committed. **No GitHub Release**: `git tag` returns nothing and `gh release list` is empty, and the tag is held back on purpose — see D2 |
-| **F** | A locale the operator chooses, English by default | **met** for the first catalogue | `web/src/i18n/` with `en` (334 leaves) and `zh-CN` (330); the four-leaf difference is the `.one` plural forms Chinese does not have. `i18n.spec.ts` and `i18n-catalogue.spec.ts`. Adding further languages is a product decision this document does not make, per §P2-F |
+| **F** | A locale the operator chooses, English by default | **met** for the first catalogue | `web/src/i18n/` with `en` (334 leaves) and `zh-CN` (330); the four-leaf difference is exactly the `.one` plural forms Chinese does not have (`dashboard.replay.one`, `dashboard.indexed.one`, `run.failedCalls.one`, `knowledge.reindex.someIndexed.one`). The two spec files are in `web/e2e/`, not beside the catalogue: `web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`. The native menu bar is localized too — `desktop/src/menu-policy.ts`'s `zh-CN` `MENU_COPY`, and `desktop/src/menu.ts` reading the same `opspilot_locale` cookie out of the session's cookie store, asserted by `desktop/e2e/menu.spec.ts` and `desktop/e2e/menu-electron.spec.ts`. Adding further languages is a product decision this document does not make, per §P2-F |
 
-**Three rows are not clean "met" (C1, D2/D3, E), and they are not the same kind
-of gap.** D3's remaining half and D2 both need a person to run the installer, and
-E's Release is blocked on D2 by design — publishing an unverified installer would
-put a download link ahead of the test the plan says it passes first. Those are
-sequencing, not defects. **C1 is different: the guarantee the plan asked for is
-not the guarantee the code makes**, and the repository says so in two places
+**Five rows are not clean "met" (C1, B4, C4, D2/D3, E), and they are not the same
+kind of gap.** D3's remaining half and D2 both need a person to run the installer,
+and E's Release is blocked on D2 by design — publishing an unverified installer
+would put a download link ahead of the test the plan says it passes first. Those
+are sequencing, not defects. **C1 is different: the guarantee the plan asked for
+is not the guarantee the code makes**, and the repository says so in two places
 (`limitations.md` §8 item 2, and the test that asserts the lapsed-lease case). The
 honest state is "boundary stated and tested", which is what the row now reads.
+**B4 and C4 are narrower again: each row quoted fewer of the plan's own
+acceptance clauses than the plan states, and the clauses left out were the unmet
+ones** — the holdout has never been run (B4's third clause), and the
+worker-startup cause was never diagnosed (C4's first limb). Both are recorded
+here rather than read as met, because the clause is the acceptance.
 
 **This table was wrong on its first pass and is left recorded that way.** C1
 first read "met", against a `limitations.md` that had already called the
 end-to-end promise open. A second pair of eyes caught it, and the correction is
-noted in the 2026-10-15 `docs/progress.md` entry. That is the defect class §8
-exists for — a document reading as evidence of something the tree does not say —
-and this section is exactly the kind of document that commits it: a summary
-written from intent rather than from the files. The rows above cite a file or a
-test each, so the next reader can check them the same way.
+noted in the 2026-10-15 `docs/progress.md` entry. **The 2026-10-20 review found
+three more of the same shape** — B4 and C4 each quoted fewer acceptance clauses
+than the plan states, and the clauses left out were the unmet ones; C4's
+evidence cited a test about a different subject entirely; and F's evidence gave
+two spec files' bare names immediately after a directory they are not in. That
+is the defect class §8 exists for — a document reading as evidence of something
+the tree does not say — and this section is exactly the kind of document that
+commits it: a summary written from intent rather than from the files. The rows
+above cite a file or a test each, so the next reader can check them the same
+way.
 
 ## Ordering
 
 A → B → C → D → E, with the caveat that A must finish before anything is
 exposed to a network, and D is deliberately last of the engineering work so the
-installer ships the hardened system rather than the vulnerable one. **F sits
-after D and before the freeze**: an installer that ships only one language is
-still coherent, whereas freezing before the locale question is settled makes it
-retrofit a shipped artefact.
+installer ships the hardened system rather than the vulnerable one. **F was
+placed after D and before the freeze** — an installer that ships only one
+language is still coherent, whereas freezing before the locale question is
+settled makes it a retrofit of a shipped artefact. **It landed on 2026-10-14,
+ahead of D's closure**, and the reasoning held: the dashboard and the desktop
+menu carry `zh-CN` alongside English, so the locale question is settled rather
+than retrofitted.
 
 ## What Phase 2 does not do
 

@@ -1,9 +1,9 @@
-# Honest Limitations — Phase 1
+# Honest Limitations — Phase 1, updated for Phase 2
 
 This file exists because a portfolio project's credibility comes from what it
-refuses to overclaim. Everything below is true of OpsPilot as shipped at the end
-of Phase 1. Anything on this list that a reader would otherwise assume is
-working is a bug in the README, not in this file.
+refuses to overclaim. Everything below is true of OpsPilot as shipped. Anything
+on this list that a reader would otherwise assume is working is a bug in the
+README, not in this file.
 
 ---
 
@@ -62,8 +62,8 @@ fails fails the run. An MCP server that is down fails the run. There is a single
 attempt and the failure is recorded honestly. This makes the eval numbers clean
 and the demo fragile — both are intentional at this stage.
 
-**One worker, and the concurrency claim is tested at the predicate and at the
-lock — but the end-to-end two-worker guarantee does not hold.** The claim query
+**The claim is tested at the predicate, at the lock and at the lease, and the
+end-to-end two-worker promise is still not unconditional.** The claim query
 uses `FOR UPDATE SKIP LOCKED` on Postgres
 (`repositories.py::SqlRunStore.claim_next`; SQLite has no equivalent, so the
 same statement runs there without the locking clause — ADR-0004). The claim
@@ -79,23 +79,24 @@ claim of a single locked run gets `None`. An earlier revision of this section
 named a `test_two_workers_do_not_claim_the_same_run` that did not exist; the test
 that does exist is named above.
 
-What that test deliberately does **not** claim is the property ADR-0005 and
-`docs/architecture.md` advertise — that two workers on one database cannot claim
-the same run, "scaling out is adding replicas". They cannot, as implemented,
-because `claim_next` holds its row lock only for the duration of its own
-`SELECT`: it opens a transaction, reads the oldest claimable row, returns a
-domain object, and commits. Nothing is held across the run's drive, and the
-claim does not change the row's status. The lock therefore excludes another
-claim only while a claim transaction is *open*; two workers whose polls do not
-overlap both receive the same still-`RECEIVED` run, and both drive it. This is
-not theoretical: thirty pairs of concurrent `claim_next` calls on one row
-returned that row to both, thirty times out of thirty. It is characterised in
-code (`test_a_released_claim_is_reclaimable_by_a_second_worker`) and recorded
-here rather than papered over. The fix — holding the row (or marking it claimed)
-across the drive, which is what the ADR describes — is a production change with
-its own decision, and is **Phase 2 C1's open half**, not something a test can
-assert into existence. The practical consequence: **run one worker per
-database.**
+What that test deliberately does **not** claim is the property ADR-0005 used to
+advertise — that two workers on one database cannot claim the same run, "scaling
+out is adding replicas". ADR-0005 and `docs/architecture.md` both carry a
+correction of that claim now, and the correction is kept here because the
+measurement is what the lease is measured against. **Before the lease, they
+could not.** The claim as it stood at commit `23d3ffe` held its row lock only
+for the duration of its own `SELECT`: it opened a transaction, read the oldest
+claimable row, returned a domain object, and committed. Nothing was held across
+the run's drive, and the claim did not change the row's status. The lock
+therefore excluded another claim only while a claim transaction was *open*; two
+workers whose polls did not overlap both received the same still-`RECEIVED` run,
+and both drove it. This was not theoretical: thirty pairs of concurrent
+`claim_next` calls on one row returned that row to both, thirty times out of
+thirty. The test that characterised it was deleted when the lease fixed it — its
+own docstring named the fix as the prompt to delete it — so the measurement is
+recorded here rather than papered over. The practical consequence then was **run
+one worker per database**; ADR-0005 says that is no longer a correctness
+requirement.
 
 **The claim lease fixes that, and in exchange widens an already-unreportable
 window from about a second to five minutes.** The lease (`b9bbd5c`;
@@ -126,8 +127,8 @@ because a claim that wrote nothing left the row for the very next poll.
 **The default is still defensible, and the default did not move.** Recovery is
 automatic — the lease expires, `claim_next`'s predicate admits the row again
 (its `claimed_until < now` clause), the next poll takes it — and that is why the
-boundary ADR-0005 describes ("a worker that dies leaves a lease that expires,
-and the run becomes claimable again") is true. It is also precisely what makes
+boundary ADR-0005 describes is true -- a run that is claimed and then abandoned
+stays `RECEIVED` for up to one lease period, and is then claimable again. It is also precisely what makes
 the symptom unreportable meanwhile: recovery is silent, and it arrives up to one
 lease period late. **Lowering the default is not available.** It has to exceed
 a run's p95 drive duration, measured at 276.7 s on the live eval
@@ -318,18 +319,22 @@ is a real gap and is the reason M7 is scheduled after the workflow it displays.
 **One locale ships as a translation; there is no locale negotiation.** Corrected
 2026-10-14: this bullet previously read "No i18n infrastructure. The dashboard is
 English-only," which stopped being true at `651bcef`. What exists now: an
-English source catalogue, a `zh-CN` catalogue of **330 strings** across 19
+English source catalogue, a `zh-CN` catalogue of **330 strings** across 18
 namespaces (`web/src/i18n/dictionaries/zh-CN.json`), an `httpOnly SameSite=Lax`
 cookie read server-side, and a switcher in the nav. English remains what a fresh
-clone renders, with no configuration (D8). What is still absent is the half of
-internationalisation that is usually assumed by the phrase: **there is no
+clone renders, with no configuration — which is `DEFAULT_LOCALE = "en"` in
+`web/src/i18n/config.ts`, not a DoD item, and an earlier revision of this
+sentence cited D8 for it. D8 (`docs/milestones.md`) is about `.env.example`.
+
+What is still absent is the half of internationalisation that is usually
+assumed by the phrase: **there is no
 `Accept-Language` negotiation, by deliberate decision** — the guide recommends
 it for a public website, and this decides whether money moves on a
 loopback-bound dashboard, so it is an explicit operator choice rather than a
 default. One translation is not a localisation programme; `docs/phase2-plan.md`
 §P2-F scopes the remaining languages as a product decision this project has not
-made. Covered by 22 `web-e2e` cases across `i18n.spec.ts` and
-`i18n-catalogue.spec.ts`.
+made. Covered by 22 `web-e2e` cases across
+`web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`.
 
 ## 7. Product
 
@@ -369,6 +374,31 @@ process, which has no Next.js runtime to read `web/`'s dictionaries from;
 locale list or the cookie name drifts, so adding a language to the dashboard
 cannot leave the menu behind without a red test.
 
+**The menu is localized; the application's own *error copy* is not.** The
+localization covers the dashboard's rendered pages and the native menu bar.
+Two surfaces are not in it, and both are English:
+
+- **The dashboard's own sentences about the transport.** `web/src/lib/api/client.ts`
+  composes them — `The API answered {status} on /health.`, `Could not reach the
+  API at {base}…`, `The API rejected the operator token…` — and
+  `web/src/components/api-status.tsx:38` renders them in a banner that appears
+  on every page. These are the *dashboard's* words, not the API's, so
+  §P2-F's carve-out for "the API's own user-facing text" does not cover them.
+- **The desktop shell's messages.** Every title and paragraph in
+  `desktop/src/lifecycle/errors.ts` (the Docker states, the token states, the
+  Compose states), the probe's failures, the session's shutdown messages and
+  the bootstrap page's failure panel are English-only. §P2-F puts the shell in
+  scope, and this is the part of that scope that is not done.
+
+The reason this is recorded rather than fixed is that a half-localized
+application is worse than a documented one: a Chinese operator reading a
+Chinese page and an English error banner has to decide which half to believe.
+Recording the boundary keeps the promise the repository already makes — that
+`limitations.md` is the honest list — rather than leaving the gap to be found
+by a user. The fix is mechanical (a second dictionary beside
+`desktop/src/menu-policy.ts`'s, and six more keys in the dashboard's), and it
+is a Phase 3 decision rather than a Phase 2 one.
+
 ---
 
 ## 8. Documented but not implemented
@@ -382,6 +412,16 @@ something it is not. They are listed here, in one place, because the pattern is
 only visible when the instances are gathered rather than scattered through a
 milestone log.
 
+**The list is not exhaustive, and does not pretend to be.** Two instances of the
+same class are Phase 2's, and Phase 2 records them in its own acceptance table
+rather than here: the **D2** installer walk-through, which nobody who did not
+build the installer has run (`docs/phase2-plan.md` §D2 and the D2 row of its
+acceptance table; `docs/progress.md`), and the **GitHub Release**, which is
+held back on purpose until D2 passes (`docs/phase2-plan.md` §P2-E and the E
+row). They are cross-referenced here rather than restated, because the title
+describes what this section lists, and a wider title would be a claim this file
+could not keep.
+
 **Remaining — documented, not implemented:**
 
 1. **`issues.create` is not on the golden path** — recorded boundary, operator
@@ -394,18 +434,39 @@ milestone log.
    than by neglect**: whether the workflow **should** file an issue is still
    open, and adding it to the golden path remains a possible Phase 2 product
    decision.
-2. **The two-worker guarantee is untested at the level it is claimed — now
-   partly closed.** `tests/integration/test_worker_claim.py` covers the claim
-   *predicate* on SQLite. `tests/integration/test_worker_claim_postgres.py` now
-   covers the **locking clause** against a real PostgreSQL: two overlapping
+2. **The two-worker guarantee is tested at the predicate, at the lock and at the
+   lease; the end-to-end promise is still not unconditional.** Three files carry
+   the claim. `tests/integration/test_worker_claim.py` covers the claim
+   *predicate* on SQLite. `tests/integration/test_worker_claim_postgres.py`
+   covers the **locking clause** against a real PostgreSQL — two overlapping
    claimants on one locked run take different rows, and a claim of a single
-   locked run is withheld. What remains open is the *end-to-end* promise — two
-   workers, one database, no run driven twice — which the shipped `claim_next`
-   does not provide, because its lock closes with its own `SELECT` and it does not
-   change the run's status. See §2 for the measured statement (30/30 concurrent
-   pairs both received the one row) and the fix that is C1's open half. The test
-   that closes the clause half is named above; the guarantee the ADR advertises is
-   still not what the code does.
+   locked run is withheld — and, in
+   `test_a_leased_claim_is_withheld_from_a_second_worker`, the lease's
+   PostgreSQL half. `tests/integration/test_worker_claim_lease.py` is the
+   lease's **SQLite half**, and the regression for the measured defect: thirty
+   pairs of non-overlapping claims on one run, asserted to hand that run to
+   *none* of the second claimants.
+
+   What remains open is the *end-to-end* promise — two workers, one database, no
+   run driven twice — and the reason is not the one this item used to give. The
+   lease, not the lock, is what a live worker's claim now holds across the
+   drive: `SqlRunStore.claim_next` writes `claimed_until` and `claimed_by` in
+   the claim's own transaction, and `renew_lease` is a conditional `UPDATE ...
+   WHERE id = ? AND claimed_by = ?` that only the holder can extend. The 30/30
+   duplicate is therefore closed, and §2 records the measurement it closed. But
+   a lease is a deadline, not a lock. A worker that stalls past its lease, or
+   dies so that nothing renews it, leaves a lease that expires, and an expired
+   lease makes the run claimable again — a second worker then claims it. That
+   is asserted rather than assumed:
+   `test_worker_claim_lease.py::test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode`
+   drives a run, lets an unrenewed lease expire, and asserts a second worker
+   **does** claim it. The guarantee holds while the lease holds and is
+   conditional once it lapses. ADR-0005 states the same boundary from the other
+   side: "a run that is claimed and then abandoned stays `RECEIVED` for up to
+   one lease period (300 s)" (`docs/adr/0005-db-backed-worker-no-broker.md`,
+   the "Later decision, and what it costs" paragraph). The unconditional form
+   of the promise is not what the code makes, and the boundary is stated here
+   rather than papered over.
 3. **`LangGraphOrchestrator` is implemented by nothing, and no contract test can
    exist yet.** This item previously read "Neither orchestrator is implemented".
    `LinearOrchestrator` is now real: `_pump` builds a `StageDriver` (the stage
