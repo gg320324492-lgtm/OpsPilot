@@ -85,17 +85,21 @@ win:
         - x64
   # The app's own icon: the artwork in `docs/assets/`, packed into one
   # multi-size `.ico` by `desktop/scripts/make-icon.py`. It carries all ten
-  # sizes Windows asks for -- 16/20/24 for the taskbar at the three DPI scales
-  # Windows ships with, 32/40/48 for the shell's small and medium views,
-  # 64/96 for Explorer's tiles, 128/256 for the modern shell's large
-  # renderings -- because Windows picks an icon's size by what it is drawing
-  # rather than by asking, and scales up whatever is missing.
+  # sizes Windows asks for -- 16/20/24 for the taskbar at the three DPI
+  # scales Windows ships with, 32/48 for the shell's medium and large icon
+  # views, 64/96 for Explorer's large and extra-large tiles, 128/256 for the
+  # modern shell's large renderings -- because Windows picks an icon's size
+  # by what it is drawing rather than by asking, and scales up whatever is
+  # missing. 40 is not one of the shell's standard sizes; it is there
+  # because a size Windows asks for and does not have is a blurry render,
+  # and one it never asks for costs a few kilobytes.
   #
   # Committed rather than generated at package time, and kept in one place
-  # rather than copied: it is artwork, not something the code derives, and the
-  # repository's own `.gitignore` ignores `build/` at any depth, so an icon
-  # generated into `desktop/build/` could not be committed at all.
-  # `make-icon.py` is the one command that regenerates it.
+  # rather than copied: it is artwork, and the packaging build does not
+  # derive it -- the script that does is run by hand, when the artwork
+  # changes, and the result is committed beside the change. The repository's
+  # own `.gitignore` ignores `build/` at any depth, so an icon generated
+  # into `desktop/build/` could not be committed at all.
   icon: assets/icon.ico
   artifactName: OpsPilot-Setup-${version}-${arch}.${ext}
 
