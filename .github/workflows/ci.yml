@@ -101,6 +101,20 @@ jobs:
         # compiler to complain. A favicon that is three artwork revisions
         # old is exactly as invisible as the icon was.
         #
+        # The favicon packs a 256-pixel frame as well as the 16, 32, 48 and
+        # 64 that the browser asks for, and that frame is most of the file:
+        # an `.ico` is fetched whole, so its 80,707 bytes of PNG are
+        # downloaded whether the browser wanted that size or not, and the
+        # artefact is 98,231 bytes rather than 17,508. The trade is
+        # deliberate -- the 256 is the frame a reader that takes one
+        # picture out of an `.ico` is handed, and it is what makes the page
+        # announce `sizes="256x256"` rather than `sizes="64x64"` -- and
+        # the cost is written down here and in `desktop/README.md` so that
+        # the next reader weighs it instead of rediscovering it. The guard
+        # has to cover the 256 frame like any other: a 256 frame that
+        # drifted from the artwork is exactly the drift nobody sees, and
+        # it is the most expensive frame in the file.
+        #
         # The apple-touch icon is the fourth, and it is the same orphan in
         # the same way: `app/apple-icon.png` is found by the file
         # convention alone, and a stale one is a badge with four holes in

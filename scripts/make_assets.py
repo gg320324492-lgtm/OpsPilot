@@ -69,13 +69,28 @@ browser's tab strip beside the other tabs, and a white square is a bright
 block in the middle of the strip. The badge on transparency is the icon; the
 badge on white is a white square with a badge in it.
 
-**It has four sizes: 16, 32, 48 and 64.** 16 is the Windows tab strip and the
-bookmark bar. 32 is the macOS tab and the macOS bookmark. 48 is Windows'
-medium icon view. 64 is what a high-density screen asks for. There is no
-256-pixel frame, and that is a decision rather than an oversight: a 256
-frame is the slot a PWA's large icon goes in, this is not a PWA, and a frame
-nothing will ever ask for is committed binary that only has to be kept in
-step with the artwork.
+**It has five sizes: 16, 32, 48, 64 and 256.** 16 is the Windows tab strip
+and the bookmark bar. 32 is the macOS tab and the macOS bookmark. 48 is
+Windows' medium icon view. 64 is what a high-density screen asks for. 256 is
+the frame a reader takes when it reads the file for a single picture: a tool
+that opens an `.ico` and wants one image out of it is handed the largest
+frame, and that is the frame a high-zoom view or a large-icon view wants as
+well.
+
+**The 256 frame is most of the file, and that is the cost of it.** An `.ico`
+is fetched whole -- a browser does not ask for the one frame it is going to
+use, it fetches the file and picks a frame out of it -- so the 256 frame's
+80,707 bytes of PNG arrive whether the browser wanted that size or not. The
+favicon grows from 17,508 bytes to 98,231, 5.6 times as much, paid on the
+first visit to a domain and out of the cache on every visit after that.
+That is what the 256 buys and what it costs, and the number is here so that
+the next reader can weigh it rather than guess at it.
+
+**The `sizes` attribute follows the largest frame.** Next.js's metadata
+image loader writes the picture's largest frame into the `sizes` attribute of
+the link tag, so the dashboard announces `sizes="256x256"` where it used to
+announce `sizes="64x64"` -- which is the more usual value for a large-icon
+declaration, and the one a reader that honours `sizes` expects to see.
 
 **Nothing refers to it.** Next.js's App Router picks up `app/favicon.ico` and
 injects a `<link rel="icon">` for it with a content-hashed URL, so no code
@@ -225,20 +240,20 @@ Two of the four artefacts are `.ico` files and two are `.png` files, so the
 check has to be able to say which one a given path is. A path that is
 exactly one of the committed targets names that one. Anything else is read
 by its size: an `.ico` is whichever icon it *is* by the sizes it holds --
-four sizes is the favicon, ten is the shell's icon -- and a `.png` is
+five sizes is the favicon, ten is the shell's icon -- and a `.png` is
 whichever of the two it is by whether it is the apple-touch icon's 180x180
 or the wordmark's wide lockup.
 
 The size is what tells them apart because the pixels cannot. The favicon
 and the icon are the same picture made the same way: the same artwork, the
 same ground cut away, the same premultiplied resampling. The favicon's 16,
-32, 48 and 64 frames are the icon's 16, 32, 48 and 64 frames, frame for
-frame. What differs is only which sizes are packed into the file -- and that
-is the artefact's contract with whatever consumes it: Windows asks the
-shell's icon for ten sizes, and a browser asks the favicon for four. The
-same holds for the two PNGs: iOS asks the apple-touch icon for one size,
-180x180, and the wordmark is a lockup whose size is a property of the
-drawing it was cropped out of rather than a size anybody asked for.
+32, 48, 64 and 256 frames are the icon's 16, 32, 48, 64 and 256 frames,
+frame for frame. What differs is only which sizes are packed into the file
+-- and that is the artefact's contract with whatever consumes it: Windows
+asks the shell's icon for ten sizes, and a browser asks the favicon for
+five. The same holds for the two PNGs: iOS asks the apple-touch icon for
+one size, 180x180, and the wordmark is a lockup whose size is a property of
+the drawing it was cropped out of rather than a size anybody asked for.
 
 The file name is deliberately not what tells them apart. The check has to
 work on a path in a temporary directory, because that is how the guard is
@@ -280,9 +295,10 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, UnidentifiedImageErro
 #: The sizes Windows may ask for. See the module docstring for why each.
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 
-#: The sizes a browser may ask a favicon for. See the module docstring for
-#: why each, and for why there is no 256.
-FAVICON_SIZES = (16, 32, 48, 64)
+#: The sizes a browser may ask a favicon for, and the one a reader takes
+#: when it reads the file for a single picture. See the module docstring for
+#: why each, and for what the 256 frame costs.
+FAVICON_SIZES = (16, 32, 48, 64, 256)
 
 #: The size iOS asks an apple-touch icon at. There is only one, and it is
 #: also the size that tells the apple-touch icon apart from the wordmark.
@@ -1148,7 +1164,7 @@ def _icon_asset_for(target: pathlib.Path) -> _Asset | None:
 
     Two of the artefacts are icons -- the shell's and the dashboard's
     favicon -- and they are the same picture at different sizes, so the
-    pixels cannot say which one a file is. The sizes can: four frames is
+    pixels cannot say which one a file is. The sizes can: five frames is
     the favicon and ten is the shell's icon, and the sizes are the
     artefact's contract with whatever consumes it.
 
@@ -1266,8 +1282,8 @@ def _check_all(target: pathlib.Path | None) -> int:
     if asset is None:
         print(
             f"--check cannot tell which asset {target} names: an .ico is read "
-            "by the sizes it packs -- the favicon's four (16, 32, 48, 64) or "
-            "the shell icon's ten -- and a .png is the apple-touch icon at "
+            "by the sizes it packs -- the favicon's five (16, 32, 48, 64, 256) "
+            "or the shell icon's ten -- and a .png is the apple-touch icon at "
             "180x180 or the wordmark.",
             file=sys.stderr,
         )

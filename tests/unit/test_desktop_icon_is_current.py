@@ -67,11 +67,13 @@ The favicon has four:
    the same picture, and the only thing that distinguishes them is the
    sizes they pack. A check that could not tell them apart would either
    compare the favicon against the icon and call it stale forever, or
-   compare both against the icon and call the favicon's four sizes a
+   compare both against the icon and call the favicon's five sizes a
    difference.
-4. **It carries the four sizes a browser asks for** -- 16, 32, 48 and 64 --
-   and nothing else. A 256-pixel frame is the slot a PWA's large icon goes
-   in, and this is not a PWA.
+4. **It carries the five sizes a browser may ask for** -- 16, 32, 48, 64
+   and 256 -- and nothing else. The 256 is the frame a reader takes when
+   it reads the `.ico` for a single picture, and it is most of the file:
+   an `.ico` is fetched whole, so its 80,707 bytes of PNG are downloaded
+   whether the browser wanted that size or not.
 
 And it has the favicon's own invariant, which the icon's rule does not
 express: the corners are transparent and the middle is opaque. The favicon
@@ -161,12 +163,21 @@ EXPECTED_SIZES = frozenset(
     }
 )
 
-#: The sizes a browser may ask a favicon for. Written out here for the same
-#: reason as the sizes above, and for the same reason it matters more: these
-#: four are the whole contract with the browser, and the favicon's identity
-#: is carried by its size set -- it is what tells the favicon apart from the
-#: shell's icon, which holds the same picture at ten sizes.
-EXPECTED_FAVICON_SIZES = frozenset({(16, 16), (32, 32), (48, 48), (64, 64)})
+#: The sizes a browser may ask a favicon for, and the one a reader takes
+#: when it reads the `.ico` for a single picture. Written out here for the
+#: same reason as the sizes above, and for the same reason it matters more:
+#: these five are the whole contract with the browser, and the favicon's
+#: identity is carried by its size set -- it is what tells the favicon apart
+#: from the shell's icon, which holds the same picture at ten sizes.
+EXPECTED_FAVICON_SIZES = frozenset(
+    {
+        (16, 16),
+        (32, 32),
+        (48, 48),
+        (64, 64),
+        (256, 256),
+    }
+)
 
 #: The alpha a favicon's corners must have: nothing at all. The favicon sits
 #: in a browser's tab strip, and an opaque white square there is a bright
@@ -423,9 +434,10 @@ def test_the_check_tells_the_shell_icon_from_the_favicon(tmp_path: pathlib.Path)
 
     The favicon and the shell's icon are the same badge, cut the same way and
     resampled the same way, so the pixels cannot say which one a file is: the
-    favicon's 16, 32, 48 and 64 frames *are* the icon's 16, 32, 48 and 64
-    frames. What differs is the sizes packed into the file -- four against
-    ten -- and that is the artefact's contract with whatever consumes it.
+    favicon's 16, 32, 48, 64 and 256 frames *are* the icon's 16, 32, 48, 64
+    and 256 frames. What differs is the sizes packed into the file -- five
+    against ten -- and that is the artefact's contract with whatever
+    consumes it.
 
     The copies here live in a temporary directory, so neither is one of the
     committed targets and the check has to work the size set out for itself.
@@ -458,28 +470,32 @@ def test_the_check_tells_the_shell_icon_from_the_favicon(tmp_path: pathlib.Path)
     checked_favicon = _run_builder("--check", favicon_copy)
     assert checked_favicon.returncode == 0, (
         "the check called a copy of the favicon stale. The copy holds the "
-        "four sizes the favicon holds, so it is the favicon.\n\n"
+        "five sizes the favicon holds, so it is the favicon.\n\n"
         f"{checked_favicon.stdout}\n{checked_favicon.stderr}"
     )
     assert "the committed favicon is current" in checked_favicon.stdout, (
-        "the check did not report the four-size file as the favicon. It was "
+        "the check did not report the five-size file as the favicon. It was "
         "compared against the shell's icon instead, and the difference in "
         "sizes was read as a drift.\n\n"
         f"{checked_favicon.stdout}\n{checked_favicon.stderr}"
     )
 
 
-def test_the_committed_favicon_carries_the_sizes_a_browser_asks_for() -> None:
-    """The committed favicon holds the four sizes a browser asks for.
+def test_the_committed_favicon_carries_the_sizes_a_browser_may_ask_for() -> None:
+    """The committed favicon holds the five sizes a browser may ask for.
 
     Sixteen is the Windows tab strip and the bookmark bar; thirty-two is the
     macOS tab and the macOS bookmark; forty-eight is Windows' medium icon
     view; sixty-four is what a high-density screen asks for.
 
-    There is no 256-pixel frame, and that is a decision rather than an
-    oversight: a 256 frame is the slot a PWA's large icon goes in, this is
-    not a PWA, and a frame nothing will ever ask for is committed binary
-    that only has to be kept in step with the artwork.
+    The 256 is there for a different reason, and the reason is a decision
+    rather than an oversight: a reader that opens the `.ico` and wants a
+    single picture out of it is handed the largest frame, and a high-zoom or
+    large-icon view wants that size too. The price is written down in
+    `desktop/README.md` and in the builder's docstring -- an `.ico` is
+    fetched whole, so the 256 frame's 80,707 bytes of PNG are downloaded
+    whether the browser wanted that size or not, and the artefact is 98,231
+    bytes rather than 17,508.
     """
     assert _FAVICON.exists(), (
         "web/src/app/favicon.ico is missing. Next.js's App Router finds it by "
@@ -491,7 +507,7 @@ def test_the_committed_favicon_carries_the_sizes_a_browser_asks_for() -> None:
 
     assert found == EXPECTED_FAVICON_SIZES, (
         f"web/src/app/favicon.ico contains {sorted(found)}, not "
-        f"{sorted(EXPECTED_FAVICON_SIZES)}. These four are the whole contract "
+        f"{sorted(EXPECTED_FAVICON_SIZES)}. These five are the whole contract "
         "with the browser, and the size set is what tells the favicon apart "
         "from the shell's icon, which holds the same picture at ten sizes."
     )
