@@ -11,7 +11,7 @@ This repository's quick start was wrong in a way that took a closing audit to
 find. ``docker-compose.yml`` uses the ``:?`` form for
 ``OPSPILOT_OPERATOR_TOKEN``:
 
-    OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?OPSPILOT_OPERATOR_TOKEN must be set in the environment or a .env file}
+    OPSPILOT_OPERATOR_TOKEN: ${OPSPILOT_OPERATOR_TOKEN:?...must be set...}
 
 The ``:?`` form is deliberate and good: an unset token stops Compose from
 rendering the project at all, so a deployment that would have an API refusing
@@ -81,10 +81,7 @@ def _required_in_compose() -> list[str]:
     only exists in the source.
     """
     return sorted(
-        {
-            match.group(1)
-            for match in re.finditer(r"\$\{([A-Z0-9_]+):\?", _compose_text())
-        }
+        {match.group(1) for match in re.finditer(r"\$\{([A-Z0-9_]+):\?", _compose_text())}
     )
 
 
@@ -123,7 +120,7 @@ def test_the_readme_does_not_claim_the_env_file_is_optional() -> None:
         "optional for a first look",
     ):
         assert phrase not in readme, (
-            f"the README still says \"{phrase}\", but {REQUIRED_VARIABLE} is required "
+            f'the README still says "{phrase}", but {REQUIRED_VARIABLE} is required '
             f"in the compose file's `:?` form, so `docker compose up` refuses to "
             f"render the project without it. A reader who follows the quick start "
             f"hits that refusal on the first command."

@@ -179,9 +179,9 @@ def test_the_compose_file_does_not_pin_a_shared_identity() -> None:
     ``settings.py``, which is a different claim from the one that matters
     here. The two coincided once; they need not again.
     """
-    compose = (
-        pathlib.Path(__file__).resolve().parents[2] / "docker-compose.yml"
-    ).read_text(encoding="utf-8")
+    compose = (pathlib.Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
 
     match = re.search(r"^(\s*)WORKER_ID: \$\{WORKER_ID:-([^}]*)\}", compose, re.MULTILINE)
     assert match is not None, (
