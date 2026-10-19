@@ -1024,17 +1024,28 @@ stays one.
 | E | **Partial.** A stranger can clone, follow the README and reproduce the golden path: the README states the simulated billing in its first section, the case study walks one duplicate charge from intake to audited refund with every number traceable, and the GIF and ten screenshots are committed. **Not met:** §P2-E's bullet list asks for "a video, screenshots, and a case study", and there is no video — `README.md` "Why there is not a video, and what it would take" says so, with three reasons, and says the screenshots are the stronger evidence. The Release has its own row below. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The billing in this project is simulated" and §"Why there is not a video"; `docs/case-study-duplicate-charge.md`; `docs/assets/golden-path.gif`; `docs/assets/screenshots/`. |
 | E-a | **Boundary recorded, and held back on purpose.** There is no GitHub Release: `git tag` returns nothing and `gh release list` is empty. A release needs a tag, and a tag is a publish, not a document. The built artefact on this machine is a local build of a working tree, not of a tag, so it is not reproducible from any commit — and D2 has not been run. Publishing an unverified installer as `0.1.0` would put a download link in front of the test the plan says it must pass first, which is why the tag is not cut even though the tree is clean and pushed. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The desktop installer, and what a GitHub Release would take". |
 | F | **Met, for the first catalogue.** A locale the operator chooses, English by default: `web/src/i18n/` ships `en` (334 leaves) and `zh-CN` (330 — the four-leaf difference is the `.one` plural forms Chinese does not have), the choice is an explicit `httpOnly` cookie resolved on the server, and `DEFAULT_LOCALE` is `en`, so a fresh clone still runs in English with no configuration. Adding further languages is a product decision this plan does not make. | `docs/phase2-plan.md` §P2-F; `web/src/i18n/config.ts`; `web/src/i18n/dictionaries/en.json`, `web/src/i18n/dictionaries/zh-CN.json`; `web/e2e/i18n.spec.ts`, `web/e2e/i18n-catalogue.spec.ts`. |
-| CI | **Met.** The Phase 2 CI jobs exist and run the commands the repository documents. Phase 2 added three to the Phase 1 set: `desktop-check` (eslint, `tsc --noEmit` and the lifecycle tests, with no Electron, no Docker and no browser, so it stays cheap), `desktop-menu` (the native menu in a real Electron under `xvfb-run`, where a *skip* is a failure — a green skipped run would mean the job proved nothing while reporting success) and `desktop-package` (the Windows artefact built and checked against A1–A3 on every push, which is the only place the packaged-app check was ever reached — before it, `packaged-posture.spec.ts` ran only on a machine that had locally built the package). The workflow now names fourteen job ids — the eleven §M9 names, plus `desktop-check`, `desktop-menu` and `desktop-package` — and the last green run of the pushed tree, `39299905779` at `60cda57`, is **14 of 14** (`test` is the 3.12/3.13 matrix, which is why thirteen ids make fourteen runs there; the fourteenth id, `desktop-package`, was added by the closing review and is not in that run). `eval-live` remains `workflow_dispatch`-only, in its own workflow. | `.github/workflows/ci.yml`; `.github/workflows/eval-live.yml`; `docs/milestones.md` §M9 (the Phase 1 job list); GitHub Actions run `39299905779`. |
+| CI | **Met.** The Phase 2 CI jobs exist and run the commands the repository documents. Phase 2 added three to the Phase 1 set: `desktop-check` (eslint, `tsc --noEmit` and the lifecycle tests, with no Electron, no Docker and no browser, so it stays cheap), `desktop-menu` (the native menu in a real Electron under `xvfb-run`, where a *skip* is a failure — a green skipped run would mean the job proved nothing while reporting success) and `desktop-package` (the Windows artefact built and checked against A1–A3 on every push, which is the only place the packaged-app check was ever reached — before it, `packaged-posture.spec.ts` ran only on a machine that had locally built the package). The workflow now names fourteen job ids — the eleven §M9 names, plus `desktop-check`, `desktop-menu` and `desktop-package` — and a green run of the pushed tree, `39316991857` at `07ef46e`, is **15 of 15** (`test` is the 3.12/3.13 matrix, which is why fourteen ids make fifteen runs; the earlier run `39299905779` at `60cda57` was 14 of 14 and predates `desktop-package`). `eval-live` remains `workflow_dispatch`-only, in its own workflow. | `.github/workflows/ci.yml`; `.github/workflows/eval-live.yml`; `docs/milestones.md` §M9 (the Phase 1 job list); GitHub Actions run `39316991857`. |
 
-**Checked against the working tree of 2026-10-20**, which carries uncommitted
-changes to `docker-compose.yml`, `README.md`, `web/README.md`,
-`docs/limitations.md`, `docs/phase2-plan.md` and
-`src/opspilot/worker/__main__.py`. A3's and A4's states depend on two of them
-— the `DATABASE_URL` password and the `web/README.md` scoping of "writes" — and
-at `HEAD` the `DATABASE_URL` still carried its own literal `opspilot`. The CI
-row's run id is the last green run of the *pushed* tree, and it does not cover
-those changes. A DoD that does not say which tree it was checked against is a
-DoD that cannot be re-checked.
+**Checked against the tree at `3da3a9f`**, the 2026-10-20 commit whose
+contents the rows above were verified against. The changes A3's and A4's states
+depend on are in it, not beside it: `34904dd` carried `docker-compose.yml`,
+`README.md`, `web/README.md` and `src/opspilot/worker/__main__.py`, and
+`0eaf4b7` carried `docs/limitations.md` and `docs/phase2-plan.md`. At `3da3a9f`
+every service's `DATABASE_URL` reads
+`postgresql+psycopg://opspilot:${POSTGRES_PASSWORD:-opspilot}@postgres:5432/opspilot`,
+so the password in the URL is the variable that initialises the `postgres`
+service and not the URL's own literal `opspilot`, and `web/README.md` scopes
+its sentence to writes.
+
+Since then the tree has taken the desktop shell's own application icon, the
+two guards that keep it honest, the correction of the description of it, and
+the wordmark's own source. None of that a row above depends on: the rows above
+are about the agent, the deployment, the dashboard, the locale and the
+portfolio, and an application icon is none of those. The CI row quotes a green
+run of the pushed tree — `39316991857` at `07ef46e` — which is the run that
+covers the icon's first commits, and the commits after it are documentation
+and the wordmark's source. A DoD that does not say which tree it was checked
+against is a DoD that cannot be re-checked.
 
 **Three items in `docs/phase2-plan.md` have no checkable criterion**, and they
 are recorded here rather than turned into rows, because a row with no criterion
