@@ -207,11 +207,6 @@ _DELIBERATE_DEFAULTS: dict[tuple[str, str], str] = {
         "makes `docker compose up` complete a run on a fresh clone. Guarded by "
         "tests/unit/test_compose_default_provider_has_fixtures.py."
     ),
-    ("worker", "WORKER_ID"): (
-        "worker-compose -- settings.py's default is empty, which falls back to "
-        "the pid (`worker-1234`), and that says nothing about which host "
-        "claimed a run. A named value makes a claimed run attributable."
-    ),
 }
 
 

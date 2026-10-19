@@ -110,7 +110,7 @@ services:
       # not hold a URL; migrations/env.py reads it from opspilot.settings, which
       # reads this environment. There is one place a deployment configures its
       # connection.
-      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      DATABASE_URL: postgresql+psycopg://opspilot:${POSTGRES_PASSWORD:-opspilot}@postgres:5432/opspilot
       # The migration itself does not need the token, but the settings object
       # is constructed by migrations/env.py and settings has no token
       # requirement of its own -- only the API enforces that at startup. Given
@@ -133,7 +133,7 @@ services:
       dockerfile: Dockerfile
     command: ["opspilot-api"]
     environment:
-      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      DATABASE_URL: postgresql+psycopg://opspilot:${POSTGRES_PASSWORD:-opspilot}@postgres:5432/opspilot
       # REQUIRED, with no default. The API refuses to start without it
       # (api/auth.py::ensure_operator_token_configured). The `:?` form makes
       # Compose itself refuse to render the file when the variable is unset, so
@@ -312,7 +312,7 @@ services:
       dockerfile: Dockerfile
     command: ["opspilot-worker"]
     environment:
-      DATABASE_URL: postgresql+psycopg://opspilot:opspilot@postgres:5432/opspilot
+      DATABASE_URL: postgresql+psycopg://opspilot:${POSTGRES_PASSWORD:-opspilot}@postgres:5432/opspilot
       # The worker does not serve HTTP and does not check a token, but it builds
       # the same Settings object. Passed through for the same reason as in
       # `migrate`: one settings object, one place a value is missing.
@@ -361,10 +361,29 @@ services:
       # budget set in .env did not reach the loop that spends it.
       MAX_STEPS: ${MAX_STEPS:-24}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
-      # Unique per worker process. A named value rather than the pid fallback,
-      # so a run claimed in this deployment is attributable to *this* container
-      # rather than to a bare `worker-1234` that says nothing about which host.
-      WORKER_ID: ${WORKER_ID:-worker-compose}
+      # Unique per worker process — which is a *hard* requirement, not a
+      # nicety. `agent_runs.claimed_by` is the second column of the claim
+      # lease, and `renew_lease` is a conditional UPDATE on it
+      # (`WHERE id = ? AND claimed_by = ?`): that condition is the whole reason
+      # a worker whose lease lapsed and whose run was stolen cannot extend the
+      # thief's lease. A value shared by every replica of this service would
+      # make the condition true for the wrong worker, and the lease would stop
+      # excluding anybody.
+      #
+      # So the default is EMPTY, and the worker falls back to an identity it
+      # derives itself: `worker-<hostname>-<pid>`
+      # (`src/opspilot/worker/__main__.py::resolve_worker_id`). The hostname
+      # is the container's, which Docker makes unique per container, so two
+      # replicas of this service are two identities; the pid keeps two workers
+      # on one host apart. The previous default, `worker-compose`, was one
+      # value for the whole deployment — "a named value rather than the pid
+      # fallback" — and it was exactly that naming which made it unsafe.
+      #
+      # An operator who sets WORKER_ID takes responsibility for its uniqueness.
+      # The value here is what the *dashboard* shows for a claimed run, so a
+      # friendly name is a legitimate reason to set it — but only when one
+      # worker is deployed, which is what `docker compose up` does.
+      WORKER_ID: ${WORKER_ID:-}
       # The claim lease, in seconds: how long a claimed run stays out of every
       # other worker's hands before the lease expires and the run becomes
       # claimable again (docs/adr/0005; docs/limitations.md §2). 300s is above
@@ -398,12 +417,20 @@ services:
       # Declared so it can be set per deployment; Phase 1 ships it on and
       # production redaction is Phase 3 (docs/limitations.md).
       STORE_FULL_PROMPTS: ${STORE_FULL_PROMPTS:-true}
-      # Note on what is NOT here and why: DATABASE_URL is the one setting that
-      # is NOT `${...}`-templated, in every service. It names the `postgres`
-      # service on the compose network, which is unreachable from a host .env --
-      # an operator's `localhost:5432` is their machine, not this container.
-      # Templating it would let a valid host value silently break every
-      # container; the compose topology decides it.
+      # Note on what is NOT here and why: the *host* in DATABASE_URL is the one
+      # part that is NOT `${...}`-templated, in every service. It names the
+      # `postgres` service on the compose network, which is unreachable from a
+      # host .env -- an operator's `localhost:5432` is their machine, not this
+      # container. Templating the host would let a valid host value silently
+      # break every container; the compose topology decides it.
+      #
+      # The *password* in that URL is templated, and has to be: it is the same
+      # value the `postgres` service is initialised with
+      # (`POSTGRES_PASSWORD`, one line above), and a deployment that changed
+      # one without the other got a stack that refused every connection. A
+      # `${...}`-templated host was the reason the URL was not templated at
+      # all; a templated password does not have that problem, so it does not
+      # inherit it.
       OPSPILOT_MCP_DATA_DIR: /data/mcp
     volumes:
       # The same store volume the api mounts. The worker is the process that

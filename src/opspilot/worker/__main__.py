@@ -60,6 +60,7 @@ import asyncio
 import contextlib
 import os
 import signal
+import socket
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 from uuid import UUID
@@ -278,19 +279,38 @@ def resolve_worker_id(settings: object = None) -> str:
     through: whatever the deployment forgot to configure, two workers must still
     be distinguishable from each other.
 
-    What that does and does not protect, stated precisely rather than repeated
-    from the setting's comment. ``SqlRunStore.claim_next`` ignores ``worker_id``
-    today -- mutual exclusion is the row lock, not the identity (``repositories
-    .py``: "the row's holder is the open transaction") -- so an empty id does not
-    corrupt a claim *in this implementation*. What it costs is attribution: a run
-    stuck mid-flight cannot be traced to the process holding it, and a trace that
-    cannot say which worker drove a run is a trace you cannot debug from. The
-    fallback is what closes that hole without demanding configuration.
+    **Uniqueness is a hard requirement, not a preference.** The identity is the
+    ``agent_runs.claimed_by`` column, and ``SqlRunStore.renew_lease`` is a
+    conditional UPDATE on it -- ``WHERE id = ? AND claimed_by = ?`` -- whose
+    whole purpose is stated in ``migrations/versions/0002_claim_lease.py``: a
+    worker whose lease expired and whose run was taken by somebody else must
+    not be able to extend the *thief's* lease. That condition only excludes the
+    wrong worker if the identity is unique. Two workers sharing one identity
+    make it true for both of them, and the lease stops excluding anybody.
 
-    The fallback is ``worker-<pid>``: unique per process on one host, stable for
-    the process's lifetime, and derivable with nothing but the interpreter. It is
-    *not* unique across hosts -- a multi-host deployment must set ``WORKER_ID``,
-    and this is the honest limit of what can be inferred rather than configured.
+    (An earlier version of this docstring said the opposite -- that
+    ``claim_next`` "ignores ``worker_id`` today -- mutual exclusion is the row
+    lock, not the identity" -- and that is what let a shared default
+    (``worker-compose``, one value for a whole Compose deployment) ship
+    unchallenged. The claim writes ``claimed_by``
+    (``repositories.py``: ``row.claimed_by = worker_id``) and the lease
+    renewal is conditional on it, so the identity *is* the exclusion. The
+    quoted phrase "the row's holder is the open transaction" no longer exists
+    in ``repositories.py`` at all; it described the pre-lease implementation.)
+
+    The fallback is ``worker-<hostname>-<pid>``: unique per process, stable for
+    the process's lifetime, and derivable with nothing but the interpreter and
+    the standard library. The **hostname** is what makes it safe across hosts:
+    two workers in two containers have different hostnames (Docker gives each
+    container its own), and two workers on one host have different pids. Either
+    half alone is insufficient -- the pid repeats across hosts, the hostname
+    repeats for every process on a host -- and the pair is unique in both
+    dimensions.
+
+    An operator who sets ``WORKER_ID`` takes responsibility for its uniqueness.
+    The value is also what the dashboard shows for a claimed run, so a friendly
+    name is a legitimate reason to set it; that is only safe when one worker is
+    deployed, which is what ``docker compose up`` does.
     """
     from opspilot.settings import Settings
 
@@ -299,7 +319,7 @@ def resolve_worker_id(settings: object = None) -> str:
     configured = resolved.worker_id.strip()
     if configured:
         return configured
-    return f"worker-{os.getpid()}"
+    return f"worker-{socket.gethostname()}-{os.getpid()}"
 
 
 def build_worker_provider(settings: object = None) -> ModelProvider:

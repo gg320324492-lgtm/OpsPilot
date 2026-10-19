@@ -50,11 +50,16 @@ semantics are what is simulated."*
 > ([`docs/mcp-contracts.md`](docs/mcp-contracts.md) §4). The permission model
 > covers it identically.
 
-> **Status: Phase 1 milestones M0–M9 closed; Phase 2 in progress — the golden
-> path runs end to end.** The system is built: the agent loop, the five gates,
-> the persisted approval gate, idempotent refunds, retrieval with citations, the
-> dashboard, the desktop shell, the eval harness and CI all exist and are
-> tested.
+> **Status: Phase 1 milestones M0–M9 closed; Phase 2 done, with three items
+> still open — the golden path runs end to end.** The system is built: the agent
+> loop, the five gates, the persisted approval gate, idempotent refunds, retrieval
+> with citations, the dashboard, the desktop shell, the eval harness and CI all
+> exist and are tested. The three are named in
+> [`docs/phase2-plan.md`](docs/phase2-plan.md)'s acceptance table: **D2**, the
+> installer walked on a clean machine by someone who did not build it; **E**, a
+> GitHub Release, which has no tag and is held back on purpose until D2 passes;
+> and **C1**, where the two-worker guarantee is *boundary stated and tested*,
+> not closed.
 >
 > **The one run to check this README against** is
 > [`38759832016`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/38759832016)
@@ -754,16 +759,26 @@ else — no Python environment, no model API key. The stack is four images.
 
 ```bash
 git clone https://github.com/gg320324492-lgtm/OpsPilot && cd OpsPilot
+cp .env.example .env
+# Edit .env and set OPSPILOT_OPERATOR_TOKEN to any non-empty string.
 docker compose up
 ```
 
 That is the whole quick start. It brings up `postgres`, `migrate`, `api`,
 `worker` and `web`; the dashboard is on <http://localhost:3000> and the API on
-<http://localhost:8000>. **`.env` is optional for a first look** — compose falls
-back to local-development defaults so a fresh clone comes up with no
-configuration at all. You need it for two things: setting your own
-`OPSPILOT_OPERATOR_TOKEN` (any non-empty string works for a local demo — it
-authenticates the API's write routes), and pointing at a live model.
+<http://localhost:8000>. **`.env` is required**, and it is required for exactly one setting.
+`docker-compose.yml` uses the `:?` form for `OPSPILOT_OPERATOR_TOKEN`, so an
+unset token stops Compose from rendering the project at all: `docker compose
+up` fails with *"required variable OPSPILOT_OPERATOR_TOKEN is missing a
+value"* before a single container starts. That is deliberate. A stack that
+came up without a token would have an API that refuses every write, and the
+failure would be a 401 in the middle of a demonstration rather than a refusal
+to start.
+
+Every other setting has a local-development default, so the file `cp`ed above
+is enough on its own. Set the token to any non-empty string — it
+authenticates the API's write routes — and point it at a live model if you
+have one.
 
 Then, to walk the golden path by hand:
 
@@ -837,13 +852,20 @@ Postgres, no TLS termination, no backups, no load testing — see
 
 > **The database password is a local-development default, not a secret.** The
 > `postgres` service ships with `POSTGRES_PASSWORD` falling back to `opspilot`
-> (`docker-compose.yml`), so a fresh clone comes up with no `.env` at all — but
-> a deployment that inherits it out of the box is exactly what you must not
-> expose. Before running this anywhere reachable, set `POSTGRES_PASSWORD` in
-> `.env` **and** change the password in `DATABASE_URL` to match; the two are not
-> linked, and setting one without the other fails every `migrate`/`api`/`worker`
-> authentication. The published ports are bound to `127.0.0.1` too, so the
-> default is not LAN-reachable — see
+> (`docker-compose.yml`), so a fresh clone comes up with no password
+> configured at all — but a deployment that inherits it out of the box is
+> exactly what you must not expose. Before running this anywhere reachable,
+> set `POSTGRES_PASSWORD` in `.env` and nothing else: the `DATABASE_URL` every
+> service connects with takes its password from that same variable, so the two
+> cannot disagree. (They could once, and the result was a stack that failed
+> every `migrate`/`api`/`worker` authentication — the password the database was
+> initialised with and the password the application connected with were
+> separate values, and the README's old instruction to "change the password in
+> `DATABASE_URL` to match" meant hand-editing a committed file. The `DATABASE_URL`
+> *host* is still deliberately not configurable — it names the `postgres`
+> service on the Compose network, which a host `.env`'s `localhost:5432` is
+> not.) The published ports are bound to `127.0.0.1` too, so the default is
+> not LAN-reachable — see
 > [limitations.md](docs/limitations.md).
 
 ### Tests
@@ -938,11 +960,13 @@ here. Concretely it is:
 1. **A tag.** There are currently zero tags in this repository
    (`git tag` is empty), so there is nothing to release *from*. Release assets
    attach to a Git tag; `v0.1.0` does not yet exist.
-2. **A rebuild from the tagged commit.** The binary above was built from a
-   working tree on 2026-10-14 13:39, which predates `651bcef` and the three
-   commits since (`7ad9679`, `5f88201`, `79ed677`). So it cannot be reproduced
-   from any commit — it is a snapshot of a tree that no longer exists. A release
-   should ship a package built by
+2. **A rebuild from the tagged commit.** The binary above is a build of a
+   working tree on this machine, not of a tag. The copy now in
+   `desktop/release/` was rebuilt on 2026-10-17 04:39 and does include
+   `651bcef`, `7ad9679`, `5f88201` and `79ed677` — the four commits the
+   2026-10-14 build predated — but it will be rebuilt again before anything is
+   released, so its date is the date of a local build, not the provenance of a
+   release. A release must ship a package built by
    `cd desktop && npm ci && npm run package` on a clean checkout of the tag —
    ideally in a CI job, so the artefact's provenance is a run id rather than a
    person's machine.

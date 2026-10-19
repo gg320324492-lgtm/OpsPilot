@@ -2,8 +2,8 @@
 
 The operator-facing dashboard. Next.js 16 (App Router) + TypeScript + Tailwind 4.
 
-It never calls the API on `:8000` from the browser. Writes go through Next.js
-Route Handlers under `src/app/api/` — `tickets`, `approvals/.../[decision]`,
+It never *writes* to the API on `:8000` from the browser. Writes go through
+Next.js Route Handlers under `src/app/api/` — `tickets`, `approvals/.../[decision]`,
 `knowledge/reindex` — which read `OPSPILOT_OPERATOR_TOKEN` from the server
 environment and call the API themselves. The token is deliberately absent from
 the client bundle: a token in browser JavaScript is a refund-capable credential
