@@ -49,11 +49,26 @@
  * ## Why it skips rather than fails when there is no package
  *
  * `desktop/release/` is gitignored (`desktop/.gitignore:13`) and built by
- * `npm run package`, so a fresh clone and CI have no artefact to read. That is
- * the ADR-0004 pattern the rest of this suite uses for Docker and for a display:
+ * `npm run package`, so a fresh clone has no artefact to read. That is the
+ * ADR-0004 pattern the rest of this suite uses for Docker and for a display:
  * skip, naming what is missing. A machine that *has* the package and whose
  * package fails these rules is a failure, never a skip — that is this file's
  * whole job.
+ *
+ * ## Why CI gets a failure instead
+ *
+ * Because a *skip* is only honest where the artefact was never going to
+ * exist. The `desktop-package` job in `.github/workflows/ci.yml` builds the
+ * Windows package and then runs this spec against it, and there a green
+ * *skipped* run would mean the job proved nothing while reporting success —
+ * the same rule the `desktop-menu` job applies to a skipped Electron test and
+ * the `verify` job applies to a skipped postgres-marked test (ADR-0004's
+ * divergence table).
+ *
+ * So the environment says which it is. `OPSPILOT_PACKAGED_REQUIRED=1` turns
+ * every skip in this file into a failure that names what was missing. Without
+ * it, the behaviour is exactly what it was: a skip, with its reason, on a
+ * machine that has no package.
  */
 
 import { expect, test } from "@playwright/test";
@@ -95,20 +110,52 @@ function isDirectory(node: AsarNode): node is AsarDirectory {
 }
 
 /**
+ * Is the packaged artefact *required* rather than optional?
+ *
+ * See the module docstring: on a developer's machine `desktop/release/` does
+ * not exist, and a skip that names why is the honest answer. In the
+ * `desktop-package` CI job it does exist -- the job built it -- and a skip
+ * there would be a green run that proved nothing.
+ */
+const REQUIRED = process.env.OPSPILOT_PACKAGED_REQUIRED === "1";
+
+/**
+ * Refuse to continue: a skip on a machine with no package, a failure in CI.
+ *
+ * The reason is the sentence a reader needs, so it is the same string in both
+ * cases; only the outcome differs. `test.skip` throws Playwright's skip
+ * signal, so the caller's `return null` after it is unreachable in the skip
+ * case and reached only in the failure case.
+ */
+function requireArtefact(reason: string): void {
+  if (REQUIRED) {
+    throw new Error(
+      `${reason}\n\nThis run was started with OPSPILOT_PACKAGED_REQUIRED=1, so a ` +
+        "missing artefact is a failure and not a skip. The job that runs this " +
+        "spec builds the package first, so a skip here means the build did not " +
+        "produce what was asked for -- which is exactly the failure a green " +
+        "skipped run would hide.",
+    );
+  }
+  test.skip(true, reason);
+}
+
+/**
  * The installed tree, or `null` with a recorded reason.
  *
  * The suite runs on Windows, macOS and Linux in different contexts; the package
  * is currently produced for Windows only. Both the platform and the missing
- * artefact skip rather than fail, because neither is a defect in the app.
+ * artefact skip rather than fail, because neither is a defect in the app --
+ * unless the environment has said the artefact is required, in which case
+ * `requireArtefact` turns both into failures.
  */
 function packagedStackOrSkip(): string | null {
   if (process.platform !== "win32") {
-    test.skip(true, "the packaged artefact is produced for Windows only");
+    requireArtefact("the packaged artefact is produced for Windows only");
     return null;
   }
   if (!existsSync(PACKAGED_STACK)) {
-    test.skip(
-      true,
+    requireArtefact(
       `no packaged artefact to inspect at ${PACKAGED_STACK}; run \`npm run package\` in ` +
         "desktop/ to build one. Its absence is why this check is a skip and not a " +
         "failure -- release/ is gitignored and reproducible (desktop/.gitignore).",
@@ -212,7 +259,11 @@ test.describe("A3: the installer ships no credential", () => {
     const repoEnv = path.join(REPO_ROOT, ".env");
     const expected = token ?? (existsSync(repoEnv) ? readEnvToken(repoEnv) : undefined);
     if (expected === undefined || expected === "") {
-      test.skip(true, "no operator token in the environment or the repository .env to look for");
+      requireArtefact(
+        "no operator token in the environment or the repository .env to look for. The " +
+          "CI job sets OPSPILOT_OPERATOR_TOKEN to a disposable value so that this " +
+          "check has something to look for; without one there is nothing to assert.",
+      );
       return;
     }
 
@@ -247,7 +298,11 @@ test.describe("D3: the packaged shell keeps the renderer untrusted", () => {
     }
     const asar = path.join(UNPACKED_DIR, "resources", "app.asar");
     if (!existsSync(asar)) {
-      test.skip(true, "app.asar is absent; the unpacked tree was built without it");
+      requireArtefact(
+        "app.asar is absent; the unpacked tree was built without it. The security " +
+          "policy this test reads is inside that archive, so its absence means the " +
+          "package does not carry the policy at all.",
+      );
       return;
     }
 
@@ -263,7 +318,11 @@ test.describe("D3: the packaged shell keeps the renderer untrusted", () => {
     // would let a typo compile as a lookup that always misses.
     const parsed: unknown = JSON.parse(buffer.subarray(16, 16 + headerStringSize).toString("utf8"));
     if (typeof parsed !== "object" || parsed === null) {
-      test.skip(true, "app.asar's header did not parse into an object");
+      requireArtefact(
+        "app.asar's header did not parse into an object. The archive format is a " +
+          "fixed 16-byte preamble followed by a JSON header, and a header that " +
+          "does not parse means the file is not the archive this test reads.",
+      );
       return;
     }
     const header = parsed as AsarHeader;

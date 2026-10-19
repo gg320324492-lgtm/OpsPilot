@@ -9,7 +9,7 @@
 # Two workflows, because one of them must run only on demand:
 #   * ci.yml      — every push/PR: lint, typecheck, test, verify, mcp-contract,
 #                   security, eval-smoke, web-lint, web-typecheck, desktop-check,
-#                   docker-build.
+#                   desktop-menu, desktop-package, docker-build, web-e2e.
 #   * eval-live.yml — workflow_dispatch only; it costs money and is
 #                   non-deterministic (docs/evals.md §5), so it is never on push.
 
@@ -667,6 +667,162 @@ jobs:
           passed=$(grep -oE "[0-9]+ passed" /tmp/menu.txt | tail -1 | grep -oE "^[0-9]+")
           echo "menu tests passed: ${passed:-0}"
           [ "${passed:-0}" -eq 2 ] || { echo "::error::expected 2 menu tests to pass (the cookie-driven menu, and the application starting in the language chosen last time); got ${passed:-0}. A lower number means a test was lost or skipped."; exit 1; }
+
+  # ------------------------------------------------------------------------- #
+  # desktop-package — the Windows installer, built and checked on every push.
+  #
+  # WHY THIS JOB EXISTS
+  # -------------------
+  # `desktop/e2e/packaged-posture.spec.ts` is the only check that the *shipped*
+  # artefact satisfies A1–A3: the packaged compose file binds to loopback, the
+  # package carries no credential, and the security policy inside `app.asar` is
+  # the source policy (docs/phase2-plan.md §P2-D3: "the packaged app is checked
+  # against A1–A3 the same way the dev stack is").
+  #
+  # Until this job existed, that check ran only on a Windows machine that had
+  # locally built the package, and was invisible to every push: `electron-builder`
+  # appeared nowhere in `.github/workflows/`, so no CI job built the package at
+  # all. The check was not wrong — it was never reached. The claim in the plan
+  # was a manual claim with a spec attached to it, not a gate.
+  #
+  # WHY A WINDOWS RUNNER
+  # --------------------
+  # The artefact is a Windows program. `electron-builder --win --x64` produces
+  # `OpsPilot.exe` and a `resources/` tree, and `packaged-posture.spec.ts`
+  # skips on anything that is not `win32` — it reads a Windows path layout and
+  # an asar archive. A Linux runner cannot run the spec, and a Linux container
+  # cannot run the Windows binary either: Wine would be a different machine
+  # from the one the package ships to, which is the one thing this check is
+  # about. `windows-latest` is GitHub-hosted, so this costs no self-hosted
+  # infrastructure, and it is the honest platform — the package is built for
+  # Windows and checked on Windows.
+  #
+  # WHAT THE JOB DOES
+  # -----------------
+  #  1. `npm ci` in `web/` and in `desktop/`. The dashboard's dependencies are
+  #     needed because `npm run package:dir` builds the Next.js application
+  #     first (`build:web`): the installer ships a *built* dashboard and does
+  #     not build one on the target machine — `scripts/stage-stack.mjs` says so
+  #     and fails loudly if the standalone tree is missing.
+  #  2. `npm run package:dir` — the same script a developer runs. `--dir` builds
+  #     the unpacked tree (`release/win-unpacked`) and not the NSIS installer,
+  #     and that tree is what the spec reads and what the installer is made of.
+  #  3. `npx playwright test --project=lifecycle packaged-posture` — the spec
+  #     itself, in the project that needs no Electron, no display and no
+  #     Docker.
+  #  4. An assertion that the run was not a skip, and that it ran all five
+  #     checks. A green *skipped* run would mean the job proved nothing while
+  #     reporting success — the same rule the `desktop-menu` job applies to a
+  #     skipped Electron test and the `verify` job applies to a skipped
+  #     postgres-marked test (ADR-0004).
+  #
+  # `OPSPILOT_PACKAGED_REQUIRED=1` is what turns the spec's skips into
+  # failures. On a developer's machine `desktop/release/` does not exist, and a
+  # skip that names why is the honest answer; here the job built the package
+  # one step earlier, so a skip means the build did not produce what was asked
+  # for, and a failure is the only honest report of that.
+  #
+  # `OPSPILOT_OPERATOR_TOKEN` is a disposable value, not a secret: it is never
+  # a real credential, and it exists so the A3 check has a token to look for.
+  # It is set for the *build* as well as for the test, because that is the
+  # interesting case — a token in the build environment is the one most likely
+  # to be embedded in the artefact, and the check asserts that the value which
+  # was in the environment while the package was built appears in no packaged
+  # file.
+  # ------------------------------------------------------------------------- #
+  desktop-package:
+    name: desktop-package (the Windows artefact)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+        # Git Bash rather than PowerShell, so the pipe-and-assert steps below
+        # read like the ones in the `desktop-menu` job. GitHub's bash shell
+        # already runs with `-e -o pipefail`; the explicit `set` is kept so the
+        # intent is readable at the point it matters.
+        shell: bash
+    env:
+      # A disposable token, so the A3 check has something to look for. Not a
+      # credential: the package is built and inspected on a disposable runner
+      # and the value is never printed.
+      OPSPILOT_OPERATOR_TOKEN: ci-disposable-token-not-a-secret
+      # Tells `packaged-posture.spec.ts` that the artefact is required, so a
+      # missing one is a failure and not a skip.
+      OPSPILOT_PACKAGED_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          # Both lockfiles, because the job installs both packages: the shell
+          # and the dashboard it packages.
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
+      - name: Install the dashboard's dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install the shell's dependencies
+        run: npm ci
+      - name: Start from an empty output directory
+        # The packaged compose file must be the repository's and not a stale
+        # copy -- `packaged-posture.spec.ts` asserts exactly that, and the
+        # reason it can is that the build starts from nothing. A fresh runner
+        # has no `release/` to remove; a re-run on a persistent one starts from
+        # an empty directory rather than from the last job's package.
+        run: rm -rf release
+      - name: Build the Windows package
+        # `package:dir` is `build:web && build && stage && electron-builder
+        # --win --x64 --dir`. The first three produce the standalone dashboard
+        # and the runtime tree the installer ships; the last one writes
+        # `release/win-unpacked`, which is the artefact the next step reads.
+        run: npm run package:dir
+      - name: Check the packaged artefact against A1–A3
+        # `set -o pipefail` is what makes the `| tee` safe: without it the
+        # step's status would be `tee`'s, and a failing check would leave this
+        # step green.
+        run: |
+          set -o pipefail
+          npx playwright test --project=lifecycle packaged-posture 2>&1 | tee /tmp/posture.txt
+      - name: Assert the check really ran
+        # The job exists to prove a thing about the package it just built. A
+        # skip here means the package was not there to be checked — which is
+        # the environment failing to reach the test, and that is a failure,
+        # not a pass.
+        #
+        # The count is asserted as five because that is how many checks the
+        # spec has: two for A1 (the loopback bindings, and the packaged compose
+        # file being the repository's and not a stale copy), two for A3 (no
+        # dotenv file in the package, and the build's own token in no packaged
+        # file), and one for D3 (the security policy inside `app.asar`). A
+        # project that lost a test would otherwise look like a project that
+        # passed.
+        run: |
+          set -o pipefail
+          if grep -qE "^\s*[0-9]+ skipped" /tmp/posture.txt; then
+            echo "::error::a packaged-artefact check skipped in the desktop-package job. The job built the package one step earlier, so a skip means the build did not produce what was asked for -- a green skipped run would report success while proving nothing."
+            exit 1
+          fi
+          passed=$(grep -oE "[0-9]+ passed" /tmp/posture.txt | tail -1 | grep -oE "^[0-9]+")
+          echo "packaged-artefact checks passed: ${passed:-0}"
+          [ "${passed:-0}" -eq 5 ] || { echo "::error::expected 5 packaged-artefact checks to pass (A1's two, A3's two, and D3's one); got ${passed:-0}. A lower number means a check was lost or skipped."; exit 1; }
+      - name: Assert the package was actually built
+        # The assertion the spec cannot make for itself: the artefact is a
+        # build output, and a job that quietly built nothing and then checked
+        # nothing would be green.
+        run: |
+          set -o pipefail
+          for artefact in \
+            release/win-unpacked/OpsPilot.exe \
+            release/win-unpacked/resources/app.asar \
+            release/win-unpacked/resources/stack/docker-compose.yml; do
+            if [ ! -f "$artefact" ]; then
+              echo "::error::$artefact is missing. The Windows package was not built."
+              exit 1
+            fi
+            echo "found $artefact"
+          done
 
   # ------------------------------------------------------------------------- #
   # docker-build — builds the Compose stack and proves it comes up

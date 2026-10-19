@@ -38,9 +38,25 @@
  * can manufacture a hostile page's fetch without a browser. The reachability
  * half -- who can get a request to this process at all -- is
  * `docker-compose.yml`'s loopback binding, guarded in Python.
+ *
+ * ## The other half: the set of handlers is enumerated, not listed
+ *
+ * The three handlers above are named by hand, and a hand-written list does not
+ * notice when the thing it lists grows. A fourth privileged write route added
+ * without the check would pass this file green, so the bottom of this file
+ * enumerates every `route.ts` under `web/src/app/api/**` and requires each
+ * mutating handler in it to call the policy. The three above stay hand-named
+ * because they are *driven* -- "the API was not called" is an observation, and
+ * a syntax tree cannot make it. See the section header there for why the
+ * enumeration lives in this file rather than in a second one.
  */
 
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
+import ts from "typescript";
+
 import { POST as decideApproval } from "@/app/api/approvals/[approvalId]/[decision]/route";
 import { POST as reindexKnowledge } from "@/app/api/knowledge/reindex/route";
 import { POST as createTicket } from "@/app/api/tickets/route";
@@ -387,5 +403,322 @@ test.describe("the origin comparison", () => {
 
   test("accepts the request's own origin, exactly", () => {
     expect(foreignOriginRefusal(host(OWN_ORIGIN))).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The enumeration: every mutating route handler, FOUND rather than LISTED.
+// ---------------------------------------------------------------------------
+
+/**
+ * ## The gap this closes
+ *
+ * Everything above drives three handlers that this file names by hand. A fourth
+ * privileged write route added without `foreignOriginRefusal` would therefore
+ * pass CI green -- the import list at the top of this file is a *copy* of the
+ * set of routes that need the check, and a copy does not notice when the thing
+ * it copies grows.
+ *
+ * So the set is not listed. It is enumerated: every `route.ts` under
+ * `web/src/app/api/**` is read, its exported handlers are found, and each
+ * mutating one is required to call the policy. The three handlers above stay
+ * hand-named, because they are *driven* -- the claim that a foreign origin
+ * reaches no API call is an observation about a running handler, and it cannot
+ * be made from a syntax tree. The enumeration below is a different claim: that
+ * no mutating handler was added without the check. One of the two would not
+ * survive on its own.
+ *
+ * ## Why this file and not a new one
+ *
+ * The source says so, twice, and it would be wrong to contradict it:
+ * `app/api/locale/route.ts` says "`write-origin.spec.ts` holds that guard to a
+ * test per handler", and `app/api/tickets/route.ts` says the rule is applied
+ * as "one policy, one module (`@/lib/request-origin`), **one test file** --
+ * because three near-identical checks are three things a later edit can make
+ * disagree". A second file would be a second place to forget to update, which
+ * is the very failure this block exists to prevent. It is also the same kind
+ * of check: no Docker, no browser, no stack -- the module under test is read
+ * and called directly, exactly as above.
+ *
+ * ## Why the route files are parsed rather than grepped
+ *
+ * A regex over the file's text would have to find "the part of this function
+ * that is the function", and the answer to that is a brace count, which is
+ * wrong the first time a route file contains a brace inside a string or a
+ * comment. The TypeScript compiler is already a devDependency of this package,
+ * so the syntax tree is free, and the tree answers the question exactly: is
+ * this call *inside* this handler's body, and does it come *before* the call
+ * that spends the operator token.
+ */
+
+/** Where the dashboard's Route Handlers live. */
+const API_DIR = path.resolve(__dirname, "..", "src", "app", "api");
+
+/** The module the policy lives in. One policy, one module. */
+const POLICY_MODULE = "@/lib/request-origin";
+
+/** The HTTP methods a Next.js Route Handler may export. */
+const ROUTE_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+
+/**
+ * The methods that change something.
+ *
+ * A `GET` is not one of them, and the dashboard has one such route on purpose:
+ * `GET /api/locale` sets a cookie and spends no credential -- the reasoning is
+ * in that route's own docstring, and it is why the check is required of the
+ * *mutating* handlers rather than of every handler in the tree. The property
+ * under test is "a handler that can change the operator's data refuses a
+ * foreign origin", and a cookie is not that.
+ */
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Every Route Handler the dashboard ships, as a path relative to
+ * `web/src/app/api`, with `/` separators.
+ *
+ * Listed as well as enumerated, and asserted to be exactly the set the
+ * enumeration finds. That is the fail-loud half: a new route file cannot
+ * appear in the dashboard without this guard noticing and a person saying
+ * whether it is a privileged write. The per-handler check below would also
+ * catch a new route that *lacks* the check, but it would say nothing about a
+ * new route that has one -- and "is this new thing a privileged write?" is a
+ * question a person should answer, not a pattern matcher.
+ */
+const EXPECTED_ROUTE_FILES = [
+  "approvals/[approvalId]/[decision]/route.ts",
+  "knowledge/reindex/route.ts",
+  "locale/route.ts",
+  "tickets/route.ts",
+];
+
+/** What one exported handler of a route file does, read from its syntax tree. */
+type RouteHandler = {
+  /** The HTTP method it answers. */
+  readonly method: string;
+  /** Whether its body calls `foreignOriginRefusal`. */
+  readonly checksOrigin: boolean;
+  /** Whether it calls the API before it calls the policy. */
+  readonly spendsTokenFirst: boolean;
+};
+
+/** One route file, and what it exports. */
+type RouteFile = {
+  /** Its path relative to the API directory, with `/` separators. */
+  readonly path: string;
+  /** Its exported HTTP handlers, in the order they are declared. */
+  readonly handlers: readonly RouteHandler[];
+  /** Whether it imports the policy from the one module. */
+  readonly importsPolicy: boolean;
+};
+
+/**
+ * Every `route.ts` under `dir`, as paths relative to it.
+ *
+ * A hand-rolled walk rather than `readdirSync(dir, { recursive: true })`: that
+ * option arrived in Node 20.1 and returns platform separators, and the
+ * expected set above is written with `/` so that it reads the same on a
+ * Windows developer machine and a Linux runner.
+ */
+function routeFilesIn(dir: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      for (const nested of routeFilesIn(full)) {
+        found.push(`${entry.name}/${nested}`);
+      }
+    } else if (entry.name === "route.ts") {
+      found.push(entry.name);
+    }
+  }
+  return found;
+}
+
+/**
+ * Read one route file and describe its exported handlers.
+ *
+ * The parse is the TypeScript compiler's, so "is this call inside this
+ * handler" is answered by the syntax tree rather than by counting braces.
+ */
+function readRouteFile(relative: string): RouteFile {
+  const full = path.join(API_DIR, ...relative.split("/"));
+  const source = ts.createSourceFile(
+    full,
+    readFileSync(full, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+
+  const handlers: RouteHandler[] = [];
+  for (const statement of source.statements) {
+    if (!ts.isFunctionDeclaration(statement) || statement.name === undefined) {
+      continue;
+    }
+    const method = statement.name.text;
+    if (!ROUTE_METHODS.has(method)) {
+      continue;
+    }
+    const exported =
+      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
+      false;
+    if (!exported) {
+      continue;
+    }
+
+    // The position of the first call to the policy, and of the first call to
+    // the API client. `Infinity` means "never", which is the right answer for
+    // a handler that spends no token.
+    let originCallAt = Number.POSITIVE_INFINITY;
+    let apiCallAt = Number.POSITIVE_INFINITY;
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = node.expression;
+        if (ts.isIdentifier(callee) && callee.text === "foreignOriginRefusal") {
+          originCallAt = Math.min(originCallAt, node.getStart(source));
+        } else if (
+          ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          callee.expression.text === "api"
+        ) {
+          apiCallAt = Math.min(apiCallAt, node.getStart(source));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    if (statement.body !== undefined) {
+      ts.forEachChild(statement.body, visit);
+    }
+
+    handlers.push({
+      method,
+      checksOrigin: originCallAt !== Number.POSITIVE_INFINITY,
+      spendsTokenFirst: apiCallAt < originCallAt,
+    });
+  }
+
+  // Whether the file imports the policy from the one module, rather than
+  // defining a function of the same name. A route that had its own
+  // `foreignOriginRefusal` would satisfy the call check while checking
+  // nothing.
+  let importsPolicy = false;
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) {
+      continue;
+    }
+    const specifier = statement.moduleSpecifier;
+    if (!ts.isStringLiteral(specifier) || specifier.text !== POLICY_MODULE) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) {
+      continue;
+    }
+    importsPolicy = bindings.elements.some(
+      (element) => (element.propertyName ?? element.name).text === "foreignOriginRefusal",
+    );
+  }
+
+  return { path: relative, handlers, importsPolicy };
+}
+
+test.describe("every mutating route handler is found, not listed", () => {
+  test("the API directory holds exactly the route files this guard knows about", () => {
+    const found = routeFilesIn(API_DIR).sort();
+    expect(
+      found.length,
+      `no route file was found under ${API_DIR}. A guard that enumerates nothing ` +
+        `asserts nothing, and this one is the only thing standing between a new ` +
+        `privileged write route and a green CI run.`,
+    ).toBeGreaterThan(0);
+    expect(
+      found,
+      "a Route Handler was added to, or removed from, web/src/app/api. Add it to " +
+        "EXPECTED_ROUTE_FILES in this file and say whether it is a privileged " +
+        "write: a mutating one must call foreignOriginRefusal, and a read-only " +
+        "one must say why it spends no credential.",
+    ).toEqual([...EXPECTED_ROUTE_FILES].sort());
+  });
+
+  test("every mutating handler calls the origin check", () => {
+    const routes = routeFilesIn(API_DIR).map(readRouteFile);
+    const mutating = routes.flatMap((route) =>
+      route.handlers
+        .filter((handler) => MUTATING_METHODS.has(handler.method))
+        .map((handler) => ({ route, handler })),
+    );
+
+    expect(
+      mutating.length,
+      "no mutating route handler was found. Every Route Handler in the tree " +
+        "answers a GET, which cannot be the case for the three privileged " +
+        "writes this dashboard ships -- so the enumeration is broken, not the " +
+        "code.",
+    ).toBeGreaterThan(0);
+
+    for (const { route, handler } of mutating) {
+      expect(
+        handler.checksOrigin,
+        `${route.path} exports a ${handler.method} that does not call ` +
+          `foreignOriginRefusal. It holds the operator token and calls the API ` +
+          `with it on the browser's behalf, so it is exactly the handler a ` +
+          `cross-site request forgery aims at: a page on any site can POST ` +
+          `here, the browser attaches no token and needs no session, and the ` +
+          `handler supplies both.`,
+      ).toBe(true);
+    }
+  });
+
+  test("every mutating handler checks the origin before it spends the token", () => {
+    const routes = routeFilesIn(API_DIR).map(readRouteFile);
+    for (const route of routes) {
+      for (const handler of route.handlers) {
+        if (!MUTATING_METHODS.has(handler.method) || !handler.checksOrigin) {
+          continue;
+        }
+        expect(
+          handler.spendsTokenFirst,
+          `${route.path} calls the API before it calls foreignOriginRefusal. A ` +
+            `refusal that arrives after the call has already been made is not a ` +
+            `refusal: the decision has been written by then, and the token has ` +
+            `been spent on a request the operator's own browser made on a ` +
+            `foreign page's behalf.`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  test("the policy is imported from the one module, not defined locally", () => {
+    const routes = routeFilesIn(API_DIR).map(readRouteFile);
+    for (const route of routes) {
+      const checks = route.handlers.some((handler) => handler.checksOrigin);
+      if (!checks) {
+        continue;
+      }
+      expect(
+        route.importsPolicy,
+        `${route.path} calls foreignOriginRefusal but does not import it from ` +
+          `${POLICY_MODULE}. A handler that defined its own function of that ` +
+          `name would satisfy the call check while checking nothing -- and ` +
+          `"one policy, one module" is the reason the three privileged writes ` +
+          `cannot drift apart.`,
+      ).toBe(true);
+    }
+  });
+
+  test("the read-only route is exempt, and says so rather than being excused", () => {
+    // The exemption is a decision, so it is asserted rather than assumed: the
+    // locale route is in the tree, it exports a GET, and it exports no
+    // mutating handler. `app/api/locale/route.ts` carries the reasoning -- it
+    // spends no credential, changes no operator data, and its cookie is
+    // `httpOnly` and `SameSite=Lax`.
+    const locale = readRouteFile("locale/route.ts");
+    expect(locale.handlers.map((handler) => handler.method)).toEqual(["GET"]);
+    expect(
+      locale.handlers.filter((handler) => MUTATING_METHODS.has(handler.method)),
+      "the locale route grew a mutating handler. A handler that writes the " +
+        "operator's data is a privileged write whatever it writes, and it " +
+        "needs the check.",
+    ).toEqual([]);
   });
 });
