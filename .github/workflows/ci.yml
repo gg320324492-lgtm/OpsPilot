@@ -76,18 +76,19 @@ jobs:
       - name: The committed artwork is current with its source
         # WHY THIS STEP IS HERE
         # ------------------
-        # `desktop/assets/icon.ico`, `web/src/app/favicon.ico` and
-        # `docs/assets/logo.png` are build artefacts that live in the
-        # repository:
-        # `scripts/make_assets.py` generates the icon and the favicon from
-        # `docs/assets/icon-source.png` and the wordmark from
-        # `docs/assets/logo-source.png`, and `desktop/electron-builder.yml`
-        # points the Windows build at the committed `.ico`. Nothing in the
-        # build regenerates them, so they drift the moment the artwork
-        # changes and nobody reruns the script -- and the drift is invisible
-        # in a review, because a binary is not something a diff shows. The
-        # failure this prevents is the icon that ships being the badge from
-        # three artwork revisions ago, with no symptom anyone can point at.
+        # `desktop/assets/icon.ico`, `web/src/app/favicon.ico`,
+        # `web/src/app/apple-icon.png` and `docs/assets/logo.png` are build
+        # artefacts that live in the repository:
+        # `scripts/make_assets.py` generates the icon, the favicon and the
+        # apple-touch icon from `docs/assets/icon-source.png` and the
+        # wordmark from `docs/assets/logo-source.png`, and
+        # `desktop/electron-builder.yml` points the Windows build at the
+        # committed `.ico`. Nothing in the build regenerates them, so they
+        # drift the moment the artwork changes and nobody reruns the script
+        # -- and the drift is invisible in a review, because a binary is not
+        # something a diff shows. The failure this prevents is the icon
+        # that ships being the badge from three artwork revisions ago, with
+        # no symptom anyone can point at.
         #
         # The wordmark was the worse half of it: before this step it had a
         # committed artefact, a reference to it in the README, and neither a
@@ -99,6 +100,11 @@ jobs:
         # convention alone, so there is no reference to follow and no
         # compiler to complain. A favicon that is three artwork revisions
         # old is exactly as invisible as the icon was.
+        #
+        # The apple-touch icon is the fourth, and it is the same orphan in
+        # the same way: `app/apple-icon.png` is found by the file
+        # convention alone, and a stale one is a badge with four holes in
+        # it on every iOS home screen that has the app.
         #
         # THE PRECEDENT, AND WHY IT IS CITED
         # ----------------------------------

@@ -1,17 +1,18 @@
-"""Build the artwork the repository ships: the Windows icon, the web favicon
-and the wordmark.
+"""Build the artwork the repository ships: the Windows icon, the web favicon,
+the apple-touch icon and the wordmark.
 
-Three artefacts, one script
----------------------------
-The shell ships a Windows icon, the dashboard ships a favicon, and the README
-carries a wordmark. All three are derived from artwork rather than drawn by
-hand, all three are committed to the repository, and all three need the same
-two things: a command that derives them from the artwork, and a check that
-notices when the committed file and the artwork have drifted apart. One
-script keeps those two things in one place. The three derivations are the
-same *kind* of derivation -- an export becomes an artefact -- and a second
-script would be a second copy of the same "generate, then compare" skeleton,
-and a copied skeleton is the copy that drifts.
+Four artefacts, one script
+--------------------------
+The shell ships a Windows icon, the dashboard ships a favicon, iOS ships an
+apple-touch icon, and the README carries a wordmark. All four are derived
+from artwork rather than drawn by hand, all four are committed to the
+repository, and all four need the same two things: a command that derives
+them from the artwork, and a check that notices when the committed file and
+the artwork have drifted apart. One script keeps those two things in one
+place. The four derivations are the same *kind* of derivation -- an export
+becomes an artefact -- and a second script would be a second copy of the
+same "generate, then compare" skeleton, and a copied skeleton is the copy
+that drifts.
 
 Why this script lives at the repository root
 --------------------------------------------
@@ -102,6 +103,56 @@ rounded corners and a dark ground loses nothing to that mask. Padding it would
 inset the artwork inside the mask, and the result reads as a smaller icon
 beside the others rather than as the same size.
 
+The apple-touch icon, which is the badge with its corners filled in
+--------------------------------------------------------------------
+iOS does not take a favicon. It takes an *apple-touch icon*, and it treats
+it differently: the picture goes into an opaque container and iOS puts its
+own rounded-rectangle mask over the top of it. So the picture has to be a
+completely filled square. The corners are iOS's business, not ours.
+
+The badge is not a filled square. It is a rounded square, and cutting the
+white ground away leaves the four corners transparent -- and an
+apple-touch icon with transparent corners is a badge with four holes in it,
+showing the container's black through them. So the corners have to be
+filled in, and *how* they are filled in is the whole difficulty:
+
+* **Not with white.** A white corner is a glaring square inside a dark
+  icon, and the badge's own edge is a saturated blue.
+* **Not by stretching.** The badge's opaque extent is 930x918, and
+  stretching that to a square turns the circle in the middle of it into an
+  ellipse.
+* **Not with a flat colour per corner.** The badge's ground is a gradient
+  -- bright blue along the top, near-black along the bottom -- and a flat
+  block in one corner meets that gradient along the arc with a step.
+
+So the fill is grown outwards from the badge instead. The badge's own
+colour field is carried into the corners, one ring at a time, and each new
+pixel takes the average of the pixels that are already filled. What comes
+out is the badge's own field, continued to the square: no block, no seam,
+and nothing stretched.
+
+**It starts behind the artwork's edge, and that is the whole trick.** The
+artwork's edge is a bright stroke one or two pixels wide, and a fill
+that takes the stroke for its source drags it across the corner: the
+stroke and the ground differ by more than a hundred units of blue, so a
+pixel that copies the one and its neighbour that copies the other is a
+band a person can see. The fill therefore starts a few pixels inside the
+badge, where the colour is the badge's own and varies smoothly.
+
+**The badge's shape is not in the picture, and that is on purpose.** The
+badge is a rounded square, and Windows puts a rounded-rectangle mask on
+its icon slots, so the badge's own rounding is redundant there; iOS puts a
+squircle on the apple-touch icon, so it is redundant there too. The
+apple-touch icon is the badge's *contents* filling the tile, and iOS
+supplies the shape.
+
+**It is 180x180, which is the only size there is.** Apple's spec names
+one size, and the size is also what the page says it is: Next.js's
+metadata image loader writes the picture's real dimensions into the
+`sizes` attribute, so a 180x180 picture is announced as
+`sizes="180x180"` and a larger one is announced as a size Apple does not
+ask for.
+
 The wordmark, and the two things it needs
 -----------------------------------------
 The wordmark is the same badge beside the name, and it is a different job
@@ -170,19 +221,24 @@ developer runs the build and looks at the difference themselves.
 
 Which artefact a path names
 ----------------------------
-Two of the three artefacts are `.ico` files, so the check has to be able to
-say which one a given path is. A path that is exactly one of the committed
-targets names that one. Anything else is read by its shape: a `.png` is the
-wordmark, and an `.ico` is whichever icon it *is* by the sizes it holds --
-four sizes is the favicon, ten is the shell's icon.
+Two of the four artefacts are `.ico` files and two are `.png` files, so the
+check has to be able to say which one a given path is. A path that is
+exactly one of the committed targets names that one. Anything else is read
+by its size: an `.ico` is whichever icon it *is* by the sizes it holds --
+four sizes is the favicon, ten is the shell's icon -- and a `.png` is
+whichever of the two it is by whether it is the apple-touch icon's 180x180
+or the wordmark's wide lockup.
 
-The size set is what tells them apart because the pixels cannot. The favicon
+The size is what tells them apart because the pixels cannot. The favicon
 and the icon are the same picture made the same way: the same artwork, the
 same ground cut away, the same premultiplied resampling. The favicon's 16,
 32, 48 and 64 frames are the icon's 16, 32, 48 and 64 frames, frame for
 frame. What differs is only which sizes are packed into the file -- and that
 is the artefact's contract with whatever consumes it: Windows asks the
-shell's icon for ten sizes, and a browser asks the favicon for four.
+shell's icon for ten sizes, and a browser asks the favicon for four. The
+same holds for the two PNGs: iOS asks the apple-touch icon for one size,
+180x180, and the wordmark is a lockup whose size is a property of the
+drawing it was cropped out of rather than a size anybody asked for.
 
 The file name is deliberately not what tells them apart. The check has to
 work on a path in a temporary directory, because that is how the guard is
@@ -196,7 +252,8 @@ Run
 artwork.
 
 `python scripts/make_assets.py icon` rebuilds just the icon,
-`python scripts/make_assets.py favicon` just the favicon, and
+`python scripts/make_assets.py favicon` just the favicon,
+`python scripts/make_assets.py apple` just the apple-touch icon, and
 `python scripts/make_assets.py wordmark` just the wordmark. Each takes two
 optional paths after the asset name -- the artwork to derive it from, and the
 file to write -- and both default to the checked-in ones.
@@ -218,7 +275,7 @@ import sys
 import tempfile
 from typing import NamedTuple
 
-from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, UnidentifiedImageError
 
 #: The sizes Windows may ask for. See the module docstring for why each.
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
@@ -226,6 +283,25 @@ ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 #: The sizes a browser may ask a favicon for. See the module docstring for
 #: why each, and for why there is no 256.
 FAVICON_SIZES = (16, 32, 48, 64)
+
+#: The size iOS asks an apple-touch icon at. There is only one, and it is
+#: also the size that tells the apple-touch icon apart from the wordmark.
+APPLE_ICON_SIZE = 180
+
+#: How far from white a pixel may be and still count as the drawing rather
+#: than the export's own edge. Half-way is the line: a pixel that is more
+#: than half white is the canvas the badge was drawn on, or the band where
+#: the badge was blended into it, and a pixel that is less than half white
+#: is the badge's own colour.
+ARTWORK_TOLERANCE = 128
+
+#: How far inside the artwork's edge the apple-touch icon's fill begins.
+#: The artwork's edge is a bright stroke one or two pixels wide, and a
+#: fill that takes the stroke for its source drags the stroke across the
+#: corner as a stripe: the stroke and the ground differ by more than a
+#: hundred units of blue, so a pixel that copies the one and its neighbour
+#: that copies the other is a band a person can see.
+APPLE_EDGE_INSET = 3
 
 #: How far from white a pixel may be and still count as the white ground.
 #: The ground beside the artwork is flat white with a noise of about three
@@ -293,23 +369,31 @@ class _Asset(NamedTuple):
     """One artefact, the artwork it is derived from, and where it lives.
 
     The name is what a person types on the command line, so it is the
-    artefact's own name and not a path: `icon`, `favicon` and `wordmark`.
+    artefact's own name and not a path: `icon`, `favicon`, `apple` and
+    `wordmark`.
 
     The sizes are the frames an icon-shaped artefact is packed at, and None
-    for the wordmark, which is a single picture rather than a set of them.
-    They are carried here rather than looked up by name because they are
-    what tells the two `.ico` artefacts apart -- see `_asset_for`.
+    for the two single-picture artefacts, the apple-touch icon and the
+    wordmark. They are carried here rather than looked up by name because
+    they are what tells the two `.ico` artefacts apart -- see `_asset_for`.
+
+    The size is the size a single-picture artefact is always written at,
+    and None for the artefacts that are packed into frames, and for the
+    wordmark, whose size is a property of the drawing it was cropped out
+    of rather than a size anybody asked for. It is what tells the two
+    `.png` artefacts apart.
     """
 
     name: str
     source: pathlib.Path
     target: pathlib.Path
     sizes: tuple[int, ...] | None
+    size: tuple[int, int] | None
 
 
 #: The assets this script owns, in the order they are built and checked.
-#: The two that come from the icon's artwork are adjacent, because they are
-#: the same picture at different sizes, and the wordmark is a different
+#: The three that come from the icon's artwork are adjacent, because they
+#: are the same picture at different sizes, and the wordmark is a different
 #: derivation from a different export.
 ASSETS: dict[str, _Asset] = {
     "icon": _Asset(
@@ -317,18 +401,28 @@ ASSETS: dict[str, _Asset] = {
         source=REPO_ROOT / "docs" / "assets" / "icon-source.png",
         target=REPO_ROOT / "desktop" / "assets" / "icon.ico",
         sizes=ICON_SIZES,
+        size=None,
     ),
     "favicon": _Asset(
         name="favicon",
         source=REPO_ROOT / "docs" / "assets" / "icon-source.png",
         target=REPO_ROOT / "web" / "src" / "app" / "favicon.ico",
         sizes=FAVICON_SIZES,
+        size=None,
+    ),
+    "apple": _Asset(
+        name="apple",
+        source=REPO_ROOT / "docs" / "assets" / "icon-source.png",
+        target=REPO_ROOT / "web" / "src" / "app" / "apple-icon.png",
+        sizes=None,
+        size=(APPLE_ICON_SIZE, APPLE_ICON_SIZE),
     ),
     "wordmark": _Asset(
         name="wordmark",
         source=REPO_ROOT / "docs" / "assets" / "logo-source.png",
         target=REPO_ROOT / "docs" / "assets" / "logo.png",
         sizes=None,
+        size=None,
     ),
 }
 
@@ -625,6 +719,257 @@ def check_icon(
         return 1
 
 
+def _pixels(path: pathlib.Path) -> bytes | None:
+    """The decoded pixels of an image, or None when the file is not one.
+
+    Converted to RGBA first, so that two files are compared as the pictures
+    they show rather than as the encodings they happen to use: an RGB file
+    and an RGBA file with an opaque alpha channel are the same picture.
+    """
+    try:
+        with Image.open(path) as image:
+            return image.convert("RGBA").tobytes()
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+
+def _drawing_mask(image: Image.Image) -> Image.Image:
+    """Which pixels of `image` are the drawing rather than the export.
+
+    The cut leaves the badge opaque and the export's white canvas
+    transparent, so the alpha channel already says which is which -- but
+    the export's own antialiased edge is opaque too, and a pixel that is
+    most of the way back to white is the export's edge rather than the
+    drawing.
+
+    Which pixels those are is found by flooding the white part from the
+    corner, the same way the ground was cut away: the export's edge is
+    connected to the canvas, and the drawing's own near-white highlights
+    are not, because they are enclosed by the drawing. A measure that
+    only asked how far a pixel is from white would take the highlights
+    for the canvas and paint over them.
+    """
+    distance = _distance_from_white(image.convert("RGB"))
+    white = distance.point(lambda d: 0 if d < ARTWORK_TOLERANCE else 255)
+    ImageDraw.floodfill(white, (0, 0), 128, thresh=0)
+    edge = white.point(lambda v: 255 if v == 128 else 0)
+    opaque = image.getchannel("A").point(lambda a: 255 if a == 255 else 0)
+    return ImageChops.multiply(opaque, ImageChops.invert(edge))
+
+
+def _inset(mask: Image.Image, rings: int) -> Image.Image:
+    """`mask` with its outermost `rings` pixels taken away.
+
+    The erosion is a minimum filter: a pixel survives only if every one of
+    its neighbours is in the mask, so one pass takes one pixel off the
+    edge. The mask is the whole picture and its edge is a few thousand
+    pixels long, and the filter is the way of asking about all of them at
+    once.
+    """
+    inset = mask
+    for _ in range(rings):
+        inset = inset.filter(ImageFilter.MinFilter(3))
+    return inset
+
+
+def _set_indices(mask: Image.Image) -> list[int]:
+    """The flat indices of the pixels a mask has set.
+
+    Found by searching the mask's bytes rather than by walking the
+    picture: the picture is a million pixels and the set ones are a few
+    thousand, and `bytes.find` is the fast way to ask.
+    """
+    data = mask.tobytes()
+    indices: list[int] = []
+    start = 0
+    while True:
+        index = data.find(b"\xff", start)
+        if index < 0:
+            return indices
+        indices.append(index)
+        start = index + 1
+
+
+def _neighbours(x: int, y: int, width: int, height: int) -> list[tuple[int, int, int]]:
+    """The neighbours of a pixel, and how much each one counts.
+
+    The four that share an edge count for two and the four that share
+    only a corner count for one, which is the usual way of walking a
+    picture without preferring one diagonal to the other.
+    """
+    found: list[tuple[int, int, int]] = []
+    for step_y in (-1, 0, 1):
+        for step_x in (-1, 0, 1):
+            if not step_x and not step_y:
+                continue
+            near_x = x + step_x
+            near_y = y + step_y
+            if 0 <= near_x < width and 0 <= near_y < height:
+                weight = 2 if not step_x or not step_y else 1
+                found.append((near_x, near_y, weight))
+    return found
+
+
+def _fill_outwards(image: Image.Image) -> Image.Image:
+    """Return `image` with everything outside the badge filled in.
+
+    The fill grows outwards from the badge, one ring at a time, and each
+    new pixel takes the average of the pixels that are already filled.
+    What comes out is the badge's own colour field carried to the edge of
+    the picture: no block, no seam, and nothing stretched.
+
+    The fill starts behind the artwork's bright edge stroke, and that is
+    the whole trick -- see the module docstring. A fill that takes the
+    stroke for its source drags it across the corner as a stripe, because
+    the stroke and the ground differ by more than a hundred units of blue
+    and neighbouring pixels end up copying one and the other.
+    """
+    out = image.convert("RGBA")
+    pixels = out.load()
+    width, height = out.size
+
+    source = _inset(_drawing_mask(image), APPLE_EDGE_INSET)
+    filled = bytearray(width * height)
+    for index in _set_indices(source):
+        filled[index] = 1
+    waiting = set(_set_indices(ImageChops.invert(source)))
+
+    edge = ImageChops.subtract(source.filter(ImageFilter.MaxFilter(3)), source)
+    frontier = [index for index in _set_indices(edge) if index in waiting]
+
+    while frontier:
+        assignments: list[tuple[int, tuple[int, int, int, int]]] = []
+        for index in frontier:
+            x = index % width
+            y = index // width
+            red = green = blue = 0
+            weight = 0
+            for near_x, near_y, near_weight in _neighbours(x, y, width, height):
+                if filled[near_y * width + near_x]:
+                    near = pixels[near_x, near_y]
+                    red += near[0] * near_weight
+                    green += near[1] * near_weight
+                    blue += near[2] * near_weight
+                    weight += near_weight
+            if weight:
+                assignments.append((index, (red // weight, green // weight, blue // weight, 255)))
+        for index, colour in assignments:
+            pixels[index % width, index // width] = colour
+            filled[index] = 1
+            waiting.discard(index)
+        following: set[int] = set()
+        for index, _ in assignments:
+            x = index % width
+            y = index // width
+            for near_x, near_y, _ in _neighbours(x, y, width, height):
+                near = near_y * width + near_x
+                if near in waiting:
+                    following.add(near)
+        frontier = list(following)
+    return out
+
+
+def build_apple(source: pathlib.Path, target: pathlib.Path) -> tuple[int, int]:
+    """Write the apple-touch icon, and return its size.
+
+    The badge is cut the way the icon and the favicon are cut, and then
+    its corners are filled in: iOS puts the picture in an opaque container
+    and masks the top of it, so the picture itself has to be a filled
+    square.
+    """
+    artwork = _crop_to_artwork(_cut_ground(Image.open(source)))
+    icon = _resize(_fill_outwards(artwork), (APPLE_ICON_SIZE, APPLE_ICON_SIZE))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    icon.save(target, format="PNG", optimize=True)
+    return icon.size
+
+
+def _apple_drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
+    """Lines naming what differs between the committed icon and the new one."""
+    try:
+        with Image.open(target) as image:
+            committed_size = image.size
+    except (OSError, SyntaxError, ValueError):
+        return ["the committed apple-touch icon could not be read as an image"]
+    try:
+        with Image.open(candidate) as image:
+            regenerated_size = image.size
+    except (OSError, SyntaxError, ValueError):
+        return ["the regenerated apple-touch icon could not be read as an image"]
+
+    if committed_size != regenerated_size:
+        return [
+            f"the committed apple-touch icon is {committed_size[0]}x{committed_size[1]} "
+            f"and the regenerated one is {regenerated_size[0]}x{regenerated_size[1]}"
+        ]
+    return ["the same size, but the pixels differ"]
+
+
+def check_apple(source: pathlib.Path, target: pathlib.Path) -> int:
+    """Compare the committed apple-touch icon with a freshly generated one.
+
+    The comparison is between the pictures and not between the bytes, for
+    the same reason as the icon: a PNG's bytes depend on the compressor
+    that packed it, and a CI runner's compressor is not the one that wrote
+    the file.
+
+    The regeneration happens in a temporary directory, and the file being
+    checked is never written to: a check that repairs the tree it is
+    checking is not a check.
+    """
+    if not target.exists():
+        print(f"no such apple-touch icon: {target}", file=sys.stderr)
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="opspilot-apple-") as scratch:
+        candidate = pathlib.Path(scratch) / target.name
+        try:
+            build_apple(source, candidate)
+        except UnidentifiedImageError:
+            print(
+                f"the artwork could not be read as an image: {source}",
+                file=sys.stderr,
+            )
+            return 1
+
+        committed_pixels = _pixels(target)
+        regenerated_pixels = _pixels(candidate)
+        if committed_pixels is None:
+            print(
+                f"the committed apple-touch icon could not be read as an image: {target}",
+                file=sys.stderr,
+            )
+            return 1
+        if regenerated_pixels is None:
+            print(
+                f"the regenerated apple-touch icon could not be read as an image: {candidate}",
+                file=sys.stderr,
+            )
+            return 1
+
+        if committed_pixels == regenerated_pixels:
+            with Image.open(target) as image:
+                size = image.size
+            print(
+                f"the committed apple-touch icon is current: {target} "
+                f"({target.stat().st_size} bytes, {size[0]}x{size[1]})",
+                flush=True,
+            )
+            return 0
+
+        print(f"the committed apple-touch icon is stale: {target}", file=sys.stderr)
+        print(f"  committed:   {target.stat().st_size} bytes", file=sys.stderr)
+        print(f"  regenerated: {candidate.stat().st_size} bytes", file=sys.stderr)
+        for line in _apple_drift_lines(target, candidate):
+            print(f"  {line}", file=sys.stderr)
+        print(
+            "\nRun:  python scripts/make_assets.py apple\n"
+            "Then commit the regenerated apple-touch icon together with the artwork change.",
+            file=sys.stderr,
+        )
+        return 1
+
+
 def _canonical_export(image: Image.Image) -> Image.Image:
     """The export at the size the artwork is drawn at.
 
@@ -691,20 +1036,6 @@ def build_wordmark(source: pathlib.Path, target: pathlib.Path) -> tuple[int, int
     target.parent.mkdir(parents=True, exist_ok=True)
     wordmark.convert("RGBA").save(target, format="PNG", optimize=True)
     return wordmark.size
-
-
-def _pixels(path: pathlib.Path) -> bytes | None:
-    """The decoded pixels of an image, or None when the file is not one.
-
-    Converted to RGBA first, so that two files are compared as the pictures
-    they show rather than as the encodings they happen to use: an RGB file
-    and an RGBA file with an opaque alpha channel are the same picture.
-    """
-    try:
-        with Image.open(path) as image:
-            return image.convert("RGBA").tobytes()
-    except (OSError, SyntaxError, ValueError):
-        return None
 
 
 def _wordmark_drift_lines(target: pathlib.Path, candidate: pathlib.Path) -> list[str]:
@@ -835,14 +1166,41 @@ def _icon_asset_for(target: pathlib.Path) -> _Asset | None:
     return None
 
 
+def _png_asset_for(target: pathlib.Path) -> _Asset | None:
+    """The asset a `.png` path names, recognised by its size.
+
+    Two of the artefacts are PNGs, and the pixels cannot say which one a
+    file is: the wordmark is a dark badge and a dark name on white, and
+    the apple-touch icon is the badge on a filled square, and both are
+    opaque. The size can: the apple-touch icon is written at exactly
+    180x180 -- the one size iOS asks for -- and the wordmark is the wide
+    lockup, whose size is a property of the drawing it was cropped out of
+    rather than a size anybody asked for.
+
+    A file that cannot be read as an image is refused rather than guessed
+    at, for the same reason the icons are.
+    """
+    try:
+        with Image.open(target) as image:
+            size = image.size
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for asset in ASSETS.values():
+        if asset.size is not None and size == asset.size:
+            return asset
+    return ASSETS["wordmark"]
+
+
 def _asset_for(target: pathlib.Path) -> _Asset | None:
     """The asset a `--check` path names, or None when it names none.
 
     A path that is exactly one of the committed artefacts names that asset.
-    Anything else is read by its shape: a `.png` is the wordmark, and an
-    `.ico` is whichever of the two icons it holds by the sizes it packs.
-    A path that is neither is refused rather than guessed at, because a
-    check pointed at the wrong asset is a check that proves nothing.
+    Anything else is read by its size: an `.ico` is whichever of the two
+    icons it holds by the sizes it packs, and a `.png` is the
+    apple-touch icon at the size iOS asks for or the wordmark at whatever
+    size the drawing is. A path that is neither is refused rather than
+    guessed at, because a check pointed at the wrong asset is a check
+    that proves nothing.
     """
     for asset in ASSETS.values():
         if target == asset.target or target.resolve() == asset.target.resolve():
@@ -851,7 +1209,7 @@ def _asset_for(target: pathlib.Path) -> _Asset | None:
     if suffix == ".ico":
         return _icon_asset_for(target)
     if suffix == ".png":
-        return ASSETS["wordmark"]
+        return _png_asset_for(target)
     return None
 
 
@@ -859,6 +1217,8 @@ def _check_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> i
     """Check one asset, by name."""
     if asset.sizes is not None:
         return check_icon(source, target, asset.sizes, asset.name)
+    if asset.size is not None:
+        return check_apple(source, target)
     return check_wordmark(source, target)
 
 
@@ -878,13 +1238,13 @@ def _build_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> i
         print(f"verified: {target} opens and contains {len(found)} sizes")
         return 0
 
-    size = build_wordmark(source, target)
+    size = build_apple(source, target) if asset.size is not None else build_wordmark(source, target)
     print(f"wrote {target} ({target.stat().st_size} bytes) at {size[0]}x{size[1]}")
 
     with Image.open(target) as written:
         found = written.size
     if found != size:
-        print(f"the wordmark is not the size it was written at: {found}", file=sys.stderr)
+        print(f"the {asset.name} is not the size it was written at: {found}", file=sys.stderr)
         return 1
     print(f"verified: {target} opens and is {size[0]}x{size[1]}")
     return 0
@@ -907,7 +1267,8 @@ def _check_all(target: pathlib.Path | None) -> int:
         print(
             f"--check cannot tell which asset {target} names: an .ico is read "
             "by the sizes it packs -- the favicon's four (16, 32, 48, 64) or "
-            "the shell icon's ten -- and a .png is the wordmark.",
+            "the shell icon's ten -- and a .png is the apple-touch icon at "
+            "180x180 or the wordmark.",
             file=sys.stderr,
         )
         return 1
@@ -932,12 +1293,16 @@ def _build_all() -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="make_assets.py",
-        description="Build the Windows icon, the web favicon and the wordmark from the artwork.",
+        description=(
+            "Build the Windows icon, the web favicon, the apple-touch icon "
+            "and the wordmark from the artwork."
+        ),
         epilog=(
             "without --check: [ASSET [SOURCE [TARGET]]] -- the asset to build "
-            "('icon', 'favicon' or 'wordmark'), the artwork to derive it from "
-            "and the file to write. with --check: [PATH] -- the artefact to "
-            "compare against one regenerated from the checked-in artwork."
+            "('icon', 'favicon', 'apple' or 'wordmark'), the artwork to derive "
+            "it from and the file to write. with --check: [PATH] -- the "
+            "artefact to compare against one regenerated from the checked-in "
+            "artwork."
         ),
     )
     parser.add_argument(

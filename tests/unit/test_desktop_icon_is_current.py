@@ -1,17 +1,18 @@
 """The committed artwork must still be what the artwork generates.
 
-`desktop/assets/icon.ico`, `web/src/app/favicon.ico` and
-`docs/assets/logo.png` are build artefacts that live in the repository:
-`scripts/make_assets.py` generates the icon and the favicon from
-`docs/assets/icon-source.png` and the wordmark from
-`docs/assets/logo-source.png`, `desktop/electron-builder.yml` points the
-Windows build at the committed `.ico`, the root README carries the committed
-`.png`, and Next.js picks the committed favicon up by the App Router's file
-convention. Nothing in the build regenerates them, so they drift the moment
-the artwork changes and nobody reruns the script -- and the drift is
-invisible in a review, because a binary is not something a diff shows. The
-icon that ships is then the badge from three artwork revisions ago, and the
-only symptom is that nobody can say why the icon looks wrong.
+`desktop/assets/icon.ico`, `web/src/app/favicon.ico`,
+`web/src/app/apple-icon.png` and `docs/assets/logo.png` are build artefacts
+that live in the repository: `scripts/make_assets.py` generates the icon, the
+favicon and the apple-touch icon from `docs/assets/icon-source.png` and the
+wordmark from `docs/assets/logo-source.png`, `desktop/electron-builder.yml`
+points the Windows build at the committed `.ico`, the root README carries the
+committed `.png`, and Next.js picks the committed favicon and the committed
+apple-touch icon up by the App Router's file convention. Nothing in the build
+regenerates them, so they drift the moment the artwork changes and nobody
+reruns the script -- and the drift is invisible in a review, because a binary
+is not something a diff shows. The icon that ships is then the badge from
+three artwork revisions ago, and the only symptom is that nobody can say why
+the icon looks wrong.
 
 The favicon is the one that needed this most. Nothing in the dashboard's
 source names `web/src/app/favicon.ico`: Next.js finds it by the file
@@ -78,6 +79,27 @@ sits in a browser's tab strip, where an opaque white square is a bright
 block beside the other tabs, and the badge in the middle of it is the
 drawing -- a hole where the badge should be is not a favicon either.
 
+The apple-touch icon has four, and the first three are the favicon's:
+
+1. **The committed apple-touch icon is what the artwork generates**, and the
+   check does not write to it.
+2. **The guard is not empty for it either**: an apple-touch icon built in a
+   temporary directory from different artwork has to be reported as stale, and
+   the report has to name the apple-touch icon rather than the wordmark --
+   the two are both PNGs, and a report that named the wrong one would send
+   the reader to the wrong file.
+3. **The check tells it from the wordmark.** Both are PNGs and both are
+   opaque, and the only thing that distinguishes them is the size: the
+   apple-touch icon is written at the 180x180 iOS asks for and the wordmark
+   is the wide lockup. A check that could not tell them apart would compare
+   the apple-touch icon against the wordmark and call it stale forever.
+4. **It is a filled square, which is the opposite of the favicon's
+   invariant.** iOS puts the picture in an opaque container and masks the top
+   of it, so a transparent corner is a hole that shows the container's black
+   through the badge. Every pixel of the apple-touch icon has to be opaque,
+   and its corners are the badge's own blue rather than the transparent
+   corners the favicon is required to have.
+
 The wordmark has three:
 
 1. **The committed wordmark is what the artwork generates**, and the check
@@ -117,6 +139,7 @@ _BUILDER = _REPO_ROOT / "scripts" / "make_assets.py"
 _ARTWORK = _REPO_ROOT / "docs" / "assets" / "icon-source.png"
 _ICON = _REPO_ROOT / "desktop" / "assets" / "icon.ico"
 _FAVICON = _REPO_ROOT / "web" / "src" / "app" / "favicon.ico"
+_APPLE = _REPO_ROOT / "web" / "src" / "app" / "apple-icon.png"
 _WORDMARK_ARTWORK = _REPO_ROOT / "docs" / "assets" / "logo-source.png"
 _WORDMARK = _REPO_ROOT / "docs" / "assets" / "logo.png"
 
@@ -153,6 +176,14 @@ _TRANSPARENT = 0
 #: The alpha the middle of a favicon must have: full. The badge is the
 #: drawing, and a hole where the badge should be is not a favicon.
 _OPAQUE = 255
+
+#: The size iOS asks an apple-touch icon at. Apple's spec names one size,
+#: and Next.js's metadata image loader writes the picture's real dimensions
+#: into the `sizes` attribute of the link tag, so a 180x180 picture is
+#: announced as `sizes="180x180"` and any other size is announced as one
+#: Apple does not ask for. Written out here rather than imported from the
+#: builder, for the same reason the sizes above are.
+EXPECTED_APPLE_SIZE = (180, 180)
 
 #: How far from white a pixel may be and still count as the drawing rather
 #: than the export's ground. The same measure the builder uses to find the
@@ -499,6 +530,203 @@ def test_the_favicon_is_a_badge_and_not_a_white_square() -> None:
         )
 
 
+def test_the_committed_apple_touch_icon_is_current_with_the_artwork() -> None:
+    """The committed apple-touch icon is exactly what the artwork generates.
+
+    The same contract as the favicon, and for a sharper reason: nothing in
+    the dashboard's source names this file either. Next.js finds it by the
+    App Router's file convention, so an apple-touch icon that is three
+    artwork revisions old is exactly as invisible as the favicon was.
+    """
+    before = _APPLE.read_bytes()
+
+    result = _run_builder("--check", _APPLE)
+
+    assert result.returncode == 0, (
+        "web/src/app/apple-icon.png has drifted from docs/assets/icon-source.png.\n"
+        "Run `python scripts/make_assets.py apple` and commit the result.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert _APPLE.read_bytes() == before, (
+        "`--check` modified web/src/app/apple-icon.png. A check that repairs "
+        "the tree it is checking is not a check -- the failure it exists to "
+        "report would be invisible in CI, where the working tree comes back clean."
+    )
+
+
+def test_the_check_fails_on_an_apple_touch_icon_the_artwork_does_not_generate(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The guard is not empty for the apple-touch icon either.
+
+    The stale icon is built in a temporary directory from a different piece
+    of artwork, and the real ``web/src/app/apple-icon.png`` is never
+    touched.
+
+    The report has to name the apple-touch icon. It and the wordmark are
+    both PNGs, and a report that said "the wordmark" would send the reader
+    to the wrong file -- and one that named neither would be a report
+    nobody could act on.
+    """
+    other_artwork = tmp_path / "other.png"
+    Image.new("RGBA", (256, 256), (255, 0, 255, 255)).save(other_artwork)
+    stale = tmp_path / "apple-icon.png"
+    built = _run_builder("apple", other_artwork, stale)
+    assert built.returncode == 0, (
+        "the builder could not produce the apple-touch icon to compare against.\n\n"
+        f"{built.stdout}\n{built.stderr}"
+    )
+
+    result = _run_builder("--check", stale)
+
+    assert result.returncode != 0, (
+        "the check reported success for an apple-touch icon the artwork does "
+        "not generate, so the guard is empty.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert "the committed apple-touch icon is stale" in result.stderr, (
+        "the check failed but did not say which artefact was stale, so the "
+        "failure cannot be acted on.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+
+
+def test_the_check_tells_the_apple_touch_icon_from_the_wordmark(tmp_path: pathlib.Path) -> None:
+    """Two PNGs holding opaque pictures are told apart by their size.
+
+    The apple-touch icon and the wordmark are both PNGs and both are
+    opaque -- the wordmark is drawn on white and the apple-touch icon is a
+    filled square -- so the pixels cannot say which one a file is. What
+    can is the size: the apple-touch icon is written at the 180x180 iOS
+    asks for, and the wordmark is the wide lockup whose size is a property
+    of the drawing it was cropped out of.
+
+    The copies here live in a temporary directory, so neither is one of the
+    committed targets and the check has to work the size out for itself. A
+    check that always took the wordmark would report the apple-touch icon
+    copy as stale; one that always took the apple-touch icon would report
+    the wordmark copy as stale. Both would be a guard that fails on a
+    correct tree, which is worse than no guard at all, because it sends
+    the developer to regenerate a file that is already right.
+    """
+    apple_copy = tmp_path / "apple-icon.png"
+    wordmark_copy = tmp_path / "wordmark.png"
+    for asset, source, target in (
+        ("apple", _ARTWORK, apple_copy),
+        ("wordmark", _WORDMARK_ARTWORK, wordmark_copy),
+    ):
+        built = _run_builder(asset, source, target)
+        assert built.returncode == 0, (
+            f"the builder could not produce the {asset} to compare against.\n\n"
+            f"{built.stdout}\n{built.stderr}"
+        )
+
+    checked_apple = _run_builder("--check", apple_copy)
+    assert checked_apple.returncode == 0, (
+        "the check called a copy of the apple-touch icon stale. The copy is "
+        "the size iOS asks for, so it is the apple-touch icon.\n\n"
+        f"{checked_apple.stdout}\n{checked_apple.stderr}"
+    )
+    assert "the committed apple-touch icon is current" in checked_apple.stdout, (
+        "the check did not report the 180x180 file as the apple-touch icon. "
+        "It was compared against the wordmark instead.\n\n"
+        f"{checked_apple.stdout}\n{checked_apple.stderr}"
+    )
+
+    checked_wordmark = _run_builder("--check", wordmark_copy)
+    assert checked_wordmark.returncode == 0, (
+        "the check called a copy of the wordmark stale. The copy is the wide "
+        "lockup, so it is the wordmark.\n\n"
+        f"{checked_wordmark.stdout}\n{checked_wordmark.stderr}"
+    )
+    assert "the committed wordmark is current" in checked_wordmark.stdout, (
+        "the check did not report the wide file as the wordmark. It was "
+        "compared against the apple-touch icon instead.\n\n"
+        f"{checked_wordmark.stdout}\n{checked_wordmark.stderr}"
+    )
+
+
+def test_the_apple_touch_icon_is_the_size_ios_asks_for() -> None:
+    """The committed apple-touch icon is exactly 180x180.
+
+    Apple's spec names one size for an apple-touch icon, and the size is
+    also what the page says it is: Next.js's metadata image loader writes
+    the picture's real dimensions into the `sizes` attribute of the link
+    tag, so a 180x180 picture is announced as ``sizes="180x180"`` and a
+    larger one is announced as a size Apple does not ask for.
+    """
+    assert _APPLE.exists(), (
+        "web/src/app/apple-icon.png is missing. Next.js's App Router finds it "
+        "by the file convention, so without it iOS falls back to a screenshot "
+        "of the page."
+    )
+    with Image.open(_APPLE) as image:
+        found = image.size
+
+    assert found == EXPECTED_APPLE_SIZE, (
+        f"web/src/app/apple-icon.png is {found[0]}x{found[1]}, not "
+        f"{EXPECTED_APPLE_SIZE[0]}x{EXPECTED_APPLE_SIZE[1]}. The size is the "
+        "whole contract with iOS: the page announces the picture's real "
+        "dimensions as its `sizes`, and a size Apple does not ask for is a "
+        "size the home screen will not use."
+    )
+
+
+def test_the_apple_touch_icon_is_a_filled_square() -> None:
+    """Every pixel of the apple-touch icon is opaque, the corners included.
+
+    iOS puts the picture in an opaque container and masks the top of it
+    with its own rounded rectangle, so the picture itself has to be a
+    completely filled square: a transparent corner is a hole that shows the
+    container's black through the badge, and the badge with four black
+    corners is not the mark. This is the opposite of the favicon's
+    invariant, and for the same reason -- both are about what the thing
+    the picture is put in shows through.
+
+    The corners are the badge's own blue and not white, which is the other
+    way the fill could go wrong: a white corner is a glaring square inside
+    a dark icon, and the badge's edge is a saturated blue.
+    """
+    with Image.open(_APPLE) as image:
+        apple = image.convert("RGBA")
+
+    lowest = apple.getchannel("A").getextrema()[0]
+    assert lowest == _OPAQUE, (
+        "web/src/app/apple-icon.png has transparent pixels (the lowest alpha "
+        f"is {lowest}). iOS puts the picture in an opaque container and masks "
+        "the top of it, so a transparent corner is a hole that shows the "
+        "container's black through the badge."
+    )
+
+    bands = apple.split()
+    alpha_band = bands[3]
+    corners = {
+        "top left": (0, 0),
+        "top right": (apple.width - 1, 0),
+        "bottom left": (0, apple.height - 1),
+        "bottom right": (apple.width - 1, apple.height - 1),
+    }
+    for corner, (x, y) in corners.items():
+        corner_alpha = alpha_band.getpixel((x, y))
+        assert corner_alpha == _OPAQUE, (
+            f"the {corner} of web/src/app/apple-icon.png is transparent (alpha "
+            f"{corner_alpha}). The picture is a filled square: the corners "
+            "are the badge's own colour, and iOS's mask is the only rounding "
+            "this icon gets."
+        )
+        pixel = apple.getpixel((x, y))
+        assert isinstance(pixel, tuple), (
+            f"the {corner} of web/src/app/apple-icon.png could not be read as a colour: {pixel}"
+        )
+        red, _green, blue, _alpha = pixel
+        assert blue != red, (
+            f"the {corner} of web/src/app/apple-icon.png is {pixel[:3]}, which "
+            "is not the badge's blue. The corner is filled with the badge's "
+            "own colour continued outwards, and a white corner would be a "
+            "glaring square inside a dark icon."
+        )
+
+
 def test_the_committed_wordmark_is_current_with_the_artwork() -> None:
     """The committed wordmark is exactly what the artwork generates.
 
@@ -578,6 +806,12 @@ def test_the_check_without_a_path_covers_every_artefact() -> None:
         "orphan: a committed artefact with no reference to it anywhere in the "
         "source, because Next.js finds it by the file convention alone, and "
         "nothing that would notice it drifting.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert "the committed apple-touch icon is current" in result.stdout, (
+        "the check did not report on the apple-touch icon, so it is still an "
+        "orphan in the same way the favicon was: Next.js finds it by the file "
+        "convention alone, and nothing that would notice it drifting.\n\n"
         f"{result.stdout}\n{result.stderr}"
     )
     assert "the committed wordmark is current" in result.stdout, (
