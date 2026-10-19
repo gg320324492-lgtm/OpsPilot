@@ -6347,11 +6347,36 @@ PNG's row filters are part of the format rather than a compression of it, so a
 different combination of them is different bytes and the same picture, and every
 decoder reads every combination. So `scripts/make_assets.py` writes the `.ico`
 itself — six bytes of `ICONDIR`, sixteen bytes of `ICONDIRENTRY` per frame, and
-the PNG frames — and the icon was 138,716 bytes rather than 146,728, 5.5%
+the PNG frames — and the icon is 138,716 bytes rather than 146,728, 5.5%
 smaller, with the pixels checked after the write rather than assumed: the file
 is read back and every frame is compared with the frame that went in, so a
 container that is well formed but holds the wrong pictures fails the build
 instead of shipping. Pillow still reads the icons back; only the writing moved.
+
+**And the palette was tried, and it does not survive the tree.** A palette
+PNG — 256 indexed colours, 11,079 bytes for the 256-pixel frame against
+75,186 for the RGBA one — is the obvious next step, and it was tried: the
+files came out 46% and 70% smaller. It was reverted, and the reason is not the
+banding, which is visible and could be argued about either way, but that
+**the quantisation is not reproducible across platforms**. The same Pillow,
+13.0.0 on both, quantises the same frame differently on Windows and on
+Linux: the icon committed here is 74,609 bytes and the one the same script
+produces on a Linux runner is 74,602, and the 256-pixel frame's pixels
+differ. The guard in the `lint` job therefore fails on a tree nobody
+changed — which is the failure this repository's whole arrangement of guards
+exists to prevent, and the reason a committed artefact has to be something
+the tree can derive on any machine that checks it. A palette frame also costs
+the picture its smoothness: the deep blue field takes 5,947 distinct colours
+in the RGBA frame and 78 in the palette one, and the banding that follows is
+visible at one to one on a dark background.
+
+**And the way that was found out is a container.** The drift was found by
+the CI on Linux and reproduced locally in `python:3.12-slim`, and the two
+disagreed — which is how a Windows workstation and a Linux runner disagree.
+An artefact committed to the repository is checked by CI on Linux and usually
+built on Windows, so that is the pair that has to agree, and a change to a
+generated artefact is worth checking in both before it is pushed rather than
+after.
 
 ### The two guards
 
@@ -6507,13 +6532,7 @@ What Next.js actually did with the file is worth recording, because "the file co
 
 The guard's shape changed with the artefact. `--check` with no path now checks all three of the tree's artefacts — the shell's icon, the favicon and the wordmark — and says which one it is talking about, because a check that reports "something is stale" against three candidates leaves the reader to guess, and the failure this exists to catch is precisely a failure nobody can point at. The unit tests in `tests/unit/test_desktop_icon_is_current.py` went from eleven to sixteen, and the five new ones pin the decisions above: that the committed favicon is current with the artwork, that a favicon the artwork does not generate is caught, that the check tells the shell's icon from the favicon, that the favicon carries the sizes a browser asks for, and that it is a badge and not a white square. The one that already existed — that a check with no path covers every artefact — was extended from two artefacts to three, and it now fails with a message that says the favicon is still an orphan if the guard stops reporting on it.
 
-**The favicon got the same container, and the same saving.** The script packs the `.ico` itself rather than handing the frames to Pillow's writer, and encodes every frame with `optimize=True`; the reason is in the icon section above. The file was 92,226 bytes rather than 98,231 — 6.1% smaller — and the 256 frame was 75,186 bytes rather than 80,707, so the extra download on the first visit to a domain was about 75 KB rather than the 80 KB this section records, and the file was 5.3 times the 17,508 bytes the four-frame favicon was rather than the 5.6 times recorded above. The pixels did not move: the 256 frame was the same 262,144 bytes of RGBA it had always been, every frame of both `.ico` files was byte for byte the frame that was there before, and the guard still compared pictures rather than bytes, so a tree that regenerates the icon on a different zlib was still current.
-
-**The 256 frame is a palette PNG now, and that is a lossy trade.** The frame that carries nearly all the bytes is the frame worth encoding better, so the 256 frame of both `.ico` files is written as an 8-bit palette PNG with a `tRNS` chunk for the alpha, and every other frame is still written as RGBA — the encoding is chosen per frame, because there is nothing to save by quantising a sixteen-pixel frame and the picture is worth keeping whole. The 256 frame goes from 75,186 bytes to 11,079, 85% smaller; the shell's icon goes from 138,716 to 74,609 and the favicon from 92,226 to 28,119, 46% and 70% below what the RGBA frames cost. The nine (or four) frames that are not the 256 are byte for byte what they were.
-
-**It is lossy, and the loss is visible.** The 256 frame is the artwork's pixels reduced to 256 colours, so it is no longer the artwork's pixels, and it no longer matches the RGBA frame byte for byte. Measured against that frame it comes out at 35.87 dB PSNR over the four channels, with a worst single-channel error of 43 of 255 and a mean error of 4.1. The alpha survives — the transparent ground stays transparent, because FASTOCTREE quantises the alpha with the colour — but the antialiased rim is stepped, and the rim's alpha moves by as much as 43 against a mean of 0.87. The banding falls on the badge's own ground, where the blue gradient is smoothest: the picture shows contour bands across the deep blue, most obviously in the top-left quadrant and along the right-hand edge, where the gradient is steepest. The mark itself barely moves. Pillow will not quantise an RGBA image with MEDIANCUT at all — it raises, because MEDIANCUT has no answer for the alpha channel — and the obvious workaround, converting to RGB first, throws the alpha away on purpose: the transparent ground comes back opaque black and the rim comes back a hard edge, which measures 18.55 dB and a worst error of 255.
-
-**The guard moved with the artefact.** A quantised frame does not decode back to the frame that was resampled, so there is no set of "the artwork's own pixels" for the 256 frame to be compared against, and quantising twice is not a reference either: quantisation is not idempotent, and feeding the quantised frame back through the quantiser gives a different palette and different indices. The 256 frame is therefore compared against a fresh build of the same quantisation — both sides decoded to RGBA, byte for byte — and the comparison is exactly as strict as it was; what it is a reference *for* has moved from "the resampled artwork" to "the artwork as this script's encoder makes it". The loss is in the artefact, not in the guard.
+**The favicon got the same container, and the same saving.** The script packs the `.ico` itself rather than handing the frames to Pillow's writer, and encodes every frame with `optimize=True`; the reason is in the icon section above. The file is 92,226 bytes rather than 98,231 — 6.1% smaller — and the 256 frame is 75,186 bytes rather than 80,707, so the extra download on the first visit to a domain is about 75 KB rather than the 80 KB this section records, and the file is 5.3 times the 17,508 bytes the four-frame favicon was rather than the 5.6 times recorded above. The pixels did not move: the 256 frame is the same 262,144 bytes of RGBA it has always been, every frame of both `.ico` files is byte for byte the frame that was there before, and the guard still compares pictures rather than bytes, so a tree that regenerates the icon on a different zlib is still current.
 
 ### The badge on an iOS home screen, and the four corners that had to be filled
 

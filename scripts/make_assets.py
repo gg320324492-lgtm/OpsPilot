@@ -77,12 +77,11 @@ that opens an `.ico` and wants one image out of it is handed the largest
 frame, and that is the frame a high-zoom view or a large-icon view wants as
 well.
 
-**The 256 frame is the biggest the file carries, and that is the cost of
-it.** An `.ico`
+**The 256 frame is most of the file, and that is the cost of it.** An `.ico`
 is fetched whole -- a browser does not ask for the one frame it is going to
 use, it fetches the file and picks a frame out of it -- so the 256 frame's
-11,079 bytes of PNG arrive whether the browser wanted that size or not. The
-favicon grows from 17,508 bytes to 28,119, 1.6 times as much, paid on the
+75,186 bytes of PNG arrive whether the browser wanted that size or not. The
+favicon grows from 17,508 bytes to 92,226, 5.3 times as much, paid on the
 first visit to a domain and out of the cache on every visit after that.
 That is what the 256 buys and what it costs, and the number is here so that
 the next reader can weigh it rather than guess at it.
@@ -98,53 +97,6 @@ injects a `<link rel="icon">` for it with a content-hashed URL, so no code
 names the file and there is nothing to update when it changes. That is
 exactly why it needed the guard this script provides: an artefact nothing
 refers to is an artefact nobody notices has drifted.
-
-The 256 frame, which is a palette PNG and not an RGBA one
----------------------------------------------------------
-The 256 frame is written as an 8-bit palette PNG with a `tRNS` chunk for
-the alpha, and the other nine (or four) frames are written as RGBA exactly
-as they always were. The encoding is chosen per frame rather than per file,
-because the 256 frame is where nearly all the bytes are: 75,186 of the
-shell icon's 138,716 and of the favicon's 92,226, against a few kilobytes
-for every other frame together. Making that one frame a palette takes it
-from 75,186 bytes to 11,079 -- 85% smaller -- and takes the shell's icon
-from 138,716 to 74,609 and the favicon from 92,226 to 28,119.
-
-**This is a lossy change, and it is a deliberate one.** The 256 frame is no
-longer the artwork's pixels; it is the artwork's pixels reduced to 256
-colours, and the reduction shows. Measured against the RGBA frame it comes
-out at 35.87 dB PSNR over the four channels, with a worst single-channel
-error of 43 of 255 and a mean error of 4.1. The alpha is kept -- the
-transparent ground stays transparent, because FASTOCTREE quantises the
-alpha with the colour -- but the antialiased rim is stepped, and the rim's
-alpha moves by as much as 43 against a mean of 0.87.
-
-**The banding is the visible cost, and it is on the badge's own ground.**
-The badge's ground is a smooth blue gradient, and a gradient reduced to 256
-steps comes out as steps: the picture shows contour bands across the deep
-blue, most obviously in the top-left quadrant and along the right-hand
-edge, where the gradient is steepest. The mark itself -- the cyan
-glyph and the ring around it -- is flat enough that it barely moves.
-
-**Why FASTOCTREE and not MEDIANCUT.** Pillow will not quantise an RGBA
-image with MEDIANCUT at all; it raises, because MEDIANCUT has no answer
-for the alpha channel. The obvious workaround, `frame.convert("RGB")`
-first, throws the alpha away on purpose: the transparent ground comes
-back opaque black and the antialiased rim comes back a hard edge. Measured
-on this artwork that is 18.55 dB against FASTOCTREE's 35.87, and a worst
-single-channel error of 255 rather than 43. FASTOCTREE is not merely the
-better of the two; it is the only one of the two that keeps the picture
-an icon.
-
-**What the guard compares now.** A quantised frame does not decode back to
-the frame that went in, so the check cannot compare the 256 frame against
-the artwork's own pixels -- there is no set of "the artwork's own pixels"
-for a palette frame to be. It compares the committed file's 256 frame
-against the freshly built one's, both decoded to RGBA, and both are the
-quantised picture. The check is still byte for byte; what it is a
-reference *for* has moved from "the resampled artwork" to "the artwork as
-this script's encoder makes it". The loss is in the artefact, not in the
-guard.
 
 Why the script writes the `.ico` itself
 ---------------------------------------
@@ -169,22 +121,13 @@ too: a PNG's row filters are part of the format rather than a compression of
 it, so choosing a different combination of them changes the bytes and not
 the picture, and every decoder reads every combination.
 
-That was the whole of the saving while every frame was RGBA: over the
-whole set of frames, 146,728 bytes down to 138,716 for the shell's icon
-and 98,231 down to 92,226 for the favicon -- 5.5% and 6.1%. The saving
-was real and it was small, because the format was right and the pictures
-were the pictures. The 256 frame is now a palette PNG as well, which is
-where the large saving comes from: 74,609 for the shell's icon and 28,119
-for the favicon, 46% and 70% below what the RGBA frames cost. That saving
-is bought with pixels rather than with bytes, and the section above says
-what it costs.
-
+Over the whole set of frames that is 146,728 bytes down to 138,716 for the
+shell's icon and 98,231 down to 92,226 for the favicon -- 5.5% and 6.1%.
 So the container is written here: six bytes of `ICONDIR`, sixteen bytes of
 `ICONDIRENTRY` per frame, and the PNG frames themselves. And the pixels are
 checked after the write rather than assumed: the file is read back and every
-frame is compared with the picture that was packed, so a container that is
-well formed but holds the wrong pictures fails the build instead of
-shipping.
+frame is compared with the frame that went in, so a container that is well
+formed but holds the wrong pictures fails the build instead of shipping.
 
 Why the white ground is cut away
 --------------------------------
@@ -316,13 +259,6 @@ the file and not the problem. The decoded pixels are the same across every
 Pillow from 10.0.0 to 13.0.0 and on both platforms, so they are what the
 check compares.
 
-**What the 256 frame is compared against is the quantised picture, not the
-artwork.** The palette frame is the one picture in the tree that is not the
-artwork's own pixels, so "the picture" for that frame is the picture the
-encoder makes out of the artwork, and the check compares the committed file
-against a fresh build of exactly that. See `check_icon` for why quantising
-twice is not a reference the quantised frame can be compared against.
-
 It deliberately does not write the artefact it is checking. A check that
 repairs the tree it is checking is not a check: it would make the failure
 invisible in CI, where the working tree comes back clean, and it would
@@ -396,25 +332,6 @@ ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 #: when it reads the file for a single picture. See the module docstring for
 #: why each, and for what the 256 frame costs.
 FAVICON_SIZES = (16, 32, 48, 64, 256)
-
-#: The frame that is encoded as a palette PNG rather than as RGBA, and the
-#: number of colours in that palette.
-#:
-#: 256 is the largest frame both `.ico` artefacts carry, and it is where
-#: nearly all of their bytes are: as an RGBA frame it was 75,186 bytes of
-#: the shell icon's 138,716 and of the favicon's 92,226, against a few
-#: kilobytes for every other frame together. The other nine (or four)
-#: frames are a few kilobytes each, so this is the one frame where a
-#: smaller encoding buys anything at all -- and it is also the one frame
-#: anybody renders large enough for the difference to show, which is the
-#: trade the module docstring describes.
-#:
-#: 256 colours is what an 8-bit palette holds, and the artwork fits inside
-#: it: the badge is a handful of blues on a dark ground, and the
-#: quantisation lands at 35.87 dB PSNR against the RGBA frame, with the
-#: worst single-channel error at 43 of 255.
-PALETTE_FRAME_SIZE = 256
-PALETTE_COLORS = 256
 
 #: The size iOS asks an apple-touch icon at. There is only one, and it is
 #: also the size that tells the apple-touch icon apart from the wordmark.
@@ -676,90 +593,7 @@ def _crop_to_artwork(image: Image.Image) -> Image.Image:
     return image.crop((origin_x, origin_y, origin_x + side, origin_y + side))
 
 
-class _Frame(NamedTuple):
-    """One frame on its way into the container.
-
-    `data` is the PNG bytes that go into the file, and `picture` is the
-    picture those bytes decode to. They are the same picture for an RGBA
-    frame and not for a palette one -- quantisation is lossy, so the file
-    holds a picture close to the frame rather than the frame itself -- and
-    keeping both is what lets the write be checked against what it is
-    meant to have written.
-    """
-
-    size: tuple[int, int]
-    data: bytes
-    picture: bytes
-
-
-class _PackedIcon(NamedTuple):
-    """A packed icon: the bytes of the file, and the pictures inside it.
-
-    The pictures are the RGBA each frame decodes to, and they are carried
-    out of the packer so that the file it wrote can be read back and
-    compared with them.
-    """
-
-    data: bytes
-    pictures: dict[tuple[int, int], bytes]
-
-
-def _quantise(frame: Image.Image) -> Image.Image:
-    """`frame` reduced to a 256-colour palette, with its alpha kept.
-
-    FASTOCTREE, and the choice is not a preference. Pillow will not
-    quantise an RGBA image with MEDIANCUT at all -- it raises, because
-    MEDIANCUT has no answer for the alpha channel -- and the obvious
-    workaround, `frame.convert("RGB").quantize(...)`, throws the alpha
-    away on purpose: the transparent ground becomes opaque black and the
-    antialiased rim becomes a hard edge. Measured on this artwork that
-    costs 18.55 dB against FASTOCTREE's 35.87 and a worst single-channel
-    error of 255 rather than 43.
-
-    FASTOCTREE quantises the alpha with the colour, so the badge's
-    transparent ground stays transparent and its antialiased rim keeps an
-    alpha of its own. The result is a `P` image whose palette is an RGBA
-    one, which is what lets Pillow write the alpha out as the PNG's
-    `tRNS` chunk and read it back as the frame's transparency -- the
-    corner of the frame comes back as `(0, 0, 0, 0)`, and a round trip
-    through the PNG leaves every pixel of the picture exactly as it was.
-
-    What it costs is the banding the module docstring describes: a smooth
-    gradient across the badge's ground is quantised into 256 steps, and
-    the steps are visible as contours.
-    """
-    return frame.quantize(colors=PALETTE_COLORS, method=Image.FASTOCTREE)
-
-
-def _encode_frame(size: tuple[int, int], frame: Image.Image) -> _Frame:
-    """Encode one frame as the PNG bytes that go into the container.
-
-    Two values come back, and they are not the same thing: the bytes of
-    the frame, and the picture those bytes will decode to. For an RGBA
-    frame the two are the same picture -- the encoding is lossless, so
-    what goes in is what comes out. For a palette frame they are not, and
-    the difference is the whole of the trade: quantisation is lossy, so
-    the file holds a picture that is close to the frame rather than the
-    frame itself.
-
-    Keeping them apart is what lets the write still be checked. The
-    picture is computed here, from the same quantisation the bytes were
-    computed from, and the file is read back and decoded and compared
-    with it -- so a frame that was written wrongly, or an alpha that did
-    not survive the round trip, is caught rather than assumed.
-    """
-    buffer = io.BytesIO()
-    if size == (PALETTE_FRAME_SIZE, PALETTE_FRAME_SIZE):
-        quantised = _quantise(frame)
-        quantised.save(buffer, format="PNG", optimize=True)
-        picture = quantised.convert("RGBA").tobytes()
-    else:
-        frame.save(buffer, format="PNG", optimize=True)
-        picture = frame.tobytes()
-    return _Frame(size=size, data=buffer.getvalue(), picture=picture)
-
-
-def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> _PackedIcon:
+def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> bytes:
     """Pack frames into the bytes of an `.ico`.
 
     The container is written here rather than by Pillow's ICO writer, and the
@@ -768,23 +602,11 @@ def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> _PackedIcon:
     frame is encoded at the PNG encoder's defaults -- `compress_level=6`,
     `optimize=False` -- and there is no parameter a caller could pass to
     change that. `optimize=True` is worth having and is worth more than a
-    higher compression level: on a 256-pixel RGBA frame the default comes
-    out at 80,707 bytes, level 7 at 77,475, level 9 at 75,678, and level 6
-    with `optimize=True` at 75,186. It is lossless, because a PNG's row
-    filters are part of the format rather than a compression of it, so a
-    different combination of them is a different set of bytes and the same
-    picture.
-
-    **The encoding is chosen per frame rather than per file.** The 256-pixel
-    frame is written as a palette PNG -- an 8-bit palette with a `tRNS` chunk
-    for the alpha -- and every other frame is written as RGBA, exactly as
-    before. The reason is that the 256 frame is nearly all the bytes (see
-    `PALETTE_FRAME_SIZE`), and the reason for not doing it to the others is
-    that they are not nearly all the bytes: there is nothing to save, and a
-    lossless frame costs nothing to keep lossless. The 256 frame is also the
-    one frame anybody renders large enough for the quantisation to show, so
-    this is the frame where the trade is worth weighing -- and where it is
-    worst.
+    higher compression level: on the 256-pixel frame the default comes out at
+    80,707 bytes, level 7 at 77,475, level 9 at 75,678, and level 6 with
+    `optimize=True` at 75,186. It is lossless, because a PNG's row filters
+    are part of the format rather than a compression of it, so a different
+    combination of them is a different set of bytes and the same picture.
 
     The structure is the one Windows reads: a six-byte `ICONDIR`, one
     sixteen-byte `ICONDIRENTRY` per frame, and then the frames themselves.
@@ -794,13 +616,16 @@ def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> _PackedIcon:
     written the way Pillow writes them, so the directory a reader sees is
     the directory it saw before the frames were re-encoded.
     """
-    encoded = [_encode_frame(size, frame) for size, frame in frames]
+    encoded: list[tuple[tuple[int, int], bytes]] = []
+    for size, frame in frames:
+        buffer = io.BytesIO()
+        frame.save(buffer, format="PNG", optimize=True)
+        encoded.append((size, buffer.getvalue()))
 
     entries = b""
     payload = b""
     offset = 6 + 16 * len(encoded)
-    for frame in encoded:
-        width, height = frame.size
+    for (width, height), data in encoded:
         entries += struct.pack(
             "<BBBBHHII",
             width if width < 256 else 0,
@@ -809,31 +634,23 @@ def _pack_ico(frames: list[tuple[tuple[int, int], Image.Image]]) -> _PackedIcon:
             0,
             0,
             32,
-            len(frame.data),
+            len(data),
             offset,
         )
-        payload += frame.data
-        offset += len(frame.data)
+        payload += data
+        offset += len(data)
 
-    return _PackedIcon(
-        data=struct.pack("<HHH", 0, 1, len(encoded)) + entries + payload,
-        pictures={frame.size: frame.picture for frame in encoded},
-    )
+    return struct.pack("<HHH", 0, 1, len(encoded)) + entries + payload
 
 
 class _IconBuild(NamedTuple):
     """An icon that has been packed: the sizes it holds, and their pixels.
 
-    The pixels are the picture each frame decodes to, and they are carried
-    out of the builder so that the file it wrote can be read back and
-    compared with them. A write that reports success and produces a file
-    whose frames are not the frames that went in is a write that has to be
-    caught, and the only way to catch it is to have kept what went in.
-
-    For a palette frame the picture is the quantised one rather than the
-    frame that was resampled, because that is the picture the file holds:
-    the comparison after the write is a comparison against what was
-    written, not against what was fed in.
+    The pixels are carried out of the builder so that the file it wrote can
+    be read back and compared with them. A write that reports success and
+    produces a file whose frames are not the frames that went in is a write
+    that has to be caught, and the only way to catch it is to have kept what
+    went in.
     """
 
     sizes: list[tuple[int, int]]
@@ -852,10 +669,8 @@ def build_icon(
     and they are the same picture at different sizes.
 
     The container is written by `_pack_ico` rather than by Pillow, so that
-    every frame is a PNG encoded with `optimize=True`, and so that the
-    256-pixel frame can be encoded as a palette PNG while the others stay
-    RGBA; that function's docstring says why Pillow's own writer cannot be
-    asked for either.
+    every frame is a PNG encoded with `optimize=True`; that function's
+    docstring says why Pillow's own writer cannot be asked for it.
     """
     artwork = _crop_to_artwork(_cut_ground(Image.open(source)))
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -863,26 +678,19 @@ def build_icon(
     # The frames are scaled here rather than left to the ICO writer, which
     # would scale them on each channel on its own and halo the badge's edge.
     images = [_resize(artwork, size) for size in frames]
-    packed = _pack_ico(list(zip(frames, images, strict=True)))
-    target.write_bytes(packed.data)
-    return _IconBuild(sizes=frames, pixels=packed.pictures)
+    target.write_bytes(_pack_ico(list(zip(frames, images, strict=True))))
+    return _IconBuild(
+        sizes=frames,
+        pixels={size: image.tobytes() for size, image in zip(frames, images, strict=True)},
+    )
 
 
 def _frames(path: pathlib.Path) -> dict[tuple[int, int], bytes]:
-    """The decoded pixels of every frame in an ICO, keyed by the frame's size.
-
-    Every frame is decoded to RGBA first, and the reason is the palette
-    frame: a PNG-8 comes back as a `P` image with a transparency table
-    rather than as four channels, so its raw bytes are palette indices
-    and not a picture. Decoding is also what makes the comparison a
-    comparison of pictures rather than of encodings: two files that hold
-    the same picture in a different order of palette entries are the same
-    picture, and a comparison of the raw bytes would not know that.
-    """
+    """The decoded pixels of every frame in an ICO, keyed by the frame's size."""
     with Image.open(path) as image:
         directory = image.ico
         sizes = sorted(image.info.get("sizes", []))
-        return {size: directory.getimage(size).convert("RGBA").tobytes() for size in sizes}
+        return {size: directory.getimage(size).tobytes() for size in sizes}
 
 
 def _frames_or_none(path: pathlib.Path) -> dict[tuple[int, int], bytes] | None:
@@ -948,8 +756,8 @@ def check_icon(
     distinction is not pedantry. An `.ico` holds PNG frames, and what a PNG
     encoder writes for a given image depends on the compressor: the same
     pixels at compression levels 6, 7 and 9 come out as 80,707, 77,475 and
-    75,678 bytes, and an RGBA 256 frame at `optimize=True` is the 75,186 of
-    the very same pixels. So the bytes of an
+    75,678 bytes, and the 256 frame the tree ships is the 75,186 of an
+    `optimize=True` encoding of the very same pixels. So the bytes of an
     icon depend on the zlib that packed them -- the Windows wheels bundle
     one zlib and the manylinux wheels another -- and on the Pillow that
     chose the deflate parameters, which changed between Pillow 11.0.0 and
@@ -959,25 +767,6 @@ def check_icon(
     pixels, by contrast, are the same across every Pillow from 10.0.0 to
     13.0.0 and on both platforms. The pictures are what the question is
     about: is the icon in the tree still the icon the artwork makes?
-
-    **The 256-pixel frame is a palette PNG, and that changes what "the
-    picture" is.** A quantised frame does not decode to the frame that was
-    resampled; it decodes to the quantised picture, and that is the
-    picture the file holds and the picture the check compares. The
-    comparison is therefore still byte for byte -- the committed file's
-    256 frame against the freshly built one's, both decoded to RGBA --
-    but against the quantised picture rather than against the artwork.
-    The loss is in the artefact, not in the check: the guard is saying
-    "the file is the picture the encoder makes out of the artwork", and
-    the encoder is the one in this file.
-
-    Quantising twice would have been the obvious way to pin the palette
-    frame down, and it does not work: quantisation is not idempotent.
-    Feeding the quantised frame back through the quantiser produces a
-    different palette and different indices, so the second result is not
-    a reference the first can be compared against. The picture the packer
-    computed is the reference, and it is computed from the same
-    quantisation the bytes were computed from.
 
     The regeneration happens in a temporary directory, and the file being
     checked is never written to: a check that repairs the tree it is checking
@@ -1579,38 +1368,6 @@ def _build_asset(asset: _Asset, source: pathlib.Path, target: pathlib.Path) -> i
         print(
             f"verified: {target} reads back as the {len(built.pixels)} frames that were packed",
         )
-
-        # The palette frame's transparency is a `tRNS` chunk rather than a
-        # channel, so it is the one frame where the round trip through the
-        # PNG is worth naming outright. The comparison above already
-        # proves the alpha came back unchanged -- it is one of the four
-        # channels that comparison is about -- but it would report it as
-        # "the frames do not read back", which says nothing about the
-        # alpha, and an icon that lost its transparency is an icon with a
-        # white square in its corner.
-        #
-        # What is compared is the alpha that was packed against the alpha
-        # that came back, rather than the alpha against a fixed number:
-        # whether the corner is transparent is a property of the artwork
-        # (this badge's ground is cut away, and another artwork's need not
-        # be), and the property that has to hold for every icon is that
-        # the file holds the alpha it was packed with.
-        palette_size = (PALETTE_FRAME_SIZE, PALETTE_FRAME_SIZE)
-        if palette_size in read_back and palette_size in built.pixels:
-            packed_alpha = built.pixels[palette_size][3::4]
-            read_alpha = read_back[palette_size][3::4]
-            if packed_alpha != read_alpha:
-                print(
-                    f"the {PALETTE_FRAME_SIZE}-pixel frame's transparency did not "
-                    "survive the round trip through the PNG: the palette PNG's "
-                    "tRNS chunk is not the alpha the frame was packed with",
-                    file=sys.stderr,
-                )
-                return 1
-            print(
-                f"verified: {target}'s {PALETTE_FRAME_SIZE}-pixel palette frame "
-                f"round-tripped its transparency (corner alpha {read_alpha[0]})",
-            )
         return 0
 
     size = build_apple(source, target) if asset.size is not None else build_wordmark(source, target)
