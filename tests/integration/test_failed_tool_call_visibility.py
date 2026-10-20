@@ -66,7 +66,7 @@ from opspilot.agents.schemas import (
 )
 from opspilot.agents.state import RunContext, ToolCallRecord
 from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
-from opspilot.domain.errors import MCPUnavailable, RunParked
+from opspilot.domain.errors import ApprovalAlreadyDecided, MCPUnavailable, RunParked
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.model_provider import ModelProvider, ModelResponse, ModelUsage
@@ -759,12 +759,14 @@ async def test_approving_the_same_approval_twice_refunds_exactly_once(
 
     approval_id = await _pending_approval_id(factory, run)
 
-    # First approval: granted.
+    # First approval: granted. The operator identity is the route's own
+    # argument now -- the request body may not name it, so it cannot put
+    # somebody else's name on a refund it approved itself.
     first = await approve(
         approval_id,
         SqlApprovalStore(factory),
         SqlRunStore(factory),
-        ApprovalDecisionRequest(decided_by="operator:1"),
+        ApprovalDecisionRequest(),
         "operator:1",
     )
     assert first.status is ApprovalStatus.APPROVED
@@ -778,7 +780,7 @@ async def test_approving_the_same_approval_twice_refunds_exactly_once(
             approval_id,
             SqlApprovalStore(factory),
             SqlRunStore(factory),
-            ApprovalDecisionRequest(decided_by="operator:1"),
+            ApprovalDecisionRequest(),
             "operator:1",
         )
     assert refused.value.status_code == 409
@@ -839,15 +841,27 @@ async def test_a_second_decision_does_not_overwrite_the_first(
         )
         assert decided.status is ApprovalStatus.APPROVED
 
-        again = await SqlApprovalStore(session).decide(
-            approval.id,
-            approved=False,
-            decided_by="attacker:9",
-            decided_at=datetime.now(UTC),
-        )
+        # The reversal attempt is refused by the store itself, and the refusal
+        # carries the row's real state -- so a caller cannot read the first
+        # decision's row and mistake it for its own.
+        with pytest.raises(ApprovalAlreadyDecided) as caught:
+            await SqlApprovalStore(session).decide(
+                approval.id,
+                approved=False,
+                decided_by="attacker:9",
+                decided_at=datetime.now(UTC),
+            )
+        assert caught.value.approval_id == approval.id
+        assert caught.value.status == ApprovalStatus.APPROVED.value
 
-    assert again.status is ApprovalStatus.APPROVED, "a decided row must not flip"
-    assert again.decided_by == "operator:1", "a second decision must not overwrite the first"
+    # Read the row back rather than trusting the exception, so this asserts
+    # what is *persisted*, not what the method reported.
+    with db.session_scope(factory) as reader:
+        stored = reader.get(models.ApprovalRequest, approval.id)
+
+    assert stored is not None
+    assert stored.status == ApprovalStatus.APPROVED.value, "a decided row must not flip"
+    assert stored.decided_by == "operator:1", "a second decision must not overwrite the first"
 
 
 async def test_the_store_guard_is_the_only_thing_between_a_race_and_a_double_grant(
@@ -892,10 +906,13 @@ async def test_the_store_guard_is_the_only_thing_between_a_race_and_a_double_gra
         await SqlApprovalStore(session).decide(
             approval.id, approved=True, decided_by="operator:1", decided_at=datetime.now(UTC)
         )
-        # Operator two clicks at the same instant -- the race the predicate loses.
-        await SqlApprovalStore(session).decide(
-            approval.id, approved=True, decided_by="operator:2", decided_at=datetime.now(UTC)
-        )
+        # Operator two clicks at the same instant -- the race the predicate
+        # loses. The store says so out loud; before, it returned the winner's
+        # row and the loser read it as its own decision.
+        with pytest.raises(ApprovalAlreadyDecided):
+            await SqlApprovalStore(session).decide(
+                approval.id, approved=True, decided_by="operator:2", decided_at=datetime.now(UTC)
+            )
 
         # Read the row back rather than trusting the return value, so this
         # asserts what is *persisted*, not what the method reported.

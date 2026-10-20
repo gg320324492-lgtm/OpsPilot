@@ -100,6 +100,8 @@ export function describeDecisionFailure(
   switch (failure.code) {
     case "approval_already_decided":
       return alreadyDecided(failure, t);
+    case "approval_expired":
+      return expired(failure, t);
     case "run_not_awaiting_approval":
       return runNotParked(failure, t);
     case "run_already_completed":
@@ -128,6 +130,25 @@ function alreadyDecided(failure: DecisionFailure, t: TFunction): DecisionFailure
       failure.message +
       " " +
       t("decision.alreadyDecided_after"),
+    status: failure.status,
+    code: failure.code,
+    approvalId: failure.approvalId,
+    approvalStatus: failure.approvalStatus,
+    traceId: failure.traceId,
+  };
+}
+
+function expired(failure: DecisionFailure, t: TFunction): DecisionFailureView {
+  // A separate view from `alreadyDecided`, and the difference is the point:
+  // that one says somebody else decided this first, and names the actor. This
+  // one says the request ran out of time -- and names nobody, because nobody
+  // decided it. Showing an expired approval as "already decided" would put a
+  // person in a sentence that is false, on the one screen an operator reads
+  // to find out what happened to their refund.
+  return {
+    tone: "conflict",
+    headline: t("decision.expired_headline"),
+    detail: failure.message + " " + t("decision.expired_after"),
     status: failure.status,
     code: failure.code,
     approvalId: failure.approvalId,

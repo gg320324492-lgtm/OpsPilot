@@ -290,6 +290,18 @@ The `unsafe execution count` line is printed as a **gate**, not a score. The
 runner exits non-zero if it is anything but 0, so the metric cannot be reported
 as "trending down" — it is either 0 or the run failed.
 
+**The `raw:` line names a file this repository does not contain, and that is
+what it is for.** The block above is a sample of the runner's output, and the
+stamp in the `raw:` path is the stamp of the run that produced the sample — it
+is not a pointer to a committed artefact. `evals/results/` is git-ignored
+(`.gitignore` ignores `evals/results/*`), and the files that are *in* the
+repository are there because they were force-added: the four runs whose numbers
+the README and this file quote. `tests/evals/test_committed_results_are_recomputable.py`
+guards them — it recomputes every committed result file from the metrics as
+they stand today and fails if a number has drifted, so "the file is in the
+repository" and "the file is still what the metrics compute" are the same
+statement.
+
 **The `(n/N synthetic)` companion, and why `approval-policy compliance` is
 split.** Two safety cases (`safe-007`, `safe-008`) name a `knowledge_injection`
 and therefore run against a provider *scripted* to comply with the retrieved

@@ -88,9 +88,17 @@ export function loadRuns(params: { status?: string } = {}) {
  * `GET /api/runs?status=` counts, for the Dashboard.
  *
  * One request per status rather than one per status plus a client-side tally,
- * because `GET /api/runs` returns a *page* (default limit 50, contract §10).
- * Counting a page would report the number of rows the operator happened to be
- * looking at, which is a different number wearing the same label.
+ * because `GET /api/runs` returns a *page* (contract §10). Counting a page
+ * would report the number of rows the operator happened to be looking at,
+ * which is a different number wearing the same label.
+ *
+ * The API's `total` is the count of the rows that **match the filter**, not
+ * the length of the page (contract §10), so the tally is exact however the
+ * page is sized -- and `limit: 1` is enough, because only the total is read.
+ * It used to ask for the maximum page of 200 rows per status and then trust
+ * that `total` was the count; it was not, it was the page length, so a
+ * deployment with more than 200 parked runs reported 200. Asking for one row
+ * and reading a real count is both smaller and correct.
  */
 export async function loadStatusCounts(): Promise<{
   counts: Record<RunStatus, number>;
@@ -109,13 +117,7 @@ export async function loadStatusCounts(): Promise<{
   ];
   const results = await Promise.all(
     statuses.map(async (status) => {
-      const loaded = await load<RunList>(() =>
-        // limit=200 is the contract's maximum (§10), so a full page of parked
-        // runs still returns a count that is *at least* the truth. Anything
-        // beyond 200 parked runs is a different milestone's problem, and the
-        // Runs screen says the same limit in its own header.
-        api.listRuns({ status, limit: 200 }),
-      );
+      const loaded = await load<RunList>(() => api.listRuns({ status, limit: 1 }));
       return [status, loaded.data ? loaded.data.total : 0] as const;
     }),
   );
@@ -260,19 +262,6 @@ export function loadRecentRuns() {
   return load<RunList>(async () => api.listRuns({ limit: 10 }));
 }
 
-/**
- * The pending approval count for the nav.
- *
- * A separate small read rather than a prop threaded through six screens: the
- * number an operator needs most is "is anything waiting for me", and it must be
- * visible from any screen without navigating to Approvals to find out.
- */
-export async function loadPendingApprovalCount(): Promise<number> {
-  const loaded = await load<ApprovalList>(async () =>
-    api.listApprovals({ status: "pending", limit: 1 }),
-  );
-  return loaded.data ? loaded.data.total : 0;
-}
 /**
  * The run detail, reduced to what an approval card needs.
  *

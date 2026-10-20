@@ -27,7 +27,12 @@ from opspilot.api.app import create_app
 from opspilot.api.auth import MissingOperatorToken
 from opspilot.domain.runs import RunStatus
 from opspilot.settings import get_settings
-from tests.integration.fakes import FakeApprovalStore, FakeRunStore, FakeTicketStore
+from tests.integration.fakes import (
+    FakeApprovalStore,
+    FakeRunStore,
+    FakeTicketIntake,
+    FakeTicketStore,
+)
 
 _TOKEN = "test-operator-token"  # noqa: S105 -- a test fixture value, not a credential
 _AUTH = {"Authorization": f"Bearer {_TOKEN}"}
@@ -62,6 +67,7 @@ def client(
     app = create_app(
         run_store=run_store,
         ticket_store=ticket_store,
+        ticket_intake=FakeTicketIntake(ticket_store, run_store),
         approval_store=approval_store,
     )
     with TestClient(app) as test_client:

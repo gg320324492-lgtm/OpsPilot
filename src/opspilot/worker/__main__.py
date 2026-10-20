@@ -660,10 +660,12 @@ async def _run(worker: _Worker) -> None:
     previous = _install_signal_handlers(stop)
 
     marked = mark_interrupted_on_boot(worker.session_factory)
+    ttl = get_settings().approval_ttl_seconds
     print(
         f"opspilot-worker[{worker.worker_id}]: booted; "
         f"marked {marked} interrupted run(s) failed; "
-        f"polling every {worker.poll_interval}s",
+        f"polling every {worker.poll_interval}s; "
+        f"approvals expire after {ttl:g}s",
         flush=True,
     )
 
@@ -682,6 +684,10 @@ async def _run(worker: _Worker) -> None:
             retrieval=worker.retrieval,  # type: ignore[arg-type]
             citation_store=worker.citation_store,
             retrieval_min_score=get_settings().retrieval_min_score,
+            # Passed explicitly, for the reason ``retrieval_min_score`` is:
+            # the value the *process* was configured with, so a deployment
+            # that changed the TTL in one place sees it everywhere.
+            approval_ttl_seconds=ttl,
         )
     )
     stopping = asyncio.ensure_future(stop.wait())

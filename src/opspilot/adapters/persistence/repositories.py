@@ -38,9 +38,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from opspilot.adapters.persistence import db, models
+from opspilot.domain.approvals import ApprovalContext, ApprovalStatus
 from opspilot.domain.approvals import ApprovalRequest as ApprovalRequestDomain
-from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import ApprovalArgumentsChanged, NotFoundError, TicketExists
+from opspilot.domain.errors import (
+    ApprovalAlreadyDecided,
+    ApprovalArgumentsChanged,
+    ApprovalExpired,
+    NotFoundError,
+    TicketExists,
+)
 from opspilot.domain.runs import CLAIMABLE, AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import (
@@ -209,6 +215,67 @@ def _to_agent_run(row: models.AgentRun) -> AgentRun:
     )
 
 
+def _to_approval_context(raw: object) -> ApprovalContext | None:
+    """The ``context`` column, read into an ``ApprovalContext`` or ``None``.
+
+    Tolerant on purpose. The context is *display* information for the
+    approver, so a malformed value must not take the approvals inbox down with
+    it: a 500 on the one screen whose whole purpose is to say "a human is
+    needed here" is the worst possible failure for that screen. A broken
+    context costs the approver a line of context; a broken row costs them the
+    decision.
+
+    So each field is read independently and defensively:
+
+    - a column that is not an object (``NULL``, a list, a string) yields no
+      context at all -- there is nothing there to show;
+    - a field that is a string is kept as it is;
+    - a field that is another scalar (a number, a flag) is rendered as a
+      string, because that is what the approver's card displays;
+    - a field that is missing, ``NULL``, or a nested object is ``None``.
+
+    A row written before the column existed has ``NULL`` there, which reads as
+    "no context" -- exactly what such an approval had before, so this is not a
+    regression for old rows.
+    """
+    if not isinstance(raw, dict):
+        return None
+    return ApprovalContext(
+        company=_context_field(raw.get("company")),
+        ticket_subject=_context_field(raw.get("ticket_subject")),
+    )
+
+
+def _context_field(value: object) -> str | None:
+    """One context field, rendered for display, or ``None``.
+
+    Split out from :func:`_to_approval_context` so the "what is acceptable in
+    this column" rule is stated once: a string is kept, another scalar is
+    rendered, anything structured is dropped rather than shown as a raw
+    ``{'a': 1}`` in the approver's card.
+    """
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, bool | int | float):
+        return str(value)
+    return None
+
+
+def _approval_context_to_json(context: ApprovalContext | None) -> dict[str, object] | None:
+    """The domain context, as the JSON the column holds.
+
+    ``None`` stays ``None`` rather than becoming an empty object: "this
+    approval has no context" and "this approval has a context with nothing in
+    it" are different answers, and only the first is true of a run that never
+    fetched a customer. The two keys are always both present when there is a
+    context at all, so the column's shape does not depend on which fields
+    happened to be filled in.
+    """
+    if context is None:
+        return None
+    return {"company": context.company, "ticket_subject": context.ticket_subject}
+
+
 def _to_approval(row: models.ApprovalRequest) -> ApprovalRequestDomain:
     """Map an ``approval_requests`` row to the domain ``ApprovalRequest``."""
     return ApprovalRequestDomain(
@@ -222,6 +289,8 @@ def _to_approval(row: models.ApprovalRequest) -> ApprovalRequestDomain:
         created_at=row.created_at,
         decided_at=row.decided_at,
         decided_by=row.decided_by,
+        note=row.note,
+        context=_to_approval_context(row.context),
     )
 
 
@@ -322,6 +391,28 @@ class SqlTicketStore(_SessionBound):
                 customer_email=row.customer_email,
                 external_id=row.external_id,
                 created_at=row.created_at,
+            )
+
+    async def count(self) -> int:
+        """How many tickets exist, in total.
+
+        On the ``TicketStore`` port, because the contract this backs makes it
+        mandatory: §10 says a list endpoint's ``total`` is computed "by a
+        separate count over the same filtered query, not by measuring the list
+        that was returned", and a count the port does not require is a count
+        the router has to do without.
+
+        The number of **matching rows**, not the length of a page. A list
+        endpoint that reports ``total=len(items)`` reports the page length and
+        calls it the total, so a client paging through fifty tickets sees
+        "total: 50" and stops -- and a client that never pages sees a total
+        that changes with the page size. The count ignores ``limit`` and
+        ``offset`` for exactly that reason: it is the number of rows the
+        filter matches, and the page is a window onto it.
+        """
+        with self._scope() as session:
+            return int(
+                session.execute(select(func.count()).select_from(models.Ticket)).scalar_one()
             )
 
     async def list(self, *, limit: int = 50, offset: int = 0) -> list[TicketRecord]:
@@ -767,6 +858,29 @@ class SqlRunStore(_SessionBound):
                 for row in rows
             ]
 
+    async def count(self, *, status: RunStatus | None = None) -> int:
+        """How many runs match, in total.
+
+        On the ``RunStore`` port, because the contract this backs makes it
+        mandatory: §10 says a list endpoint's ``total`` is computed "by a
+        separate count over the same filtered query, not by measuring the list
+        that was returned", and a count the port does not require is a count
+        the router has to do without.
+
+        The filter is the same one ``list`` takes -- a status, or every
+        status -- and the count is of the **matching rows**, not of a page. A
+        list endpoint that reports ``total=len(items)`` reports the page length
+        and calls it the total, so a client paging through fifty runs sees
+        "total: 50" and stops -- and a client that never pages sees a total
+        that changes with the page size. The count ignores ``limit`` and
+        ``offset`` for exactly that reason.
+        """
+        with self._scope() as session:
+            statement = select(func.count()).select_from(models.AgentRun)
+            if status is not None:
+                statement = statement.where(models.AgentRun.status == status.value)
+            return int(session.execute(statement).scalar_one())
+
     # `list` is defined last in this class on purpose. Naming a method `list`
     # shadows the builtin *inside the class body*, so every `-> list[X]`
     # annotation written after it resolves `list` to the method and mypy
@@ -786,11 +900,25 @@ class SqlRunStore(_SessionBound):
         returns its documented empty page, so the Runs screen would show
         nothing for a system that has runs.
 
-        The secondary sort on ``id`` is not decoration. ``POST /api/tickets``
-        writes a ticket and its run in one transaction and both rows get the
-        same default ``created_at``, so without a total order the offset paging
-        the contract §10 specifies could show a run twice across two pages or
-        skip one entirely -- neither of which is visible in any single response.
+        The secondary sort on ``id`` is not decoration, and the reason is worth
+        stating precisely, because the obvious version of it is wrong.
+        ``created_at`` is **not** a server default: ``models.AgentRun``
+        declares ``default=_utcnow``, a Python-side default evaluated once per
+        row when that row is flushed, and the column carries no
+        ``server_default`` in either the ORM or the migration. So two rows
+        written in one transaction -- a ticket and its run, say -- do **not**
+        necessarily share a timestamp: they get two separate clock reads.
+        Measured on this repository's own platform (Windows, whose clock
+        resolves to about a millisecond), 13 of 20 such pairs came out
+        identical and 7 of 20 came out a millisecond apart.
+
+        Neither outcome is guaranteed, and that is the point: "equal" cannot be
+        relied on and "different" cannot be relied on either, so ordering on
+        ``created_at`` alone is not a total order. Under offset paging -- which
+        is what the contract §10 specifies -- a non-total order can show a run
+        twice across two pages or skip one entirely, and neither is visible in
+        any single response. The ``id`` tie-break makes the order total
+        regardless of what the clock did.
         """
         with self._scope() as session:
             statement = select(models.AgentRun)
@@ -806,6 +934,82 @@ class SqlRunStore(_SessionBound):
                 .all()
             )
             return [_to_agent_run(row) for row in rows]
+
+
+class SqlTicketIntake:
+    """Create a ticket and its run in one transaction (contract §2).
+
+    The two writes are one unit of work because they are one *transaction*.
+    Both stores are bound to the same live ``Session``, and the surrounding
+    ``db.session_scope`` owns the commit: ``_SessionBound._scope`` yields a
+    bound session *without* committing it, so the ticket's INSERT and the
+    run's INSERT are two statements inside one transaction, and the run's
+    failure rolls the ticket back with it.
+
+    **Nothing here compensates.** There is no "delete the ticket if the run
+    failed" step, and there must not be one: a compensating delete is a
+    second transaction, and it can fail exactly the way the first one did --
+    leaving the orphan ticket the contract forbids, and this time with no
+    error to show for it. The rollback is the database's, and it is total.
+
+    Neither store commits on its own. ``SqlTicketStore.create`` and
+    ``SqlRunStore.create`` only ``flush()``, which is what makes this shape
+    work at all: a commit inside either one would end the transaction the
+    other is half-way through, and the two rows would be back to being two
+    transactions -- the defect this class exists to remove.
+
+    On ``created_at``: the two rows do **not** necessarily share a timestamp.
+    It is a Python-side default evaluated once per row at flush time, not a
+    server default, so each row gets its own clock read -- equal on a coarse
+    clock, a millisecond apart otherwise, and neither is guaranteed. The
+    pagination tie-break on ``id`` exists for that reason
+    (``SqlRunStore.list``).
+    """
+
+    def __init__(self, factory: sessionmaker[Session]) -> None:
+        """Bind to the session factory whose transactions this intake owns."""
+        self._factory = factory
+
+    async def create(
+        self,
+        *,
+        subject: str,
+        body: str,
+        customer_email: str,
+        external_id: str | None,
+        model_provider: str,
+        model_name: str,
+    ) -> tuple[UUID, AgentRun]:
+        """Insert the ticket and its run in one transaction; return both.
+
+        Args:
+            subject: The ticket's subject line.
+            body: The ticket's body.
+            customer_email: Who the customer is.
+            external_id: The client's own id for the ticket, if it has one.
+            model_provider: The provider the run will be driven by.
+            model_name: The model the run will be driven by.
+
+        Returns:
+            The new ticket's id and the new run.
+
+        Raises:
+            TicketExists: if ``external_id`` is already taken. The duplicate is
+                detected by the unique index inside the ticket store, and the
+                whole transaction is rolled back -- so a rejected ticket leaves
+                no run either.
+        """
+        with db.session_scope(self._factory) as session:
+            ticket_id = await SqlTicketStore(session).create(
+                subject=subject,
+                body=body,
+                customer_email=customer_email,
+                external_id=external_id,
+            )
+            run = await SqlRunStore(session).create(
+                ticket_id=ticket_id, model_provider=model_provider, model_name=model_name
+            )
+            return ticket_id, run
 
 
 class SqlToolCallStore(_SessionBound):
@@ -954,7 +1158,15 @@ class SqlApprovalStore(_SessionBound):
     """SQLAlchemy ``ApprovalStore``."""
 
     async def create(self, approval: ApprovalRequestDomain) -> ApprovalRequestDomain:
-        """Persist a pending approval for one tool call."""
+        """Persist a pending approval for one tool call.
+
+        The operator's ``note`` and the approver's ``context`` are persisted
+        with it, in their own columns. They are not folded into
+        ``arguments_snapshot``: that column is one thing -- what the human
+        approved and what will be executed -- and it is immutable
+        (``docs/tool-permissions.md`` §3.2), so a display-only value inside it
+        would stop it equalling the executed arguments.
+        """
         with self._scope() as session:
             row = models.ApprovalRequest(
                 id=approval.id,
@@ -967,6 +1179,8 @@ class SqlApprovalStore(_SessionBound):
                 created_at=approval.created_at,
                 decided_at=approval.decided_at,
                 decided_by=approval.decided_by,
+                note=approval.note,
+                context=_approval_context_to_json(approval.context),
             )
             session.add(row)
             session.flush()
@@ -1022,16 +1236,20 @@ class SqlApprovalStore(_SessionBound):
         *,
         approved: bool,
         decided_by: str,
-        note: str | None = None,  # noqa: ARG002 -- part of the port signature; no column
+        note: str | None = None,
         decided_at: datetime,
     ) -> ApprovalRequestDomain:
         """Record a human decision on a *pending* approval and re-queue the run.
 
         The decision is a conditional ``UPDATE ... WHERE id = ? AND status =
         'pending'``: a second approve affects zero rows and does **not** grant
-        again, which is what lets the API return 409 for an already-decided
-        request rather than silently double-approving. ``note`` is not persisted
-        (the spec's ``approval_requests`` table has no column for it).
+        again.
+
+        ``note`` is persisted with the decision -- it is the operator's remark
+        and the approval row is the only place it can live. It is written only
+        when supplied: a decision made without a remark must not *erase* a
+        remark the approval already carried, so "no remark was given" is not
+        read as "there is no remark".
 
         On a *fresh* decision the run is moved in the same transaction -- to
         ``EXECUTING`` on approve (the worker will re-enter the gates for this
@@ -1041,9 +1259,25 @@ class SqlApprovalStore(_SessionBound):
         table sees the run become claimable. The state-change ``AgentStep`` is
         written by the same ``SqlRunStore.set_status`` call, so the transition
         and its trace are one unit (``docs/agent-state-machine.md`` §4).
+
+        Raises:
+            ApprovalAlreadyDecided: if the approval was already decided. The
+                writer that lost the conditional update is told it lost, rather
+                than handed the winner's decision as if it were its own -- a
+                caller cannot tell the two apart, and the contract promises a
+                409 for the second click (``docs/api-contract.md`` §6). The
+                first decision's row and the run it moved are left alone.
+            NotFoundError: if no approval with that id exists.
         """
         with self._scope() as session:
             new_status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
+            values: dict[str, object] = {
+                "status": new_status.value,
+                "decided_at": decided_at,
+                "decided_by": decided_by,
+            }
+            if note is not None:
+                values["note"] = note
             result = cast(
                 CursorResult[tuple[object, ...]],
                 session.execute(
@@ -1052,21 +1286,27 @@ class SqlApprovalStore(_SessionBound):
                         models.ApprovalRequest.id == approval_id,
                         models.ApprovalRequest.status == ApprovalStatus.PENDING.value,
                     )
-                    .values(
-                        status=new_status.value,
-                        decided_at=decided_at,
-                        decided_by=decided_by,
-                    )
+                    .values(**values)
                 ),
             )
             if result.rowcount == 0:
                 existing = session.get(models.ApprovalRequest, approval_id)
                 if existing is None:
                     raise _MissingApproval(approval_id)
-                # Already decided: return the current state unchanged and leave
-                # the run alone -- the first decision already moved it. The
-                # caller distinguishes this from a fresh grant by status.
-                return _to_approval(existing)
+                # The row exists but was not pending. There are two ways that
+                # happens and the caller has to be able to tell them apart:
+                # somebody else decided it first (a lost race), or the TTL
+                # swept it (nobody decided it at all). The second is not a
+                # ``LookupError`` and not an ``ApprovalAlreadyDecided`` --
+                # "already decided by an operator at ..." would be a statement
+                # about a person that is false.
+                if existing.status == ApprovalStatus.EXPIRED.value:
+                    raise ApprovalExpired(approval_id)
+                # Somebody else decided it first. That is a lost race, not a
+                # fresh grant, and the caller has to be able to tell the two
+                # apart -- so it is raised, not returned. The first decision's
+                # row and the run it moved are left exactly as they are.
+                raise ApprovalAlreadyDecided(approval_id, existing.status)
 
             session.flush()
             row = session.get(models.ApprovalRequest, approval_id)
@@ -1091,6 +1331,69 @@ class SqlApprovalStore(_SessionBound):
                 )
             ).first()
             return found is not None
+
+    async def expire_pending(self, *, before: datetime) -> int:
+        """Mark every pending approval created before ``before`` as expired.
+
+        One conditional ``UPDATE``: ``WHERE status = 'pending' AND created_at <
+        :before``. Two things follow from that being the *only* write, and both
+        are the point.
+
+        - **A decision that landed a moment earlier is never overwritten.** The
+          ``status = 'pending'`` predicate is the same one ``decide`` uses, so
+          the sweep and a click race safely: whichever reaches the row first
+          wins, and the loser affects no rows. An approval that was approved
+          ten seconds before the sweep runs stays approved.
+        - **The run is not touched.** The approval's status changes and nothing
+          else does. The run stays parked in ``WAITING_APPROVAL``: no decision
+          was made, so there is nothing for the worker to do, and a run whose
+          approval timed out is exactly a run whose money has not moved.
+
+        ``decided_at`` and ``decided_by`` are deliberately left NULL. They
+        record *who decided*; nobody did, and a row that says a decision was
+        taken by "an operator" at a time it was not taken is the same kind of
+        lie this repository has been spending the week removing.
+        """
+        with self._scope() as session:
+            result = cast(
+                CursorResult[tuple[object, ...]],
+                session.execute(
+                    update(models.ApprovalRequest)
+                    .where(
+                        models.ApprovalRequest.status == ApprovalStatus.PENDING.value,
+                        models.ApprovalRequest.created_at < before,
+                    )
+                    .values(status=ApprovalStatus.EXPIRED.value)
+                ),
+            )
+            return int(result.rowcount)
+
+    async def count(self, *, status: ApprovalStatus | None = None) -> int:
+        """How many approvals match, in total.
+
+        On the ``ApprovalStore`` port, because the contract this backs makes
+        it mandatory: §10 says a list endpoint's ``total`` is computed "by a
+        separate count over the same filtered query, not by measuring the list
+        that was returned", and a count the port does not require is a count
+        the router has to do without.
+
+        The filter is the same one ``list`` takes -- a status, or every
+        status -- and the count is of the **matching rows**, not of a page. A
+        list endpoint that reports ``total=len(items)`` reports the page length
+        and calls it the total, so a client paging through fifty approvals
+        sees "total: 50" and stops -- and a client that never pages sees a
+        total that changes with the page size. The count ignores ``limit`` and
+        ``offset`` for exactly that reason.
+
+        For the approvals inbox this is the number that matters most: "how many
+        are waiting for a human" is the question the screen exists to answer,
+        and it is not the number of cards the first page happens to hold.
+        """
+        with self._scope() as session:
+            statement = select(func.count()).select_from(models.ApprovalRequest)
+            if status is not None:
+                statement = statement.where(models.ApprovalRequest.status == status.value)
+            return int(session.execute(statement).scalar_one())
 
     # Defined last for the same reason as `SqlRunStore.list`: naming a method
     # `list` shadows the builtin for every annotation written after it in the
@@ -1346,6 +1649,7 @@ __all__ = [
     "SqlCitationStore",
     "SqlKnowledgeDocumentStore",
     "SqlRunStore",
+    "SqlTicketIntake",
     "SqlTicketStore",
     "SqlToolCallStore",
     "new_approval_id",

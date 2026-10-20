@@ -90,6 +90,7 @@ export interface paths {
          *
          *     Raises:
          *         ApiError: 409 ``approval_already_decided`` if it was already decided;
+         *             409 ``approval_expired`` if it timed out before anybody decided it;
          *             409 ``run_not_awaiting_approval`` if the run is not parked; 404 if
          *             the approval does not exist.
          */
@@ -344,10 +345,17 @@ export interface paths {
          *     that true -- a ticket with no run would be silently never investigated, which
          *     is worse than a failed request the client retries.
          *
+         *     It used to be two writes with a compensating delete between them, and the
+         *     compensation was a ``getattr(tickets, "rollback", None)`` that the SQL store
+         *     does not answer -- so the two writes were two transactions and the
+         *     compensation was dead code. The rollback existed on paper and the orphan
+         *     ticket existed in the database.
+         *
          *     Args:
          *         request: The ticket to create.
-         *         tickets: The ticket store port.
-         *         runs: The run store port.
+         *         intake: The ``TicketIntake`` port: the ticket and its run, as one unit
+         *             of work.
+         *         tickets: The ticket store port, for reading the duplicate back.
          *         settings: Process settings, for the model provider/name the run records.
          *
          *     Returns:
@@ -461,12 +469,18 @@ export interface components {
          * ApprovalDecisionRequest
          * @description Body of ``POST /api/approvals/{id}/approve`` and ``/reject``.
          *
-         *     The body may be empty; ``decided_by`` defaults to the operator identity
-         *     resolved from the bearer token, and ``note`` is optional.
+         *     The body may be empty. ``note`` is the operator's own remark on the
+         *     decision, and it is persisted with it -- a remark that was accepted and
+         *     then dropped was a remark the operator believed they had left.
+         *
+         *     There is deliberately **no** ``decided_by`` field. The operator's identity
+         *     is resolved from the bearer token by the server, and a request body that
+         *     could name the operator would let a caller sign somebody else's name to a
+         *     refund they approved themselves -- which is the one thing an audit column
+         *     must not be. ``extra="forbid"`` means a client that sends one is told so,
+         *     rather than having it quietly ignored.
          */
         ApprovalDecisionRequest: {
-            /** Decided By */
-            decided_by?: string | null;
             /** Note */
             note?: string | null;
         };
@@ -491,6 +505,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Note */
+            note?: string | null;
             run: components["schemas"]["RunRef"];
             status: components["schemas"]["ApprovalStatus"];
         };
@@ -534,6 +550,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Note */
+            note?: string | null;
             /** Reason */
             reason: string;
             /** Risk Explanation */

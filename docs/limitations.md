@@ -12,10 +12,14 @@ README, not in this file.
 **Single operator, no separation of duties.** One bearer token
 (`OPSPILOT_OPERATOR_TOKEN`) authenticates every endpoint. The same credential can
 create a ticket, approve a refund and reject one. There is no notion of who
-approved what beyond the free-text `decided_by` field, which is not
-authenticated. A real deployment needs roles, an approval sphere ("this operator
-may approve up to $500"), and separation between the actor proposing and the
-actor approving. **Phase 3.**
+approved what beyond the `decided_by` field, which records the identity the
+server resolves from the token — and that is as far as it goes: in Phase 1 the
+value is the single literal `"operator"`, because there is one token and one
+role. The client cannot forge it: the field is assigned by the server and the
+request body has no `decided_by` at all, so a client that tries to name itself
+is refused rather than believed. A real deployment needs roles, an approval
+sphere ("this operator may approve up to $500"), and separation between the
+actor proposing and the actor approving. **Phase 3.**
 
 **No prompt-injection red-team.** The structural defence — permission gates that
 retrieved text cannot influence — is tested and holds. The *prompt-level* defence
@@ -312,6 +316,23 @@ claiming) and untested at any real concurrency.
 **Alembic migrations are forward-only in practice.** `downgrade` exists where it
 was easy to write and is not exercised by CI.
 
+**What is now checked without a database.**
+`tests/integration/test_migration_chain_renders_for_postgres.py` renders the
+whole chain to PostgreSQL SQL with Alembic's offline mode (`--sql`, which
+never connects) and asserts that the chain reaches head, that `0003`'s two
+columns are `TEXT` and `JSONB`, that the pgvector column is `vector(1536)`,
+that the HNSW index is rendered with the cosine operator class, and that the
+downgrade drops the two columns in the reverse of the order they were added
+in. This closes the gap that exists **on a machine with no Docker**: CI's
+pgvector job runs `alembic upgrade head` against a real PostgreSQL, so
+without this file the entire chain was unexecuted until CI ran it.
+
+What it does **not** cover is the half that only a server can judge: a DDL
+PostgreSQL accepts or rejects. `tests/integration/test_migration_schema.py`
+is that test — it runs against a real PostgreSQL, drops and recreates the
+schema, and **skips** wherever none is reachable. The two are complementary,
+and neither replaces the other.
+
 **No coverage gate on `apps/web`.** The dashboard has type checking and linting
 in CI; its component behaviour is verified by hand against the golden path. This
 is a real gap and is the reason M7 is scheduled after the workflow it displays.
@@ -424,11 +445,21 @@ Approvals page open. There is no email, no Slack, no webhook. Deliberate — ema
 and Slack integrations are explicitly out of scope — but the consequence is that
 a run can sit parked indefinitely in a real deployment.
 
-**Approvals do not expire in practice.** The `expired` status exists in the
-schema and a `pending` approval will sit forever. No TTL job is implemented. The
-schema is ahead of the behaviour here, and that is stated rather than quietly
-assumed. The Approvals screen does not offer an expired filter either — a tab
-for a category the system cannot produce is a promise the code does not keep.
+**An expired approval's run stays parked forever.** Approvals do expire now —
+`APPROVAL_TTL_SECONDS`, swept by the worker — but expiring one does not re-park
+the run, so the refund it proposed is not proposed again and the run waits in
+`waiting_approval` with nothing left to do. That is the honest consequence of
+the product decision (see §8's history), and it is a real gap rather than a
+detail: the operator sees the request in the "expired" tab and has no way, from
+the API, to have it looked at again. A re-propose path is the follow-up, and
+until there is one the tab is where an operator goes to find out that
+something lapsed.
+
+**No notification when an approval is pending.** An operator must have the
+Approvals page open. There is no email, no Slack, no webhook. Deliberate — email
+and Slack integrations are explicitly out of scope — but the consequence is that
+a run can sit parked until its approval expires, and after that it sits parked
+forever (above).
 
 **One seeded demo dataset.** Ten customers, twenty-odd invoices. Real data has
 messier shapes — missing fields, multiple currencies, partial refunds across
@@ -562,9 +593,50 @@ could not keep.
    module in the project. The `LinearOrchestrator` row now sits `- [x]` in
    `docs/milestones.md` §M4 with that evidence; the `LangGraphOrchestrator` row
    stays `- [ ]`.
-
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
+
+- **An approval never expires, although the API's enum says it can.** The
+  approval status enum carried `expired`, the OpenAPI schema published it, the
+  list endpoint accepted `?status=expired` as a filter, and the dashboard's
+  catalogue carried a label for it — but **no code path moved an approval to
+  `expired`**. There was no TTL on the row, no sweeper, and no transition into
+  the state, so `GET /api/approvals?status=expired` was a `WHERE status =
+  'expired'` that returned nothing, always.
+
+  **This one was not a defect to be fixed, and that was the reason it sat in
+  this list rather than in a milestone.** Every other entry here has an answer
+  the code can be held to; this one did not, because the answer is a product
+  decision. An approval that expires silently after an hour is a different
+  product from one that waits for a person indefinitely — and the second is
+  defensible: a run parked at gate 5 *should* wait for a human, and a refund
+  that vanishes from the inbox because nobody looked at it within the TTL is a
+  worse outcome than a refund that waits. Which of the two this is depends on
+  what the business wants, and the code cannot decide it.
+
+  **Decided on 2026-10-21: option (a).** The approval has a TTL
+  (`APPROVAL_TTL_SECONDS`, default 3600) and the worker sweeps pending
+  approvals older than it to `expired`, leaving the run parked. The three
+  choices were (a) expire and leave the run parked, (b) expire and re-park with
+  a fresh approval, (c) remove `expired` from the enum and keep the promise
+  that an approval waits; (c) was the smallest change and the wrong one,
+  because it deletes the question rather than answering it, and it deletes a
+  state the operator may well want.
+
+  What that decision leaves open is recorded here rather than glossed: **an
+  expired approval's run stays parked forever.** No money moved and no decision
+  was made, so there is nothing for the worker to execute — but there is also
+  no endpoint that re-proposes the refund, so the operator looking at the
+  "expired" tab sees a request that timed out and a run that will not move
+  again. That is the honest consequence of option (a) and not an oversight in
+  it; a follow-up would be a re-propose path, and until there is one the tab
+  is where an operator goes to find out that something lapsed.
+
+  **The refusal says `expired`, not `approval_already_decided`.** The two are
+  different facts — somebody else decided this first, versus nobody decided it
+  at all — and the second one must not name a person, because there was no
+  person. `ApprovalExpired` is deliberately *not* a `LookupError`, so the
+  route's "somebody else got there first" branch cannot swallow it.
 
 - **The packaged app refused every page-initiated navigation, so the language
   switcher did nothing.** Found on 2026-10-16 by the person running D2, who
@@ -772,6 +844,111 @@ legible):
   write inside the loop, which fails the test. The fixtures therefore remain
   hand-written, and the M4 criterion stays unticked, for a reason that is now
   recorded rather than assumed.
+
+- **Five promises the API made in prose that no code path kept**, found on
+  2026-10-21 by a reverse drift sweep — the same class as the rest of this
+  section, in a new costume: this time the claims were in the contract, in a
+  dashboard's copy and in a port signature, rather than in a milestone log.
+
+  - **A ticket and its run were inserted in two transactions, while
+    `docs/api-contract.md` §2 said "one transaction".** The handler's
+    compensating delete was a `getattr(tickets, "rollback", None)` that the SQL
+    store does not answer, so it never ran and a failure between the two
+    inserts left a ticket no run would ever investigate — the state the
+    contract said could not exist, and the state the dashboard's own copy
+    promised a user in two languages. There is now a `TicketIntake` port and a
+    `SqlTicketIntake` that opens one session and inserts both, so the
+    session's one commit is the only commit.
+  - **Four list endpoints answered `total` with the length of the page they
+    returned**, so a paginated list reported a total that did not count the
+    rows it had not returned. The stores count now, against the same filter
+    the list applies — and `count` is a **required member of the three store
+    ports**, not a capability the routers probe for with a `getattr`. The
+    fallback to the page length was a silent wrong number, and a silent wrong
+    number is the failure this whole entry is about.
+  - **The approval's `context` was read from `arguments_snapshot["_context"]`
+    — a key no code path writes** — so it was always `null` while the contract
+    (§5) promised the company and the ticket subject. The data was never
+    missing: it is assembled at park time from what the run has already
+    executed and already knows.
+  - **The client could name the operator who decided a refund.** The request
+    schema carried `decided_by` and the handler read
+    `body.decided_by or operator`, so a caller could sign somebody else's
+    name onto a refund they approved themselves, on the one endpoint where
+    the audit field *is* the evidence. The field is gone from the request; the
+    server assigns it.
+  - **A second approval of the same refund answered 200**, because the store's
+    conditional update returned the already-decided row when it matched
+    nothing. The contract says 409, and the dashboard's decision card is
+    built around that 409 being what stops a double-click becoming a double
+    grant.
+
+  Two smaller defects came with them: `NotFoundError` was not a
+  `LookupError`, so the router's `except LookupError` branch was dead and a
+  missing approval produced a 500 instead of the contract's 404; and the
+  operator's `note` was accepted by the API, carried by the port signature
+  (`note: str | None = None,  # noqa: ARG002 … no column`) and dropped by the
+  store, so a remark an operator was told was accepted went nowhere.
+
+  **Each of these is now asserted, and each assertion has been seen to fail.**
+  The atomicity is proved with a real `NOT NULL` violation rather than a mock
+  (`tests/integration/test_ticket_intake.py`: a failed run insert leaves zero
+  tickets), the counts are proved against seven rows and a page of two
+  (`tests/integration/test_list_totals.py`), and the rest are proved by
+  rewriting the code they cover and watching the test go red — a two-session
+  intake reproduces the orphan ticket, a `count()` that returns the page
+  length fails the total assertion, and a `decide()` that returns the decided
+  row fails the 409.
+
+- **A `state_change` step had two shapes, and the contract said it had one.**
+  `docs/api-contract.md` §3 documents a `state_change` payload as
+  `{from_status, to_status, at}` and adds the words **"fixed by the writers"**
+  — a promise about *every* writer of that step type. `SqlRunStore.set_status`,
+  the path every live transition goes through, wrote all three;
+  `TraceRecorder.record_state_change` wrote **two**, with no `at`. So a step
+  written through the recorder was not the shape the contract promised, and a
+  reader who wrote `payload["at"]` would raise `KeyError` on a step that was
+  legal to write. The recorder writes the same three keys now, and
+  `tests/integration/test_state_change_shape.py` compares the two writers to
+  **each other** — not to a literal — because a divergence is only visible when
+  the two ends are held to the same standard.
+
+- **The dashboard kept two copies of facts the backend already knew, and both
+  copies had drifted.** `web/src/lib/risk.ts` transcribed
+  `TOOL_REGISTRY`'s permission per tool, and was missing **three of the nine**
+  registered tools — `crm.get_account`, `crm.get_subscription` and
+  `issues.search` — so a call to one of them read as *"risk unknown"* on the
+  one screen where an operator is asked to authorise a write, while the file's
+  own docstring claimed every registered tool was in it.
+  `web/src/lib/api/client.ts`'s `ApiErrorCode` union transcribed the API's
+  error-code vocabulary, and was missing **four** codes the API can send —
+  `illegal_transition`, `approval_arguments_changed`, `policy_denied` and
+  `unknown_tool` — all raised by the API's own exception handlers rather than
+  by a route, which is why nobody looking at a router found them.
+
+  Nothing caught either drift, because the only test that compares the
+  dashboard to the backend compares the **generated** `web/src/lib/api/types.ts`
+  against the live OpenAPI schema — and neither of these tables is in it. The
+  generated file covers what the API *publishes*; these are copies of what the
+  API *knows*. `tests/unit/test_frontend_copies_match_the_backend.py` now
+  holds both copies to the backend, in both directions: the permission table
+  must have exactly the registry's names and permissions, and the code union
+  must name every code the backend can send **and no code it cannot**.
+
+- **The state machine was "the specification", and nothing checked the
+  transcription.** `src/opspilot/domain/runs.py` carries the comment "From
+  `docs/agent-state-machine.md` §2. This table is the specification" on
+  `ALLOWED_TRANSITIONS`, so the document is the authority and the Python is a
+  copy of it — and no test compared the two.
+  `tests/unit/test_run_state.py` derives every case from the table itself, so
+  it would have passed just as happily with a table that had drifted from the
+  document: the same shape as the MCP servers' bare tool names, whose own
+  tests agreed with the implementation and both disagreed with the contract.
+  `tests/unit/test_state_machine_document_matches_the_code.py` now compares
+  the document's verbatim `python` blocks against the code — the states, the
+  edges in both directions, and §1's "Is it terminal?" column against
+  `TERMINAL`. The document and the code agree today; an agreement nobody
+  checked is an agreement that lasts until the next edit.
 
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.

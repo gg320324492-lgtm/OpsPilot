@@ -436,6 +436,9 @@ class _RenewalSpy:
     async def get(self, run_id: UUID) -> AgentRun | None:
         return await self._inner.get(run_id)
 
+    async def count(self, *, status: RunStatus | None = None) -> int:
+        return await self._inner.count(status=status)
+
     async def claim_next(self, *, worker_id: str, lease_seconds: float) -> AgentRun | None:
         return await self._inner.claim_next(worker_id=worker_id, lease_seconds=lease_seconds)
 

@@ -46,25 +46,28 @@ import type en from "@/i18n/dictionaries/en.json";
 /**
  * The filters this screen offers, in the order an operator reaches for them.
  *
- * **`expired` is deliberately absent, although the API's enum has it and the
- * schema can store it.** Nothing in `src/` ever moves an approval to `expired`:
- * the only writer sets `approved` or `rejected`, a new approval is `pending`,
- * and no TTL job exists. So `GET /api/approvals?status=expired` is a
- * `WHERE status = 'expired'` that returns nothing, always — the tab led to an
- * empty state indistinguishable from "there are no expired approvals", which
- * is a category the system cannot produce and does not need to explain.
+ * **`expired` was absent here for a long time, and now it is not.** The API's
+ * enum has always carried `expired` and the schema can always store it, but
+ * nothing in `src/` moved an approval to it: the only writer set `approved`
+ * or `rejected`, a new approval was `pending`, and there was no TTL job. So
+ * `GET /api/approvals?status=expired` was a `WHERE status = 'expired'` that
+ * returned nothing, always — a tab that could only ever be empty, telling the
+ * operator "there are no expired approvals" when the truth was "no approval
+ * can expire". The tab was deliberately withheld rather than offered empty,
+ * because a tab that promises a category nothing can populate is a promise the
+ * code does not keep.
  *
- * The schema-level boundary is recorded in `docs/limitations.md`; this is the
- * UI half of it. A tab that promises a category nothing can populate is a
- * promise the code does not keep, and offering it on a screen where an
- * operator decides whether money moves is the wrong place for one. If a TTL is
- * ever implemented, the tab comes back with it — that is a product decision
- * (what happens to the parked run) and it is not made here.
+ * The TTL exists now (`APPROVAL_TTL_SECONDS`, swept by the worker), so the
+ * category is one the system can produce and the tab comes back with it. The
+ * order is deliberate: `expired` sits last, because it is the one an operator
+ * looks at to understand what did *not* happen — the request that timed out,
+ * the run still parked, the refund that did not move.
  */
 const FILTERS = [
   { value: "pending", key: "pending" },
   { value: "approved", key: "approved" },
   { value: "rejected", key: "rejected" },
+  { value: "expired", key: "expired" },
 ] as const satisfies readonly { value: ApprovalStatus; key: keyof typeof en.approvals.filterHint }[];
 
 export default async function ApprovalsPage({
@@ -113,7 +116,9 @@ export default async function ApprovalsPage({
               ? `${approvals.data.total} ${
                   filter === "pending"
                     ? t("approvals.waitingSuffix")
-                    : t("approvals.recordedSuffix")
+                    : filter === "expired"
+                      ? t("approvals.expiredSuffix")
+                      : t("approvals.recordedSuffix")
                 }`
               : undefined
           }
@@ -167,10 +172,10 @@ export default async function ApprovalsPage({
  * §5), so passing one through would turn a typo in a shared link into an error
  * screen. Landing on the inbox is the useful reading of a bad link.
  *
- * `expired` is now one of those unrecognised values — it is in the API's enum
- * but it is not one of the filters this screen offers (see `FILTERS`), and a
- * link to it is a link to a page that can only ever be empty. `pending` is the
- * useful reading of it.
+ * `expired` used to be one of those unrecognised values: it was in the API's
+ * enum but not one of the filters this screen offered, because nothing could
+ * produce it. It is a filter now — the TTL makes the status reachable — so
+ * `?status=expired` is the link that shows the requests that timed out.
  */
 function isApprovalStatus(value: string | undefined): value is ApprovalStatus {
   return (

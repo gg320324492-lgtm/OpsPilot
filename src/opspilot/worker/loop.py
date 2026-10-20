@@ -52,7 +52,9 @@ import contextlib
 import importlib
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from functools import cache
+from time import monotonic
 from types import ModuleType
 from typing import Final
 from uuid import UUID
@@ -689,6 +691,78 @@ async def drain_once(
     return True
 
 
+async def sweep_expired_approvals(
+    *,
+    approval_store: ApprovalStore,
+    ttl_seconds: float,
+    now: datetime | None = None,
+) -> int:
+    """Expire every pending approval older than the TTL; return how many.
+
+    The TTL's only writer. It is a separate function rather than a line inside
+    ``poll_forever`` so that it can be called, and *tested*, on its own: the
+    behaviour that matters is "an approval nobody answered stops being
+    decidable", and that is a statement about one call, not about a loop.
+
+    **The worker sweeps, not the API.** The worker is the process that
+    *creates* the approvals -- it is what parks a run and asks a person -- and
+    it is the process that is always running: the API serves requests and can
+    be restarted or scaled independently, while the worker is the one whose
+    absence stops the system doing anything at all. A TTL enforced by a
+    process that might not be up would be a TTL that silently does not apply.
+
+    **The run is not moved.** An expired approval leaves its run parked in
+    ``WAITING_APPROVAL``: no decision was made, so the money did not move and
+    there is nothing for the worker to execute. This function changes the
+    approval's status and touches no run.
+
+    Args:
+        approval_store: The store to sweep.
+        ttl_seconds: How long an approval stays decidable. Zero or less
+            disables the sweep, and the function returns 0 without writing.
+        now: The instant the cutoff is measured from. A parameter rather than
+            a call to the clock, so a test can place the instant rather than
+            wait for it.
+
+    Returns:
+        How many approvals were marked expired.
+    """
+    if ttl_seconds <= 0:
+        return 0
+    cutoff = (now or datetime.now(UTC)) - timedelta(seconds=ttl_seconds)
+    return await approval_store.expire_pending(before=cutoff)
+
+
+async def sweep_expired_approvals_safely(
+    *, approval_store: ApprovalStore, ttl_seconds: float
+) -> None:
+    """Run the expiry sweep, and survive it failing.
+
+    **The sweep must not be able to kill the worker.** An exception out of
+    ``poll_forever`` is re-raised by the entry point and the process exits
+    non-zero -- and the boot sweep then marks every run the worker was holding
+    ``FAILED('interrupted')``. That is the module's standing lesson about
+    model errors ("a model that cannot be reached is the upstream's failure,
+    not the worker's"), and it applies here with more force: a sweep is
+    housekeeping, and housekeeping that takes the worker down with it converts
+    a transient database hiccup into every queued run being failed.
+
+    So a failure here is logged and the loop continues. The next sweep runs a
+    minute later and the expired approvals are expired then. The alternative --
+    letting it propagate -- would trade one stale approval for a queue of
+    interrupted runs.
+    """
+    try:
+        expired = await sweep_expired_approvals(
+            approval_store=approval_store, ttl_seconds=ttl_seconds
+        )
+    except Exception:
+        logger.exception("the approval expiry sweep failed; the next sweep will retry it")
+        return
+    if expired:
+        logger.info("expired %d pending approval(s) past their TTL", expired)
+
+
 async def poll_forever(
     *,
     worker_id: str,
@@ -705,14 +779,36 @@ async def poll_forever(
     citation_store: CitationStore | None = None,
     retrieval_min_score: float | None = None,
     lease_seconds: float | None = None,
+    approval_ttl_seconds: float | None = None,
+    sweep_interval: float = 60.0,
 ) -> None:
     """Loop: claim, drive, sleep. Never returns under normal operation.
 
     ``lease_seconds`` is threaded to ``drain_once`` (``None`` reads
     ``WORKER_CLAIM_LEASE_SECONDS``); it exists so a test can run the loop with a
     short lease, not because a deployment sets it here.
+
+    ``approval_ttl_seconds`` and ``sweep_interval`` are the expiry sweep's two
+    settings, and they are parameters for the same reason: the sweep has to be
+    *testable* without waiting an hour for it. ``approval_ttl_seconds=None``
+    reads ``APPROVAL_TTL_SECONDS``; ``sweep_interval`` is how often the sweep
+    runs, and is separate from the TTL because the two answer different
+    questions -- the TTL is a policy, the interval is a cost. A one-second
+    interval would expire the same rows a minute earlier and spend a query per
+    second doing it.
     """
+    ttl = approval_ttl_seconds
+    if ttl is None:
+        from opspilot.settings import get_settings
+
+        ttl = get_settings().approval_ttl_seconds
+
+    last_sweep = 0.0
     while True:
+        now = monotonic()
+        if now - last_sweep >= sweep_interval:
+            last_sweep = now
+            await sweep_expired_approvals_safely(approval_store=approval_store, ttl_seconds=ttl)
         processed = await drain_once(
             worker_id=worker_id,
             run_store=run_store,
@@ -737,4 +833,6 @@ __all__: list[str] = [
     "drain_once",
     "poll_forever",
     "sleep",
+    "sweep_expired_approvals",
+    "sweep_expired_approvals_safely",
 ]

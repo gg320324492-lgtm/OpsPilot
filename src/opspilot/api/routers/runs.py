@@ -216,7 +216,16 @@ async def list_runs(
     if lister is None:
         return RunListResponse(items=[], total=0)
     rows = await lister(status=parsed, limit=limit, offset=offset)
-    return RunListResponse(items=[_run_summary(run) for run in rows], total=len(rows))
+    # ``total`` counts every run matching the filter, not the ones on this
+    # page. It used to be ``len(rows)``, which made a paginated list report a
+    # total that did not count the rows it did not return -- and the dashboard
+    # read it as "how many runs there are".
+    #
+    # The count is a *required* port method, so there is no fallback to the
+    # page length: a store that cannot count is a store that does not satisfy
+    # the contract this endpoint publishes (contract §10).
+    total = await runs.count(status=parsed)
+    return RunListResponse(items=[_run_summary(run) for run in rows], total=total)
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)

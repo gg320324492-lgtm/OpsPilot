@@ -43,6 +43,7 @@ from opspilot.api.schemas import (
     RunRef,
 )
 from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
+from opspilot.domain.errors import ApprovalAlreadyDecided, ApprovalExpired, NotFoundError
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.stores import ApprovalStore, RunStore
 
@@ -76,7 +77,16 @@ async def list_approvals(
         await lister(status=parsed, limit=limit, offset=offset) if lister else []
     )
     items = [_summary(row) for row in rows]
-    return ApprovalListResponse(items=items, total=len(items))
+    # ``total`` counts the rows that match the filter, not the rows on this
+    # page. It used to be ``len(items)``, which made a paginated inbox report
+    # a total that did not count the approvals it did not return -- and the
+    # dashboard read that number as "how many are waiting for a human".
+    #
+    # The count is a *required* port method, so there is no fallback to the
+    # page length: a store that cannot count is a store that does not satisfy
+    # the contract this endpoint publishes (contract §10).
+    total = await approvals.count(status=parsed)
+    return ApprovalListResponse(items=items, total=total)
 
 
 @router.get("/approvals/{approval_id}", response_model=ApprovalSummary)
@@ -122,6 +132,7 @@ async def approve(
 
     Raises:
         ApiError: 409 ``approval_already_decided`` if it was already decided;
+            409 ``approval_expired`` if it timed out before anybody decided it;
             409 ``run_not_awaiting_approval`` if the run is not parked; 404 if
             the approval does not exist.
     """
@@ -168,11 +179,15 @@ async def _decide(
         The decided approval plus the run's new status.
 
     Raises:
-        ApiError: 404, 409 ``approval_already_decided`` or
-            409 ``run_not_awaiting_approval``.
+        ApiError: 404, 409 ``approval_already_decided``, 409
+            ``approval_expired`` or 409 ``run_not_awaiting_approval``.
     """
     body = request or ApprovalDecisionRequest()
-    decided_by = body.decided_by or operator
+    # The identity is the server's to assign. It used to be
+    # ``body.decided_by or operator``, which let the request body name the
+    # operator -- so a caller could put somebody else's name on a refund they
+    # approved themselves, in the one column that records who did it.
+    decided_by = operator
 
     approval: ApprovalRequest | None = await _get_approval(approvals, approval_id)
     if approval is None:
@@ -182,6 +197,8 @@ async def _decide(
             f"Approval {approval_id} does not exist.",
             {"approval_id": str(approval_id)},
         )
+    if approval.status is ApprovalStatus.EXPIRED:
+        raise _expired(approval)
     if approval.status is not ApprovalStatus.PENDING:
         raise _already_decided(approval)
 
@@ -209,8 +226,8 @@ async def _decide(
 
     # The conditional update: the store performs `WHERE id = ? AND status =
     # 'pending'`. If another click won the race first, our update matches no row
-    # and the store raises/returns "already decided" -- which we turn into a 409
-    # rather than a double grant.
+    # and the store says so -- which we turn into a 409 rather than a double
+    # grant.
     try:
         decided = await approvals.decide(
             approval_id,
@@ -219,12 +236,36 @@ async def _decide(
             note=body.note,
             decided_at=datetime.now(UTC),
         )
-    except _AlreadyDecidedError as exc:
-        raise _already_decided(exc.approval) from exc
+    except ApprovalExpired as exc:
+        # The TTL swept this approval between the pre-check above and the
+        # conditional update. The store's update matched no row because the
+        # status is no longer ``pending`` -- and the store tells the two apart
+        # for us, so the answer here is "it expired", not "somebody else
+        # decided it first".
+        refreshed = await _get_approval(approvals, approval_id)
+        raise _expired(refreshed or approval) from exc
+    except ApprovalAlreadyDecided as exc:
+        # The store's conditional update matched no row: another writer decided
+        # this approval first. The refusal *is* the answer. Before, the store
+        # returned the winner's row instead, and a caller that could not tell
+        # the two apart read the winner's decision as its own -- which is why a
+        # genuinely concurrent second click answered 200 where the contract
+        # promises 409.
+        refreshed = await _get_approval(approvals, approval_id)
+        raise _already_decided(refreshed or approval) from exc
+    except NotFoundError as exc:
+        # The approval row disappeared between the pre-check and the update.
+        # Narrow window, but it is a missing entity, not a lost race.
+        raise ApiError(
+            404,
+            "approval_not_found",
+            f"Approval {approval_id} does not exist.",
+            {"approval_id": str(approval_id)},
+        ) from exc
     except LookupError as exc:
-        # A store may signal the same condition with ``LookupError``; the port's
-        # docstring leaves the "lost the race" signalling unspecified, so both are
-        # accepted here and both mean 409.
+        # A store that signals the same condition with a bare ``LookupError``;
+        # the port's docstring names ``ApprovalAlreadyDecided``, but a
+        # third-party implementation of the port may not.
         refreshed = await _get_approval(approvals, approval_id)
         raise _already_decided(refreshed or approval) from exc
 
@@ -239,6 +280,7 @@ async def _decide(
         status=decided.status,
         decided_at=decided.decided_at or datetime.now(UTC),
         decided_by=decided.decided_by or decided_by,
+        note=decided.note,
         run=RunRef(
             id=transitioned.id,
             status=transitioned.status,
@@ -290,14 +332,6 @@ async def _read_transitioned_run(runs: RunStore, run_id: UUID, expected: RunStat
     return run
 
 
-class _AlreadyDecidedError(Exception):
-    """Internal marker for a store that lost the conditional-update race."""
-
-    def __init__(self, approval: ApprovalRequest) -> None:
-        self.approval = approval
-        super().__init__(f"approval {approval.id} is already {approval.status.value}")
-
-
 def _already_decided(approval: ApprovalRequest) -> ApiError:
     """Build the 409 the contract specifies for a second click (contract §6).
 
@@ -310,6 +344,33 @@ def _already_decided(approval: ApprovalRequest) -> ApiError:
         409,
         "approval_already_decided",
         f"Approval {approval.id} was already {approval.status.value} by {by} at {when}.",
+        {"approval_id": str(approval.id), "status": approval.status.value},
+    )
+
+
+def _expired(approval: ApprovalRequest) -> ApiError:
+    """Build the 409 for a decision on an approval that timed out (contract §6).
+
+    **A different answer from :func:`_already_decided`, on purpose.** That one
+    says "somebody else decided this first" and names the actor and the
+    moment. This one says the request timed out -- and names nobody, because
+    nobody decided it. Reporting an expired approval as "already decided by an
+    operator at ..." would put a person in a sentence that is false, on the one
+    screen an operator is reading to find out what happened to their refund.
+
+    The message also does not promise a re-proposal, because no code path
+    makes one: the run stays parked and the decision simply cannot be
+    recorded. What the operator is owed is the truth about the state, and the
+    gap is recorded in ``docs/limitations.md``.
+    """
+    return ApiError(
+        409,
+        "approval_expired",
+        (
+            f"Approval {approval.id} expired before it was decided. The run is "
+            "still parked and no tool call was made; this decision cannot be "
+            "recorded."
+        ),
         {"approval_id": str(approval.id), "status": approval.status.value},
     )
 
@@ -332,18 +393,25 @@ def _summary(approval: ApprovalRequest) -> ApprovalSummary:
 
 
 def _context_for(approval: ApprovalRequest) -> ApprovalContext | None:
-    """Assemble the approver's context from the approval's own snapshot.
+    """The approver's context, as persisted when the run parked.
 
-    Whoever persisted the approval may have tucked the display context into the
-    arguments snapshot under ``_context``; reading it from there keeps this
-    endpoint to already-persisted data and triggers no tool calls (contract §5).
+    Assembled by the runtime from data the run had already fetched, and kept in
+    a column of its own. It used to be read out of ``arguments_snapshot`` under
+    a ``_context`` key that **nothing ever wrote** -- the snapshot is filled
+    from the model's tool arguments, which gate 1 validates with
+    ``extra="forbid"``, so it could not carry that key -- and every approval
+    the system created therefore reported ``context: null`` while the
+    contract's worked example showed a company and a subject.
+
+    It is deliberately not in the snapshot either: the snapshot is the one
+    thing that means "this is what the human approved and this is what will be
+    executed", and it is immutable (``docs/tool-permissions.md`` §3.2). A
+    display-only string has no business inside it.
     """
-    raw = approval.arguments_snapshot.get("_context")
-    if not isinstance(raw, dict):
+    context = approval.context
+    if context is None:
         return None
-    company = raw.get("company")
-    subject = raw.get("ticket_subject")
     return ApprovalContext(
-        company=str(company) if company is not None else None,
-        ticket_subject=str(subject) if subject is not None else None,
+        company=context.company,
+        ticket_subject=context.ticket_subject,
     )

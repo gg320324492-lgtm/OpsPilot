@@ -335,6 +335,38 @@ class Settings(BaseSettings):
     # away (``tests/integration/test_worker_claim_lease.py``).
     worker_claim_lease_seconds: float = Field(default=300.0, alias="WORKER_CLAIM_LEASE_SECONDS")
 
+    # How long a pending approval stays decidable before the worker sweeps it
+    # to ``expired``.
+    #
+    # **Why there is a TTL at all.** The API's ``ApprovalStatus`` enum has
+    # carried ``expired`` since the beginning, and the dashboard's filter
+    # accepted it, and *nothing could produce it* -- so an approval nobody ever
+    # answered stayed "pending" forever, and the inbox grew a tail of rows
+    # that looked actionable and were not. An approval is a question to a
+    # person; a question that is never answered should stop being a question.
+    #
+    # **Why an hour.** The approver is a human, and the human is the slow part
+    # of the whole workflow: everything else in a run is measured in seconds
+    # (the p95 drive is 276 s -- see ``worker_claim_lease_seconds`` above), and
+    # an approval waits for a shift, not for a machine. An hour is long enough
+    # that an operator who is at the desk sees the request arrive and act
+    # within the same sitting, and short enough that a forgotten request does
+    # not sit in the inbox over a weekend. It is a *default*, not a policy: an
+    # operator whose approvals are answered on a different cadence sets this.
+    #
+    # **What expiring does, and does not do.** The approval's status becomes
+    # ``expired`` and the run stays parked in ``WAITING_APPROVAL``. The money
+    # has not moved and no decision was made, so there is nothing for the
+    # worker to execute and nothing to escalate. A decision on an expired
+    # approval is refused with a 409 (``approval_expired``), which is a
+    # different answer from the 409 a second click gets -- and the difference
+    # matters, because one of them means "somebody else was here first" and
+    # the other means "nobody was here at all".
+    #
+    # Zero disables the sweep: approvals then stay pending indefinitely, which
+    # is the behaviour this project had before the TTL existed.
+    approval_ttl_seconds: float = Field(default=3600.0, alias="APPROVAL_TTL_SECONDS")
+
     # -- MCP servers ---------------------------------------------------------
     # Which transport the tool gateway dispatches over.
     #

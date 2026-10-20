@@ -70,6 +70,91 @@ picked up by the worker's next poll — a latency of up to `WORKER_POLL_INTERVAL
 polls rather than expecting a completed workflow. Phase 1 has no websocket; the
 dashboard polls `GET /api/runs/{id}` every 2s while a run is active.
 
+**Both rows land, or neither does.** The two inserts share one transaction
+boundary, so there is no window in which a ticket exists without its run:
+
+- **If the run insert fails** — a constraint violation, a dropped connection, a
+  timeout — the transaction rolls back and the client gets `500
+  internal_error`. **No ticket row survives.** A ticket with no run is a
+  permanent orphan: no worker would ever claim it, nothing would ever
+  investigate it, and the client would have no run id to poll, so the failure
+  would be silent rather than loud. The same holds in the other order — a run
+  with no ticket cannot exist either.
+- **`201` means committed.** The response is written only after the transaction
+  has committed, so a `201` asserts that both rows are durable and the returned
+  `ticket.id` and `run.id` are real.
+- **Retrying after a `500` is safe.** A retry with the same `external_id`
+  either creates a fresh ticket-and-run pair, or is refused with `409
+  ticket_exists` (§9) because the first attempt did commit and only its
+  response was lost. It never leaves a ticket behind without a run.
+
+### 2.1 `GET /api/tickets`
+
+The ticket list, newest first. The body is the same envelope every list
+endpoint returns: `items` is the page, `total` is the size of the whole
+matching set (see §10 for exactly what `total` counts).
+
+```jsonc
+{
+  "items": [
+    {
+      "id": "0f3a…",
+      "external_id": "ZD-55102",
+      "subject": "Charged twice for invoice INV-2026-384",
+      "body": "We were charged twice…",
+      "customer_email": "billing@acme.example",
+      "created_at": "2026-10-05T10:42:03Z"
+    },
+    {
+      "id": "1b7c…",
+      "external_id": null,
+      "subject": "Subscription charged after cancellation",
+      "body": "We cancelled on 2026-09-30 and were…",
+      "customer_email": "ops@globex.example",
+      "created_at": "2026-10-05T09:17:44Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+`items` holds one ticket per entry, in the same shape as `ticket` in the create
+response (§2). `total` is `2` here because only two tickets match; with more
+than one page of results `items` would be short while `total` would not.
+
+### 2.2 `GET /api/tickets/{ticket_id}`
+
+One ticket with its runs. No request body.
+
+```jsonc
+{
+  "ticket": {
+    "id": "0f3a…",
+    "external_id": "ZD-55102",
+    "subject": "Charged twice for invoice INV-2026-384",
+    "body": "We were charged twice…",
+    "customer_email": "billing@acme.example",
+    "created_at": "2026-10-05T10:42:03Z"
+  },
+  "runs": [
+    { "id": "7c1b…", "status": "waiting_approval", "created_at": "2026-10-05T10:42:03Z" }
+  ]
+}
+```
+
+`ticket` is the shape §2 creates and §2.1 lists: `id` (UUID),
+`external_id` (string or `null` — a ticket created without one), `subject`,
+`body`, `customer_email`, `created_at` (timestamp).
+
+`runs` is a list of run *references* — `id`, `status`, `created_at` — and
+nothing else. It is not the summary of §3.1 and not the detail of §3: it says
+which runs this ticket has, and says nothing about their steps, tool calls,
+citations or claim lease. A store that cannot list a ticket's runs answers
+with an empty list; the endpoint does not fail for it.
+
+Errors: `401` without a valid bearer token (§8). `404 ticket_not_found` when
+there is no such ticket. `422 schema_invalid` when `ticket_id` is not a UUID.
+
 ## 3. `GET /api/runs/{run_id}`
 
 The payload the dashboard's run-detail screen renders.
@@ -152,7 +237,21 @@ Field notes:
   can grep for in `knowledge/`. The UI links it.
 - `pending_approval` is present only when the run is parked. It is the only
   place in the API where an approver-visible payload is nested inside a run.
-- `customer_reply` is set only at `COMPLETED`.
+- **`customer_reply` is `null` until the run reaches `COMPLETED`, and then it
+  carries two non-null fields:**
+
+  ```jsonc
+  {
+    "body": "We have issued a full refund of $129.00 for invoice INV-2026-384…",
+    "escalated": false
+  }
+  ```
+
+  `body` is the reply text the run composed. `escalated` distinguishes "we
+  could not complete this, a human is on it" from "here is your refund": an
+  escalated run says the customer is being handled by a person, and the field
+  is what tells the dashboard which of the two it is looking at. The run
+  detail shows `null` above because the run shown there has not completed.
 - **`steps[].output` has a different shape per `step_type`, and the shapes are
   fixed by the writers.** A `state_change` step carries the transition it
   accompanies: `{from_status, to_status, at}`. A `classification` step carries
@@ -230,6 +329,49 @@ Field notes:
   operator deciding whether to trust a run needs the whole list. What it does
   not do is imply the run failed — see `failed_tool_calls` vs. `status` in
   `docs/agent-state-machine.md` §3.1.
+
+### 3.1 `GET /api/runs`
+
+The run list, newest first, optionally filtered by `status`. Same envelope as
+§2.1: `items` is the page, `total` is the size of the whole matching set.
+
+```jsonc
+{
+  "items": [
+    {
+      "id": "7c1b…",
+      "ticket_id": "0f3a…",
+      "status": "waiting_approval",
+      "model_provider": "anthropic",
+      "model_name": "claude-sonnet-5-5",
+      "started_at": "2026-10-05T10:42:03Z",
+      "completed_at": null,
+      "failure_reason": null,
+      "created_at": "2026-10-05T10:42:03Z"
+    },
+    {
+      "id": "6d90…",
+      "ticket_id": "1b7c…",
+      "status": "completed",
+      "model_provider": "anthropic",
+      "model_name": "claude-sonnet-5-5",
+      "started_at": "2026-10-05T09:17:45Z",
+      "completed_at": "2026-10-05T09:18:31Z",
+      "failure_reason": null,
+      "created_at": "2026-10-05T09:17:44Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+A listed run is a **summary**: no steps, no tool calls, no citations, and no
+claim lease. `claim_lease` in particular is absent here — whether a worker is
+holding a run *right now* is a question about a run in flight, and the detail
+endpoint (§3) is where an operator goes to ask it. `status` is the run's own
+state; `failure_reason` is `null` on a run that completed and carries the
+machine-stable token on one that failed (§3 of
+`docs/agent-state-machine.md`).
 
 ## 4. `GET /api/runs/{run_id}/trace`
 
@@ -347,25 +489,78 @@ run id indistinguishable from a run that had just been created.
 }
 ```
 
-`context` exists so the approver can decide without opening a second tab. It is
-assembled from already-persisted data; it triggers no tool calls.
+**`context` is supplementary, and every field in it is optional.** It exists so
+the approver can decide without opening a second tab, and it is assembled from
+**data the run has already persisted** — the company from a `crm.get_customer`
+result the run has already executed, the ticket's subject from the ticket
+itself — so assembling it triggers **no tool calls** and cannot change what the
+run has done. A run that never fetched a customer still parks a valid approval,
+and that approval's `context` is `null` rather than an error or a set of empty
+strings.
+
+The context is stored in a column of its own, not inside `arguments_snapshot`.
+The snapshot is one thing — what the human approved and what will be executed —
+and it is immutable; a display-only string inside it would give it a second
+meaning and break the invariant the approval gate rests on
+(`docs/tool-permissions.md` §3.2).
+
+### `GET /api/approvals?status=expired`
+
+The same envelope, filtered to approvals that timed out. `status` accepts
+`pending`, `approved`, `rejected` and `expired`; the default is `pending`, so
+the inbox a client opens by default is the one that answers "what is waiting
+for me".
+
+**`expired` is a real status, and this is what makes it one.** An approval
+that nobody decides within `APPROVAL_TTL_SECONDS` (default 3600) is swept to
+`expired` by the worker, and it stops being decidable: a decision on it is
+refused with `409 approval_expired` (§6). Before the TTL existed, `expired`
+was in the enum and in this filter but **no code path could produce it**, so
+the filter was a `WHERE status = 'expired'` that returned nothing, always —
+a tab that could only ever be empty, telling the operator "there are no
+expired approvals" when the truth was "no approval can expire".
+
+**Expiring an approval does not move the run.** The run stays in
+`waiting_approval`: no decision was made, so no money moved and there is
+nothing for the worker to execute. `decided_at` and `decided_by` stay `null`
+on an expired approval, because nobody decided it — a row that named an
+operator would be naming a person who did not act.
 
 ### `POST /api/approvals/{id}/approve`
 
 ```jsonc
 // request — empty body, or:
-{ "decided_by": "admin", "note": "Confirmed in billing console." }
+{ "note": "Confirmed in billing console." }
 
 // 200
 { "id": "b7e2…", "status": "approved",
-  "decided_at": "2026-10-05T10:44:32Z", "decided_by": "admin",
+  "decided_at": "2026-10-05T10:44:32Z", "decided_by": "operator",
   "run": { "id": "7c1b…", "status": "executing" } }
 ```
 
+**The identity is the server's to assign.** `decided_by` in the response is
+resolved from the bearer token and from nothing else. **The request body has no
+`decided_by` field**: the body model forbids unknown fields, so a client that
+sends one is refused with `422 schema_invalid` rather than having it quietly
+ignored. A client therefore cannot declare who it is, and cannot forge the
+name of the operator its token represents. What `decided_by` is *not* is a
+permission: in Phase 1 there is one token and one identity, so the value
+records who the server believes is acting, not a distinction between two
+people ([limitations.md](limitations.md) §1).
+
+**`note` is the operator's own words, and it is kept.** The optional `note` is
+a free-text remark from the operator ("Confirmed in billing console.") and it
+is persisted on the approval row, so the reason a human gave survives the
+decision rather than being read once and dropped. It is a column on the row
+and nothing more: it is not translated, not audited, and not summarised into
+the ledger. `decided_by` says who decided and `note` says why, and the two are
+different fields because they answer different questions.
+
 The transition is `pending → approved` guarded by a conditional update
 (`UPDATE ... WHERE id = ? AND status = 'pending'`). A second approve returns
-`409 Conflict` rather than double-granting — the dashboard's double-click, and
-the two-tabs-open case, both land here.
+`409 Conflict` rather than double-granting — the dashboard's double-click, the
+two-tabs-open case, and two operators pressing the button at the same moment,
+all land here (§6).
 
 Approving **transitions the run** (`WAITING_APPROVAL → EXECUTING`) and makes it
 claimable again. It does **not** execute the refund inline. Approval is a state
@@ -386,7 +581,7 @@ One shape, everywhere:
 {
   "error": {
     "code": "approval_already_decided",
-    "message": "Approval b7e2… was already approved by admin at 2026-10-05T10:44:32Z.",
+    "message": "Approval b7e2… was already approved by operator at 2026-10-05T10:44:32Z.",
     "details": { "approval_id": "b7e2…", "status": "approved" }
   }
 }
@@ -396,15 +591,33 @@ The HTTP status is carried by `code`:
 
 | HTTP | Codes |
 |---|---|
-| 400 | `validation_error` |
-| 404 | `ticket_not_found`, `run_not_found`, `approval_not_found` |
-| 409 | `approval_already_decided`, `run_not_awaiting_approval`, `run_already_completed`, `ticket_exists` |
-| 422 | `schema_invalid` (Pydantic request validation) |
+| 400 | `validation_error` — a query parameter the endpoint cannot use: a `status` that is not an `ApprovalStatus` (§5) or not a `RunStatus` (§3.1) |
+| 401 | `unauthorized` — the bearer token is missing, malformed, or wrong (§8) |
+| 404 | `ticket_not_found`, `run_not_found`, `approval_not_found` — the route's own "no such entity"; `not_found` — the framework's, for a path that does not exist |
+| 405 | `method_not_allowed` — a known path, the wrong method |
+| 409 | `approval_already_decided`, `approval_expired`, `run_not_awaiting_approval`, `run_already_completed`, `ticket_exists`, `illegal_transition`, `approval_arguments_changed`, `policy_denied` |
+| 422 | `schema_invalid` — the request body failed its schema (Pydantic); `unknown_tool` — the gate refused a tool that is not registered |
 | 500 | `internal_error` (message is generic; the detail is in the log, keyed by a `trace_id` returned in `details`) |
 | 503 | *(no code)* — `/ready` answers `{"status":"not_ready","checks":{…}}`, which is not this envelope (§7) |
 
 `code` is a stable machine identifier. Clients branch on it; they never parse
 `message`.
+
+**Three of the codes are raised by the API's exception handlers rather than by
+a route**, and a reader looking only at the routers would not find them:
+`illegal_transition` (a run asked to move between two states the state machine
+forbids), `approval_arguments_changed` (the tool call's arguments changed under
+an approval that had already been shown to a human) and `policy_denied` (the
+policy engine refused a proposal) are all `409`. `unauthorized`, `not_found`
+and `method_not_allowed` are the framework's own statuses, re-enveloped by the
+same handler. A client that branches on `code` must therefore treat the whole
+table as reachable, not just the routes it can see.
+
+**Two more codes exist as fallbacks.** `_code_for_status` maps a bare
+`HTTPException`'s status onto a code, and its last two branches are
+`validation_error` (for a 422 nobody raises) and `error` (for any status not
+in the table). Neither is reachable today — the only bare `HTTPException` the
+API raises is the 401 — but a client must not crash on them.
 
 **There is no `not_ready` code.** An earlier revision of this table listed one
 for the 503, and nothing in `src/` has ever constructed it: `/ready` reports an
@@ -412,9 +625,45 @@ unready database with a `status`/`checks` body (§7), and it is the only route
 that answers 503 at all. A client must therefore read `/ready`'s body rather
 than branch on a code it will never see.
 
+**`approval_expired` is not `approval_already_decided`.** An approval that
+somebody else already decided says "already decided", and names the actor and
+the moment. An approval that timed out says "expired", and names nobody,
+because nobody decided it — the clock ran out while the run stayed parked
+(§5). Both are 409; they are different facts, and a client that shows one
+message for both will tell an operator that a person decided something when
+the truth is that no person ever did.
+
 `ticket_exists` is the code `POST /api/tickets` returns when the
 `external_id` it was given already exists (§9), and it is the **only** 409 that
 endpoint can produce.
+
+**`approval_already_decided` covers the sequential case and the concurrent
+one, and they are not the same bug.** The sequential case is the ordinary one:
+an operator clicks Approve, the approval is no longer `pending`, and the
+second click is refused. The concurrent case is two requests for the *same*
+approval arriving at the same moment — two tabs, two operators, a double-click
+that reaches the server twice.
+
+The second case is the one that decides the money. Both requests pass the
+handler's pre-check (each reads the approval while it is still `pending`), so
+the decision itself has to be made by the database: the store's update is
+conditional — `UPDATE ... WHERE id = ? AND status = 'pending'` — and **at most
+one of the two can match a row.** The one that matches grants the refund and
+moves the run to `executing`; the one that matches nothing is told it lost, and
+the route turns that into `409 approval_already_decided` rather than reporting
+a success it did not perform.
+
+So the invariant is stated twice, in two places, and both have to hold: the
+grant happens **at most once** (the conditional update), and the loser is
+**told** (409, not 200). A store that granted once and returned `200` to both
+callers would satisfy the first and break the second — the client that lost the
+race would be told the refund was approved, which it was, but also that its own
+approval did it, which it did not. `docs/tool-permissions.md` §6 records the
+two-layer shape of this guard and the test that pins it.
+
+Note the asymmetry this leaves in the API: a `409` is the *correct* answer to
+a repeat approval, not an error condition a client should retry through. The
+money moved once, and the second caller is being told it did not move.
 
 ## 7. Health and readiness
 
@@ -496,9 +745,9 @@ through them.
 
 | Endpoint | Behaviour on repeat |
 |---|---|
-| `POST /api/tickets` | Always creates. A client wanting dedupe sends `external_id`; a unique violation returns `409 ticket_exists` with the existing ticket. |
+| `POST /api/tickets` | Always creates. A client wanting dedupe sends `external_id`; a unique violation returns `409 ticket_exists` with the existing ticket. The ticket and its run are written in one transaction (§2), so a failed write leaves neither, and a retry after a `500` cannot find a half-created ticket. |
 | `POST /api/runs` | Always creates a new run for the ticket. Re-running an investigation is a legitimate action. |
-| `POST /api/approvals/{id}/approve` | `409` on second call. |
+| `POST /api/approvals/{id}/approve` | `409 approval_already_decided` on the second call — whether it arrives a second later or concurrently (§6). The grant itself happens at most once. |
 | `POST /api/approvals/{id}/reject` | `409` on second call, or `409 approval_already_decided` if already approved. |
 | `POST /api/knowledge/reindex` | Idempotent — documents are re-hashed and unchanged ones are skipped. Returns counts. |
 
@@ -508,3 +757,34 @@ through them.
 pagination is not in Phase 1: at the scale this runs at, an offset is correct and
 a cursor is unearned complexity. If a list grows past what offset paging handles
 well, that is evidence Phase 2 needs it — not a reason to guess now.
+
+**Every list endpoint returns the same envelope:** `{items, total}`.
+
+- **`items` is the page.** It holds the rows for this request only, after
+  `limit` and `offset` have been applied, in the order the endpoint documents
+  (newest first for tickets, runs and approvals).
+- **`total` is the size of the whole matching set.** It counts the records that
+  match the request's filters, **before** `limit` and `offset` trim the page —
+  it is *not* the number of rows on this page. `len(items)` is the page count;
+  `total` is the total count.
+
+The distinction is the whole reason the field exists. A client that wants to
+render "showing 20 of 87" needs the 87, and `total` is where the 87 comes from;
+a client that confuses `total` with the page length renders "showing 20 of 20"
+on every page but the last, and a pagination control built on that renders
+exactly one page. The number is computed by a separate count over the same
+filtered query, not by measuring the list that was returned.
+
+Filters count too: `total` is the number of rows matching **the filters that
+were applied**, so `GET /api/runs?status=waiting_approval` reports the number
+of waiting runs, not the number of runs. And `total` does not depend on
+`limit` or `offset`: the same query with `limit=1` and with `limit=50` reports
+the same `total`.
+
+`GET /api/knowledge` is the exception to the shape rather than to the rule: it
+takes no `limit`/`offset` and paginates nothing, so its `items` is the whole
+list and its `total` is the same number. The definition still holds — `total`
+is the count of matching records, and there is no page to trim.
+
+The two list examples are §2.1 (`GET /api/tickets`) and §3.1 (`GET /api/runs`);
+§5 carries the third (`GET /api/approvals`).

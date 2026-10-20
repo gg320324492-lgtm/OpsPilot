@@ -113,6 +113,8 @@
     "alreadyDecided_before": "API 返回 409 approval_already_decided：该审批当前为{state}。",
     "alreadyDecided_defaultState": "已作出决定",
     "alreadyDecided_after": "这是防护机制生效，而不是故障。该决定是一次条件更新（`WHERE id = ? AND status = 'pending'`），因此第二次点击没有匹配到任何行，也就没有写入第二次授权。若同一笔退款存在两张卡片，另一张仍处于待审批状态，仍需单独作出决定——批准其中一张并不会决定另一张。",
+    "expired_headline": "这条审批已过期——本次点击没有批准任何操作。",
+    "expired_after": "API 返回了 409 approval_expired：这条审批在有人作出决定之前就已超时，因此没有批准任何操作，该运行仍处于等待状态。审批过期并不是某个人拒绝，而是这个请求超出了等待时间。",
     "runNotParked_headline": "该运行已不再处于挂起状态，因此没有任何决定被作出。",
     "runNotParked_after": "只有处于 `waiting_approval` 状态的运行才会被这次决定改变。该运行是在审批写入之后才到达此状态的——最常见的原因是同一运行的另一张卡片已被决定，或该运行被工作进程重新领取。",
     "runMovedOn_headline": "该运行此前已经继续推进。",
@@ -185,10 +187,12 @@
     "filterHint": {
       "pending": "等待决定。这就是收件箱。",
       "approved": "已决定。该运行已被释放给工作进程。",
-      "rejected": "已决定。该运行随后转为发送升级回复。"
+      "rejected": "已决定。该运行随后转为发送升级回复。",
+      "expired": "已超时。没有人作出决定，因此该运行仍处于等待状态。"
     },
     "waitingSuffix": "条等待处理",
     "recordedSuffix": "条已记录",
+    "expiredSuffix": "条已过期",
     "couldNotLoad": "无法加载审批",
     "emptyPendingTitle": "当前没有任何等待决定的事项。",
     "emptyPendingHint": "这是 API 的真实回答，而非错误。退款提案会挂在这里；未涉及风险写入就得出结论的运行不会出现在这里。",
@@ -203,6 +207,7 @@
     "argumentsLabel": "arguments_snapshot",
     "toolCallIdLabel": "tool_call_id",
     "contextLabel": "上下文",
+    "noteLabel": "操作员备注",
     "openRun": "打开运行",
     "approvalSuffix": "审批",
     "duplicateIdenticalTitle": "该运行把同一个提案显示了两遍。",

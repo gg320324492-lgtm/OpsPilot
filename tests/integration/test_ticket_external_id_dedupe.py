@@ -112,6 +112,7 @@ def _app(factory: sessionmaker[Session]) -> FastAPI:
     return create_app(
         run_store=repositories.SqlRunStore(factory),
         ticket_store=repositories.SqlTicketStore(factory),
+        ticket_intake=repositories.SqlTicketIntake(factory),
         approval_store=repositories.SqlApprovalStore(factory),
     )
 

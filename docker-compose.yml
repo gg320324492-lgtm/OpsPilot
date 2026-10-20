@@ -194,6 +194,10 @@ services:
       # The claim lease (docs/adr/0005; docs/limitations.md §2). Inert in the
       # api -- it never claims -- but passed so both halves agree on it.
       WORKER_CLAIM_LEASE_SECONDS: ${WORKER_CLAIM_LEASE_SECONDS:-300.0}
+      # The approval TTL (the worker's sweep; settings.py). Inert in the api --
+      # it never sweeps and never decides -- but passed so both halves agree
+      # on it, exactly as the claim lease above is.
+      APPROVAL_TTL_SECONDS: ${APPROVAL_TTL_SECONDS:-3600.0}
       # Which recorded scenario the fake provider replays. The api builds no
       # provider and replays nothing, but the default is the worker's rather
       # than settings.py's empty one, because the repository's own guard
@@ -222,8 +226,9 @@ services:
       # WHY THE WORKER-ONLY KNOBS APPEAR HERE AT ALL
       # -------------------------------------------
       # MODEL_TIMEOUT_SECONDS, MAX_STEPS, WORKER_POLL_INTERVAL, WORKER_ID,
-      # WORKER_CLAIM_LEASE_SECONDS, OPSPILOT_FAKE_SCENARIO, MCP_TRANSPORT, MCP_*_COMMAND,
-      # OPSPILOT_TOOL_DENYLIST, OPSPILOT_REFUND_CEILING and STORE_FULL_PROMPTS
+      # WORKER_CLAIM_LEASE_SECONDS, APPROVAL_TTL_SECONDS, OPSPILOT_FAKE_SCENARIO,
+      # MCP_TRANSPORT, MCP_*_COMMAND, OPSPILOT_TOOL_DENYLIST,
+      # OPSPILOT_REFUND_CEILING and STORE_FULL_PROMPTS
       # are inert in THIS service: it issues no model call, never polls the run
       # table, builds no tool gateway and evaluates no policy. They are here
       # because both services construct the same Settings object, and a value
@@ -390,6 +395,11 @@ services:
       # the measured p95 run duration (276s); the worker renews it every 100s
       # while it drives a run. See settings.py for the argument.
       WORKER_CLAIM_LEASE_SECONDS: ${WORKER_CLAIM_LEASE_SECONDS:-300.0}
+      # How long an approval stays decidable (settings.py; .env.example). The
+      # worker sweeps pending approvals older than this to `expired`, and the
+      # API then refuses a decision on one with 409 `approval_expired`. 0
+      # disables the sweep. This is the service that reads it.
+      APPROVAL_TTL_SECONDS: ${APPROVAL_TTL_SECONDS:-3600.0}
       # Which transport the tool gateway dispatches over. This is the service
       # that reads it (worker/__main__.py::build_worker_gateway), and until this
       # line existed MCP_TRANSPORT=stdio could not be selected from a .env at

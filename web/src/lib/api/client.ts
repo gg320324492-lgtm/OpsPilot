@@ -64,6 +64,15 @@ export type ErrorBody = components["schemas"]["ErrorBody"];
  * Contract §6 fixes the vocabulary; `| string` at the point of use because the
  * backend may add a code without a frontend release, and an unrecognised code
  * must read as an unrecognised failure rather than crash a screen.
+ *
+ * **This list is the API's whole vocabulary, and a test holds it to that.**
+ * `tests/unit/test_frontend_copies_match_the_backend.py` reads every code the
+ * API can send out of `src/opspilot/api/` and compares: a code the API sends
+ * and this union omits arrives as a string the dashboard has no branch for,
+ * and a code this union names that the API never sends is a branch that can
+ * never be taken. The union used to be missing four -- `illegal_transition`,
+ * `approval_arguments_changed`, `policy_denied` and `unknown_tool` -- and
+ * nothing noticed.
  */
 export type ApiErrorCode =
   | "validation_error"
@@ -71,11 +80,22 @@ export type ApiErrorCode =
   | "run_not_found"
   | "approval_not_found"
   | "approval_already_decided"
+  | "approval_expired"
   | "run_not_awaiting_approval"
   | "run_already_completed"
   | "ticket_exists"
   | "schema_invalid"
   | "internal_error"
+  // Raised by the API's own exception handlers, not by a route: a run asked
+  // to move between two states it cannot move between (`illegal_transition`),
+  // an approval whose arguments changed under it
+  // (`approval_arguments_changed`), a proposal the policy engine refused
+  // (`policy_denied`), and a tool that is not registered at all
+  // (`unknown_tool`).
+  | "illegal_transition"
+  | "approval_arguments_changed"
+  | "policy_denied"
+  | "unknown_tool"
   // There is no "not_ready" member, and there never was one in a response.
   // `/ready` is the only route that answers 503, and it answers
   // `{"status":"not_ready","checks":{...}}` -- a readiness report, not the

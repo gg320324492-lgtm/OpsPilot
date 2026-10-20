@@ -1,5 +1,5 @@
 """The persistence ports: ``RunStore``, ``ToolCallStore``, ``ApprovalStore``,
-``TicketStore``.
+``TicketStore``, ``TicketIntake``.
 
 Responsibility: the storage boundaries the runtime and API depend on. Splitting
 the stores by aggregate (rather than one god-repository) keeps each Protocol
@@ -75,6 +75,50 @@ class TicketStore(Protocol):
         """Fetch a ticket by id, as the worker's ``RunContext`` needs it."""
         ...
 
+    async def count(self) -> int:
+        """How many tickets exist, ignoring any page.
+
+        **On the port, unlike ``list``**, and the difference is the contract.
+        ``docs/api-contract.md`` §10 says a list endpoint's ``total`` is "the
+        size of the whole matching set", computed "by a separate count over the
+        same filtered query, not by measuring the list that was returned". A
+        count the port does not require is a count the router has to do without,
+        and the only number left to it is the page length -- which is the lie
+        the contract forbids. So the capability the contract promises is
+        required of the store that backs the endpoint.
+        """
+        ...
+
+
+@runtime_checkable
+class TicketIntake(Protocol):
+    """Create a ticket and its run as one unit of work.
+
+    The two rows must land or neither does. A ticket with no run is a customer
+    waiting for an investigation that will never happen, and the dashboard
+    would report nothing wrong.
+
+    This is a port of its own rather than a method on ``TicketStore`` because
+    the unit of work is not the ticket: it is the ticket *and* the run, and
+    the two live in different aggregates. ``TicketStore.create`` still exists
+    and still means "insert one ticket"; it is what a caller uses when there
+    is no run to make. What it cannot express is "and nothing else", which is
+    the whole of this port.
+    """
+
+    async def create(
+        self,
+        *,
+        subject: str,
+        body: str,
+        customer_email: str,
+        external_id: str | None,
+        model_provider: str,
+        model_name: str,
+    ) -> tuple[UUID, AgentRun]:
+        """Insert the ticket and its run in one transaction; return both."""
+        ...
+
 
 @runtime_checkable
 class RunStore(Protocol):
@@ -98,6 +142,20 @@ class RunStore(Protocol):
 
     async def get(self, run_id: UUID) -> AgentRun | None:
         """Fetch a run by id."""
+        ...
+
+    async def count(self, *, status: RunStatus | None = None) -> int:
+        """How many runs match ``status``, ignoring any page.
+
+        **On the port, unlike ``list``**, and the difference is the contract.
+        ``docs/api-contract.md`` §10 says a list endpoint's ``total`` is "the
+        size of the whole matching set", computed "by a separate count over the
+        same filtered query, not by measuring the list that was returned". A
+        count the port does not require is a count the router has to do without,
+        and the only number left to it is the page length -- which is the lie
+        the contract forbids. So the capability the contract promises is
+        required of the store that backs the endpoint.
+        """
         ...
 
     async def claim_next(self, *, worker_id: str, lease_seconds: float) -> AgentRun | None:
@@ -203,11 +261,32 @@ class ApprovalStore(Protocol):
     """Reads and writes approval requests."""
 
     async def create(self, approval: ApprovalRequest) -> ApprovalRequest:
-        """Persist a pending approval for one tool call."""
+        """Persist a pending approval for one tool call.
+
+        The whole domain object is persisted, so the operator's ``note`` and the
+        approver's ``context`` travel with it. The context is assembled by the
+        runtime from already-persisted data -- no tool call is triggered to
+        build it -- and it is optional: an approval with no context is valid,
+        and so is one whose context has only one of its two fields.
+        """
         ...
 
     async def get_for_tool_call(self, tool_call_id: UUID) -> ApprovalRequest | None:
         """Fetch the (unique) approval bound to a tool call."""
+        ...
+
+    async def count(self, *, status: ApprovalStatus | None = None) -> int:
+        """How many approvals match ``status``, ignoring any page.
+
+        **On the port, unlike ``list``**, and the difference is the contract.
+        ``docs/api-contract.md`` §10 says a list endpoint's ``total`` is "the
+        size of the whole matching set", computed "by a separate count over the
+        same filtered query, not by measuring the list that was returned". A
+        count the port does not require is a count the router has to do without,
+        and the only number left to it is the page length -- which is the lie
+        the contract forbids. So the capability the contract promises is
+        required of the store that backs the endpoint.
+        """
         ...
 
     async def get_for_run(self, run_id: UUID) -> ApprovalRequest | None:
@@ -228,7 +307,30 @@ class ApprovalStore(Protocol):
         note: str | None = None,
         decided_at: datetime,
     ) -> ApprovalRequest:
-        """Record a human decision and flip the run back to a claimable state."""
+        """Record a human decision and flip the run back to a claimable state.
+
+        The decision is a **conditional** update (``WHERE id = ? AND status =
+        'pending'``), so under concurrency exactly one writer moves the row and
+        the others affect none.
+
+        ``decided_by`` is the identity of the operator who made the decision,
+        and it is **server-assigned**: the value is the authenticated
+        operator's identity, never one the request body chose. A client that
+        could name the operator would be able to put somebody else's name on
+        a refund they approved themselves.
+
+        ``note`` is the operator's own remark on the decision. It is persisted
+        with the decision rather than dropped.
+
+        Raises:
+            ApprovalAlreadyDecided: if the approval has already been decided.
+                The writer that lost the conditional update is told it lost;
+                it is not handed the winner's decision as if it were its own,
+                because a caller cannot tell the two apart and the contract
+                promises a 409 for the second click (``docs/api-contract.md``
+                §6).
+            NotFoundError: if no approval with that id exists.
+        """
         ...
 
     async def has_approved(self, tool_call_id: UUID) -> bool:
@@ -237,6 +339,37 @@ class ApprovalStore(Protocol):
         A database read on purpose: the approval may have been granted by the
         API process while the worker was down, and the check is bound to the
         tool call id so approving one refund cannot authorise another.
+        """
+        ...
+
+    async def expire_pending(self, *, before: datetime) -> int:
+        """Mark every pending approval created before ``before`` as expired.
+
+        The sweep behind ``APPROVAL_TTL_SECONDS``: an approval nobody has
+        decided within the TTL stops being decidable, so the operator is not
+        left clicking "approve" on a refund whose run has moved on, and the
+        inbox does not accumulate rows that look actionable forever.
+
+        **The run is not touched.** An expired approval leaves its run parked
+        in ``WAITING_APPROVAL``: the money still has not moved, and no decision
+        was made, so there is nothing for the worker to do about it. This
+        method changes the *approval's* status and nothing else -- the run's
+        status is the run store's business.
+
+        **The conditional update is the whole method.** ``WHERE status =
+        'pending' AND created_at < :before`` means a sweep never overwrites a
+        decision that landed a moment earlier, and never touches an approval
+        that was already expired. It is idempotent: running it twice expires
+        the same rows once.
+
+        Args:
+            before: The cutoff. Approvals created at or after this instant are
+                left alone; the store does not compute the cutoff itself, so
+                the TTL stays a setting of the caller and the store has no
+                clock of its own.
+
+        Returns:
+            How many approvals were marked expired.
         """
         ...
 

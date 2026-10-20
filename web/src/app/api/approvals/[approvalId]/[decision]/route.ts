@@ -123,21 +123,23 @@ export async function POST(
 /**
  * Narrow the forwarded body to `ApprovalDecisionRequest`.
  *
- * `decided_by` and `note` are the only fields the schema allows, and the request
- * model sets `extra: "forbid"` -- so anything else is dropped here rather than
- * forwarded. Sending an unknown field would make the API's 422 about this
- * handler's mistake instead of about the operator's input.
+ * `note` is the only field the schema allows, and the request model sets
+ * `extra: "forbid"` -- so anything else is dropped here rather than forwarded.
+ * Sending an unknown field would make the API's 422 about this handler's
+ * mistake instead of about the operator's input.
+ *
+ * **`decided_by` is dropped on purpose, and it is the one field that used to be
+ * forwarded.** The API's schema no longer has it: the operator's identity is
+ * resolved from the bearer token by the server, because a body that could name
+ * the operator would let a caller sign somebody else's name to a refund they
+ * approved themselves. Forwarding it here would have been the same forgery one
+ * hop further from the API -- and the API now answers 422 to a body that still
+ * carries it, which is the right answer to a caller that is trying.
  */
 function asDecisionRequest(body: unknown): Parameters<typeof api.approve>[1] {
   if (!body || typeof body !== "object") {
     return {};
   }
-  const { decided_by: decidedBy, note } = body as {
-    decided_by?: unknown;
-    note?: unknown;
-  };
-  return {
-    ...(typeof decidedBy === "string" ? { decided_by: decidedBy } : {}),
-    ...(typeof note === "string" ? { note } : {}),
-  };
+  const { note } = body as { note?: unknown };
+  return typeof note === "string" ? { note } : {};
 }

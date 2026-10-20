@@ -216,6 +216,24 @@ export function ApprovalCard({
           &middot; {t("approvalCard.approvalSuffix")}{" "}
           <span className="font-mono">{approval.id.slice(0, 8)}</span>
         </p>
+        {/*
+          The operator's own remark, shown back on the decided card.
+
+          It used to be accepted by the API and dropped by the store, so an
+          operator who typed "confirmed in the billing console" was told it was
+          accepted and it went nowhere. Now it is persisted, and a remark that
+          is stored but invisible is only a smaller version of the same
+          problem -- so it is on the card, where the person who wrote it can
+          see that they did.
+        */}
+        {approval.note ? (
+          <div className="mt-3">
+            <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              {t("approvalCard.noteLabel")}
+            </p>
+            <p className="mt-1 text-sm">{approval.note}</p>
+          </div>
+        ) : null}
       </div>
     </li>
   );

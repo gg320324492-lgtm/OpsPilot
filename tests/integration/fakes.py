@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
+from opspilot.domain.errors import ApprovalAlreadyDecided, ApprovalExpired, NotFoundError
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import TicketRecord
@@ -128,6 +129,52 @@ class FakeTicketStore:
         ordered = sorted(self.rows.values(), key=lambda row: row.created_at, reverse=True)
         return ordered[offset : offset + limit]
 
+    async def count(self) -> int:
+        """How many tickets exist, ignoring any page."""
+        return len(self.rows)
+
+
+class FakeTicketIntake:
+    """In-memory ``TicketIntake``: a ticket and its run, as one unit of work.
+
+    The fake models the transaction the SQL intake provides: if the run insert
+    fails, the ticket is discarded with it. It is the *fake* that holds the
+    invariant now, and that is the point -- the router used to hold a
+    compensating delete of its own, which the real store did not answer, so the
+    invariant existed in the fake and not in the database.
+
+    The two stores are the same objects the routes' other dependencies
+    receive, so a test can still inspect them afterwards.
+    """
+
+    def __init__(self, tickets: FakeTicketStore, runs: FakeRunStore) -> None:
+        self.tickets = tickets
+        self.runs = runs
+
+    async def create(
+        self,
+        *,
+        subject: str,
+        body: str,
+        customer_email: str,
+        external_id: str | None,
+        model_provider: str,
+        model_name: str,
+    ) -> tuple[UUID, AgentRun]:
+        """Insert the ticket and its run together; return both."""
+        ticket_id = await self.tickets.create(
+            subject=subject, body=body, customer_email=customer_email, external_id=external_id
+        )
+        try:
+            run = await self.runs.create(
+                ticket_id=ticket_id, model_provider=model_provider, model_name=model_name
+            )
+        except Exception:
+            # One unit of work: the ticket goes with the run that failed.
+            await self.tickets.rollback(ticket_id)
+            raise
+        return ticket_id, run
+
 
 class FakeRunStore:
     """In-memory ``RunStore``, plus the reads the run routes make."""
@@ -229,6 +276,10 @@ class FakeRunStore:
         """List a ticket's runs."""
         return [row for row in self.rows.values() if row.ticket_id == ticket_id]
 
+    async def count(self, *, status: RunStatus | None = None) -> int:
+        """How many runs match the filter, ignoring any page."""
+        return sum(1 for row in self.rows.values() if status is None or row.status is status)
+
     async def list_steps(self, run_id: UUID) -> Sequence[object]:
         """Return a run's steps."""
         return self.steps.get(run_id, [])
@@ -250,9 +301,10 @@ class FakeApprovalStore:
     """In-memory ``ApprovalStore`` with conditional-update ``decide``.
 
     ``decide`` reproduces the contract's conditional update: it only moves a
-    ``pending`` row, so a second call is observably a no-op that returns the
-    already-decided row, which the router turns into a 409. The fake therefore
-    tests the *router's* handling of the lost race, which is the point.
+    ``pending`` row, and a second call is **refused** with
+    ``ApprovalAlreadyDecided`` rather than handed the winner's row. The fake
+    therefore tests the *router's* handling of the lost race, which is the
+    point -- and it now agrees with the real store, which refused the same way.
     """
 
     def __init__(self, run_store: FakeRunStore | None = None) -> None:
@@ -294,6 +346,10 @@ class FakeApprovalStore:
         ordered = sorted(rows, key=lambda row: row.created_at, reverse=True)
         return ordered[offset : offset + limit]
 
+    async def count(self, *, status: ApprovalStatus | None = None) -> int:
+        """How many approvals match the filter, ignoring any page."""
+        return sum(1 for row in self.rows.values() if status is None or row.status is status)
+
     async def decide(
         self,
         approval_id: UUID,
@@ -305,20 +361,32 @@ class FakeApprovalStore:
     ) -> ApprovalRequest:
         """Conditional update: only a ``pending`` row moves.
 
-        Returns the row either way -- decided or unchanged -- so the router sees
-        the resulting status and can distinguish "we decided it" from "it was
-        already decided". It also moves the run, which is the store's job in
-        production; the router reads the run back and asserts the transition.
+        A row that is already decided is **refused**, not returned: the store
+        used to hand back the winner's row, and a caller that could not tell the
+        two apart read the winner's decision as its own -- which is why a
+        genuinely concurrent second click answered 200 where the contract
+        promises 409. The refusal carries the row's real state.
+
+        It also moves the run, which is the store's job in production; the
+        router reads the run back and asserts the transition.
         """
-        approval = self.rows[approval_id]
+        approval = self.rows.get(approval_id)
+        if approval is None:
+            raise NotFoundError(f"approval {approval_id} does not exist")
+        if approval.status is ApprovalStatus.EXPIRED:
+            # A different answer from a lost race: nobody decided this, the
+            # clock ran out. The real store says so too, and the router's
+            # two 409s depend on the distinction.
+            raise ApprovalExpired(approval_id)
         if approval.status is not ApprovalStatus.PENDING:
-            return approval
+            raise ApprovalAlreadyDecided(approval_id, approval.status.value)
         approval.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
         approval.decided_at = decided_at
         approval.decided_by = decided_by
-        # ``note`` is accepted to match the port; the domain model has no field
-        # for it, which is the store adapter's business, not the API's.
-        _ = note
+        # The operator's remark is persisted with the decision. It used to be
+        # accepted and dropped, so an operator who typed "confirmed in the
+        # billing console" saw it accepted and found nothing in the row.
+        approval.note = note
         if self.run_store is not None:
             run = self.run_store.rows[approval.run_id]
             run.status = RunStatus.EXECUTING if approved else RunStatus.RESPONDING
@@ -330,3 +398,20 @@ class FakeApprovalStore:
             if row.tool_call_id == tool_call_id and row.status is ApprovalStatus.APPROVED:
                 return True
         return False
+
+    async def expire_pending(self, *, before: datetime) -> int:
+        """Mark every pending approval created before ``before`` as expired.
+
+        The same conditional update the SQL store performs: only a ``pending``
+        row moves, and the row's decision fields are left alone -- an expired
+        approval was decided by nobody, so there is no ``decided_by`` to write.
+        """
+        expired = 0
+        for row in self.rows.values():
+            if row.status is not ApprovalStatus.PENDING:
+                continue
+            if row.created_at >= before:
+                continue
+            row.status = ApprovalStatus.EXPIRED
+            expired += 1
+        return expired

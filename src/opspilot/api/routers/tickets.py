@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, Query
 
 from opspilot.api.auth import require_operator
 from opspilot.api.errors import ApiError
-from opspilot.api.routers.deps import RunStoreDep, TicketStoreDep
+from opspilot.api.routers.deps import RunStoreDep, TicketIntakeDep, TicketStoreDep
 from opspilot.api.schemas import (
     RunRef,
     TicketCreateRequest,
@@ -118,8 +118,8 @@ def _ticket_exists(exc: TicketExists, existing: TicketRow | None) -> ApiError:
 @router.post("/tickets", status_code=201, response_model=TicketCreateResponse)
 async def create_ticket(
     request: TicketCreateRequest,
+    intake: TicketIntakeDep,
     tickets: TicketStoreDep,
-    runs: RunStoreDep,
     settings: Settings = Depends(_settings),  # noqa: B008 -- FastAPI dependency marker
 ) -> TicketCreateResponse:
     """Enqueue a ticket and its run, in one transaction, and return 201.
@@ -129,10 +129,17 @@ async def create_ticket(
     that true -- a ticket with no run would be silently never investigated, which
     is worse than a failed request the client retries.
 
+    It used to be two writes with a compensating delete between them, and the
+    compensation was a ``getattr(tickets, "rollback", None)`` that the SQL store
+    does not answer -- so the two writes were two transactions and the
+    compensation was dead code. The rollback existed on paper and the orphan
+    ticket existed in the database.
+
     Args:
         request: The ticket to create.
-        tickets: The ticket store port.
-        runs: The run store port.
+        intake: The ``TicketIntake`` port: the ticket and its run, as one unit
+            of work.
+        tickets: The ticket store port, for reading the duplicate back.
         settings: Process settings, for the model provider/name the run records.
 
     Returns:
@@ -141,12 +148,15 @@ async def create_ticket(
     Raises:
         ApiError: 409 ``ticket_exists`` if the ``external_id`` is already taken.
     """
+    model_name = settings.model_name or settings.model_provider
     try:
-        ticket_id: UUID = await tickets.create(
+        ticket_id, run = await intake.create(
             subject=request.subject,
             body=request.body,
             customer_email=request.customer_email,
             external_id=request.external_id,
+            model_provider=settings.model_provider,
+            model_name=model_name,
         )
     except TicketExists as exc:
         # The duplicate is detected by the unique index on ``tickets.external_id``,
@@ -157,21 +167,6 @@ async def create_ticket(
         # for every other failure it owns, so a second mechanism (an exception
         # handler in ``errors.py``) would give the same code two shapes.
         raise _ticket_exists(exc, await _read_ticket(tickets, exc.ticket_id)) from exc
-    model_name = settings.model_name or settings.model_provider
-    try:
-        run = await runs.create(
-            ticket_id=ticket_id, model_provider=settings.model_provider, model_name=model_name
-        )
-    except Exception:
-        # Both rows land or neither does. In production the two inserts are one
-        # transaction and this rollback is a no-op; with stores that do not share
-        # a transaction, the compensating delete is what keeps the invariant
-        # true. A ticket with no run would be silently never investigated, which
-        # is worse than a retryable 500.
-        rollback = getattr(tickets, "rollback", None)
-        if rollback is not None:
-            await rollback(ticket_id)
-        raise
     return TicketCreateResponse(
         ticket=TicketDetail(
             id=ticket_id,
@@ -216,7 +211,16 @@ async def list_tickets(
         )
         for row in rows
     ]
-    return TicketListResponse(items=items, total=len(items))
+    # ``total`` counts every ticket, not the ones on this page. It used to be
+    # ``len(items)``, which made a paginated list report a total that did not
+    # count the tickets it did not return -- and the dashboard read that number
+    # as "how many tickets there are".
+    #
+    # The count is a *required* port method, so there is no fallback to the
+    # page length: a store that cannot count is a store that does not satisfy
+    # the contract this endpoint publishes (contract §10).
+    total = await tickets.count()
+    return TicketListResponse(items=items, total=total)
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketDetailResponse)

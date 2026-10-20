@@ -30,6 +30,7 @@ from opspilot.adapters.persistence.repositories import (
     SqlToolCallStore,
 )
 from opspilot.domain.approvals import ApprovalRequest, ApprovalStatus
+from opspilot.domain.errors import ApprovalAlreadyDecided
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.domain.tools import ToolCallStatus
 from opspilot.settings import Settings
@@ -226,16 +227,29 @@ async def test_second_decide_does_not_grant_again(factory: sessionmaker[Session]
         assert granted.decided_by == "operator:1"
 
     second_at = datetime.now(UTC)
-    with db.session_scope(factory) as session:
-        second = await SqlApprovalStore(session).decide(
+    # The store refuses the second decision outright. It used to *return*
+    # the first decision's row instead, and a caller that could not tell the
+    # two apart read the winner's decision as its own.
+    with (
+        db.session_scope(factory) as session,
+        pytest.raises(ApprovalAlreadyDecided) as caught,
+    ):
+        await SqlApprovalStore(session).decide(
             approval_id, approved=True, decided_by="operator:2", decided_at=second_at
         )
-    # The second decide is a no-op: still approved by the original operator.
-    assert second.status is ApprovalStatus.APPROVED
-    assert second.decided_by == "operator:1"
+    assert caught.value.approval_id == approval_id
+    assert caught.value.status == ApprovalStatus.APPROVED.value
+
+    # The refusal changed nothing: the row still names the operator who
+    # actually decided, at the moment they decided.
+    with db.session_scope(factory) as session:
+        stored = await SqlApprovalStore(session).get_for_tool_call(call_id)
+    assert stored is not None
+    assert stored.status is ApprovalStatus.APPROVED
+    assert stored.decided_by == "operator:1"
     # SQLite returns naive datetimes; compare on the instant, not tzinfo.
-    assert second.decided_at is not None
-    assert second.decided_at.replace(tzinfo=None) == first_at.replace(tzinfo=None)
+    assert stored.decided_at is not None
+    assert stored.decided_at.replace(tzinfo=None) == first_at.replace(tzinfo=None)
 
 
 async def test_second_decide_cannot_flip_to_rejected(factory: sessionmaker[Session]) -> None:
@@ -258,11 +272,18 @@ async def test_second_decide_cannot_flip_to_rejected(factory: sessionmaker[Sessi
         await SqlApprovalStore(session).decide(
             approval_id, approved=True, decided_by="operator:1", decided_at=datetime.now(UTC)
         )
-    with db.session_scope(factory) as session:
-        second = await SqlApprovalStore(session).decide(
+    with (
+        db.session_scope(factory) as session,
+        pytest.raises(ApprovalAlreadyDecided),
+    ):
+        await SqlApprovalStore(session).decide(
             approval_id, approved=False, decided_by="operator:2", decided_at=datetime.now(UTC)
         )
-    assert second.status is ApprovalStatus.APPROVED
+    with db.session_scope(factory) as session:
+        stored = await SqlApprovalStore(session).get_for_tool_call(call_id)
+    assert stored is not None
+    assert stored.status is ApprovalStatus.APPROVED
+    assert stored.decided_by == "operator:1"
 
 
 async def test_duplicate_executed_idempotency_key_is_rejected(

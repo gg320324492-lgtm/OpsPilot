@@ -23,7 +23,8 @@ import { getT } from "@/i18n/server";
  * counting a fetched list. `GET /api/runs` is paginated (contract §10), so
  * counting a page would report "the number of rows on screen" wearing the label
  * "total" -- which is the kind of small lie that makes a dashboard untrustworthy
- * precisely when it is needed.
+ * precisely when it is needed. The API's `total` is the count of the rows that
+ * match the filter, so reading it is a real count and not a page length.
  *
  * ## The replay notice is localised, the run ids inside it are not
  *

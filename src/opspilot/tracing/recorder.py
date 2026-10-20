@@ -40,6 +40,7 @@ redaction of what remains is Phase 3.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -182,10 +183,25 @@ class TraceRecorder:
         Written in the same transaction as the ``agent_runs.status`` update by
         ``RunStore.set_status``; this method exists for callers that moved the
         status some other way and still owe the trace its step.
+
+        **The payload has three keys, and it used to have two.**
+        ``SqlRunStore.set_status`` -- the writer every live transition goes
+        through -- records ``{"from_status", "to_status", "at"}``, and
+        ``docs/api-contract.md`` §3 documents exactly that shape and says it is
+        "fixed by the writer". This method wrote ``{"from_status",
+        "to_status"}``: a second shape for the same step type, so a step
+        written here would not look like a step written there. The two writers
+        now write the same three keys, with ``at`` in the same format
+        (an ISO-8601 instant in UTC), so the shape a reader is promised is the
+        shape every ``state_change`` step has.
         """
         await self.record_step(
             step_type="state_change",
-            output_payload={"from_status": from_status, "to_status": to_status},
+            output_payload={
+                "from_status": from_status,
+                "to_status": to_status,
+                "at": datetime.now(UTC).isoformat(),
+            },
         )
 
     async def record_audit(

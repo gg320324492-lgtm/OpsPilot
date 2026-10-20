@@ -19,7 +19,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from opspilot.ports.stores import ApprovalStore, RunStore, TicketStore
+from opspilot.ports.stores import ApprovalStore, RunStore, TicketIntake, TicketStore
 
 
 class StoreNotBound(RuntimeError):
@@ -66,6 +66,17 @@ async def get_ticket_store(request: Request) -> TicketStore:
     return _require(request, "ticket_store")  # type: ignore[return-value]
 
 
+async def get_ticket_intake(request: Request) -> TicketIntake:
+    """The injected ``TicketIntake`` port.
+
+    The unit of work that creates a ticket **and** its run as one transaction.
+    It is a port of its own because the two rows live in different aggregates,
+    and a ticket without a run is a customer waiting for an investigation that
+    will never happen.
+    """
+    return _require(request, "ticket_intake")  # type: ignore[return-value]
+
+
 async def get_approval_store(request: Request) -> ApprovalStore:
     """The injected ``ApprovalStore`` port."""
     return _require(request, "approval_store")  # type: ignore[return-value]
@@ -73,4 +84,5 @@ async def get_approval_store(request: Request) -> ApprovalStore:
 
 RunStoreDep = Annotated[RunStore, Depends(get_run_store)]
 TicketStoreDep = Annotated[TicketStore, Depends(get_ticket_store)]
+TicketIntakeDep = Annotated[TicketIntake, Depends(get_ticket_intake)]
 ApprovalStoreDep = Annotated[ApprovalStore, Depends(get_approval_store)]

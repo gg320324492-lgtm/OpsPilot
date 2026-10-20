@@ -78,16 +78,26 @@ export type Permission = "read" | "safe_write" | "high_risk_write";
  * `TOOL_REGISTRY`'s permission per tool, transcribed.
  *
  * A copy, and only ever a fallback -- see the module docstring. Every tool name
- * in `src/opspilot/domain/tools.py` at M7 is here; a name missing from this
- * table resolves to `null` rather than to a default, so the caller can say
- * "unknown" instead of quietly claiming a tool is a read.
+ * in `src/opspilot/domain/tools.py` is here, and a test holds it to that:
+ * `tests/unit/test_frontend_copies_match_the_backend.py` compares this table
+ * with `TOOL_REGISTRY` and fails if the two disagree. It used to say "every
+ * tool name at M7", which was true when it was written and stopped being true
+ * when three tools were registered after it -- so a `crm.get_account` call
+ * read as "risk unknown" instead of "read", for as long as nobody checked.
+ *
+ * A name missing from this table resolves to `null` rather than to a default,
+ * so the caller can say "unknown" instead of quietly claiming a tool is a
+ * read.
  */
 const TOOL_PERMISSION: Record<string, Permission> = {
   "crm.get_customer": "read",
+  "crm.get_account": "read",
+  "crm.get_subscription": "read",
   "billing.get_invoice": "read",
   "billing.list_transactions": "read",
   "knowledge.search": "read",
   "billing.issue_refund": "high_risk_write",
+  "issues.search": "read",
   "issues.create": "safe_write",
 };
 

@@ -339,6 +339,7 @@ class ApprovalSummary(BaseModel):
     created_at: datetime
     decided_at: datetime | None = None
     decided_by: str | None = None
+    note: str | None = None
     context: ApprovalContext | None = None
 
 
@@ -352,13 +353,20 @@ class ApprovalListResponse(BaseModel):
 class ApprovalDecisionRequest(BaseModel):
     """Body of ``POST /api/approvals/{id}/approve`` and ``/reject``.
 
-    The body may be empty; ``decided_by`` defaults to the operator identity
-    resolved from the bearer token, and ``note`` is optional.
+    The body may be empty. ``note`` is the operator's own remark on the
+    decision, and it is persisted with it -- a remark that was accepted and
+    then dropped was a remark the operator believed they had left.
+
+    There is deliberately **no** ``decided_by`` field. The operator's identity
+    is resolved from the bearer token by the server, and a request body that
+    could name the operator would let a caller sign somebody else's name to a
+    refund they approved themselves -- which is the one thing an audit column
+    must not be. ``extra="forbid"`` means a client that sends one is told so,
+    rather than having it quietly ignored.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    decided_by: str | None = None
     note: str | None = None
 
 
@@ -374,6 +382,7 @@ class ApprovalDecisionResponse(BaseModel):
     status: ApprovalStatus
     decided_at: datetime
     decided_by: str
+    note: str | None = None
     run: RunRef
 
 

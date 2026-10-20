@@ -14,6 +14,19 @@ conflating them with failures is the mistake this hierarchy exists to prevent:
   never be caught and mapped to ``FAILED``.
 - ``IllegalTransition`` -- a programming error. The transition table is data, so
   reaching this means code asked for an edge that does not exist.
+
+Two of these exceptions carry a second base class, ``LookupError``, and the
+reason is the same for both: the API's approval route already catches
+``LookupError`` around the store's ``decide`` and answers the contract's 409
+for a decision that lost its race. A condition that is *named* but cannot be
+caught by the branch written for it is a condition the branch was never really
+handling -- see :class:`NotFoundError` and :class:`ApprovalAlreadyDecided`.
+
+**One exception deliberately does not.** :class:`ApprovalExpired` is the
+mirror image of those two: it is *not* a ``LookupError``, because the branch
+that catches ``LookupError`` answers "somebody else decided this first", and
+an approval that timed out was decided by nobody. Adding the base class would
+have made that answer reachable and wrong.
 """
 
 from __future__ import annotations
@@ -37,8 +50,75 @@ class DomainError(OpsPilotError):
     """Base class for violations of a domain rule."""
 
 
-class NotFoundError(DomainError):
-    """A referenced entity does not exist."""
+class NotFoundError(DomainError, LookupError):
+    """A referenced entity does not exist.
+
+    Also a ``LookupError``, and that second base class is load-bearing rather
+    than cosmetic. A missing entity *is* the builtin "key not found"
+    condition, and the approvals route already has a branch for it: it catches
+    ``LookupError`` around the store's ``decide`` and answers the contract's
+    409 for a decision that lost its race (``api/routers/approvals.py``). While
+    ``NotFoundError`` was not a ``LookupError``, that branch was **dead code**
+    -- the exception it was written for could never be caught by it -- so the
+    route's careful 409 was unreachable and the store's signal fell through to
+    the generic handler instead. Adding the base makes the existing branch live
+    without touching the route.
+
+    The alternative -- a second exception type for "missing" -- would have split
+    one business condition across two names and left the route still unable to
+    catch it.
+    """
+
+
+class ApprovalAlreadyDecided(DomainError, LookupError):
+    """An approval was already decided, so this decision did not happen.
+
+    The decision is a **conditional** update (``WHERE id = ? AND status =
+    'pending'``), so under concurrency exactly one writer moves the row and the
+    others affect zero rows. The losers must be told they lost: returning the
+    winner's row as if it were their own decision is a lie the caller cannot
+    detect, and it is why the second click on "approve" used to answer 200
+    where the contract promises 409 (``docs/api-contract.md`` §6).
+
+    ``LookupError`` is a second base for the same reason as
+    :class:`NotFoundError`: the approvals route catches it around ``decide``
+    and turns it into the contract's 409 ``approval_already_decided``. A
+    ``DomainError`` alone would have escaped that branch as a 500 -- the very
+    defect this exception exists to fix.
+
+    It lives here, beside :class:`ApprovalArgumentsChanged`, rather than in
+    ``domain/approvals.py``: this module is the one that names the typed
+    failures the runtime and the API branch on, and an approval-specific
+    failure already lives here.
+    """
+
+    def __init__(self, approval_id: UUID, status: str) -> None:
+        self.approval_id = approval_id
+        self.status = status
+        super().__init__(f"approval {approval_id} was already decided ({status})")
+
+
+class ApprovalExpired(DomainError):
+    """An approval timed out, so this decision did not happen.
+
+    **Not** a ``LookupError``, and that is the whole point of this class.
+    The approvals route catches ``LookupError`` around the store's ``decide``
+    and answers the contract's 409 ``approval_already_decided`` -- "somebody
+    else got there first". An expired approval is a *different* answer: nobody
+    decided it, the clock ran out, and the run is still parked waiting for a
+    decision that can no longer be given. Had this been a ``LookupError``, it
+    would have been swallowed by that branch and reported as "already decided
+    by an operator" -- a statement about a person that is false, and about the
+    only thing an operator reading it would want to know.
+
+    It is also *not* ``ApprovalAlreadyDecided``: that one names a lost race
+    between two writers, and its message ("was already approved by ... at
+    ...") is exactly right there and exactly wrong here.
+    """
+
+    def __init__(self, approval_id: UUID) -> None:
+        self.approval_id = approval_id
+        super().__init__(f"approval {approval_id} expired before it was decided")
 
 
 class IllegalTransition(DomainError):

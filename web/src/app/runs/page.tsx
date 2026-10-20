@@ -47,7 +47,7 @@ export default async function RunsPage({
         title={t("runs.panelTitle")}
         aside={
           runs.data
-            ? `${runs.data.total} ${t("runs.shownSuffix")}${
+            ? `${runs.data.items.length} ${t("runs.shownSuffix")}${
                 valid ? ` ${t("runs.filteredTo", { status: runStatusLabel(valid, t) })}` : ""
               }`
             : undefined

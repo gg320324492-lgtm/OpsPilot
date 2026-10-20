@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
 
     from opspilot.adapters.wiring import RetrievalStack
-    from opspilot.ports.stores import ApprovalStore, RunStore, TicketStore
+    from opspilot.ports.stores import ApprovalStore, RunStore, TicketIntake, TicketStore
 
 
 class _CorsOptions(TypedDict):
@@ -79,6 +79,7 @@ def create_app(
     *,
     run_store: RunStore | None = None,
     ticket_store: TicketStore | None = None,
+    ticket_intake: TicketIntake | None = None,
     approval_store: ApprovalStore | None = None,
     knowledge_store: object | None = None,
     reindex_runner: Callable[[Path], Awaitable[object]] | None = None,
@@ -93,6 +94,12 @@ def create_app(
             package to exist (which is what lets the persistence layer be written
             in parallel).
         ticket_store: The ``TicketStore`` port implementation.
+        ticket_intake: The ``TicketIntake`` port implementation -- the unit of
+            work that creates a ticket **and** its run as one transaction. When
+            omitted and the SQL stores are built from settings, one is built
+            from the same session factory; a caller that injects fakes must
+            inject this too, or ``POST /api/tickets`` has no way to keep the two
+            rows in one transaction.
         approval_store: The ``ApprovalStore`` port implementation.
         knowledge_store: Optional store exposing ``list_documents`` for
             ``GET /api/knowledge``.
@@ -131,6 +138,7 @@ def create_app(
         app,
         run_store=run_store,
         ticket_store=ticket_store,
+        ticket_intake=ticket_intake,
         approval_store=approval_store,
         knowledge_store=knowledge_store,
         reindex_runner=reindex_runner,
@@ -223,6 +231,7 @@ def _bind_stores(
     *,
     run_store: RunStore | None,
     ticket_store: TicketStore | None,
+    ticket_intake: TicketIntake | None,
     approval_store: ApprovalStore | None,
     knowledge_store: object | None,
     reindex_runner: Callable[[Path], Awaitable[object]] | None,
@@ -249,6 +258,17 @@ def _bind_stores(
         ticket_store = ticket_store or sql_ticket
         approval_store = approval_store or sql_approval
 
+    if ticket_intake is None and session_factory is not None:
+        # The intake shares the stores' engine and pool, so the ticket and its
+        # run are two INSERTs inside **one** transaction. It is built from the
+        # same factory rather than from the two stores, because a store that
+        # opens its own transaction per call cannot share one with another
+        # store -- and two transactions is exactly the defect this exists to
+        # remove.
+        from opspilot.adapters.persistence import repositories
+
+        ticket_intake = repositories.SqlTicketIntake(session_factory)
+
     # The knowledge surfaces are wired from the same settings the SQL stores use,
     # but only when the caller did not inject fakes. `GET /api/knowledge` then
     # lists real documents and `POST /api/knowledge/reindex` ingests them; a
@@ -263,6 +283,7 @@ def _bind_stores(
 
     app.state.run_store = run_store
     app.state.ticket_store = ticket_store
+    app.state.ticket_intake = ticket_intake
     app.state.approval_store = approval_store
     app.state.knowledge_store = knowledge_store
     app.state.reindex_runner = reindex_runner

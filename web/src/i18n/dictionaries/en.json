@@ -113,6 +113,8 @@
     "alreadyDecided_before": "The API returned 409 approval_already_decided: this approval is {state}.",
     "alreadyDecided_defaultState": "already decided",
     "alreadyDecided_after": "This is the guard working, not a failure. The decision is a conditional update (`WHERE id = ? AND status = 'pending'`), so the second click found no row to move and no second grant was written. If you have two cards for the same refund, the other one is still pending and still needs its own decision — approving one does not decide the other.",
+    "expired_headline": "This approval expired — this click granted nothing.",
+    "expired_after": "The API returned 409 approval_expired: the approval timed out before anyone decided it, so nothing was approved and the run is still parked. An expired approval is not a refusal by a person; the request simply ran out of time.",
     "runNotParked_headline": "The run is not parked any more, so nothing was decided.",
     "runNotParked_after": "A decision only transitions a run that is `waiting_approval`. The run reached this state after the approval was written -- most often because a second card for the same run was decided first, or because the worker reclaimed it.",
     "runMovedOn_headline": "The run had already moved on.",
@@ -187,10 +189,12 @@
     "filterHint": {
       "pending": "Waiting for a decision. This is the inbox.",
       "approved": "Decided. The run was released to the worker.",
-      "rejected": "Decided. The run went on to an escalation reply."
+      "rejected": "Decided. The run went on to an escalation reply.",
+      "expired": "Timed out. Nobody decided it, so the run is still parked."
     },
     "waitingSuffix": "waiting",
     "recordedSuffix": "recorded",
+    "expiredSuffix": "expired",
     "couldNotLoad": "Could not load approvals",
     "emptyPendingTitle": "Nothing is waiting for a decision.",
     "emptyPendingHint": "That is a real answer from the API, not an error. A refund proposal parks here; a run that reaches an answer without a risky write never does.",
@@ -205,6 +209,7 @@
     "argumentsLabel": "arguments_snapshot",
     "toolCallIdLabel": "tool_call_id",
     "contextLabel": "context",
+    "noteLabel": "operator's note",
     "openRun": "Open run",
     "approvalSuffix": "approval",
     "duplicateIdenticalTitle": "This run is showing the same proposal twice.",

@@ -14,10 +14,17 @@ untrusted. ``risk_explanation`` is generated deterministically by
 ``domain/policies.py`` from the static permission and the arguments. The
 approver's UI shows both, labelled differently. See ``docs/tool-permissions.md``
 §3.2 and ``docs/data-model.md`` §2.
+
+Everything the *human* adds on top of that -- the operator's ``note``, the
+approver's ``context`` -- lives in its own column, never inside
+``arguments_snapshot``. The snapshot is one thing: what was shown and what will
+be executed. It is immutable, and a second meaning inside it would break the
+invariant the approval gate depends on.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -34,12 +41,47 @@ class ApprovalStatus(StrEnum):
     EXPIRED = "expired"
 
 
+@dataclass(frozen=True)
+class ApprovalContext:
+    """Extra context for the approver, assembled from already-persisted data.
+
+    ``company`` comes from a ``crm.get_customer`` result the run has already
+    executed -- no tool call is triggered to assemble it. ``ticket_subject``
+    is the ticket's own subject line, which is **customer-supplied text**, not
+    a fact the policy engine verified; the dashboard renders it in the quieter
+    of its two styles for that reason.
+
+    Frozen, like the other read models in ``ports/stores.py``: the context is
+    assembled once, when the run parks, and read many times. A mutable copy
+    would let one approver's view of the company drift from the row.
+
+    Every field is optional because the context is **supplementary**: a run
+    that never fetched a customer, or a ticket with no subject, still produces
+    a valid approval. Absent is not the same as empty, and neither is an
+    error.
+    """
+
+    company: str | None = None
+    ticket_subject: str | None = None
+
+
 class ApprovalRequest(BaseModel):
     """A persisted, human-decided authorisation for one tool call.
 
     Bound to ``tool_call_id`` (unique -- one approval per call), not to the run.
     ``arguments_snapshot`` is an immutable copy of the arguments as shown to the
     approver; ``ToolCall.arguments`` must not change after this is written.
+
+    The three optional trailing fields are the *decision* side of the row, and
+    they are separate columns rather than entries in ``arguments_snapshot``:
+    the snapshot is what the human approved and what will be executed, so it is
+    immutable (``docs/tool-permissions.md`` §3.2) and a display-only string has
+    no business inside it.
+
+    - ``note`` -- the operator's own remark on the decision.
+    - ``decided_by`` -- who decided. Server-assigned: it is the authenticated
+      operator's identity, never a value the request body chose.
+    - ``context`` -- supplementary display context for the approver.
     """
 
     model_config = ConfigDict(frozen=False)
@@ -54,6 +96,8 @@ class ApprovalRequest(BaseModel):
     created_at: datetime
     decided_at: datetime | None = None
     decided_by: str | None = None
+    note: str | None = None
+    context: ApprovalContext | None = None
 
     @property
     def is_decided(self) -> bool:

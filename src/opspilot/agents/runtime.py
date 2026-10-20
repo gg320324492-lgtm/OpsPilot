@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
 from opspilot.agents.state import RunContext, ToolCallRecord, default_max_steps
-from opspilot.domain.approvals import ApprovalRequest
+from opspilot.domain.approvals import ApprovalContext, ApprovalRequest
 from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
 from opspilot.domain.policies import (
     derive_idempotency_key,
@@ -825,6 +825,7 @@ async def _park_run(
             risk_explanation=risk_explanation,
             arguments_snapshot=dict(call.arguments),
             created_at=_utcnow(),
+            context=_approval_context(ctx),
         )
         await approval_store.create(approval)
     await run_store.set_status(ctx.run.id, RunStatus.WAITING_APPROVAL)
@@ -840,6 +841,51 @@ async def _park_run(
         },
     )
     raise RunParked(str(ctx.run.id), str(call.id))
+
+
+def _approval_context(ctx: RunContext) -> ApprovalContext | None:
+    """The approver's context, assembled from what this run already knows.
+
+    **No tool call is triggered.** The company comes from a ``crm.get_customer``
+    result the run has already executed, and the subject is the ticket's own --
+    so the approver sees who they are about to refund without the dashboard
+    having to open a second tab, and without the agent going back to the CRM
+    on the operator's behalf.
+
+    Both fields are optional and the whole context may be absent: a run that
+    never fetched a customer still parks a valid approval, and a ticket with no
+    subject line is still a ticket. Absent is not the same as empty.
+
+    The subject is **customer-supplied text** -- it is what the customer wrote
+    -- so it is not a fact the policy engine verified, and the dashboard
+    renders it in the quieter of its two styles for that reason. The company
+    comes out of a CRM record, which is a fact about the world.
+    """
+    company = _company_from_calls(ctx)
+    subject = ctx.ticket_subject or None
+    if company is None and subject is None:
+        return None
+    return ApprovalContext(company=company, ticket_subject=subject)
+
+
+def _company_from_calls(ctx: RunContext) -> str | None:
+    """The company name from the last successful ``crm.get_customer`` call.
+
+    The tool's structured result is ``{"customer": {"company": ..., ...}}``, or
+    ``{"customer": null, "error": {...}}`` when the lookup failed. A failed
+    lookup contributes nothing: an approval card that named a company the run
+    could not confirm would be showing the operator a guess.
+    """
+    for record in reversed(ctx.executed_tool_calls):
+        if record.tool_name != "crm.get_customer":
+            continue
+        customer = (record.result or {}).get("customer")
+        if not isinstance(customer, dict):
+            continue
+        company = customer.get("company")
+        if isinstance(company, str) and company:
+            return company
+    return None
 
 
 def _failed_write_names(ctx: RunContext) -> list[str]:

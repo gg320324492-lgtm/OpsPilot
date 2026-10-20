@@ -295,6 +295,15 @@ class ApprovalRequest(Base):
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The operator's remark on the decision. Nullable, because a decision may
+    # carry no remark and a pending approval has none at all.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Supplementary context for the approver, as a JSON object. It is a *column*
+    # rather than an entry in ``arguments_snapshot`` because the snapshot is
+    # immutable and means one thing -- what the human approved and what will be
+    # executed (``docs/tool-permissions.md`` §3.2). A display-only value inside
+    # it would stop the snapshot equalling the executed arguments.
+    context: Mapped[dict[str, Any] | None] = mapped_column(_JSON, nullable=True)
 
 
 class KnowledgeDocument(Base):

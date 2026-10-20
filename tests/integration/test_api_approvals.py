@@ -250,10 +250,17 @@ def test_rejecting_an_approved_request_returns_409(
     assert rejected.json()["error"]["code"] == "approval_already_decided"
 
 
-def test_decision_body_records_decided_by_and_note(
+async def test_the_decision_body_may_not_name_the_operator(
     client: TestClient, stores: tuple[FakeTicketStore, FakeRunStore, FakeApprovalStore]
 ) -> None:
-    """An explicit ``decided_by`` overrides the operator default."""
+    """A request body cannot say who decided.
+
+    It used to be able to: the handler read ``body.decided_by or operator``, so
+    a caller could put somebody else's name on a refund they approved
+    themselves -- in the one column that records who did it. The field is gone
+    from the schema, and ``extra="forbid"`` means a client that sends one is
+    told so rather than having it quietly ignored.
+    """
     _, run_store, approval_store = stores
     run = _parked_run(run_store)
     approval = _pending_approval(approval_store, run)
@@ -261,10 +268,44 @@ def test_decision_body_records_decided_by_and_note(
     response = client.post(
         f"/api/approvals/{approval.id}/approve",
         headers=_AUTH,
-        json={"decided_by": "admin", "note": "Confirmed in billing console."},
+        json={"decided_by": "admin"},
+    )
+    assert response.status_code == 422, "a body that names the operator must be refused"
+
+    # And the approval is still pending: the refused request decided nothing.
+    stored = await approval_store.get(approval.id)
+    assert stored is not None
+    assert stored.status is ApprovalStatus.PENDING
+    assert stored.decided_by is None
+
+
+async def test_the_operator_note_is_persisted_with_the_decision(
+    client: TestClient, stores: tuple[FakeTicketStore, FakeRunStore, FakeApprovalStore]
+) -> None:
+    """The operator's own remark is kept.
+
+    It used to be accepted and dropped: the API took a ``note``, the port
+    carried it, and the store threw it away with a ``# noqa: ARG002`` because
+    there was no column for it. An operator who typed "confirmed in the
+    billing console" was told it was accepted and it went nowhere.
+    """
+    _, run_store, approval_store = stores
+    run = _parked_run(run_store)
+    approval = _pending_approval(approval_store, run)
+
+    response = client.post(
+        f"/api/approvals/{approval.id}/approve",
+        headers=_AUTH,
+        json={"note": "Confirmed in billing console."},
     )
     assert response.status_code == 200
-    assert response.json()["decided_by"] == "admin"
+    assert response.json()["decided_by"] == "operator", "the server names the operator"
+    assert response.json()["note"] == "Confirmed in billing console."
+
+    stored = await approval_store.get(approval.id)
+    assert stored is not None
+    assert stored.note == "Confirmed in billing console."
+    assert stored.decided_by == "operator"
 
 
 def test_approvals_require_a_token(client: TestClient) -> None:
