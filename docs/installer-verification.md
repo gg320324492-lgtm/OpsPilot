@@ -32,6 +32,7 @@ someone who did not build it."
 | Docker Desktop | installed, **and started**. See below if it is not. |
 | Free disk | ~6 GB. The first launch builds three container images from source. |
 | Time | first launch 5–15 minutes; later launches well under a minute |
+| A screen recorder | any tool that writes MP4 and lets you cap the bitrate. See "Record the walk-through" below. |
 
 ### Where to get the installer
 
@@ -92,6 +93,84 @@ commit in the repository records it, and nothing inside the file says which
 source tree produced it. It is a perfectly installable file with no traceable
 provenance behind it, where the CI artifact has a run and a commit behind it.
 **Prefer the CI artifact.**
+
+### Record the walk-through
+
+**Start a screen recording before you double-click the installer, and leave it
+running until §3.5 is finished.** The recording is one of this walk-through's
+deliverables, and it is the one the project is actually waiting on: the
+**video** that `docs/milestones.md` records as **Not met**.
+
+**What the recording is for.** The ten screenshots in this repository show the
+application on the machine that built it. This recording shows the other half:
+the packaged installer **arriving** on a machine that has never seen it,
+starting, and being driven by a person. That is the claim §P2-D2 is open on,
+and no arrangement of screenshots reaches it. So the recording is not an
+illustration of the walk — it *is* the walk, and it is the only evidence the
+walk will ever produce.
+
+**What you will see in it.** One continuous take if you can:
+
+- **From** the moment you double-click `OpsPilot-Setup-<version>-x64.exe` in
+  §1.
+- **Through** §2 and §3, to the end of §3.5.
+
+Record the **process**, not the account of it: the installer running, the
+window with its log scrolling, the dashboard replacing it, the clicks, the
+approval card, the refund executing once. **Keep the pauses** — the first
+launch takes 5–15 minutes while Docker builds three images from source, and a
+recording that skips that wait is not showing the thing this recording exists
+to show. **No audio and no narration.** The video is silent by convention;
+nobody speaks in it.
+
+**What to use.** Any screen recorder you already have, as long as it can write
+**MP4** and let you cap the bitrate. You do not need a particular program.
+Set:
+
+| | |
+|---|---|
+| Container | **MP4**, with H.264 video |
+| Resolution | **1280x720**, fixed |
+| Audio | **none** — no microphone, no system sound |
+| Bitrate | low enough that the file lands in the low single-digit megabytes |
+
+The ceiling is **10 MiB** and the file is committed to a repository, so every
+clone of it pays for it. **A screen recorder's own defaults will not do that**:
+they will either hand you a file several times too big, or the other way, one
+too coarse to read the screens in. If your tool does not take a bitrate,
+choose one that squeezes the video into **no more than 10 MiB** — the thing
+that has to be true is the file's size, not the recorder's setting.
+
+**What to call it.** The file the project expects is
+`docs/assets/d2-walkthrough.mp4`. The name is fixed in advance, and the
+repository has a test that goes red if a recording is committed under any
+other name — so please use that one.
+
+**If your tool only writes WebM**, keep the file and hand it over as
+`docs/assets/d2-walkthrough.webm`; the project will transcode it to the MP4
+above and keep the WebM beside it as the source. **Do not rename a WebM to
+`.mp4`** — a file with the right extension and the wrong contents is worse
+than no file, and it is checked on the bytes, not on the name.
+
+**How to hand it back.** You do not have this repository, and you do not need
+one: **nothing is committed from your side.** Leave the file where you
+recorded it and give it to the person who gave you this script — they will
+commit it into the repository's `docs/assets/`. **Say so in your report**, with
+the file's name and its size; §7 asks for that.
+
+**This is part of the walk-through, not extra work on top of it.** You are
+going to be at that keyboard for 5–15 minutes anyway, and the recording is the
+same act as the walk: it is the evidence that the packaged product installs
+and runs for somebody who did not build it, and it is the video the project
+is missing.
+
+**If you did not record, this walk-through still passes.** The acceptance for
+this procedure is *installed, walked, reported* — and the recording is not
+part of it. A report that says no recording was made is a complete report,
+and nothing about the install, the launch or the golden path changes if the
+recorder was never switched on. The recording is a by-product of the walk:
+the project would rather have it than not, but it is not what makes this
+procedure a pass.
 
 ### If Docker Desktop is not installed
 
@@ -403,6 +482,13 @@ If anything above failed, these five things make it diagnosable:
 5. Which installer you ran, and where it came from — the CI run it was
    downloaded from (the run's id, and the commit that run built) or the person
    who gave you the file.
+
+**And one more, whether or not anything failed:**
+
+6. **Whether you recorded the walk-through** (§0), and if you did: the file's
+   name and its size in bytes. This one is **not** part of what makes the
+   walk-through pass — a report that says no recording was made is a complete
+   report — but it is how the project learns the recording exists.
 
 ---
 
