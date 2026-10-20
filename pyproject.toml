@@ -134,7 +134,16 @@ dev = [
   # why `make_assets.py --check` compares the pictures and not the bytes; but
   # a developer regenerating the icon on 11.0.0 would still produce a binary
   # diff nobody can read, and the tree would have no way to say why.
-  "pillow>=11.1",
+  #
+  # The ceiling is 14 for the reason the same file pins `ruff` to a minor
+  # line: a dependency whose range can change what a committed artefact
+  # *means* is a dependency the gate depends on. A major Pillow release is
+  # allowed to change how it resamples or quantises -- which would change
+  # the pixels -- and the guard compares pixels, so the check would fail on a
+  # tree nobody changed. The failure is loud rather than silent, and the
+  # remedy is to regenerate the artefacts and widen the range deliberately,
+  # rather than to discover the drift in a red build nobody was looking for.
+  "pillow>=11.1,<14",
 ]
 
 [project.scripts]

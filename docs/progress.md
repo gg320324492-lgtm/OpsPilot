@@ -6551,3 +6551,84 @@ What fills them instead is a colour field carried outwards from the badge. The f
 What Next.js does with the file is worth recording, because "the file convention picks it up" is a claim about a mechanism and the mechanism leaves evidence. The built page carries `<link rel="apple-touch-icon" href="/apple-icon.png?apple-icon.33p4madqifatc.png" sizes="180x180" type="image/png"/>`, and the resource is served: 200, 38,678 bytes, the same bytes the committed file has. The `sizes` attribute is the second witness and it is the one iOS reads, because Next's metadata image loader writes the picture's real dimensions into it and Apple's spec names one size, 180×180 — a larger picture would be announced as a size the home screen does not ask for. Putting a 512-by-512 magenta square in the file's place and rebuilding changes the hash from `33p4madqifatc` to `0p9w9-b9k3taj` and the `sizes` from `180x180` to `512x512` at once, and a page serving the file it was built from could not have kept the same URL and declared the same size across two different files. That is the difference between a page serving this file and a page carrying a link to something.
 
 The guard is now a guard on four artefacts rather than three. `--check` with no path checks all four and says which one it is talking about — the shell's icon, the favicon, the apple-touch icon or the wordmark — because a check that reports "something is stale" against four candidates leaves the reader to guess, and the failure this exists to catch is precisely a failure nobody can point at. The unit tests in `tests/unit/test_desktop_icon_is_current.py` went from sixteen to twenty-one, and the five new ones pin the decisions above: that the committed apple-touch icon is current with the artwork, that an icon the artwork does not generate is caught, that the check tells the apple-touch icon from the wordmark, that the icon is the 180×180 iOS asks for, and that it is a filled square rather than a badge with four holes in it.
+
+### The pair that has to agree, and the job that now checks both of its ends
+
+The section above ended on a sentence that was prose and not a mechanism. The
+revert of the palette frame (`c631637`) said: "An artefact committed to the
+repository is checked by CI on Linux and usually built on Windows, so that is
+the pair that has to agree, and a change to a generated artefact is worth
+checking in both before it is pushed rather than after." The tree had no way
+to check in both: `make_assets.py --check` ran as a step of the `lint` job,
+on `ubuntu-latest`, and nowhere else. `docs/limitations.md` §6 says the same
+thing from the other side, as a limitation: "The icon artefacts are produced
+on Windows and checked on Linux, and only the Linux half of that pair is
+automatic."
+
+**There is now a job for the other half.** `.github/workflows/ci.yml` carries
+`assets-windows`, on `windows-latest`: a checkout, Python 3.12, `pip install
+-e ".[dev]"` for Pillow, and `python scripts/make_assets.py --check` — the
+same command, the same comparison (pictures against pictures) and the same
+no-write contract as the `lint` job's step. It is a separate job rather than
+another step in `desktop-package` because that job runs on a Windows runner
+with no Python environment at all, and that is deliberate: if the NSIS
+toolchain cannot be fetched, `desktop-package` "leaves the six checks below
+unrun rather than green", and a second toolchain in that job would put the
+six packaged-artefact checks behind a download that has nothing to do with
+them.
+
+**The run is asserted, not merely performed.** `make_assets.py --check` prints
+one `the committed <artefact> is current` line for every artefact it
+compared, and the job's second step requires all four of them — the shell's
+icon, the favicon, the apple-touch icon and the wordmark — to have been
+reported. The shape is the one `desktop-menu` uses for a skipped Electron
+test, the one `desktop-package` uses for its six packaged-artefact checks,
+and the one `verify` uses for its postgres-marked tests: a run that proved
+nothing must not report success (ADR-0004). A check that quietly compared
+three of the four artefacts, or none of them, would otherwise be a green job
+that verified nothing — and the artefact it skipped is exactly the one
+nobody would notice.
+
+**What the job verifies, and what it does not.** It verifies that on Windows,
+under the Pillow CI installs, the script reproduces the pictures the tree
+commits. It does **not** verify that the artefacts a contributor generates on
+their own machine are the ones CI checks: that still depends on the
+contributor having the same Pillow, and `pyproject.toml` asks for
+`pillow>=11.1` with **no ceiling**. The floor is 11.1 because Pillow changed
+the PNG encoder's deflate parameters between 11.0.0 and 11.1.0, so a
+developer on 11.0.0 would produce a different binary from the same pictures
+— and it says nothing at all about the next major. So a Pillow release that
+changes the resampling or the quantisation turns into a visible red in two
+jobs at once, on a tree nobody changed: the shape of failure the palette
+frame already produced, one platform further out.
+
+**The judgement on a ceiling, recorded rather than made.** The same argument
+is why `ruff` is pinned to a minor line in `pyproject.toml`
+(`ruff>=0.16.10,<0.17`), and the `lint` job's comment says why: the linter
+is stable across ruff minors, the *formatter* rev is not, so an unpinned
+`ruff>=0.6` let the definition of "formatted" drift out from under committed
+code. A **major-version ceiling on Pillow — `pillow>=11.1,<14` — is
+warranted**, and the reasoning is that one: the artefacts are committed
+binaries whose bytes and pixels the tree promises are derivable from the
+tree, a Pillow major is exactly the kind of rev that can move them, and the
+new job turns that difference into a red in two places at once rather than
+one. The cost is one deliberate bump per Pillow major, and Pillow's majors
+are rare (11.0 → 12.0 → 13.0 over years) while its minors have already
+changed the encoder once. What a major ceiling does **not** do is protect the
+bytes on its own: the encoder changed at 11.1.0, a *minor*, so `<14` keeps
+the bytes reproducible only for as long as no 12.x or 13.x changes the
+encoder again — a tighter bound such as `<11.2` would protect them today and
+would cost every Pillow security fix in the meantime, which is a worse trade
+for a dev-only dependency. The check itself compares pictures and so survives
+an encoder-only change; the bound is for the *bytes* and for the pair. **It
+is not made here**, because `pyproject.toml` is not this change's file.
+
+**One document is now behind the tree.** `docs/limitations.md` §6 still reads
+"The icon artefacts are produced on Windows and checked on Linux, and only the
+Linux half of that pair is automatic", and that is no longer true: both
+halves are automatic. The limitation was not edited here for the same reason
+the ceiling was not — `docs/limitations.md` is not this change's file — but
+the sentence needs to become the fact it describes, and the fact is a
+narrower gap than the one it replaces: the pair is checked at both ends, and
+what is *not* covered is the contributor's own Pillow, which is a
+contributor's obligation rather than a hole in the tree.

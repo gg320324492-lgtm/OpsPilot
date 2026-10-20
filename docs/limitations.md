@@ -390,24 +390,29 @@ not drift. The cost is a manual step no tool can perform — changing the
 artwork means running the script and committing the artefacts by hand — and
 it is invisible in a review, because a binary is not something a diff shows.
 
-**The icon artefacts are produced on Windows and checked on Linux, and only
-the Linux half of that pair is automatic.** The guard runs in the `lint`
-job, on `ubuntu-latest`, and it runs nowhere else: the `desktop-package`
-job that does run on `windows-latest` has no Python environment at all, and
-the CI file says so. The committed artefacts were produced on a Windows
-machine, so the combination is *produced on Windows, checked on Linux* — and
-of that pair only the checking is automatic. The comparison is picture
-against picture, and that is deliberate: a PNG's bytes depend on the zlib
-that packed them, the Windows and manylinux wheels bundle different zlibs,
-and a byte comparison would call an unchanged tree stale. So no job on any
-platform re-runs the generator on Windows and compares the result with what
-is committed. The two jobs do assert the two halves of the chain, each on
-its own platform and neither together: the `lint` job, that the committed
-file is what the script produces, on Linux; the `desktop-package` job, that
-the executable carries *that* file's bytes — its group icon lists the ten
-sizes the artwork is resampled to, each is backed by an icon resource
-holding the committed bytes, and Windows itself renders the committed
-32-pixel frame — on Windows.
+**The icons are checked on both platforms now, and what the check cannot
+pin is the encoder.** The guard compares pictures, and it runs at both ends
+of the pair the tree depends on — `lint` on Linux and `assets-windows` on
+Windows — so "produced on Windows, checked on Linux" is checked at both ends
+rather than one. The `desktop-package` job still asserts the other half of
+the chain, that the executable carries *that* file's bytes: its group icon
+lists the ten sizes the artwork is resampled to, each is backed by an icon
+resource holding the committed bytes, and Windows itself renders the
+committed 32-pixel frame.
+
+What is left outside the check is Pillow. The bytes are deliberately not
+reproduced — a PNG's bytes depend on the zlib that packed them, the
+Windows and manylinux wheels bundle different zlibs, and a byte comparison
+would call an unchanged tree stale and its remedy would change the file and
+not the problem. The *pixels* are only as stable as the resampling and the
+quantisation Pillow implements, and `pyproject.toml` asks for
+`pillow>=11.1,<14`: a major release cannot move them, but nothing prevents
+a minor one from doing it, and Pillow changed its PNG encoder's deflate
+parameters between 11.0.0 and 11.1.0. The cost is accepted because the
+failure is red and visible rather than silent — the guard compares
+pictures, so a Pillow that moved them fails the check on both platforms at
+once, and the remedy is to regenerate the artefacts and widen the range
+deliberately.
 
 ## 7. Product
 
