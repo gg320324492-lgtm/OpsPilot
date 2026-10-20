@@ -876,10 +876,12 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [x] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
       (pgvector container: migrations, vector differential, worker concurrency),
       `mcp-contract`, `security`, `eval-smoke`, `web-lint`, `web-typecheck`,
-      `docker-build`, `web-e2e`. (All eleven ids exist in `ci.yml`. Run
-      38076989911 at `0144d83` was the first fully green run, with 11 jobs;
-      `web-e2e` was added later and run 38208652155 is green at 12 of 12 —
-      `test` is the 3.12/3.13 matrix, which is why ten ids made eleven runs.)
+      `docker-build`, `web-e2e`. (All eleven ids exist in `ci.yml` — the
+      Phase 1 set; Phase 2 added four more, and the Phase 2 DoD's CI row
+      carries the current list. Run 38076989911 at `0144d83` was the first
+      fully green run, with 11 jobs; `web-e2e` was added later and run
+      38208652155 is green at 12 of 12 — `test` is the 3.12/3.13 matrix,
+      which is why ten ids made eleven runs.)
 - [x] `eval-live` on `workflow_dispatch` only.
 - [ ] `docker compose up` brings up api, worker, web, postgres, and the three
       MCP servers (as child processes of the worker under
