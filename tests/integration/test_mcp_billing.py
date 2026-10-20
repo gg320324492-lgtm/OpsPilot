@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,13 @@ _SEED_PATH = Path(__file__).resolve().parents[2] / "mcp_servers" / "billing" / "
 # spec forbids any of them in the list_transactions output; the test asserts the
 # absence explicitly because it is a design property, not an oversight.
 _JUDGEMENT_MARKERS = ("duplicate", "is_dup", "dup_of", "suspected", "anomaly", "suspicious")
+
+# A generous ceiling on how long a helper thread may take before the test gives
+# up on it. It is a hang guard, not a deadline the test waits for: the thread
+# it guards waits on nothing at all, because the ordering it depends on is
+# fixed by the code around it. A busy machine cannot turn a slow thread into a
+# failure here -- see the boundary tests below.
+_THREAD_TIMEOUT_SECONDS = 30.0
 
 
 @pytest.fixture
@@ -164,6 +171,11 @@ def test_same_idempotency_key_twice_creates_one_refund(store: Store) -> None:
 # is therefore to state what is guaranteed -- one writer, sequential calls --
 # and to test that the *documented failure mode* for two writers is what
 # actually happens, rather than leaving the boundary implicit.
+#
+# The tests below script their interleaving instead of racing for it. A
+# barrier with a timeout turns a busy machine into a red test, and no test here
+# has an outcome that depends on the schedule it was racing for -- each
+# docstring says why.
 # ---------------------------------------------------------------------------
 
 
@@ -175,28 +187,51 @@ def test_concurrent_callers_sharing_one_document_create_one_refund(store: Store)
     ``store.data``. The first caller appends its refund row *before* it returns,
     so the second caller -- whenever it is scheduled -- scans and finds it. The
     result must be one refund row and two responses agreeing on the id, with the
-    second marked ``replayed``. Interleaving is forced at the append/return
-    boundary so the test fails if that ordering ever stops holding.
+    second marked ``replayed``.
+
+    The second caller runs on its own thread, so the machine chooses the moment
+    it is scheduled; what the test checks does not depend on when that is. What
+    puts the row in the shared document is the *first call having returned*,
+    which is why that call is made and finished before the thread starts. There
+    is nothing here for two callers to race on -- the contract's guarantee is
+    scoped to calls served one at a time -- so the test pins that ordering
+    rather than a schedule. It used to rendezvous the two threads on a
+    ``threading.Barrier`` whose ``wait(timeout=5)`` expired on a busy machine
+    and failed the test at random; the barrier was holding two threads together
+    that had no reason to be held together, since the ordering that matters is
+    fixed by the code above it.
     """
-    import threading  # local: threading is used for these two boundary tests only
+    import threading  # local: threading is used for this boundary test only
 
     key = "refund:run-concurrent:TX-88219"
     args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
 
     first_response = _call(store, "billing.issue_refund", args)
-    barrier = threading.Barrier(2)
+
+    outcome: dict[str, Any] = {}
 
     def second_caller() -> None:
-        barrier.wait(timeout=5)
-        response = _call(store, "billing.issue_refund", args)
-        assert response["replayed"] is True
-        assert response["refund_id"] == first_response["refund_id"]
+        try:
+            outcome["response"] = _call(store, "billing.issue_refund", args)
+        except Exception as exc:
+            # Carried back to the calling thread, so a failure inside the
+            # second caller names its real cause instead of a missing key in
+            # ``outcome``.
+            outcome["error"] = exc
 
-    worker = threading.Thread(target=second_caller)
+    worker = threading.Thread(target=second_caller, daemon=True)
     worker.start()
-    barrier.wait(timeout=5)
-    worker.join(timeout=5)
+    worker.join(timeout=_THREAD_TIMEOUT_SECONDS)
     assert not worker.is_alive(), "the second caller did not finish"
+    if "error" in outcome:
+        raise outcome["error"]
+
+    response = outcome["response"]
+    assert first_response["code"] is None
+    assert response["code"] is None
+    assert first_response["replayed"] is False
+    assert response["replayed"] is True
+    assert response["refund_id"] == first_response["refund_id"]
 
     assert len(store.data["refunds"]) == 1
 
@@ -214,64 +249,160 @@ def test_second_writer_over_the_same_key_is_discarded(tmp_path: Path) -> None:
     success was not persisted.
 
     This test asserts that failure mode rather than denying it, because it is
-    what the contract promises is *not* covered. Interleaving is forced at
-    ``Store.save`` so both writers have already run their scan before either
-    writes -- that is the only way the race is deterministic, and it is exactly
-    the interleaving ``_store.py`` says nothing prevents.
+    what the contract promises is *not* covered.
+
+    The interleaving is *scripted*, not raced. Writer A's write is held back
+    until writer B has scanned and written, so the file ends with A's document
+    and B's is the one discarded -- the writer this test is named after. That is
+    the interleaving ``_store.py`` says nothing prevents: two writers, each
+    holding a snapshot taken before the other wrote, each scanning a document
+    that does not yet hold the other's refund row.
+
+    It used to be forced with a ``threading.Barrier`` and a ``wait(timeout=5)``,
+    which expired on a busy machine and failed the test at random -- a fact
+    about the machine's speed, not about the store. No schedule can change the
+    outcome here, because a writer's scan is over the in-memory document it
+    loaded at construction and never re-reads: whichever order the two writes
+    land in, both writers miss each other and the last write wins. Scripting the
+    interleaving therefore exercises the same failure mode deterministically,
+    and the test can additionally say *which* writer was discarded.
 
     If the guarantee is ever *made* -- an atomic check-and-write, a lock, a
     compare-and-swap -- this test is expected to change: it would then assert one
     refund and one ``replayed: true``. Until then, the boundary is this.
     """
-    import threading  # local: threading is used for these two boundary tests only
-
     seed = _SEED_PATH
-    # Two stores, one file. Neither has written, so both hold the seed document.
+    # Two stores, one file. Neither has written, so both hold the seed document:
+    # each writer's scan is over a snapshot taken before the other wrote.
     writer_a = Store(seed, filename="billing.json", data_dir=tmp_path)
     writer_b = Store(seed, filename="billing.json", data_dir=tmp_path)
 
-    barrier = threading.Barrier(2)
-
-    def _hold_then_write(store_obj: Store) -> None:
-        original_save = store_obj.save
-
-        def save() -> None:
-            # Both writers reach this point having already scanned and appended,
-            # which is the race: neither saw the other's refund row.
-            barrier.wait(timeout=5)
-            original_save()
-
-        store_obj.save = save  # type: ignore[method-assign]
-
-    _hold_then_write(writer_a)
-    _hold_then_write(writer_b)
-
     key = "refund:run-z:TX-88219"
-    args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
+    # The two writers are told apart by their ``reason``, so the test can see
+    # *which* document survived the replace rather than merely that one did.
+    # The reason takes no part in the idempotency check -- the handler scans on
+    # the key alone -- so telling the writers apart changes nothing about the
+    # behaviour under test.
+    args_a: dict[str, Any] = {
+        "transaction_id": "TX-88219",
+        "amount": 129.00,
+        "idempotency_key": key,
+        "reason": "writer-a",
+    }
+    args_b: dict[str, Any] = {**args_a, "reason": "writer-b"}
 
-    responses: dict[str, dict[str, Any]] = {}
+    # Writer A's write is held back until writer B has written, so A's document
+    # lands last and displaces B's.
+    held: list[Callable[[], None]] = []
+    original_save = writer_a.save
 
-    def call(name: str, store_obj: Store) -> None:
-        responses[name] = _call(store_obj, "billing.issue_refund", dict(args))
+    def hold_save() -> None:
+        held.append(original_save)
 
-    thread_a = threading.Thread(target=call, args=("a", writer_a))
-    thread_b = threading.Thread(target=call, args=("b", writer_b))
-    thread_a.start()
-    thread_b.start()
-    thread_a.join(timeout=5)
-    thread_b.join(timeout=5)
+    writer_a.save = hold_save  # type: ignore[method-assign]
+
+    first = _call(writer_a, "billing.issue_refund", args_a)
+    second = _call(writer_b, "billing.issue_refund", args_b)
+
+    # Writer A has scanned and appended by now and has not written yet, which is
+    # the race: neither writer saw the other's refund row.
+    assert held, "writer A never reached its write, so nothing was displaced"
+    for flush in held:
+        flush()
 
     # Both passed the scan and reported a fresh refund: the key did not stop the
     # second writer, which is the point of the boundary.
-    assert responses["a"]["replayed"] is False
-    assert responses["b"]["replayed"] is False
-    assert responses["a"]["refund_id"] == responses["b"]["refund_id"]
+    assert first["code"] is None
+    assert second["code"] is None
+    assert first["replayed"] is False
+    assert second["replayed"] is False
+    assert first["refund_id"] == second["refund_id"]
 
     # The atomic replace kept one whole document, not an interleaving and not a
-    # torn file: one refund row is on disk.
+    # torn file: one refund row is on disk, and it is writer A's.
     on_disk = json.loads(writer_a.path.read_text(encoding="utf-8"))
     assert len(on_disk["refunds"]) == 1
     assert on_disk["refunds"][0]["idempotency_key"] == key
+    assert on_disk["refunds"][0]["reason"] == "writer-a"
+
+    # All of writer A's document is on disk: the refund row and the
+    # transaction-status write together, never one without the other.
+    assert on_disk == writer_a.data
+
+    # Writer B was told it succeeded and its row is not the one on disk: the
+    # second writer's success was not persisted, which is the boundary this
+    # test pins.
+    assert len(writer_b.data["refunds"]) == 1
+    assert writer_b.data["refunds"][0]["reason"] == "writer-b"
+    assert writer_b.data["refunds"][0] != on_disk["refunds"][0]
+
+
+def test_the_second_writer_still_misses_the_first_writer_s_persisted_row(tmp_path: Path) -> None:
+    """The same boundary, one schedule later -- and the tripwire for the fix.
+
+    ``test_second_writer_over_the_same_key_is_discarded`` above fixes the
+    schedule in which *both* writers scan before either writes. This one fixes
+    the schedule in which the second writer scans *after* the first has written,
+    which is the schedule in which the guarantee is most likely to be made, and
+    therefore the one worth watching.
+
+    Both writers were constructed before either wrote, so the second writer is
+    still holding the document it loaded -- the store never re-reads the file,
+    and the idempotency scan is over that loaded document. So the second writer
+    misses the row that is on disk, appends a second one, and displaces the
+    first writer's whole document: the key protects neither writer, and now not
+    even when the two do not overlap in time.
+
+    That is what makes this the tripwire. If the guarantee is ever made -- a
+    handler that re-reads the file before scanning, a lock, a compare-and-swap
+    -- the second writer would find the first writer's row, report
+    ``replayed: true``, and *this* test would fail. The test above cannot
+    detect that, because in its schedule both scans happen before either write:
+    a re-reading handler would find nothing there either. Between them, the two
+    schedules watch both ways the guarantee could appear.
+    """
+    seed = _SEED_PATH
+    # Two stores, one file, both constructed before either has written.
+    writer_a = Store(seed, filename="billing.json", data_dir=tmp_path)
+    writer_b = Store(seed, filename="billing.json", data_dir=tmp_path)
+
+    key = "refund:run-z-late:TX-88219"
+    # As above: the writers are told apart by their ``reason`` so that the
+    # surviving document can be identified, and so that a save that merged
+    # instead of replacing would leave two rows rather than one.
+    args_a: dict[str, Any] = {
+        "transaction_id": "TX-88219",
+        "amount": 129.00,
+        "idempotency_key": key,
+        "reason": "writer-a",
+    }
+    args_b: dict[str, Any] = {**args_a, "reason": "writer-b"}
+
+    first = _call(writer_a, "billing.issue_refund", args_a)
+    # The first writer's row is on disk now. The second writer scans the
+    # document it loaded, which predates that row, and misses it.
+    second = _call(writer_b, "billing.issue_refund", args_b)
+
+    # The key did not stop the second writer, and it reported a fresh refund
+    # even though the row it could not see was already persisted.
+    assert first["code"] is None
+    assert second["code"] is None
+    assert first["replayed"] is False
+    assert second["replayed"] is False
+    assert first["refund_id"] == second["refund_id"]
+
+    # One whole document on disk -- the second writer's, this time, because it
+    # wrote last. The first writer's success is the one that did not survive.
+    on_disk = json.loads(writer_a.path.read_text(encoding="utf-8"))
+    assert len(on_disk["refunds"]) == 1
+    assert on_disk["refunds"][0]["idempotency_key"] == key
+    assert on_disk["refunds"][0]["reason"] == "writer-b"
+    assert on_disk == writer_b.data
+
+    # And the first writer's row is not the one on disk.
+    assert len(writer_a.data["refunds"]) == 1
+    assert writer_a.data["refunds"][0]["reason"] == "writer-a"
+    assert writer_a.data["refunds"][0] != on_disk["refunds"][0]
 
 
 def test_first_refund_id_comes_from_seed_counter(store: Store) -> None:
