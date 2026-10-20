@@ -68,9 +68,68 @@ start explorer.exe
 | | |
 |---|---|
 | Windows | 10 或 11，**x64** |
+| 安装包 | `OpsPilot-Setup-<version>-x64.exe`，见下文「安装包从哪来」 |
 | Docker Desktop | **已安装，且已启动** |
 | 可用磁盘 | 约 **6 GB**（首次启动会从源码构建三个容器镜像） |
 | 时间 | 首次启动 **5–15 分钟**；之后的启动不到一分钟 |
+
+### 安装包从哪来
+
+这份脚本要装的文件是 `OpsPilot-Setup-<version>-x64.exe`。版本号来自
+`desktop/package.json`，每次构建都可能变——**对上文件名就行，不要对版本号**。
+
+**方式一：从 CI 下载（推荐）。**
+
+每次 push 都会构建安装包，并把它作为 **workflow artifact** 挂在那次运行上。
+**CI** workflow 里的 **`desktop-package (the Windows artefact)`** job 在
+`windows-latest` 上构建 NSIS 安装包，然后以
+**`OpsPilot-Setup-windows-x64`** 这个 artifact 名上传。
+
+在 GitHub 仓库页面里，路径是：
+
+> **仓库 → Actions → 一次 CI 运行（其中 `desktop-package (the Windows artefact)`
+> 那个 job 是成功的）→ 该次运行页面底部的 Artifacts 区域 → 下载
+> `OpsPilot-Setup-windows-x64`**
+
+具体步骤：
+
+1. 打开 **Actions** 标签页。
+2. 打开一次 **CI** workflow 的运行，其中 **`desktop-package (the Windows
+   artefact)`** job 是成功的。CI 在每次 push 到 `main` 和每次针对 `main` 的
+   pull request 上都会跑；**取最近一次成功的**即可。
+3. 在该次运行页面上，翻到**页面底部的 Artifacts 区域**，下载
+   **`OpsPilot-Setup-windows-x64`**。
+
+下载下来是一个 **zip**。解压后里面就是安装程序
+`OpsPilot-Setup-<version>-x64.exe`——§1 要你双击的就是它。
+运行它会弹出 SmartScreen 警告，**开头第 2 条提醒**已经解释过它了：
+**那是正常的，不是文件有问题**。
+
+**为什么优先用它：它可复核。** Artifact 是 CI 的 runner 从**某一个具体的
+commit** 构建出来的，运行页面会写明这次运行对应的是哪个 commit，所以报告里
+说的"the built package"是有出处的。job 在上传前会先检查这个文件：
+**恰好一个** `OpsPilot-Setup-*-x64.exe`、**大于 1 MB**、**以 PE 签名 `MZ`
+开头**、**带 NSIS 签名**——所以它确实是 §1 描述的那个"辅助式、每用户安装"的
+安装程序，而不是一个名字相似的别的东西。上传步骤在**找不到文件**时会直接失败，
+所以一次成功的运行不可能"什么都没产出却显示成功"。
+
+**⚠️ artifact 会过期。** 保留期是 **90 天**
+（`.github/workflows/ci.yml` 里的 `retention-days: 90`），到期就被删除。
+如果你选的那次运行下面**什么都没有**，多半是它已经超过 90 天了——
+**换一次更近的运行**。
+
+**⚠️ 没有 GitHub Release。** 别去找：本仓库既没有 tag，也没有 release 页面，
+README 里也没有任何下载链接。artifact 是挂在某一次运行上的构建产物——会过期，
+也没有被索引到任何地方。
+
+**方式二：直接从一个开发者那里拿文件。**
+
+如果有人直接把这个 `.exe` 给你，装它就行——脚本不关心文件从哪来。但你要知道
+自己手上是什么：**那是某台机器上一个工作区的构建，不是某个 commit 的构建。**
+构建产物是 gitignored 的，仓库里没有任何 commit 记录它，文件内部也没有任何
+东西说明它是哪一份源码树构建出来的。所以它是一个**完全能装、但没有可追溯
+出处**的文件；CI artifact 则有——**一次运行、一个 commit**。
+**能下载就下载 artifact。**
 
 ### 如果 Docker Desktop 没装
 
@@ -100,7 +159,7 @@ this app again.
 ## 1. 安装
 
 1. 双击 `OpsPilot-Setup-<version>-x64.exe`（`<version>` 是实际版本号；
-   当前构建的是 `OpsPilot-Setup-0.1.0-x64.exe`）。
+   以你手上那个文件的文件名为准——版本号会变，不要把它写死在任何地方）。
 2. 选安装目录，或直接用默认的 `%LOCALAPPDATA%\Programs\OpsPilot`。
    **不需要管理员权限。**
 3. 完成。
@@ -383,7 +442,7 @@ Leaving the backend running: this app did not start it.
 
 ## 7. 如果要报告问题
 
-有东西失败时，这四样让问题可诊断：
+有东西失败时，这五样让问题可诊断：
 
 1. **你看到的原文**——**整段窗口日志，不要转述**。
 2. 下面两条命令的输出：
@@ -395,6 +454,8 @@ Leaving the backend running: this app did not start it.
 
 3. Windows 版本、Docker Desktop 版本（`docker version`）。
 4. **首次启动确实是首次，还是重复启动。**
+5. **你装的是哪个安装包、它从哪来**——CI 的哪一次运行（run id，以及那次运行
+   构建的 commit），或者是谁给你的文件。
 
 ---
 
@@ -409,6 +470,9 @@ Leaving the backend running: this app did not start it.
 `opspilot_postgres-data` · `opspilot_mcp-data` · `name=opspilot-` · `--tail 100`
 `%LOCALAPPDATA%\Programs\OpsPilot` · `%APPDATA%\OpsPilot\opspilot.env` · `resources\stack`
 `OPSPILOT_OPERATOR_TOKEN` · `:?` · `NUL`
+`OpsPilot-Setup-windows-x64`（artifact 名，**不带版本号**）·
+`OpsPilot-Setup-<version>-x64.exe`（安装包名）· `MZ`（PE 签名）· `NSIS`
+`Actions` · `Artifacts`（GitHub 界面上的名字）· 90 天（artifact 保留期）
 
 ---
 
@@ -425,6 +489,7 @@ Leaving the backend running: this app did not start it.
 | 步骤 | 结果 | 备注 |
 |---|---|---|
 | 0 环境（Docker 已启动） | ☐ 通过 ☐ 失败 | |
+| 0b 取得安装包 | ☐ 通过 ☐ 失败 | 来源：____（CI run id / commit，或是谁给的） |
 | 1 安装 | ☐ 通过 ☐ 失败 | 图标：☐ 蓝方块（新）　☐ 黑圆白三角（**缓存** → 重建缓存） |
 | 2 启动到仪表盘 | ☐ 通过 ☐ 失败 | 首次启动耗时：____ 分钟 |
 | 3.1 索引 17/17/98 | ☐ 通过 ☐ 失败 | 实际数字：____ |

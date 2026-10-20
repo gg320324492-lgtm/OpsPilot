@@ -28,9 +28,70 @@ someone who did not build it."
 | | |
 |---|---|
 | Windows | 10 or 11, x64 |
+| The installer | `OpsPilot-Setup-<version>-x64.exe`. See "Where to get the installer" below. |
 | Docker Desktop | installed, **and started**. See below if it is not. |
 | Free disk | ~6 GB. The first launch builds three container images from source. |
 | Time | first launch 5–15 minutes; later launches well under a minute |
+
+### Where to get the installer
+
+The file this script installs is `OpsPilot-Setup-<version>-x64.exe`. The version
+comes from `desktop/package.json` and changes from build to build, so match the
+name and not the number.
+
+**Option 1 — download it from CI.** Every push builds the installer and
+attaches it to that run. The `desktop-package` job of the **CI** workflow runs
+on `windows-latest`, builds the NSIS installer, and uploads it as a workflow
+artifact named **`OpsPilot-Setup-windows-x64`**.
+
+In the GitHub repository page, the path is:
+
+> repository → **Actions** → a run of the **CI** workflow whose
+> **`desktop-package (the Windows artefact)`** job succeeded → the
+> **Artifacts** section at the bottom of that run's page → download
+> **`OpsPilot-Setup-windows-x64`**
+
+Step by step:
+
+1. Open the **Actions** tab.
+2. Open a run of the **CI** workflow in which the job **`desktop-package (the
+   Windows artefact)`** succeeded. The CI workflow runs on every push to `main`
+   and on every pull request against it; the most recent successful run will
+   do.
+3. On that run's page, go to the **Artifacts** section at the bottom of the
+   page, and download **`OpsPilot-Setup-windows-x64`**.
+
+The download is a zip. Unpack it, and the installer is inside:
+`OpsPilot-Setup-<version>-x64.exe` — the file §1 tells you to double-click.
+Running it brings up the SmartScreen warning — see *A warning you will see and
+can ignore* below; that is expected, and it is not a fault in the file.
+
+**Why this source.** The artifact is built by a CI runner from one specific
+commit, and the run's page names that commit, so the package you install is one
+you can point at in your report. The job checks the file before uploading it:
+**exactly one** `OpsPilot-Setup-*-x64.exe` exists, it is **over a megabyte**,
+it **begins with the PE signature `MZ`**, and it **carries the NSIS
+signature** — so it really is the assisted, per-user installer §1 describes,
+and not something else with a similar name. The upload fails if it finds no
+file, so a successful run cannot have shipped nothing.
+
+**The artifact expires.** It is kept for **90 days**
+(`retention-days: 90` in `.github/workflows/ci.yml`) and is deleted after
+that. If the run you picked has nothing to download, it is probably older than
+that — **pick a more recent run**.
+
+**There is no GitHub Release.** Do not go looking for one: this repository has
+no tag and no release page, and the README links to no download. The artifact
+is a build product attached to one run: it expires, and it is indexed nowhere.
+
+**Option 2 — take the file from a developer.** If someone hands you the `.exe`
+directly, install it; this script does not care where the file came from. But
+know what you are holding. A file built on somebody's machine is a build of a
+**working tree**, not of a **commit**: the build output is gitignored, no
+commit in the repository records it, and nothing inside the file says which
+source tree produced it. It is a perfectly installable file with no traceable
+provenance behind it, where the CI artifact has a run and a commit behind it.
+**Prefer the CI artifact.**
 
 ### If Docker Desktop is not installed
 
@@ -332,13 +393,16 @@ Its log says so: *"Leaving the backend running: this app did not start it."*
 
 ## 7. Reporting
 
-If anything above failed, these four things make it diagnosable:
+If anything above failed, these five things make it diagnosable:
 
 1. What you saw, verbatim — the whole window log, not a paraphrase.
 2. `docker ps -a --filter name=opspilot-` and
    `docker compose -f "%LOCALAPPDATA%\Programs\OpsPilot\resources\stack\docker-compose.yml" logs --tail 100`
 3. Windows version, Docker Desktop version (`docker version`).
 4. Whether the first launch was the first launch, or a repeat.
+5. Which installer you ran, and where it came from — the CI run it was
+   downloaded from (the run's id, and the commit that run built) or the person
+   who gave you the file.
 
 ---
 
