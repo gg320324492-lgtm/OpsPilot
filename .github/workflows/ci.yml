@@ -804,11 +804,41 @@ jobs:
   # has no production dependency and deliberately so, and a checker that
   # needed a library would mean adding one or installing it in this job alone.
   #
-  # It is a separate file, and the file is named so that the filter in step 3
+  # It is a separate file, and the file is named so that the filter in step 4
   # picks it up: `packaged-posture` matches the *file path*, and a file
   # without it would run only in the Linux `desktop-check` job, where it
-  # skips. The count assertion in step 4 is the second line of defence — a
+  # skips. The count assertion in step 5 is the second line of defence — a
   # renamed file would leave five checks, and five is not six.
+  #
+  # THE INSTALLER, WHICH IS BUILT AND UPLOADED BUT NOT PUBLISHED
+  # -----------------------------------------------------------
+  # The one artefact this job did not produce was the one D2 needs.
+  # `npm run package:dir` ends in `--dir`, which writes
+  # `release/win-unpacked/` and no installer; the NSIS installer
+  # (`OpsPilot-Setup-0.1.0-x64.exe`, about 120 MB) was only ever produced by
+  # a developer running `npm run package` by hand. It is a build product, so
+  # it is gitignored (`desktop/.gitignore`), and there is no release to
+  # download it from — `docs/milestones.md`'s E-a row records that the tag is
+  # held back on purpose. The consequence is that **D2 could not be started
+  # at all**: the acceptance in `docs/phase2-plan.md` §P2-D2 is "on a clean
+  # Windows machine with Docker Desktop, install the built package and walk
+  # the golden path end to end … it must be run by someone who did not build
+  # it", and `docs/installer-verification.md` is the script for it — but a
+  # person who cannot clone this repository and cannot build it, which is
+  # what "someone who did not build it" means in practice, has nowhere to get
+  # the file. A walk-through that cannot be started is not a walk-through that
+  # is pending; it is one that is blocked, and the blocker was a missing
+  # file, not a missing person.
+  #
+  # So the job now builds the installer and uploads it as a workflow
+  # artefact. That is a build product attached to one run: it is not indexed
+  # as a download, it expires, and nothing in the repository links to it. It
+  # is **not** a GitHub Release, and making it one is still D2's business —
+  # `docs/milestones.md`'s E-a row says why: "publishing an unverified
+  # installer as `0.1.0` would put a download link in front of the test the
+  # plan says it must pass first". What the
+  # upload does is make the walk-through *runnable*; what it does not do is
+  # claim the walk-through has happened.
   #
   # WHAT THE JOB DOES
   # -----------------
@@ -820,15 +850,25 @@ jobs:
   #  2. `npm run package:dir` — the same script a developer runs. `--dir` builds
   #     the unpacked tree (`release/win-unpacked`) and not the NSIS installer,
   #     and that tree is what the spec reads and what the installer is made of.
-  #  3. `npx playwright test --project=lifecycle packaged-posture` — the specs
+  #  3. `npx electron-builder --win --x64` — the NSIS installer, which `--dir`
+  #     does not produce. It repacks the application from the `dist/` and
+  #     `stage/` trees the step above built, and compresses them into
+  #     `release/OpsPilot-Setup-<version>-x64.exe`. It does not rebuild the
+  #     dashboard, and it is the step that makes D2 runnable.
+  #  4. `npx playwright test --project=lifecycle packaged-posture` — the specs
   #     themselves, in the project that needs no Electron, no display and no
   #     Docker. The filter is matched against the file path, so it selects
-  #     `packaged-posture.spec.ts` and `packaged-posture-icon.spec.ts`.
-  #  4. An assertion that the run was not a skip, and that it ran all six
+  #     `packaged-posture.spec.ts` and `packaged-posture-icon.spec.ts`. Step 3
+  #     runs before this one, so the specs read the very tree the installer
+  #     was made of rather than a sibling of it.
+  #  5. An assertion that the run was not a skip, and that it ran all six
   #     checks. A green *skipped* run would mean the job proved nothing while
   #     reporting success — the same rule the `desktop-menu` job applies to a
   #     skipped Electron test and the `verify` job applies to a skipped
   #     postgres-marked test (ADR-0004).
+  #  6. An assertion that the three unpacked-tree artefacts are there, and
+  #     that the installer is too — the artefact the upload below sends.
+  #  7. An upload of the installer, for the person who has to install it.
   #
   # `OPSPILOT_PACKAGED_REQUIRED=1` is what turns the spec's skips into
   # failures. On a developer's machine `desktop/release/` does not exist, and a
@@ -842,7 +882,10 @@ jobs:
   # interesting case — a token in the build environment is the one most likely
   # to be embedded in the artefact, and the check asserts that the value which
   # was in the environment while the package was built appears in no packaged
-  # file.
+  # file. There are now two builds in this job — the `--dir` one and the NSIS
+  # one — and the environment is the same for both, so the A3 check covers
+  # both: it reads the tree the NSIS build produced, and that is the tree
+  # that went into the installer.
   # ------------------------------------------------------------------------- #
   desktop-package:
     name: desktop-package (the Windows artefact)
@@ -892,6 +935,75 @@ jobs:
         # and the runtime tree the installer ships; the last one writes
         # `release/win-unpacked`, which is the artefact the next step reads.
         run: npm run package:dir
+      - name: Build the NSIS installer
+        # WHY THIS IS NOT `npm run package`
+        # -------------------------------
+        # `npm run package` is `build:web && build && stage && electron-builder
+        # --win --x64`: the same four commands as `package:dir`, and it ends in
+        # the installer rather than in `--dir`. Swapping the step above for it
+        # would work, and it would cost this job a *second* `build:web` — a
+        # full Next.js production build, which is the slowest thing in the job
+        # by a wide margin — to change nothing but the packager's target.
+        #
+        # So this step runs `electron-builder` on its own, and the reason that
+        # is safe is the thing worth writing down: **`electron-builder` does
+        # not build the dashboard.** It has no idea Next.js exists. It packs
+        # `dist/**` into `app.asar` and copies `stage/stack` into
+        # `resources/stack` — that is the `files` whitelist and the
+        # `extraResources` entry in `electron-builder.yml` — and the step
+        # above has already produced both: `npm run build` wrote `dist/`,
+        # `npm run stage` wrote `stage/stack/`. The build log says so
+        # plainly, and there is no dashboard build anywhere in it:
+        #
+        #     loaded configuration  file=…/desktop/electron-builder.yml
+        #     skipped dependencies rebuild  reason=npmRebuild is set to false
+        #     packaging  platform=win32 arch=x64 electron=44.7.1
+        #     building   target=nsis file=…/OpsPilot-Setup-0.1.0-x64.exe
+        #
+        # What it *does* redo is the asar pack, and the asar is the thing the
+        # installer is made of. That is a few seconds of `app-builder`, not a
+        # Next build, and it is what buys the artefact D2 needs.
+        #
+        # WHY IT RUNS BEFORE THE CHECKS
+        # ------------------------------
+        # `electron-builder --win --x64` rebuilds `release/win-unpacked/` — the
+        # same tree, from the same `dist/` and `stage/` inputs — and then
+        # compresses *that* tree into the installer. Running it here, before
+        # the specs, means the specs read the very tree the installer ships
+        # rather than a sibling of it. The job's header already claimed "that
+        # tree is what the spec reads and what the installer is made of";
+        # after this step that sentence is true by construction rather than by
+        # coincidence.
+        #
+        # It also decides what the A3 check covers. `OPSPILOT_OPERATOR_TOKEN`
+        # is in the environment of this build, and the check that asserts the
+        # token appears in no packaged file reads the tree this step
+        # produced — so the token that was in the environment while the
+        # *installer* was built is the token the check looks for. Run this
+        # step last instead, and the checked tree would be a different build
+        # of the same inputs, with nothing in the job comparing the two.
+        #
+        # WHAT IT COSTS
+        # -------------
+        # `electron-builder` fetches its own toolchain, and the part of it
+        # that is new here is the NSIS pair: `nsis-3.0.4.1.7z` and
+        # `nsis-resources-3.4.1.7z`, 2,018,312 bytes together, from
+        # `https://github.com/electron-userland/electron-builder-binaries/
+        # releases`. The 151 MB Electron runtime is *not* part of that: the
+        # `--dir` build above already fetched it, and the NSIS build reuses
+        # the same cache. Nor is `winCodeSign`: on Windows the resource
+        # editor that stamps the icon into `OpsPilot.exe` comes from the
+        # bundled `app-builder.exe`, and that archive is for the MSIX target
+        # and for the Wine path on Linux and macOS. So the marginal download
+        # is about 2 MB, and the marginal *time* is one LZMA pass over the
+        # 400 MB unpacked tree — the same order as the `--dir` build above,
+        # and nothing like a Next.js production build. The toolchain is
+        # cached under `%LOCALAPPDATA%\electron-builder\Cache`, so a re-run
+        # on the same runner does not fetch it again. If it cannot be
+        # fetched the step fails at the download, with electron-builder's own
+        # error — which is the honest report, and leaves the six checks
+        # below unrun rather than green.
+        run: npx electron-builder --win --x64 --config electron-builder.yml
       - name: Check the packaged artefact against A1–A3, and against the icon it ships
         # `set -o pipefail` is what makes the `| tee` safe: without it the
         # step's status would be `tee`'s, and a failing check would leave this
@@ -947,6 +1059,127 @@ jobs:
             fi
             echo "found $artefact"
           done
+      - name: Assert the installer was actually built
+        # The same assertion, for the one file D2 is waiting on.
+        #
+        # `actions/upload-artifact` with `if-no-files-found: error` is the
+        # backstop; this step is the report, and the reason both exist is that
+        # an artefact upload is *silent* when it finds nothing — the default
+        # is `warn`, the step stays green, and the run reports a successful
+        # "package the installer" job that produced no installer. A green job
+        # that shipped nothing is the failure this job must not be able to
+        # have, and it is the same rule the `desktop-menu` job applies to a
+        # skipped Electron test and the `verify` job applies to a skipped
+        # postgres-marked test: a run that proved nothing must not report
+        # success (ADR-0004).
+        #
+        # Four things are checked, each of them excluding a different failure:
+        #
+        #   * **Exactly one** `OpsPilot-Setup-*-x64.exe`. The shape of the
+        #     glob is the name `docs/installer-verification.md` §1 tells the
+        #     walker to double-click, and the count is one because a second
+        #     file of that shape would make "download the installer" ambiguous
+        #     — and an ambiguous artefact is one nobody downloads. The version
+        #     is deliberately not written down: it comes from
+        #     `desktop/package.json` and changes without this file changing.
+        #   * **Over a megabyte.** A truncated or empty file satisfies `-f`,
+        #     and the floor is deliberately loose: the real installer is about
+        #     120 MB, so a tight number here would be a fingerprint of the
+        #     Electron version and of the LZMA encoder rather than a check.
+        #   * **It begins with `MZ`.** A file that is not a PE executable is
+        #     not installable, whatever it is called.
+        #   * **It carries the NSIS signature.** This is the one that says
+        #     *the installer D2's script describes*: `installer-verification.md`
+        #     §1 walks the operator through an assisted, per-user install
+        #     that needs no administrator rights, and that is
+        #     `electron-builder.yml`'s `nsis:` block (`oneClick: false`,
+        #     `perMachine: false`). A file with the right name and a
+        #     different installer technology would send the walker into a
+        #     script that no longer describes what they are running.
+        run: |
+          set -o pipefail
+          # `nullglob` so that a glob matching nothing expands to nothing
+          # rather than to the literal pattern, which would look like a file.
+          shopt -s nullglob
+          installers=(release/OpsPilot-Setup-*-x64.exe)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one NSIS installer matching release/OpsPilot-Setup-*-x64.exe; found ${#installers[@]}. The NSIS build did not produce the installer D2's walk-through installs."
+            exit 1
+          fi
+          installer="${installers[0]}"
+          size=$(stat -c%s "$installer")
+          echo "installer: $installer ($size bytes)"
+          if [ "$size" -lt 1048576 ]; then
+            echo "::error::$installer is $size bytes, far too small to be the installer (it is about 120 MB). The file is there, but the packaging did not finish."
+            exit 1
+          fi
+          magic=$(head -c 2 "$installer" | od -An -tx1 | tr -d ' \n')
+          if [ "$magic" != "4d5a" ]; then
+            echo "::error::$installer does not begin with the PE signature (MZ). It is not a Windows executable."
+            exit 1
+          fi
+          if ! grep -qa "NullsoftInst" "$installer"; then
+            echo "::error::$installer carries no NSIS signature. It is an executable, but not the assisted per-user installer docs/installer-verification.md describes."
+            exit 1
+          fi
+          echo "the installer is present, and it is an NSIS executable"
+      - name: Upload the installer for the D2 walk-through
+        # WHAT THIS ARTEFACT IS FOR
+        # -------------------------
+        # It is the file `docs/installer-verification.md` starts from: install
+        # the built package on a clean Windows machine with Docker Desktop,
+        # and walk the golden path end to end. That is §P2-D2's acceptance,
+        # and `docs/milestones.md` still records D2 as outstanding and only a
+        # person able to close it. The person running it has no repository
+        # and no toolchain — that is what "someone who did not build it" means
+        # in practice — so the installer has to be *downloadable*, and until
+        # this step it was not. It was a build product on one developer's
+        # machine: gitignored, unreproducible from any commit, and attached
+        # to no run.
+        #
+        # WHY THIS IS NOT A RELEASE
+        # ------------------------
+        # A GitHub Release is a publish, and `docs/milestones.md`'s E-a row
+        # holds it back on purpose: "publishing an unverified installer as
+        # `0.1.0` would put a download link in front of the test the plan says
+        # it must pass first". A workflow
+        # artefact is not that: it is a build product attached to one run, it
+        # is not indexed as a download anywhere, it expires, and nothing
+        # links to it. The tag is still not cut. What this step does is make
+        # D2 *runnable*; what it does not do is claim D2 has been run — and
+        # `docs/milestones.md` is the file that says so, not this workflow.
+        #
+        # `if-no-files-found: error` is the other half of that sentence: an
+        # upload that finds nothing must fail the step loudly, not warn and
+        # pass. The step above has already asserted the file is there; this
+        # is what makes the *upload* unable to quietly do nothing.
+        #
+        # Only the installer goes up. The `.blockmap` beside it is
+        # electron-builder's differential-update metadata — for an auto-update
+        # that does not exist yet — and the README lists it among the assets
+        # a *release* would carry, not among the things a walk-through needs.
+        #
+        # The name is deliberately without a version. `OpsPilot-Setup-
+        # windows-x64` is what the instructions can say and stay true after
+        # the next version bump; the version is in the file name inside the
+        # artefact, and the walk-through asks for `OpsPilot-Setup-<version>-
+        # x64.exe` anyway.
+        #
+        # `retention-days: 90` is stated rather than inherited, because the
+        # thing this artefact is for is performed by a person, on a machine
+        # with Docker Desktop, on their own schedule — and a default that
+        # quietly expired first would block D2 again, in exactly the way this
+        # step exists to stop.
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpsPilot-Setup-windows-x64
+          # The path is relative to the workspace root, not to this job's
+          # `working-directory` (`desktop`) — the `uses:` steps do not inherit
+          # `defaults.run`, the same reason the `web-e2e` job uploads
+          # `web/test-results/` and not `test-results/`.
+          path: desktop/release/OpsPilot-Setup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 90
 
   # ------------------------------------------------------------------------- #
   # docker-build — builds the Compose stack and proves it comes up
