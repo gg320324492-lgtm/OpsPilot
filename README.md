@@ -315,7 +315,7 @@ reaches this screen.
 > finance system. And no credential appears in any of them: the operator token is
 > read only in the dashboard's server process and never reaches the renderer.
 
-### Why there is no video, and what it would take
+### Why there is no video yet, and which one there will be
 
 There is no screen recording in this repository, and the honest reason is worth
 more than a placeholder would be. Three things make one hard, and only the first
@@ -331,18 +331,100 @@ is a tooling problem:
    needs a full image build, four Compose services, a reindex, and up to three
    minutes of worker polling per capture. A CI artifact would be the honest home
    for it — recorded on `web-e2e`, uploaded like the compose logs already are.
-3. **A screen recording is weaker evidence than the screenshots above.** Each of
-   these ten is a state a human can reach and check; a video is a state someone
-   else recorded. This repository's own habit is to ask the billing server what it
-   did rather than take the run's word for it, and that argues for images and a
-   transcript over moving pictures.
+3. **A browser recording is weaker evidence than the screenshots above.** Each of
+   these ten is a state a human can reach and check; a browser recording is a
+   state someone else recorded. This repository's own habit is to ask the billing
+   server what it did rather than take the run's word for it, and that argues
+   for images and a transcript over moving pictures.
 
-What would actually be worth recording, in priority order: the `web-e2e`
-golden-path walkthrough (it already exists as a test — recording it is a config
-change plus a CI artifact), and the failure states in
-`web/e2e/failure-states.spec.ts`, which are what an operator actually has to
-debug. The **case study** above covers the narrative the video would have
-covered, and every number in it can be checked against a file.
+**Point 3 is about browser recordings, and it is not about every recording.**
+The argument above is strong, and it is strong for one kind of thing: a capture
+of the dashboard moving, produced by the same Playwright run that produces the
+screenshots, on the machine that built the application. Against *that*, the ten
+screenshots win, and the reason is specific rather than general. A screenshot is
+a state a reader can **arrive at** and check for themselves; a browser video is
+a state someone else recorded, and the reader can only watch it. A repository
+whose habit is to ask the billing server what it did will not take a moving
+picture in place of asking.
+
+**The recording this repository is going to have is not a browser recording.**
+It is the one the D2 walk-through produces, and its subject is not the
+application — it is **the installer, and the interface, on a machine that did
+not build them**: a stranger, on a clean Windows machine, installing the
+packaged build and taking the golden path through the operator's screens. The
+ten screenshots cannot stand in for it, because their subject is the
+application's behaviour and this one's subject is the product's arrival. They
+show that the app looks like this on the machine that built it. A recording of
+the install shows the thing they cannot: that it **installs** on a machine
+that has never seen it, that it **starts**, and that the screens are legible to
+the operator using them. That is the claim §P2-D2 is still open on, and it is
+the one claim the ten screenshots are not making.
+
+| | the browser recording | the D2 walk-through recording |
+|---|---|---|
+| what it records | the dashboard's own flow, in Chromium, in the author's stack | a stranger installing the packaged app on a clean machine, then walking the golden path |
+| what it proves | that the app works | that it **installs and runs for a person who did not build it** |
+| against the ten screenshots | weaker — a state someone else recorded | stronger — a claim the screenshots do not make |
+
+**In priority order, and why each one sits where it does.**
+
+1. **The D2 walk-through recording.** First, because it proves the most: it is
+   the only evidence for the claim that the packaged product works on a
+   stranger's machine, and no arrangement of screenshots reaches that claim.
+   Second, because it is the only recording the project is *owed* — §P2-D2 is
+   the one acceptance criterion still open, and the walk that closes it produces
+   this recording as a by-product, so it costs nothing extra: somebody is going
+   to be at that keyboard regardless. Third, because it is the only one of the
+   three that closes a documented gap rather than adding comfort to one that is
+   already closed.
+2. **The `web-e2e` browser recording.** Second, because it is nearly free — the
+   golden-path walkthrough already exists as a test, so recording it is
+   `use: { video: "on" }` in `web/playwright.config.ts` plus a CI artifact —
+   and because a reader who wants to watch the flow move has no way to today.
+   It is second and not first for the reason in point 3: it would be *weaker*
+   evidence than the ten screenshots already committed, so it adds motion rather
+   than proof. The **case study** above covers the narrative it would have
+   covered, and every number in it can be checked against a file.
+3. **The failure states in `web/e2e/failure-states.spec.ts`.** Third, because
+   they are the least legible of the three on their own: a recording of an
+   error state without a caption is a video of a red box, and those states are
+   already specified in prose and asserted in tests. If the D2 walk-through
+   catches an error state for real — the Docker warning, a run that will not
+   start — that is worth more than a staged one.
+
+**Where the recording will live, and what it will be called.** The D2
+walk-through's recording will be committed to this repository at
+`docs/assets/d2-walkthrough.mp4`, beside `golden-path.gif` and the ten
+screenshots, and embedded here in a `<video>` element. The format is **MP4
+(H.264)**: it is the container GitHub's README renderer plays most reliably,
+every browser plays it, and the size is predictable. Playwright's native output
+is WebM (VP8/VP9), and if the walk-through's capture produces one it is kept
+beside it as `docs/assets/d2-walkthrough.webm` — the source the MP4 was
+transcoded from, offered inside the same `<video>` element as a second
+`<source>` for a browser that prefers it:
+
+```html
+<video controls width="768" preload="none">
+  <source src="docs/assets/d2-walkthrough.mp4" type="video/mp4">
+  <source src="docs/assets/d2-walkthrough.webm" type="video/webm">
+  The D2 walk-through recording: a stranger installing OpsPilot on a clean
+  Windows machine and walking the golden path.
+</video>
+```
+
+**The committed MP4 must stay under 10 MiB.** The file lives in this
+repository's history, so every clone pays for it, and an install-and-walk
+recording fits in that at a modest bitrate: record at a fixed 1280x720, with no
+audio, and a bitrate that lands the file in the low megabytes. A screen
+recorder's own defaults will not do that.
+
+**This section is not standing in for a file that does not exist.** The
+recording has not been made: D2 has not been run, so there is nothing to embed
+here, and nothing in this README pretends otherwise. The two halves of that
+promise are held together by `tests/unit/test_d2_walkthrough_recording.py`: it
+fails if this README points at a recording the tree does not have, and it
+fails if the tree has a recording this README does not point at. The file and
+the reference cannot drift apart.
 
 ## Why this is not another chatbot
 

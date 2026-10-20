@@ -6632,3 +6632,80 @@ the sentence needs to become the fact it describes, and the fact is a
 narrower gap than the one it replaces: the pair is checked at both ends, and
 what is *not* covered is the contributor's own Pillow, which is a
 contributor's obligation rather than a hole in the tree.
+
+### The recording the D2 walk-through will produce, and the guard that holds it to a name
+
+§P2-D2 is the one acceptance criterion this project still owes, and the walk
+that closes it is going to be recorded. The recording is therefore going to
+become a binary committed to this repository, and a binary is the one kind of
+change a diff does not show — an oversized file, a file under the wrong name, a
+WebM wearing an `.mp4` name — so it needs the same kind of guard the committed
+artwork has. This is where the convention is written down rather than left in
+somebody's head.
+
+**The convention.** The recording will be committed at
+`docs/assets/d2-walkthrough.mp4`, beside `golden-path.gif` and the ten
+screenshots, and the README will embed it in a `<video>` element. The format
+is **MP4 (H.264)**: it is the container GitHub's README renderer plays most
+reliably, every browser plays it, and its size is predictable. Playwright's
+native output is WebM (VP8/VP9), so if the walk-through's capture produces
+one it is kept beside it as `docs/assets/d2-walkthrough.webm` — the source the
+MP4 was transcoded from — and offered inside the same `<video>` element as a
+second `<source>`, for a browser that prefers it. The committed MP4 must stay
+**under 10 MiB**: the file lives in this repository's history, so every clone
+pays for it, and an install-and-walk recording fits in that at a modest
+bitrate — a fixed 1280x720, no audio. A screen recorder's own defaults will
+not do that.
+
+**Two recordings, and two different strengths.** The `web-e2e` browser
+recording and the D2 walk-through recording are not the same kind of thing, and
+the README used to treat them as one. The old argument — that a screen
+recording is weaker evidence than the ten committed screenshots, because a
+screenshot is a state a reader can *arrive at* and check for themselves while
+a video is a state someone else recorded, and because this repository's habit
+is to ask the billing server what it did rather than take a run's word for it —
+is strong, and it still holds, but it holds for the **browser** recording: a
+capture of the dashboard moving, produced by the same Playwright run that
+produces the screenshots, on the machine that built the application. It does
+not hold for the walk-through's recording, whose subject is not the
+application but the **install** — a stranger, on a clean Windows machine,
+installing the packaged build and taking the golden path through the
+operator's screens. The ten screenshots show that the app looks like this on
+the machine that built it; a recording of the install shows that it installs
+on a machine that has never seen it, that it starts, and that the screens are
+legible to the operator using them. That is the claim §P2-D2 is open on and
+the one the screenshots are not making. So the walk-through's recording is the
+one to record, the browser recording is second — nearly free, a `use: { video:
+"on" }` and a CI artifact, but weaker than the screenshots already committed —
+and the failure states are third, because a recording of an error state
+without a caption is a video of a red box, and those states are already
+specified in prose and asserted in tests.
+
+**The guard.** `tests/unit/test_d2_walkthrough_recording.py` holds the two
+halves of the promise together, in both directions, because either half alone
+is worthless. The README may not point at a recording the tree does not have —
+the rule the README already sets for itself about the GitHub Release ("this
+README will not link to a download that does not exist"), applied to a video —
+and a recording committed and never pointed at is a failure too, because a
+ten-megabyte file nobody can find is how a binary ends up in this
+repository's history with nothing explaining it. The guard also fixes the
+name, the container and the size: a file called `d2-walkthrough.mp4` has to
+*be* an MP4 carrying an H.264 track, not a WebM with a new extension, and it
+has to be under the ceiling. Its expectations are hand-written, for the reason
+`tests/unit/test_desktop_icon_is_current.py` gives: a test that reads its
+expectation from the thing it checks proves nothing.
+
+**The line it draws between naming a file and pointing at one.** The README
+has to be able to *name* the recording before the recording exists — the
+convention has to be written down somewhere, or the person who runs the
+walk-through does not know what to produce. So the guard treats a path in
+prose, in backticks or in a fenced block as a **name**, and only a path the
+README *renders* — an HTML `src`/`href`, or a Markdown link or image target —
+as a **reference**. That is the same line `desktop/e2e/error-text.spec.ts`
+draws between a quoted string and the prose around it, and without it the
+README could not describe a file that is not in the tree yet.
+
+**D2 has not been run, so the recording does not exist.** Nothing in the
+README points at a video file, nothing under `docs/assets/` is one, and the
+guard is green because both halves of the promise are unfulfilled *together*
+rather than one of them.
