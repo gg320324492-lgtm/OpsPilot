@@ -40,7 +40,7 @@ Protocol only; nothing above the adapter imports the MCP SDK.
 `RESTToolGateway` inherits it unchanged. Tests use a `StubGateway` that returns
 canned results with no subprocess and no protocol, which makes the agent and
 security suites fast and hermetic. A change to MCP SDK versions is confined to
-one file.
+two files, both under `adapters/tools/`.
 
 **Cost.** One more indirection, and the port must be designed before either
 implementation exists, so it may be wrong in ways only the second implementation

@@ -58,21 +58,26 @@ And the registry is asserted against a hard-coded literal in
 `tests/security/test_permission_immutability.py`:
 
 ```python
-EXPECTED_PERMISSIONS = {
-    "knowledge.search": Permission.READ,
-    "crm.get_customer": Permission.READ,
-    "crm.get_account": Permission.READ,
-    "crm.get_subscription": Permission.READ,
-    "billing.get_invoice": Permission.READ,
-    "billing.list_transactions": Permission.READ,
-    "billing.issue_refund": Permission.HIGH_RISK_WRITE,
-    "issues.search": Permission.READ,
-    "issues.create": Permission.SAFE_WRITE,
+EXPECTED_REGISTRY: dict[str, tuple[str, str, str, bool, bool]] = {
+    "knowledge.search": ("knowledge.search", "read", "internal", False, False),
+    "crm.get_customer": ("crm.get_customer", "read", "crm", False, False),
+    "crm.get_account": ("crm.get_account", "read", "crm", False, False),
+    "crm.get_subscription": ("crm.get_subscription", "read", "crm", False, False),
+    "billing.get_invoice": ("billing.get_invoice", "read", "billing", False, False),
+    "billing.list_transactions": ("billing.list_transactions", "read", "billing", False, False),
+    "billing.issue_refund": ("billing.issue_refund", "high_risk_write", "billing", True, True),
+    "issues.search": ("issues.search", "read", "issues", False, False),
+    "issues.create": ("issues.create", "safe_write", "issues", False, False),
 }
 
 def test_registry_matches_expected():
-    assert {n: s.permission for n, s in TOOL_REGISTRY.items()} == EXPECTED_PERMISSIONS
+    assert actual == EXPECTED_REGISTRY
 ```
+
+The literal holds the whole tuple — name, permission, server, whether the tool
+requires an idempotency key, and whether it requires an approval — rather than
+the permission alone, so a tool cannot have its permission edited in one place
+and its server or its approval requirement edited in another.
 
 Downgrading a permission is therefore always two coordinated edits — the
 registry and the literal — and the diff shows the old and new value side by side

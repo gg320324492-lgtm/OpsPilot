@@ -29,9 +29,11 @@ npm run package        # -> release/OpsPilot-Setup-0.1.0-x64.exe  (NSIS, per-use
 npm run package:dir    # the same, unpacked, for a smoke test
 ```
 
-`npm run package` is three steps: compile the shell (`tsc` + the renderer
-copy), stage the runtime tree, then run `electron-builder`. What each one is
-for is below; the configuration itself is `electron-builder.yml`.
+`npm run package` is four steps: build the dashboard (`build:web`), compile the
+shell (`tsc` + the renderer copy), stage the runtime tree, then run
+`electron-builder`. The first is why the `cd ../web && npm run build` above is
+belt-and-braces rather than the only way. What each one is for is below; the
+configuration itself is `electron-builder.yml`.
 
 **The dashboard is built before packaging, not at first run.** `next build
 --output standalone` traces exactly what the server needs and emits it to
@@ -228,12 +230,27 @@ someone who did not build this.
 | The dashboard server, always | Yes |
 
 The first row is the whole point of `Ownership` in `src/lifecycle/session.ts`.
-The decision is made once, before anything is started, by asking the API whether
-it is already serving `/ready` — not by `docker compose ps`, which would not see
-a stack this repository did not start. A developer with the stack already up
-gets it left alone, and the window says so:
+The decision is made **before anything is started**, and it is two questions,
+not one. The first is whether the API is already serving `/ready` — not
+`docker compose ps`, which would not see a stack this repository did not
+start. A developer with the stack already up gets it left alone, and the window
+says so:
 
 > Using the backend already running on http://127.0.0.1:8000.
+
+The second question is asked only when the first one answers yes: **does that
+backend accept this app's operator token?** An authenticated `GET /api/runs`
+carrying the token the app is about to hand its dashboard answers it, and a
+`401`/`403` means the two halves disagree — the stack was started under a
+different `OPSPILOT_OPERATOR_TOKEN`. The app then **refuses to adopt it** and
+fails the launch with *"The backend already running does not accept this app's
+operator token"*, rather than starting its own stack beside it. That is a third
+outcome the table above does not have, and it is the right one: every approval
+would be refused while the dashboard still rendered normally, which is a
+healthy-looking screen that cannot do its one job. The same check catches the
+weaker case where the token's own sources disagree — the shell logs that
+Compose and the dashboard would disagree about it, and every approval would be
+refused.
 
 `docker compose down` runs **without** `-v`. The e2e harness uses `-v` and that
 is right there — a CI run wants an empty database. Here it would delete the
@@ -252,24 +269,34 @@ than retrying or spinning:
 Each carries the daemon's or Compose's own words as well, because that is the
 part an operator can match against their machine.
 
-## Why this window is English even when the dashboard is not
+## Which parts of this window are localised, and which are not
 
 The dashboard is localised (`web/src/i18n/`; Chinese is the first translation,
-English is the source locale). **This window is not, deliberately**, and the
-reason is timing rather than taste.
+English is the source locale), and so is **this window's native menu bar**.
 
-The bootstrap page renders *before* the dashboard is reachable. It is what the
-operator sees when `docker compose up` takes two minutes on a first launch, and
-it is the page that has to say "Docker is not installed" when nothing will ever
-come up. The dashboard's locale is a cookie in the **system browser's** profile,
-set on a page this window has not reached yet and will never read — it hands the
-browser off with `window.location.assign` and stops existing. So there is no
-mechanism by which this window could follow the dashboard's locale, only a
-mechanism by which it could be *wrong*: Electron's own `app.getLocale()` would
-answer for the OS while the dashboard answers for the cookie, and one app would
-speak two languages to the same person at the same moment.
+The menu is built in the operator's language, and it learns that language from
+the same cookie the dashboard renders from: the shell loads the dashboard *in
+its own window*, so the dashboard writes `opspilot_locale` into Electron's own
+session cookie store, and `src/menu.ts` reads it out of that store
+(`readLocaleCookie`) and rebuilds the menus when it changes
+(`watchLocaleCookie`). `src/menu-policy.ts` holds the copy for both locales
+and pins the cookie name to the dashboard's. So an operator who chose `zh-CN`
+in the dashboard gets a Chinese File / Edit / View / Window menu, and gets it
+re-rendered when the choice changes.
 
-Two further reasons, both about the failure path specifically:
+**This section used to say the opposite** — that the window is deliberately
+English, and that "there is no mechanism by which this window could follow the
+dashboard's locale". That was wrong, and the reason it was wrong is that it
+described the *browser hand-off* rather than this package: the shell does not
+hand the dashboard to the system browser at all. It loads it in its own window,
+which is the whole point of the application menu.
+
+What is still English is the **bootstrap page**: the page the operator sees
+before the dashboard is reachable, while `docker compose up` takes two minutes
+on a first launch, and the page that has to say "Docker is not installed" when
+nothing will ever come up. It cannot know the locale yet, because the cookie
+that carries it has not been written. Two further reasons, both about the
+failure path specifically:
 
 - **These strings are the remedy.** `Install Docker Desktop and start it` is the
   instruction an operator acts on with nothing else working. It is the worst
@@ -278,15 +305,14 @@ Two further reasons, both about the failure path specifically:
   in `desktop/e2e/`. Localising them is possible; it is a decision with a cost,
   and this is the decision.
 
-If this ever changes, the shape that works is: the dashboard passes its locale on
-the hand-off URL, the shell reads it there and applies it only from the second
-window onwards, and the *first* window stays English because it is the one that
-runs before anything knows anything. That is a larger change than a translation
-table and it is not this package's.
+If the bootstrap page ever changes, the shape that works is: the shell reads
+the cookie it already has a reader for, and applies it to the failure strings
+too — which is a translation table and a change to the pinned assertions, and
+not this package's.
 
 ## The security configuration
 
-`src/security-policy.ts` holds the policy; `src/security.ts` holds the six
+`src/security-policy.ts` holds the policy; `src/security.ts` holds the five
 Electron calls that install it; `desktop/e2e/security.spec.ts` asserts the
 first and `desktop/e2e/shell.spec.ts` observes it in a running window.
 
@@ -319,6 +345,7 @@ src/lifecycle/    the decisions — compose commands, ownership, readiness,
 src/runtime/      the real implementations of those ports: child processes,
                   sockets, the filesystem.
 src/security*.ts  the policy, and the Electron calls that install it.
+src/menu*.ts      the native application menu, and the locale it follows.
 src/preload.ts    the entire renderer bridge: two functions.
 src/renderer/     the bootstrap page. Three static files, no build step.
 ```
@@ -332,12 +359,16 @@ structure: `stack-diagnostics.spec.ts` there is `e2e/*.spec.ts` here.
 
 ```bash
 npm run test:lifecycle   # no Electron, no Docker, no browser binary
+npm run test:menu        # the native menu, and the locale it follows
 npm run test:shell       # launches the real app in a real window
 ```
 
 `test:lifecycle` is what CI runs (`desktop-check`). `test:shell` needs a display
 and skips cleanly without one — the ADR-0004 pattern `web/e2e/stack.ts` uses for
-Docker.
+Docker. `test:menu` is the menu's own project: it drives the real window and
+asserts that the menus are rebuilt when the `opspilot_locale` cookie changes,
+which is the behaviour described under *Which parts of this window are
+localised*.
 
 ## Environment
 
@@ -345,7 +376,7 @@ Docker.
 |---|---|---|
 | `OPSPILOT_DESKTOP_PORT` | `3210` | The dashboard port. Not 3000 (the compose `web` service) and not 3100 (the e2e host dashboard) — see `dashboard-port.ts` for why those two used to collide. |
 | `OPSPILOT_OPERATOR_TOKEN` | read from `.env` / `web/.env.local`, or generated | Overrides the token. `docker-compose.yml` requires it with the `:?` form, so without one Compose will not render the project at all. An **installed** copy has no `.env` to read, so `src/runtime/operator-token.ts` generates one into `%APPDATA%\OpsPilot\opspilot.env` on first launch and consults it last. |
-| `OPSPILOT_CORS_ORIGINS` | appended to | The window's own origin is added, never substituted. The API's allowlist defaults to `http://localhost:3000`, which is `npm run dev`; this window is `http://127.0.0.1:3210`. |
+| `OPSPILOT_CORS_ORIGINS` | appended to | The window's own origin is added, never substituted. The API's allowlist defaults to `http://localhost:3000`, which is `npm run dev`; this window is `http://127.0.0.1:3210`. The shell **always** exports the variable, so Compose's `:-http://localhost:3000` default never applies here: the effective allowlist for a stack this app started is the window's origin alone. |
 
 The dashboard is served from `web/.next/standalone/server.js` with
 `HOSTNAME=127.0.0.1`, because the generated server reads

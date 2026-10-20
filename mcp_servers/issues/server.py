@@ -34,7 +34,11 @@ __all__ = ["create_server", "main", "server"]
 
 _SEED_PATH = Path(__file__).parent / "seed.json"
 
-ErrorCode = Literal["validation_error", "not_found"]
+#: The only refusal code this server can produce. A query that matches nothing
+#: is an empty result, not an error, so there is no ``not_found`` path here --
+#: declaring one in the generated schema would advertise a failure the tool
+#: cannot have, and the schema is the contract the agent reasons over.
+ErrorCode = Literal["validation_error"]
 
 
 # ---------------------------------------------------------------------------

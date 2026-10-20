@@ -991,6 +991,36 @@ legible):
   not be — it compares the runtime's behaviour with the specification, rather
   than two copies of the specification with each other.
 
+- **The contract promised the CRM's error codes would reach the agent, and
+  they did not.** `docs/mcp-contracts.md` §5.2: "Each server returns a
+  structured error object with a `code`, which the gateway maps to
+  `ToolCall.error` and `rejection_reason`." The gateway maps the code by
+  reading a **top-level** `code`; the `billing` and `issues` servers put it
+  there and the `crm` server nested it one level down, inside an `error`
+  object.
+
+  So every CRM refusal arrived at the runtime as a **successful** call:
+  `ToolCall.status='executed'`, `error=NULL`, and a `tool_executed` audit
+  event. A failed lookup was recorded as a success in the compliance ledger.
+  The agent could still read the code out of the observation payload, so it
+  was not blind to the failure — but the ledger, the `tool_calls.error` column
+  and the failure event all said the lookup worked.
+
+  Nothing caught it, and one test pinned it: the stdio transport's
+  `test_a_structured_refusal_survives_the_wire` asserted `result.ok is True`,
+  with the message "a tool's own refusal is a successful call that reports a
+  refusal", and explained in its docstring that the code lived one level down
+  *because* the server's result model carried it there. The defect, described
+  as if it were the design.
+
+  The CRM result models now carry the code at the top level, like the other
+  two servers, and the `issues` server's error-code literal lost a
+  `not_found` it could never produce.
+  `tests/integration/test_mcp_refusal_codes_reach_the_gateway.py` asserts
+  that every tool of every server declares a top-level `code` in its output
+  schema, and that a refusal from each of the three servers arrives through
+  the real gateway as `ok=False` with the code intact.
+
 - **Nine of the sixteen `postgres`-marked tests were never executed by
   anything.** They carry the `postgres` mark and skip wherever no server is
   reachable; the `verify` job's broad step excludes `-m "not postgres"`, and no

@@ -38,8 +38,8 @@ CLAIMABLE = frozenset(RunStatus) - {WAITING_APPROVAL, COMPLETED, FAILED}
 so a run parked on approval is never re-claimed while it waits — the property
 that makes the approval gate actually stop work rather than loop on it.
 
-The worker runs as a separate process (`apps/worker/main.py`), in its own
-container in Compose. Approval is **edge-triggered**: `POST
+The worker runs as a separate process (`src/opspilot/worker/__main__.py`,
+the `opspilot-worker` entry point), in its own container in Compose. Approval is **edge-triggered**: `POST
 /api/approvals/{id}/approve` transitions the run back to `EXECUTING`, which puts
 it back inside the claim predicate, and the worker's next poll picks it up.
 
@@ -75,8 +75,11 @@ is claimed and then abandoned stays `RECEIVED` for up to one lease period
 projects the lease as `claim_lease` on `GET /api/runs/{id}`
 (`docs/api-contract.md` §3) and the dashboard renders it, so an operator can
 tell a held run from a run nothing claimed without leaving the page. The boot
-sweep still does not clear the lease and the worker's log still does not mention
-it; both remain true, and neither is on the path an operator reads.
+sweep still does not clear the lease, and the worker's log does not mention the
+lease on the path an operator reads -- the one line that does mention it fires
+when a worker *loses* a run ("lease not renewed: run=… worker=… no longer holds
+it"), not on the ordinary claim path. Both remain true, and neither is on the
+path an operator reads.
 
 **Cost.** Polling means up to `WORKER_POLL_INTERVAL` (default 1s) of added
 latency, and an idle worker issues a query per second per replica. Both are

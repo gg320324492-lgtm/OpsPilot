@@ -19,6 +19,22 @@ the contract the agent reasons over:
    model. The agent can then distinguish "no such customer" from "you asked
    badly", which the refund workflow needs.
 
+**The refusal code is at the TOP LEVEL of the result, not inside the error
+object.** This is the third server's copy of a convention the other two
+already follow, and it is load-bearing rather than cosmetic: the gateway
+projects a server's payload onto the port's ``ToolResult`` by reading a
+**top-level** ``code`` (``src/opspilot/adapters/tools/mcp_gateway.py``), and a
+code nested one level down is a code the gateway never sees. When this server
+nested it, every CRM refusal -- ``validation_error`` and ``not_found`` alike --
+arrived at the runtime as a **successful** call: ``ToolCall.status='executed'``,
+``error=NULL``, and a ``tool_executed`` audit event. The agent could still read
+the code out of the observation payload, so it was not blind; but the ledger,
+the ``tool_calls.error`` column and the failure event all said the lookup
+succeeded, and a failed lookup recorded as a success is the kind of thing an
+audit trail exists to prevent. The ``error`` object is still returned, with the
+human-readable message; it is the machine-readable code that has to be at the
+top level.
+
 Seed data lives beside this module in ``seed.json`` and is loaded by the
 ``--reset`` flag and by the pytest fixture.
 """
@@ -28,6 +44,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict
@@ -35,6 +52,12 @@ from pydantic import BaseModel, ConfigDict
 from mcp_servers._store import Record, Store
 
 _SEED_PATH = Path(__file__).parent / "seed.json"
+
+#: The refusal codes this server can produce. Spelled once as a literal union so
+#: an invalid code is a type error at the call site rather than a typo that
+#: only shows up in a string comparison in a test. The same convention the
+#: ``billing`` and ``issues`` servers use.
+ErrorCode = Literal["validation_error", "not_found"]
 
 server: MCPServer = MCPServer(
     name="crm",
@@ -69,7 +92,7 @@ class ErrorResult(_Base):
         message: Human-readable detail. May be shown in a trace.
     """
 
-    code: str
+    code: ErrorCode
     message: str
 
 
@@ -84,10 +107,14 @@ class CustomerResult(_Base):
     Attributes:
         customer: The matched customer, or ``None`` on error.
         error: The structured error, or ``None`` on success.
+        code: The refusal code, at the top level, or ``None`` on success. This
+            is the field the gateway reads -- see the module docstring for why
+            it cannot live only inside ``error``.
     """
 
     customer: Customer | None = None
     error: ErrorResult | None = None
+    code: ErrorCode | None = None
 
 
 class Customer(_Base):
@@ -108,10 +135,14 @@ class AccountResult(_Base):
     Attributes:
         account: The billing account, or ``None`` on error.
         error: The structured error (``not_found``), or ``None`` on success.
+        code: The refusal code, at the top level, or ``None`` on success. See
+            the module docstring: the gateway reads the code from the top
+            level, so a code nested inside ``error`` would never arrive.
     """
 
     account: Account | None = None
     error: ErrorResult | None = None
+    code: ErrorCode | None = None
 
 
 class BillingAddress(_Base):
@@ -136,12 +167,16 @@ class SubscriptionResult(_Base):
     """The result of ``crm.get_subscription``.
 
     Attributes:
-        subscription: The subscription, or ``None`` on error.
+        subscription: The subscription, or ``None`` on success.
         error: The structured error (``not_found``), or ``None`` on success.
+        code: The refusal code, at the top level, or ``None`` on success. See
+            the module docstring: the gateway reads the code from the top
+            level, so a code nested inside ``error`` would never arrive.
     """
 
     subscription: Subscription | None = None
     error: ErrorResult | None = None
+    code: ErrorCode | None = None
 
 
 class Subscription(_Base):
@@ -191,10 +226,11 @@ def get_customer(
     """
     if customer_email is None and customer_id is None:
         return CustomerResult(
+            code="validation_error",
             error=ErrorResult(
                 code="validation_error",
                 message="Provide exactly one of customer_email or customer_id.",
-            )
+            ),
         )
 
     by_email = (
@@ -208,23 +244,25 @@ def get_customer(
         and by_email.model_dump()["customer_id"] != by_id.model_dump()["customer_id"]
     ):
         return CustomerResult(
+            code="validation_error",
             error=ErrorResult(
                 code="validation_error",
                 message=(
                     f"customer_email {customer_email!r} and customer_id {customer_id!r} "
                     "identify different customers."
                 ),
-            )
+            ),
         )
 
     record = by_id if by_id is not None else by_email
     if record is None:
         identifier = customer_email if customer_email is not None else customer_id
         return CustomerResult(
+            code="not_found",
             error=ErrorResult(
                 code="not_found",
                 message=f"No customer matches {identifier!r}.",
-            )
+            ),
         )
     return CustomerResult(customer=_customer_from(record))
 
@@ -244,7 +282,10 @@ def get_account(customer_id: str) -> AccountResult:
     record = _store.find("accounts", customer_id=customer_id)
     if record is None:
         return AccountResult(
-            error=ErrorResult(code="not_found", message=f"No account for customer {customer_id!r}.")
+            code="not_found",
+            error=ErrorResult(
+                code="not_found", message=f"No account for customer {customer_id!r}."
+            ),
         )
     return AccountResult(account=Account.model_validate(record.model_dump()))
 
@@ -264,9 +305,10 @@ def get_subscription(customer_id: str) -> SubscriptionResult:
     record = _store.find("subscriptions", customer_id=customer_id)
     if record is None:
         return SubscriptionResult(
+            code="not_found",
             error=ErrorResult(
                 code="not_found", message=f"No subscription for customer {customer_id!r}."
-            )
+            ),
         )
     return SubscriptionResult(subscription=Subscription.model_validate(record.model_dump()))
 

@@ -70,42 +70,61 @@ the system interpreter whose site-packages has no `mcp`.
 
 // output
 {
-  "customer_id": "CUS-1001",
-  "company": "ACME",
-  "contact_name": "Dana Whitfield",
-  "email": "billing@acme.example",
-  "plan": "enterprise",
-  "status": "active",
-  "created_at": "2024-03-11T00:00:00Z"
+  "customer": {
+    "customer_id": "CUS-1001",
+    "company": "ACME",
+    "contact_name": "Dana Whitfield",
+    "email": "billing@acme.example",
+    "plan": "enterprise",
+    "status": "active",
+    "created_at": "2024-03-11T00:00:00Z"
+  },
+  "error": null,
+  "code": null
 }
 ```
+
+The record is **nested under `customer`**, beside `error` and `code` — the
+wrapper is the shape the runtime reads (`agents/runtime.py` takes
+`record.result["customer"]`) and the shape the CRM server's own tests assert.
+This block used to show the record flat, which the `billing` tools do return;
+the CRM tools wrap, and the contract now says so rather than the other way
+round.
 
 Exactly one of `customer_email` / `customer_id` must be given. Neither → the
 server returns a `validation_error` result, never a partial record. Both, and
 they disagree → `validation_error`, because guessing which one the caller meant
-is how a wrong customer gets refunded.
+is how a wrong customer gets refunded. A customer that does not exist →
+`not_found`. Both codes are set at the **top level** of the result, which is
+where the gateway reads them (§5.2).
 
 ### `crm.get_account`
 
 ```jsonc
 { "customer_id": "CUS-1001" }
-→ { "account_id": "ACC-2201", "customer_id": "CUS-1001",
-    "billing_contact_email": "billing@acme.example",
-    "payment_terms": "net30", "currency": "USD",
-    "billing_address": {"country": "US", "region": "OR"} }
+→ { "account": { "account_id": "ACC-2201", "customer_id": "CUS-1001",
+                 "billing_contact_email": "billing@acme.example",
+                 "payment_terms": "net30", "currency": "USD",
+                 "billing_address": {"country": "US", "region": "OR"} },
+    "error": null, "code": null }
 ```
+
+No such account → `not_found`, at the top level.
 
 ### `crm.get_subscription`
 
 ```jsonc
 { "customer_id": "CUS-1001" }
-→ { "subscription_id": "SUB-4410", "customer_id": "CUS-1001",
-    "plan": "enterprise", "seat_count": 120,
-    "monthly_amount": 129.00, "currency": "USD",
-    "status": "active",
-    "current_period_start": "2026-10-01T00:00:00Z",
-    "current_period_end": "2026-11-01T00:00:00Z" }
+→ { "subscription": { "subscription_id": "SUB-4410", "customer_id": "CUS-1001",
+                      "plan": "enterprise", "seat_count": 120,
+                      "monthly_amount": 129.00, "currency": "USD",
+                      "status": "active",
+                      "current_period_start": "2026-10-01T00:00:00Z",
+                      "current_period_end": "2026-11-01T00:00:00Z" },
+    "error": null, "code": null }
 ```
+
+No such subscription → `not_found`, at the top level.
 
 `monthly_amount: 129.00` is the number the golden-path duplicate charge is
 against. Seeding it so it matches the invoice is what makes the demo legible.
@@ -139,6 +158,8 @@ This is the server where correctness matters. It mutates state.
   }
 ```
 
+An invoice that does not exist → `not_found`, at the top level.
+
 ### `billing.list_transactions`
 
 ```jsonc
@@ -148,15 +169,23 @@ This is the server where correctness matters. It mutates state.
       { "transaction_id": "TX-88218", "invoice_id": "INV-2026-384",
         "amount": 129.00, "currency": "USD", "status": "charged",
         "processed_at": "2026-10-01T02:14:07Z",
-        "payment_method": "card_****4242" },
+        "payment_method": "card_****4242", "refund_id": null },
       { "transaction_id": "TX-88219", "invoice_id": "INV-2026-384",
         "amount": 129.00, "currency": "USD", "status": "charged",
         "processed_at": "2026-10-01T02:14:09Z",
-        "payment_method": "card_****4242" }
+        "payment_method": "card_****4242", "refund_id": null }
     ],
     "total_charged": 258.00
   }
 ```
+
+Every row carries `refund_id`: `null` for a row that has not been refunded, and
+the refund's id for one that has. It is the one field here that says which of
+two apparently identical charges has already been given back — and the
+detection surface below depends on the agent being able to tell.
+
+The tool cannot fail: an invoice with no transactions is an empty list, not an
+error.
 
 This is the detection surface: two `charged` rows, same invoice, same amount,
 2 seconds apart. The agent's job is to notice it; the server's job is to report
@@ -271,10 +300,20 @@ change if the guarantee is ever made.
 
 ```jsonc
 { "query": "duplicate billing ACME" }
-→ { "issues": [ { "key": "OPS-1039", "title": "…", "status": "open",
-                  "priority": "medium", "created_at": "…" } ],
+→ { "issues": [ { "key": "OPS-1001", "title": "…", "description": "…",
+                  "status": "open", "priority": "medium",
+                  "labels": ["billing"], "created_at": "…" } ],
     "total": 1 }
 ```
+
+`total` is the number of matches, not the number of rows returned. The seeded
+store holds **no issues at all** — the `issues` server's `seed.json` ships an
+empty list — so a fresh database answers `{"issues": [], "total": 0}` and the
+first issue created is `OPS-1001` (see below). The example above shows a row
+that exists only after one has been created.
+
+The tool cannot fail: a query that matches nothing is an empty result, not an
+error, and there is no `not_found` path (see §5.2).
 
 ### `issues.create`
 
@@ -288,9 +327,12 @@ change if the guarantee is ever made.
 { "title": "Duplicate billing incident for ACME (INV-2026-384)",
   "description": "…", "priority": "high",
   "labels": ["billing", "duplicate-charge"] }
-→ { "key": "OPS-1042", "title": "…", "status": "open",
-    "priority": "high", "created_at": "…" }
+→ { "key": "OPS-1002", "title": "…", "description": "…", "status": "open",
+    "priority": "high", "labels": ["billing", "duplicate-charge"],
+    "created_at": "…" }
 ```
+
+A blank title → `validation_error`, at the top level.
 
 Keys are allocated as `OPS-{1000+n}` from a counter in the store, so the first
 created issue in a fresh database is always `OPS-1001` — a detail that makes
@@ -325,10 +367,27 @@ These hold for all three servers:
    trace meaningful — every cross-domain fact in a run's reasoning came from a
    call the reviewer can see.
 2. **Errors are results, not exceptions.** A tool that throws becomes a transport
-   error and loses its error code. Each server returns a structured error object
-   with a `code`, which the gateway maps to `ToolCall.error` and
-   `rejection_reason`. The agent can then reason about *why* a tool failed, which
-   is what makes the "already refunded → do not refund again" scenario work.
+   error and loses its error code. Each server returns the refusal code as a
+   **top-level `code`** on the result, and the gateway reads it there and maps
+   it to `ToolCall.error`. The agent can then reason about *why* a tool failed,
+   which is what makes the "already refunded → do not refund again" scenario
+   work.
+
+   The top level is load-bearing, and it is the seam where the `crm` server
+   used to be wrong. A code nested one level down — inside an `error` object —
+   is a code the gateway never sees, so the refusal arrives at the runtime as a
+   **successful** call: `ToolCall.status='executed'`, `error=NULL`, and a
+   `tool_executed` audit event. A failed lookup recorded as a success is what
+   an audit trail exists to prevent. The `crm` server now returns the code at
+   the top level, like the other two, and keeps the `error` object beside it
+   for the human-readable message;
+   `tests/integration/test_mcp_refusal_codes_reach_the_gateway.py` asserts both
+   the shape and the end-to-end behaviour, and would fail for the next server
+   that gets it wrong.
+
+   Note that `rejection_reason` is **not** where a tool's code lands:
+   `rejection_reason` names the *gate* that refused a call, and a tool that
+   ran and failed writes its code to `ToolCall.error`.
 3. **Reads are pure.** `get_*` and `list_*` never write, including never writing
    a "last accessed" timestamp.
 4. **Every mutation takes an idempotency key or is naturally idempotent.**
@@ -354,6 +413,13 @@ Each server is tested without the agent and without an LLM, in
 - `crm.get_customer` with neither identifier → `validation_error`.
 - `issues.create` twice allocates two distinct keys (it is *not* idempotent, and
   the test states that as the contract).
+- `tests/integration/test_mcp_refusal_codes_reach_the_gateway.py` drives one
+  refusal from **each** of the three servers through the real gateway and
+  asserts it arrives as `ok=False` with the code intact, and asserts the shape
+  that makes that possible: every tool's output schema declares a top-level
+  `code`. It is the guard for §5.2's second paragraph — the seam where one
+  server's convention diverged from the other two's, and where a refusal was
+  recorded as a successful call.
 
 The MCP CI job (`mcp-contract`) runs
 `tests/integration/test_mcp_contract_names.py`, which checks that each server

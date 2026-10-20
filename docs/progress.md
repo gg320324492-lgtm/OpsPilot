@@ -7837,10 +7837,177 @@ the twenty-two that skipped were the ones that bring up PostgreSQL, migrate,
 api and worker and click through the dashboard: the ones the M9 criterion is
 about.
 
+## A failed lookup that was recorded as a successful one
+
+**Date:** 2026-10-21, later still. The ADR sweep had produced a list of eleven
+drifts, and three more audits were dispatched against the areas it had not
+covered: the MCP contract and its three servers, the desktop shell's README,
+and the worker's own documentation. One of them found a defect rather than a
+drift, and it is the kind that matters.
+
+### The CRM server's refusal codes never reached the agent
+
+`docs/mcp-contracts.md` §5.2 says it plainly: "Each server returns a
+structured error object with a `code`, which the gateway maps to
+`ToolCall.error` and `rejection_reason`."
+
+The gateway maps the code by reading a **top-level** `code` in the server's
+payload. The `billing` and `issues` servers put it there. The `crm` server did
+not: it nested the code one level down, inside an `error` object.
+
+So every CRM refusal — `validation_error` and `not_found` alike — arrived at
+the runtime as a **successful** call. Verified end to end through the real
+gateway, before the fix:
+
+```
+crm.get_customer {}                       ok=True  error=None
+crm.get_customer {'customer_id':'NOPE'}   ok=True  error=None
+crm.get_account  {'customer_id':'NOPE'}   ok=True  error=None
+billing.get_invoice {'invoice_id':'NOPE'} ok=False error=not_found
+```
+
+The consequence is not a cosmetic difference in a JSON shape. The runtime
+takes the `result.ok` branch, so the CRM call was written as
+`ToolCall.status='executed'` with `error=NULL`, and the audit event was
+`tool_executed` with `"ok": true, "error": null` — **a failed lookup recorded
+as a success in the compliance ledger.** The agent could still read the code
+out of the observation payload, so it was not blind to the failure; but the
+ledger, the `tool_calls.error` column and the failure event all said the
+lookup worked, and that is exactly what an audit trail exists to prevent.
+
+**Nothing caught it, and one test actively pinned it.** The CRM server's own
+tests asserted the *nested* shape (`structured_content["error"]["code"]`); the
+gateway's tests asserted the top-level shape for `billing.issue_refund`; and
+no test drove a CRM refusal through the gateway at all. Two suites, two
+conventions, and the seam between them untested.
+
+The worst of it was `tests/integration/test_mcp_stdio_transport.py::
+test_a_structured_refusal_survives_the_wire`, whose name says the code
+survives the wire and whose body asserted the opposite — `result.ok is True`,
+with the message "a tool's own refusal is a successful call that reports a
+refusal", and a docstring explaining that the code "lives under
+`result["error"]["code"]` rather than at the top level because the server's own
+result model is what carries it". The defect, described as if it were the
+design.
+
+The fix puts the code where the other two servers already put it: the CRM
+result models carry a top-level `code: ErrorCode | None = None`, set on every
+error path, with the `error` object kept beside it for the human-readable
+message. The `issues` server's error-code literal lost its `not_found`, which
+it could never produce — a query that matches nothing is an empty result, not
+an error, and the generated schema is the contract the agent reasons over.
+
+**The guard is the one that could not have existed before.**
+`tests/integration/test_mcp_refusal_codes_reach_the_gateway.py` asserts two
+things: that every tool of every server declares a top-level `code` in its
+output schema (and that a tool declaring a structured `error` object declares
+one too), and that a refusal from **each** of the three servers arrives
+through the real gateway as `ok=False` with the code intact. The first is a
+shape invariant that generalises to a server written later; the second is the
+end-to-end property the contract promises.
+
+Mutation-verified: removing the top-level `code` from the CRM server turns
+**all three** red, each naming the defect — "these tools declare no top-level
+`code` in their output schema", "these tools return a structured `error`
+object but no top-level `code`", and "crm's refusal arrived as a successful
+call".
+
+### The contract's other seven drifts
+
+The audit compared all eight tools' schemas, payloads, error codes and names
+against the contract. The names and the permissions were clean — all eight
+agree across the contract, the servers and `TOOL_REGISTRY`. The rest:
+
+- **The CRM output is nested and the contract showed it flat.** The contract
+  used the same notation for `billing.get_invoice`, which *is* flat, so only
+  the CRM blocks were out of step — and the code has already voted for the
+  nested shape: the runtime reads `record.result.get("customer")` and says so
+  in a comment. The contract now draws the wrapper.
+- **Six of the eight tools had no documented failure mode at all.** Each now
+  has one line, and the two that *cannot* fail say so.
+- **`billing.list_transactions`' rows were missing `refund_id`** — the one
+  field that says which of two apparently identical charges has already been
+  given back, and so the detection surface depends on it.
+- **`issues.search`'s example showed an issue that does not exist.** The
+  `issues` server's seed holds **no issues at all**, so a fresh store answers
+  `{"issues": [], "total": 0}`; the example now shows `OPS-1001`, which is the
+  first key the store allocates, and says what a fresh database answers.
+- **`issues.create`'s output was missing `description` and `labels`.**
+- **`issues.search` declared a `not_found` it could never produce** — fixed in
+  the server, not only in the document.
+- **§5.2 claimed the code reaches `rejection_reason`.** It does not, and
+  should not: `rejection_reason` names the *gate* that refused a call, while
+  a tool that ran and failed writes its code to `ToolCall.error`. The
+  sentence now says so.
+
+### The desktop shell's README described a window it does not have
+
+Five drifts, two of them medium. The one that matters is a section headed
+*"Why this window is English even when the dashboard is not"*, which argued
+that "there is no mechanism by which this window could follow the dashboard's
+locale, only a mechanism by which it could be *wrong*".
+
+There is such a mechanism, and the shell uses it. The shell loads the dashboard
+**in its own window**, so the dashboard writes `opspilot_locale` into Electron's
+own session cookie store; `src/menu.ts` reads it out of that store
+(`readLocaleCookie`) and rebuilds the native menus when it changes
+(`watchLocaleCookie`); and `src/menu-policy.ts` holds the copy for both
+locales and pins the cookie name to the dashboard's. The README's reason was
+wrong because it described the *browser hand-off* — a mechanism this package
+does not use.
+
+The project's own `docs/limitations.md` §7 already said the opposite: "The
+native menu is localized; the operating system around it is not." So the
+README was the outlier, and it is now corrected: the **menu bar** follows the
+cookie, the **bootstrap page** cannot (it renders before the cookie exists),
+and the section says which is which.
+
+The second medium drift: the README said the ownership decision "is made
+once". It is made **twice** — first "is the API already serving `/ready`?",
+then, only if it is, "does that backend accept this app's operator token?" A
+backend running under a different token is **refused**, not adopted, and the
+window says so. A reader deciding whether to run the app beside an existing
+stack was told the wrong thing.
+
+The three low ones: five Electron calls, not six (in the README *and* in
+`security-policy.ts`, which repeated the number); `npm run package` is four
+steps, not three; and the CORS row now says that the shell always exports the
+variable, so Compose's `:-http://localhost:3000` default never applies to a
+stack this app started.
+
+### The remaining ADRs, corrected
+
+The ADR audit's eleven drifts: the high one was the state machine, and it is
+fixed. The other ten are now corrected too — ADR-0004's three statements about
+the two-worker guarantee (the lease closed that, in commit `b9bbd5c`, and
+ADR-0004 was still saying in the present tense that it was open), its row on
+the claim-predicate index (the partial indexes are emitted on **both**
+dialects, as the ORM and the migration both say), its completeness claim about
+dialect branches (the SQLite foreign-key pragma is a fifth, and a
+safety-relevant one), ADR-0005's worker entry point and its lease-log
+sentence, ADR-0003's quoted literal (it holds five fields, not one), and
+ADR-0001's "one file" (the MCP SDK is imported in two, both under
+`adapters/tools/`).
+
+### The postgres-marked tests are order-independent now
+
+Running the whole marked selection in one go — `pytest -m postgres` against a
+disposable database, which is the command the guard's own error message tells
+a developer to run — failed, and the failures were not in the code under test.
+The ticket-dedupe test inserted a row and left it there, and the guard
+(`tests/_pgvector_target.py`) refuses a database that holds a row, so every
+postgres-marked test that ran after it failed with a refusal that read like a
+defect.
+
+The fixture that owns the schema now empties it on the way out — `TRUNCATE`,
+not `DROP`, because the tables have to survive: the guard admits a database
+whose tables exist and hold zero rows, and its CI-shape test asserts that they
+do. **All sixteen now pass in one run, in one order.**
+
 ### What the tree looks like after it
 
-`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 207
-files. `pytest` — **1066 passed, 21 skipped** (1087 collected); the 21 skips are
+`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 208
+files. `pytest` — **1071 passed, 21 skipped** (1092 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
 sixteen of the first are now executed by CI's `verify` job, each named by node

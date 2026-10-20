@@ -14,7 +14,7 @@
  * what `security.spec.ts` does, and it is the same reason
  * `stack.ts::assessWorker` is a pure function.
  *
- * The second is structural: `src/security.ts` is then only the six Electron
+ * The second is structural: `src/security.ts` is then only the five Electron
  * calls that install this policy, so the file a reviewer reads to answer "what
  * does this app do to a page it did not write?" is short and contains no policy.
  *

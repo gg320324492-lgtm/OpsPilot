@@ -146,7 +146,47 @@ def migrated_engine() -> Iterator[Engine]:
         command.upgrade(config, "head")
         yield engine
     finally:
+        # ...and leave it the way the guard needs it found: **tables standing,
+        # no rows in them**. The guard in `tests/_pgvector_target.py` admits a
+        # database whose tables exist and hold zero rows -- deliberately,
+        # because CI's service container has all nine tables after `alembic
+        # upgrade head` -- and refuses one that holds a row. A test that
+        # inserts a row and leaves it there therefore breaks every
+        # postgres-marked test that runs after it, which is an order
+        # dependence the suite should not have: `pytest -m postgres` against
+        # one disposable database is the command the guard's own error message
+        # tells a developer to run.
+        #
+        # Truncating rather than dropping is deliberate. The tables have to
+        # survive: the guard's CI-shape test asserts that they do, and the
+        # migration-schema tests read the schema itself.
+        _empty_the_tables(engine)
         engine.dispose()
+
+
+def _empty_the_tables(engine: Engine) -> None:
+    """Delete every row from every application table, and keep the tables.
+
+    ``TRUNCATE ... CASCADE`` on each table, in one transaction. The tables have
+    to *survive* -- the guard in ``tests/_pgvector_target.py`` admits a
+    database whose tables exist and hold no rows, and refuses one that holds a
+    row, so a fixture that left its own rows behind would break every
+    postgres-marked test that ran after it.
+
+    The tables are enumerated from the ORM's metadata rather than written out,
+    so a table added to the schema is emptied too. ``CASCADE`` covers the
+    foreign keys between them, and the tables this fixture owns have no rows
+    that anything else in the suite depends on: the fixture drops and
+    recreates the schema at the start of every test that uses it.
+    """
+    from opspilot.adapters.persistence.models import Base
+
+    tables = list(Base.metadata.sorted_tables)
+    if not tables:  # pragma: no cover - the metadata is never empty
+        return
+    quoted = ", ".join(f'"{table.name}"' for table in tables)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE TABLE {quoted} CASCADE"))
 
 
 def _column_type(engine: Engine, table: str, column: str) -> str | None:

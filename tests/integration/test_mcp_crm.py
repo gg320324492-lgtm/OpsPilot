@@ -64,6 +64,7 @@ async def test_get_customer_by_acme_email() -> None:
     assert customer["plan"] == "enterprise"
     assert customer["status"] == "active"
     assert payload["error"] is None
+    assert payload["code"] is None
 
 
 async def test_get_customer_by_id() -> None:
@@ -79,6 +80,7 @@ async def test_get_customer_with_both_agreeing_is_accepted() -> None:
     assert result.structured_content is not None
     assert result.structured_content["customer"]["customer_id"] == "CUS-1001"
     assert result.structured_content["error"] is None
+    assert result.structured_content["code"] is None
 
 
 async def test_get_customer_with_both_disagreeing_is_validation_error() -> None:
@@ -89,6 +91,7 @@ async def test_get_customer_with_both_disagreeing_is_validation_error() -> None:
     assert result.structured_content is not None
     assert result.structured_content["customer"] is None
     assert result.structured_content["error"]["code"] == "validation_error"
+    assert result.structured_content["code"] == "validation_error"
 
 
 async def test_get_customer_with_neither_identifier_returns_validation_error() -> None:
@@ -97,6 +100,7 @@ async def test_get_customer_with_neither_identifier_returns_validation_error() -
     assert result.structured_content is not None
     assert result.structured_content["customer"] is None
     assert result.structured_content["error"]["code"] == "validation_error"
+    assert result.structured_content["code"] == "validation_error"
 
 
 async def test_get_customer_with_unknown_email_returns_not_found() -> None:
@@ -105,6 +109,7 @@ async def test_get_customer_with_unknown_email_returns_not_found() -> None:
     assert result.structured_content is not None
     assert result.structured_content["customer"] is None
     assert result.structured_content["error"]["code"] == "not_found"
+    assert result.structured_content["code"] == "not_found"
 
 
 async def test_get_account_happy_path() -> None:
@@ -125,6 +130,7 @@ async def test_get_account_unknown_customer_returns_not_found() -> None:
     assert result.structured_content is not None
     assert result.structured_content["account"] is None
     assert result.structured_content["error"]["code"] == "not_found"
+    assert result.structured_content["code"] == "not_found"
 
 
 async def test_get_subscription_happy_path() -> None:
@@ -144,6 +150,7 @@ async def test_get_subscription_unknown_customer_returns_not_found() -> None:
     assert result.structured_content is not None
     assert result.structured_content["subscription"] is None
     assert result.structured_content["error"]["code"] == "not_found"
+    assert result.structured_content["code"] == "not_found"
 
 
 async def test_tool_schemas_expose_required_parameters() -> None:

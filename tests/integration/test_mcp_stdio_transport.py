@@ -827,15 +827,27 @@ async def test_a_structured_refusal_survives_the_wire(
 
     Asserted in the same shape the in-process transport produces, which is the
     property that matters: switching ``MCP_TRANSPORT`` must not change what the
-    agent sees. The ``code`` lives under ``result["error"]["code"]`` rather than
-    at the top level because the server's own result model is what carries it
-    (the model is the contract; see ``docs/mcp-contracts.md`` §1), and the
-    in-process gateway reads the identical payload.
+    agent sees.
+
+    **This test used to assert the opposite of what it was named for.** It read
+    ``assert result.ok is True``, with the message "a tool's own refusal is a
+    successful call that reports a refusal", and its docstring explained that
+    the ``code`` "lives under ``result["error"]["code"]`` rather than at the top
+    level". That pinned the defect the CRM server had: the code was one level
+    down, the gateway looked at the top level, and so every CRM refusal
+    arrived as a **successful** call — a failed lookup recorded as a success in
+    the ledger. The refusal is now a refusal, on the wire as well as in
+    process, and the code is at the top level where the gateway reads it.
     """
     result = await stdio_crm_gateway.call_tool("crm.get_customer", {})
 
-    assert result.ok is True, "a tool's own refusal is a successful call that reports a refusal"
+    assert result.ok is False, (
+        "a tool's own refusal is a failure that reports its code, not a "
+        "successful call that reports one"
+    )
+    assert result.error == "validation_error"
     payload = _payload(result)
+    assert payload["code"] == "validation_error"
     assert payload["error"]["code"] == "validation_error"
     assert payload["customer"] is None
 
