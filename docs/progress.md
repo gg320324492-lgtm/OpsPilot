@@ -6709,3 +6709,230 @@ README could not describe a file that is not in the tree yet.
 README points at a video file, nothing under `docs/assets/` is one, and the
 guard is green because both halves of the promise are unfulfilled *together*
 rather than one of them.
+
+### The promises nothing produces: a reverse drift sweep, and the eight fixes it produced
+
+**Date:** 2026-10-21. `6ee0375` (the README's own figures), `296c89b` (the
+currency an approver could be shown), `d70ff2b` (the idempotency test that was
+timing-dependent), `dfb2c67` (the contracts and the data model), `ed2f325`
+(the currency, refused outright), `13d21b7` (the documents' quotes), `cfa2af6`
+(the error-text guard's blind spot).
+
+The round began as a systematic sweep for the opposite kind of drift. Every
+earlier pass in this repository asked whether a *document* and the *code*
+described the same thing; this one asked the other way round — whether an enum
+value, a status, an API type, a configuration key, a documented claim or a
+translation key promised something **no code path produces**. The sweep was
+exhaustive rather than sampled: every enum, every transition, every response
+model, every setting and every i18n key was compared against the thing that
+writes it, and its own tally was 17 real drifts, 9 deliberate ones and 5 that
+need a product decision. What follows is what was fixed, in the order the
+severity decides; the five left alone are named at the end, because a sweep
+that does not say what it declined to change has not finished.
+
+**① The approver could be shown a currency the money would not move in.**
+`RefundArgs` — the gate-1 model for `billing.issue_refund` — declared two
+parameters the billing server does not have: `currency` and
+`transaction_amount`. The server's `issue_refund` takes four
+(`transaction_id`, `amount`, `idempotency_key`, `reason`) and ignores anything
+else, because the schema it generates carries no `additionalProperties:
+false`. Nobody acted on the extra fields, and the model could see that they
+existed, so it proposed them: the golden-path fixture said `"currency": "USD"`,
+and so did the evaluation harness's worst-case model. That was harmless until
+the one string an approver is told to trust started using it — `explain_risk`
+rendered the amount in the *proposed* currency, so a proposal naming EUR
+produced "This moves €129.00 EUR out of the account, refunding transaction
+TX-88219, and cannot be undone automatically." for a refund the server was
+about to make in the transaction's own currency, and the same proposed
+currency reached the approver a second time, in the `arguments_snapshot` they
+approve against.
+
+**The currency is not knowable at that point in the run, and the honest answer
+is to stop saying it.** The currency lives in the billing server's store. The
+registry offers `billing.get_invoice(invoice_id)` and
+`billing.list_transactions(invoice_id)` — the second needs an invoice id the
+runtime does not have — and `billing.issue_refund(transaction_id)`, so before
+the money moves the currency is unavailable to *any* agent, not merely to this
+gate. A currency read out of the proposal is the model's guess at a fact it
+cannot know. The explanation now gives the number and the transaction and says
+the amount is in the currency the transaction was charged in, and
+`format_amount` no longer takes a currency at all.
+
+**The fix went in two steps, and the second is the one that was kept.**
+`296c89b` first kept `currency` as a field and marked it `exclude=True`, so it
+was parsed but never dumped — not into the explanation, not into the snapshot,
+not into the dispatch — while gate 1's verdict on a proposal naming one was
+left exactly as it was. `ed2f325` then deleted the field, which is stricter and
+cheaper: a proposal naming a currency is refused at gate 1, where every other
+argument the model may not supply is refused (`idempotency_key` above all),
+and the model is not left proposing something that will be dropped on the
+floor afterwards. `transaction_amount` was removed outright in the first commit
+rather than excluded, and that one was a removal for a different reason: gate 4
+compared a refund against it as a fast fail, so a model that could supply it
+could also claim a larger charge and *suppress* the rule, leaving the server's
+own comparison against the transaction row — the authoritative one — as the
+only check. A model-supplied amount is a claim, and a claim is not a fact to
+compare money against.
+
+**And six documents still quoted the old sentence.** The explanation changed
+with the currency, and six documents still carried the sentence it used to
+write: `docs/api-contract.md`, `docs/case-study-duplicate-charge.md`,
+`docs/data-model.md`, `docs/installer-verification.md`,
+`docs/installer-verification.zh-CN.md`, and this file — where it sits inside
+the M4 record of a run that really did print it, and history is left as
+history. The other five now quote the application's own sentence word for word,
+`docs/api-contract.md`'s two `arguments_snapshot` examples carry the fields the
+snapshot carries (`transaction_id`, `amount`, and the defaulted `reason`)
+instead of the currency, and the case study's proposal loses its currency for
+the same reason the golden-path fixture's did: the model may not name one, so
+a proposal that names one is refused at gate 1 rather than parking.
+
+**② A guard that would have caught the third of its kind.** The same defect — a
+gate-1 schema declaring a field the server has no parameter for — had
+happened twice before, in `TransactionListArgs` (`account_id`, `limit`) and in
+`IssueCreateArgs` (`body`), and both times no argument set satisfied both
+sides. No guard could see the third, and the reasons are worth naming: the
+behavioural guard dispatches the schema's **required** fields only, and a
+server that ignores unknown fields cannot answer "did you accept this field?"
+— it answers "did the call work?", which it did; the guard in
+`tests/integration/test_mcp_contract_arguments.py` read the *document*, so a
+field the schema declared and the server did not take was invisible to it; and
+`test_gate_1_schema_and_server_agree_on_required_arguments` compared the
+server's **required** set, so an optional one was invisible to that too. The
+new guard reads the server's **own generated JSON Schema** and compares it, in
+both directions, with the fields the gate actually puts on the wire — and it
+refuses a field that is excluded while the server does take it, so "mark it
+excluded" cannot become the way past the check. The document-reading guard was
+repaired at the same time: it read one JSON object per line, and
+`billing.issue_refund` is written across several lines, so the one tool whose
+arguments move money was invisible to it and is covered for the first time.
+
+**③ Two documents had the `idempotency_key` rule backwards.**
+`docs/mcp-contracts.md` and `docs/tool-permissions.md` both told the reader
+that an `issue_refund` call *without* an `idempotency_key` fails gate 1. It
+is the other way round: the model must not supply one — a proposal carrying
+one is refused at gate 1 under `extra="forbid"` — the key is derived at gate 4
+from the run and the intended effect, and the runtime injects it at dispatch.
+A reader following the old text would have implemented precisely the version
+the design forbids, which is a model that picks its own key.
+
+**④ A guard that failed at random, and whose barrier was decoration.**
+`tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded`
+used a `threading.Barrier(2)` with a five-second timeout to get two writers
+onto one idempotency key at once. On a busy enough machine the second thread
+was not scheduled inside the window, the barrier broke, the exception surfaced
+inside the tool handler as `UnexpectedToolError`, the thread died, and the
+test failed with a `KeyError` that says nothing about idempotency. It failed
+once in four full-suite runs — it fails on the slowest machine rather than on
+the wrongest one. But the barrier was not what the test was testing: the
+idempotency check is a linear scan of the document *in memory*
+(`mcp_servers/billing/server.py`), `_rows()` never reads the file back, and
+`Store.save()` replaces the whole document with no lock
+(`mcp_servers/_store.py`). Each writer scans the snapshot it loaded at
+construction, neither can see the other, and the outcome is the same under any
+schedule. The interleaving is now scripted rather than raced — writer A's save
+is held until writer B has written — and the assertions are strictly
+stronger: they name which writer survived, that the file holds one writer's
+whole document rather than a row from each, and that the discarded writer's
+row is not on disk. The second test is the tripwire for a future fix: it fixes
+the schedule in which the second writer scans *after* the first has persisted,
+which is the schedule in which the guarantee would be made (a handler that
+re-reads the file, a lock, a compare-and-swap) and which the first schedule
+cannot see, because there both scans happen before either write. Together the
+two schedules watch both ways the guarantee could appear. The sibling test's
+barrier went too — the order that matters there (the first call has returned,
+so its row is in the shared document) is fixed by the code — and its join is
+now a thirty-second ceiling against a hang, with the thread's exception
+re-raised in the main thread so a failure names its cause. **Not one line of
+the implementation moved.**
+
+**⑤ The contracts and the data model described an application that does not
+exist.** `docs/api-contract.md`'s run-detail example carried an
+`idempotency_key` in `arguments` that gate 1 forbids and gate 4 derives into
+a column of its own; `arguments` and `arguments_snapshot` were missing
+`currency` and `reason`, which are non-`None` defaults and therefore always
+present after `exclude_none=True`; `steps[].output` was `{"to": "classifying"}`
+where the code writes `{"from_status", "to_status", "at"}`; and
+`reasoning_summary` appears nowhere in the source at all.
+`docs/data-model.md` listed eight `agent_steps.step_type` values where five
+are written, fourteen `audit_events.event_type` values where seven are — one
+of them, `retrieval_performed`, not merely unwritten but *misnamed*, since the
+event the code writes is `retrieval_abstained` — and an `actor` vocabulary of
+`agent | operator:<id> | system` where the code writes `runtime` and `worker`.
+The lists are now what the code writes, with the trimmed values named as
+schema reservations, so a reader querying `agent_steps` for `step_type =
+'tool_call'` learns there are no rows before they go looking for the bug. The
+error-code table was missing a code and naming a wrong one: the 409 row listed
+three codes and `POST /api/tickets` returns a fourth, `ticket_exists`, the
+only 409 that endpoint can produce; the 503 row named `not_ready`, but
+`/ready` answers `{"status":"not_ready","checks":{…}}`, which is not the error
+envelope and carries no code at all — and `not_ready` was in the frontend's
+`ApiErrorCode` union although the API never sends it.
+
+**⑥ Two things the user sees.** The Chinese interface showed **Approved** in
+English on every decided approval: the component that renders the decision
+was handed a scoped catalogue holding one section, while the labels it
+renders live in another, and the error panel beside it was throwing on a
+missing `common` section *inside the `catch` that was supposed to handle it* —
+so a transport failure died in the handler meant to report it. The scope now
+carries the three sections the component renders (`common`, `decision`,
+`status`), the way the other call sites do it. And the **Expired** filter on
+the approvals screen led to an empty state indistinguishable from "there are
+none", because nothing in `src/` moves an approval to `expired`: the only
+writer sets approved or rejected, a new approval is pending, and no TTL job
+exists. The tab promised a category the system cannot produce, on the screen
+where an operator decides whether money moves. It is gone, the schema-level
+boundary is recorded in `docs/limitations.md`, and the two translation keys it
+needed are deleted from both catalogues. If a TTL is ever implemented the tab
+comes back with it — that is a product decision, and it is not made here.
+
+**⑦ The guard that should have caught some of this had a blind spot the size
+of the defect it was for.** `desktop/e2e/error-text.spec.ts` extracted three
+kinds of reference — backticks, fenced blocks and double quotes — and the
+approval card's wording in the English walk-through is in a **blockquote**,
+which it never extracted; the corpus it compared against was three Docker
+headings and two hand-written strings of the past, so `risk_explanation` was in
+neither, and an explanation the application had stopped writing was not "a
+message the app never shows" to it but a string with no opinion. The corpus is
+now the application's own: the guard reads
+`src/opspilot/domain/policies.py`, parses the string literals out of
+`explain_risk`, joins the ones Python's implicit concatenation joins, and
+takes the transaction id and the amount from the golden path's fixture — so a
+document quoting a different sentence than the policy engine produces now
+fails, and the failure names the sentence. The check stays positive on
+purpose: it asks that *a* matching span exists, never that every quoted
+string is one, so paths, curl lines, JSON and field names are unaffected. And
+the guard had a bug of its own, found on the way: the normalisation ended with
+`.replace(/[.…]+$/, "")`, a character class containing a full stop, so it ate
+the sentence's final full stop as well as an ellipsis — and the explanation
+ends in a full stop, so it could never match the sentence the policy engine
+writes. It is now `/(\.{3,}|…)+$/`.
+
+**⑧ A dead command, and a README quoting a run from six days ago.**
+`opspilot-seed`'s `main()` raised `NotImplementedError` and the package around
+it existed only to publish it; the three demo servers have always seeded
+themselves from the committed JSON, so nothing was ever on that path. The
+command, the package and the ruff exemption for it are removed. The README's
+self-check table — the one place in this repository that promises every
+figure is backed by a file or a run — was quoting a run from 2026-10-15 (13 of
+13 jobs, 935 tests, 61 browser cases) for a tree that no longer existed; it
+now quotes run `39439825308` at `f410911`, 16 of 16 jobs green, 994 passed and
+24 skipped in each of the two Python jobs, 67 browser cases, and 998 passed
+and 20 skipped locally. The sentence under it — "every other local skip is a
+`postgres`-marked test" — was already wrong independently of the numbers: of
+the 20 local skips, 16 are those and 4 are platform-independent placeholders
+that skip on both platforms.
+
+**The five that were not touched, because they are not ours to decide.**
+Whether `total` in a list response is the number of rows in the database or
+the length of the page — it is currently the page length, which makes a
+paginated list report a total that does not count the rows it did not return.
+Who assembles an approval's `context`, and from which table: the field is
+read out of the approval's own `arguments_snapshot` under `_context`, and no
+code path writes it, so it is always empty. Whether `POST /api/tickets`
+should really be atomic: the ticket insert and the run insert are two
+transactions, and the compensating delete the handler offers is a `getattr`
+lookup the SQL store does not answer, so a failure between the two leaves an
+orphan ticket. Whether approvals should expire at all, which is the TTL
+question the Expired tab was quietly asking. And the walk-through itself,
+which is still owed.
