@@ -336,6 +336,79 @@ default. One translation is not a localisation programme; `docs/phase2-plan.md`
 made. Covered by 22 `web-e2e` cases across
 `web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`.
 
+**The favicon's 256-pixel frame costs about 75 KB on the first visit, and the
+browser pays it whether it wants that frame or not.** An `.ico` is fetched
+whole: a browser does not request the one frame it is going to use, it
+downloads the file and picks a frame out of it. So the 256 frame's 75,186
+bytes of PNG arrive whether the browser wanted that size or not, and they
+are 75,186 of `web/src/app/favicon.ico`'s 92,226 bytes — the same favicon
+measured 17,508 bytes before the 256 frame was added, and 5.3 times as
+large. The cost is about 75 KB of extra transfer on the first visit to the
+domain, after which it comes out of the cache like any other asset. The
+trade is deliberate: the 256 is the frame a reader that takes a single
+picture out of an `.ico` is handed, and it is what makes the page announce
+`sizes="256x256"` rather than `sizes="64x64"`. The cost is real, and it is
+written down so the next reader weighs it instead of rediscovering it.
+
+**The apple-touch icon's rounded corners are iOS's, and the four corners of
+the picture are ours.** iOS puts the apple-touch icon into an opaque
+container and masks the top of it with its own squircle, so the picture
+itself has to be a completely filled square. The badge is a rounded square,
+and cutting the export's white ground away leaves its four corners
+transparent — which on iOS is four holes showing the container's black
+through the badge. `web/src/app/apple-icon.png` is therefore 180×180 and
+opaque everywhere, and the corners are filled by growing the badge's own
+colour field outwards one ring at a time. **The cost is that the bright blue
+stroke that bounds the badge is not in the four corners of the picture we
+ship**: the corner carries the field continued to the square instead, so the
+badge's rounded-square outline is lost from it and iOS's squircle supplies
+the shape instead. The stroke is not smeared across the corner either, and
+that is deliberate — the fill starts three pixels inside the artwork's edge
+(`APPLE_EDGE_INSET` in `scripts/make_assets.py`), because a fill that took
+the edge stroke for its source would drag it across the corner as a stripe,
+the stroke and the ground differing by more than a hundred units of blue.
+The result is 38,678 bytes of PNG that is not the same picture as the badge,
+and that is the price of iOS's rule.
+
+**The icons are committed binaries, and the guards prove that the committed
+file is current, not that the artwork was changed on purpose.**
+`desktop/assets/icon.ico`, `web/src/app/favicon.ico`,
+`web/src/app/apple-icon.png` and `docs/assets/logo.png` are build products
+that live in the repository: `scripts/make_assets.py` generates them from
+`docs/assets/icon-source.png` and `docs/assets/logo-source.png`, and nothing
+in the build regenerates them. The guard is the script's second mode,
+`python scripts/make_assets.py --check`, which the `lint` job runs on every
+push and `tests/unit/test_desktop_icon_is_current.py` asserts; it compares
+picture against picture, it writes nothing, and it regenerates into a
+temporary directory precisely so that a check cannot repair the tree it is
+checking. What it establishes is that the file in the tree is what the
+script produces today. **What it does not establish is that the artwork was
+changed on purpose.** Replace `docs/assets/icon-source.png` with a different
+drawing, run the script, commit the result, and every guard in the
+repository is green: the guards are about drift, and a deliberate redraw is
+not drift. The cost is a manual step no tool can perform — changing the
+artwork means running the script and committing the artefacts by hand — and
+it is invisible in a review, because a binary is not something a diff shows.
+
+**The icon artefacts are produced on Windows and checked on Linux, and only
+the Linux half of that pair is automatic.** The guard runs in the `lint`
+job, on `ubuntu-latest`, and it runs nowhere else: the `desktop-package`
+job that does run on `windows-latest` has no Python environment at all, and
+the CI file says so. The committed artefacts were produced on a Windows
+machine, so the combination is *produced on Windows, checked on Linux* — and
+of that pair only the checking is automatic. The comparison is picture
+against picture, and that is deliberate: a PNG's bytes depend on the zlib
+that packed them, the Windows and manylinux wheels bundle different zlibs,
+and a byte comparison would call an unchanged tree stale. So no job on any
+platform re-runs the generator on Windows and compares the result with what
+is committed. The two jobs do assert the two halves of the chain, each on
+its own platform and neither together: the `lint` job, that the committed
+file is what the script produces, on Linux; the `desktop-package` job, that
+the executable carries *that* file's bytes — its group icon lists the ten
+sizes the artwork is resampled to, each is backed by an icon resource
+holding the committed bytes, and Windows itself renders the committed
+32-pixel frame — on Windows.
+
 ## 7. Product
 
 **The dashboard is operational, not polished.** It is designed to make a trace
@@ -701,7 +774,7 @@ something actually runs it.
 
 ## What is *not* on this list, and why
 
-Three things a reader might expect to find here, which are deliberately absent:
+Four things a reader might expect to find here, which are deliberately absent:
 
 1. **"The permission model is unverified."** It is verified, by four CI gates
    that count violations and require zero. That is a claim the project can make.
@@ -709,7 +782,25 @@ Three things a reader might expect to find here, which are deliberately absent:
    layers, tested by calling the MCP server directly. Also a claim that holds.
 3. **"Retrieved documents can escalate tool permissions."** They cannot.
    Permissions are static code, compared against a literal in a test.
+4. **"The dashboard is not installable, and its icon set is incomplete."**
+   There is no PWA manifest, no `site.webmanifest` and no Android theme icon,
+   and their absence is a position rather than an oversight. OpsPilot is an
+   internal tool for an operator on a Windows machine: there is no public
+   domain to serve a manifest from, no offline use to justify one — the stack
+   it drives is a local Docker Compose deployment with a real database behind
+   it, not a page to cache — and no mobile target. A manifest would advertise
+   an "installable" property the product does not have, and an Android theme
+   icon a second one. The one mobile case that actually occurs is covered:
+   iOS Safari's "Add to Home Screen" on a dashboard URL, which is what
+   `web/src/app/apple-icon.png` is for. The project's actual claim is the
+   narrower one it keeps — the dashboard is served at `127.0.0.1:3000` to an
+   operator, and the icons it does ship (the Windows shell's, the browser
+   tab's, the iOS home screen's) are there so that all three show the same
+   badge.
 
-These three are the project's actual thesis. Everything in sections 1–7 is what
-was traded away to get them right in Phase 1 — and knowing *which* trade was made
-is the point of writing them down.
+The first three are the project's actual thesis. Everything in sections 1–7 is
+what was traded away to get them right in Phase 1 — and knowing *which* trade
+was made is the point of writing them down. The fourth is a different kind of
+entry: not a claim the project cannot back, but a capability it has decided not
+to offer, and a capability deliberately not offered is a limitation's other
+side.

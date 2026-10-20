@@ -949,11 +949,41 @@ than 467) that installs correctly on every platform.
 ### The desktop installer, and what a GitHub Release would take
 
 There is a **built Windows installer** on this machine at
-`desktop/release/OpsPilot-Setup-0.1.0-x64.exe` — **116 MB**, an Electron shell
-that owns the window and the Compose lifecycle and generates its own operator
-token. It requires Docker Desktop; Node is not required.
+`desktop/release/OpsPilot-Setup-0.1.0-x64.exe` — **116 MB** (122,052,011
+bytes in the build that is there now), an Electron shell that owns the window
+and the Compose lifecycle and generates its own operator token. It requires
+Docker Desktop; Node is not required.
 [`docs/installer-verification.md`](docs/installer-verification.md) is the
 acceptance script for it, written for someone who did not build it.
+
+**And the walk-through can now be started, because CI builds the thing the
+script installs.** The `desktop-package` job builds the NSIS installer on
+every run of the workflow — every push to `main` and every pull request
+against it — with `npx electron-builder --win --x64` on `windows-latest`,
+after the same `npm run package:dir` a developer runs, and uploads it as a
+workflow artefact named **`OpsPilot-Setup-windows-x64`**, kept for **90 days**
+(`retention-days: 90`, written out in `.github/workflows/ci.yml` rather than
+inherited, because the walk-through is done by a person, on their own
+schedule, on a machine with Docker Desktop). The job asserts the installer
+before it uploads it — exactly one file matching
+`OpsPilot-Setup-*-x64.exe`, over a megabyte, beginning with the PE signature
+`MZ` and carrying the NSIS signature — and the upload itself fails if it
+finds nothing, so a green job cannot have shipped no installer.
+
+Before `17589a7` there was nowhere to get the file. The installer was a build
+product on one developer's machine: gitignored, unreproducible from any
+commit, attached to no run. §P2-D2 asks for the walk to be run "by someone
+who did not build it", and in practice that means someone with no repository
+and no toolchain — who had no way to obtain the thing the script installs.
+**The blocker was a missing file, not a missing person**, and it is gone.
+
+**A workflow artefact is not a GitHub Release, and the difference is the
+point.** An artefact is a build product attached to one run: it is not
+indexed as a download anywhere, it expires, and nothing in the repository
+links to it. It says "this build of this commit exists", not "this is the
+version you should install" — and a link that says the second thing is
+exactly what §P2-D2 has to earn first. The tag is still not cut, and D2 has
+still not been run.
 
 **There is no GitHub Release, and this README will not link to a download that
 does not exist.** Making one is a publish, not a document, and it was not done
@@ -963,12 +993,12 @@ here. Concretely it is:
    (`git tag` is empty), so there is nothing to release *from*. Release assets
    attach to a Git tag; `v0.1.0` does not yet exist.
 2. **A rebuild from the tagged commit.** The binary above is a build of a
-   working tree on this machine, not of a tag. The copy now in
-   `desktop/release/` was rebuilt on 2026-10-17 04:39 and does include
-   `651bcef`, `7ad9679`, `5f88201` and `79ed677` — the four commits the
-   2026-10-14 build predated — but it will be rebuilt again before anything is
-   released, so its date is the date of a local build, not the provenance of a
-   release. A release must ship a package built by
+   working tree on this machine, not of a tag. The copy in `desktop/release/`
+   is whatever the last `npm run package` on this machine produced, and it is
+   rebuilt from time to time: its bytes and its contents move with every
+   rebuild, and no commit in this repository records which commits the file on
+   this machine contains. Its date is the date of a local build, not the
+   provenance of a release. A release must ship a package built by
    `cd desktop && npm ci && npm run package` on a clean checkout of the tag —
    ideally in a CI job, so the artefact's provenance is a run id rather than a
    person's machine.
@@ -981,8 +1011,11 @@ here. Concretely it is:
 4. **D2's real acceptance still outstanding, and it is the one that gates the
    rest.** §P2-D2 requires that the package be installed and the golden path
    walked **on a clean Windows machine with Docker Desktop, by someone who did
-   not build it**. That has not happened — the installer here was built by the
-   person who wrote the code, so running it is self-certification.
+   not build it**. That has not happened. The CI artefact removes the reason
+   it could not start; it does not make it have happened, and a package built
+   by a runner is not the same thing as a package walked by a stranger. The
+   copy on this machine was built by the person who wrote the code, so
+   running it here is self-certification and does not meet the criterion.
    [`docs/installer-verification.md`](docs/installer-verification.md) is the
    script for it. Publishing an unverified installer as `0.1.0` would put a
    download link in front of a prospective client ahead of the test the plan
