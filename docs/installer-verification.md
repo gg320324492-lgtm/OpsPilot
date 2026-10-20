@@ -57,6 +57,40 @@ produced). Windows SmartScreen will say *"Windows protected your PC"* or
 provenance warning about a download, not a detection of anything wrong with the
 file.
 
+### An old icon you may still see
+
+If this machine already has an older build of OpsPilot on it, the new
+installer replaces the files but **Explorer can go on showing the old icon**:
+the Start-menu entry and the desktop shortcut keep rendering the picture the
+shell cached the first time it saw that path. The icon inside the installed
+executable is the new one; the shell is showing you a copy from its cache.
+**That is not a failed install**, and reporting it as one is a false failure.
+
+Rebuild the cache and look again. Run all three lines in an **ordinary**
+Command Prompt — Start, type `cmd`, Enter — and **not** one opened with *Run
+as administrator* (an elevated prompt cannot start the desktop shell):
+
+```cmd
+taskkill /f /im explorer.exe
+del /a /f "%localappdata%\Microsoft\Windows\Explorer\iconcache_*.db"
+start explorer.exe
+```
+
+The first line stops the shell, the second deletes the database Explorer keeps
+its icons in, the third starts the shell again: your taskbar and any open
+Explorer windows come back, and the icons are extracted from the files afresh.
+If `del` reports a file as in use, the shell came back before the delete ran —
+run the three lines again.
+
+**Why not uninstall the old build first?** The cache is keyed by path, and the
+old build and the new one live at the same path
+(`%LOCALAPPDATA%\Programs\OpsPilot\OpsPilot.exe`). Uninstalling the old one
+and installing the new one does not reliably clear the entry for that path
+either — the path is what the entry is named after, and it does not change.
+Deleting the cache database does clear it, and it leaves the shell no old
+picture to serve, so the icon has to come from the installed executable, which
+carries the new artwork.
+
 ---
 
 ## 1. Install
@@ -70,8 +104,20 @@ file.
 **Worked.** The installer returns to Explorer with no error. A desktop shortcut
 named **OpsPilot** and a Start-menu entry appear.
 
+**Both carry the app's own icon.** A **rounded square in blue** — bright at the
+top-left, deep navy at the bottom-right — carrying a **cyan arrowhead** at its
+centre, ringed by **four broken arcs** with a small mark sitting in each of
+the four gaps. The icon that was there before the artwork landed was a **black
+disc with a white triangle**, Next.js's template placeholder. **One is a blue
+square, the other a black circle** — they are not confusable.
+
 **Failed.** Any error dialog is the installer's, not the app's — screenshot it.
 If the app was already installed, the installer replaces it.
+
+**Failed — the icon is still a black disc with a white triangle** after you
+have rebuilt the icon cache (§0). That is neither the shell's cache nor a
+failed install: the build you installed predates the artwork. Report it, and
+say which of the two icons you saw.
 
 ---
 
