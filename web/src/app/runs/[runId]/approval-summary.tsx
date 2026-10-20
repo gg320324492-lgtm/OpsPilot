@@ -45,8 +45,8 @@ export async function ApprovalSummaryCard({
   const {
     t,
     locale,
-    copy: { decision },
-  } = await getCopy("decision", "explanation", "risk", "approvalSummary");
+    copy,
+  } = await getCopy("common", "decision", "status", "explanation", "risk", "approvalSummary");
   const risk = deriveRisk(toolCall?.permission, toolCall?.tool_name ?? null);
 
   return (
@@ -91,7 +91,7 @@ export async function ApprovalSummaryCard({
         {approval.status === "pending" ? (
           <DecisionActions
             approvalId={approval.id}
-            copy={decision}
+            copy={copy}
             locale={locale}
           />
         ) : (
@@ -103,7 +103,7 @@ export async function ApprovalSummaryCard({
               decidedBy: null,
               runStatus: null,
             }}
-            copy={decision}
+            copy={copy}
             locale={locale}
           />
         )}

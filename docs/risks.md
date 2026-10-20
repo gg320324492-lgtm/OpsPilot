@@ -169,12 +169,19 @@ call to make.
 **Risk.** The README's GIF shows a workflow the reader cannot reproduce, because
 it depends on a seeded database, an API key, or a machine-specific state.
 
-**Mitigation.** Seed data is committed JSON. `docker compose up` plus
-`opspilot-seed` produces the exact database the demo ran against. The
-deterministic path (`--provider fake` with hand-written fixture responses)
-reproduces the *same timeline* with no API key at all and is what the GIF is
-generated from — so the artifact a reviewer sees is regenerable. The live-model
-path is documented and optional.
+**Mitigation.** Seed data is committed JSON, and each demo MCP server loads its
+own copy of it: `mcp_servers/{crm,billing,issues}/seed.json` is read by the
+server's `Store` the first time it runs, so the three stores hold exactly the
+committed data with no seeding step to remember and none to forget.
+`docker compose up` therefore produces the exact database the demo ran against.
+(The `opspilot-seed` console script is a stub whose `main()` raises
+`NotImplementedError`; it is not part of the path and nothing needs it. An
+earlier revision of this file named it as the seeding step, which was never
+true — the servers have always seeded themselves.) The deterministic path
+(`--provider fake` with hand-written fixture responses) reproduces the *same
+timeline* with no API key at all and is what the GIF is generated from — so the
+artifact a reviewer sees is regenerable. The live-model path is documented and
+optional.
 
 **Residual.** The live run's exact wording will differ (model non-determinism).
 The README shows the recorded path for the screenshot and says which is which.

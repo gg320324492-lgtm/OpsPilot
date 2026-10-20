@@ -30,10 +30,32 @@
  * catalogue to find out what language it is would put every string in the
  * dashboard into the browser bundle for the sake of the ten this component
  * renders. So the Server Component that renders it (`approval-card.tsx` and
- * `approval-summary.tsx`) passes the `decision` section of the catalogue, and
- * `createScopedT` builds the same `t` the server builds. The prop is typed as
- * `typeof en.decision`, so a key renamed in the catalogue is a compile error here
- * rather than a blank button.
+ * `approval-summary.tsx`) passes the catalogue sections this component renders,
+ * and `createScopedT` builds the same `t` the server builds. The prop is typed
+ * as a `Pick` of the English catalogue, so a key renamed in the catalogue is a
+ * compile error here rather than a blank button.
+ *
+ * **Three sections, not one: `decision`, `common` and `status`.** A `t` built
+ * over `decision` alone covered none of the keys the other two hold, and each
+ * of them is a key this component really asks for:
+ *
+ * - `status` — `approvalStatusLabel` and `runStatusLabel` look the *label* of a
+ *   status up in `status.approval.*` and `status.run.*`. Without the section
+ *   the lookup misses, `labelFor` falls back to `humanise`, and a Chinese
+ *   operator is shown an English "Approved" on a card whose every other word
+ *   is Chinese. The fallback is right for a value this build has no label
+ *   for; it is wrong for a label that exists and was not shipped.
+ * - `common` — `common.unreachable` (this component's transport failure) and
+ *   `common.apiUnreadable` (`decision-error.ts`'s fallback for a body that is
+ *   not an envelope). Both threw, and the throw *was* the error: the failure
+ *   panel never rendered, and the `catch` meant to report an unreachable
+ *   dashboard died inside itself.
+ * - `decision` — the buttons, the sentences and the panel's own labels.
+ *
+ * The `status` gap is the one that made itself visible rather than fatal: a
+ * missing `common` key throws loudly, while a missing `status` key degrades
+ * into English inside a Chinese sentence — the quieter, and therefore worse,
+ * failure.
  */
 
 import { useRouter } from "next/navigation";
@@ -53,8 +75,8 @@ import type { TFunction } from "@/i18n/format";
 
 import type en from "@/i18n/dictionaries/en.json";
 
-/** Exactly the catalogue section this component renders. Nothing else crosses. */
-export type DecisionCopy = typeof en.decision;
+/** Exactly the catalogue sections this component renders. Nothing else crosses. */
+export type DecisionCopy = Pick<typeof en, "common" | "decision" | "status">;
 
 /** The 200 body's fields this component needs, narrowed on arrival. */
 type Decided = {
@@ -77,13 +99,16 @@ export function DecisionActions({
    * rendering of the same fact goes through `DecisionPanel` below.
    */
   alreadyDecided?: Decided | null;
-  /** The `decision` catalogue section, passed down from the Server Component. */
+  /** The catalogue sections this component renders, passed down from the Server Component. */
   copy: DecisionCopy;
   /** The locale the copy is in, which is also the plural rule and the status label set. */
   locale: string;
 }) {
   const router = useRouter();
-  const t = createScopedT({ decision: copy }, locale);
+  // The whole `copy`, not a hand-built subset: `createScopedT` is given the
+  // sections the server resolved for this request's locale, and the label
+  // lookups below need `status` among them. See the module docstring.
+  const t = createScopedT(copy, locale);
   const [busy, setBusy] = useState<Decision | null>(null);
   const [failure, setFailure] = useState<DecisionFailure | null>(null);
   const [decided, setDecided] = useState<Decided | null>(null);

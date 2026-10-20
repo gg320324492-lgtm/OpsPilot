@@ -76,7 +76,13 @@ export type ApiErrorCode =
   | "ticket_exists"
   | "schema_invalid"
   | "internal_error"
-  | "not_ready"
+  // There is no "not_ready" member, and there never was one in a response.
+  // `/ready` is the only route that answers 503, and it answers
+  // `{"status":"not_ready","checks":{...}}` -- a readiness report, not the
+  // error envelope -- so there is no `code` on it to branch on. Listing the
+  // word here would invite a client to compare against a value the API can
+  // never send.
+  //
   // Framework-derived via `_code_for_status` in api/errors.py: a bare
   // HTTPException (a 401 from auth.py) is re-enveloped, so these are what the
   // API really returns even though contract §6's table does not list them.

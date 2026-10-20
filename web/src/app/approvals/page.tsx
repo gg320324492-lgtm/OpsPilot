@@ -43,12 +43,28 @@ import type en from "@/i18n/dictionaries/en.json";
  * `src/i18n/enums.ts`.
  */
 
-/** The filters the API accepts, in the order an operator reaches for them. */
+/**
+ * The filters this screen offers, in the order an operator reaches for them.
+ *
+ * **`expired` is deliberately absent, although the API's enum has it and the
+ * schema can store it.** Nothing in `src/` ever moves an approval to `expired`:
+ * the only writer sets `approved` or `rejected`, a new approval is `pending`,
+ * and no TTL job exists. So `GET /api/approvals?status=expired` is a
+ * `WHERE status = 'expired'` that returns nothing, always — the tab led to an
+ * empty state indistinguishable from "there are no expired approvals", which
+ * is a category the system cannot produce and does not need to explain.
+ *
+ * The schema-level boundary is recorded in `docs/limitations.md`; this is the
+ * UI half of it. A tab that promises a category nothing can populate is a
+ * promise the code does not keep, and offering it on a screen where an
+ * operator decides whether money moves is the wrong place for one. If a TTL is
+ * ever implemented, the tab comes back with it — that is a product decision
+ * (what happens to the parked run) and it is not made here.
+ */
 const FILTERS = [
   { value: "pending", key: "pending" },
   { value: "approved", key: "approved" },
   { value: "rejected", key: "rejected" },
-  { value: "expired", key: "expired" },
 ] as const satisfies readonly { value: ApprovalStatus; key: keyof typeof en.approvals.filterHint }[];
 
 export default async function ApprovalsPage({
@@ -56,14 +72,10 @@ export default async function ApprovalsPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  // One read of the cookie serves the page's own copy and the `decision`
-  // catalogue section the cards' Client Component is handed. Only `decision`
-  // crosses: the card itself renders from this page's `t`.
-  const {
-    t,
-    locale,
-    copy: { decision },
-  } = await getCopy("decision");
+  // One read of the cookie serves the page's own copy and the catalogue
+  // sections the cards' Client Component is handed. Only those three cross:
+  // the card itself renders from this page's `t`.
+  const { t, locale, copy } = await getCopy("common", "decision", "status");
   const { status } = await searchParams;
   const filter = isApprovalStatus(status) ? status : "pending";
 
@@ -135,7 +147,7 @@ export default async function ApprovalsPage({
                     duplicateCount={group?.approvals.length}
                     t={t}
                     locale={locale}
-                    copy={decision}
+                    copy={copy}
                   />
                 );
               })}
@@ -154,6 +166,11 @@ export default async function ApprovalsPage({
  * API answers `400 validation_error` for a status outside the enum (contract
  * §5), so passing one through would turn a typo in a shared link into an error
  * screen. Landing on the inbox is the useful reading of a bad link.
+ *
+ * `expired` is now one of those unrecognised values — it is in the API's enum
+ * but it is not one of the filters this screen offers (see `FILTERS`), and a
+ * link to it is a link to a page that can only ever be empty. `pending` is the
+ * useful reading of it.
  */
 function isApprovalStatus(value: string | undefined): value is ApprovalStatus {
   return (

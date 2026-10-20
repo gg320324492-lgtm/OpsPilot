@@ -105,7 +105,7 @@ field on `GET /api/runs/{id}` ([api-contract.md](api-contract.md) §3).
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs, indexed | |
 | `sequence` | INTEGER NOT NULL | Monotonic within a run. `UNIQUE (run_id, sequence)`. |
-| `step_type` | TEXT NOT NULL | `state_change` \| `classification` \| `retrieval` \| `planning` \| `tool_call` \| `approval` \| `response` \| `audit` |
+| `step_type` | TEXT NOT NULL | `state_change` \| `classification` \| `retrieval` \| `planning` \| `response` |
 | `input` | JSONB NULL | |
 | `output` | JSONB NULL | |
 | `latency_ms` | INTEGER NULL | |
@@ -119,9 +119,21 @@ as the step insert (`SELECT COALESCE(MAX(sequence),0)+1 ... FOR UPDATE`), so two
 writers on one run cannot race — and there is only ever one writer per run
 anyway, because the claim query takes the row with `FOR UPDATE SKIP LOCKED`.
 
+**The five step types are the whole vocabulary.** `state_change`,
+`classification`, `retrieval`, `planning` and `response` are every
+`step_type` a row in a live database can carry. An earlier revision of this
+table also listed `tool_call`, `approval` and `audit`; those three are
+**reserved by the schema and have no producer** — no code path in `src/`
+records a step of any of them, because a tool call, an approval and an audit
+event each have a table of their own below rather than a row here. The column
+is `TEXT` rather than a PG enum, so a reserved name costs nothing to leave in
+the schema and nothing to leave out of the data; the point of listing only the
+five is that a reader querying `agent_steps` for `step_type = 'tool_call'`
+gets no rows and should know that before they go looking for the bug.
+
 **A note on the `input`/`output` JSONB columns.** In Phase 1 they hold structured
 per-step metadata — `{provider, model}`, `{category, confidence}`,
-`{count, document_slugs}`, `{tool_name, done}`, `{from_status, to_status}` — plus,
+`{count, document_slugs}`, `{tool_name, done}`, `{from_status, to_status, at}` — plus,
 on the `response` step, the model's **composed reply** in full. That reply is a
 deliberate debugging affordance with a real privacy cost, recorded in
 [limitations.md](limitations.md) and slated for redaction in Phase 3; it is what
@@ -241,22 +253,42 @@ blob would force into application code.
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs NULL, indexed | Nullable: auth and reindex events have no run |
 | `event_type` | TEXT NOT NULL, indexed | See below |
-| `actor` | TEXT NOT NULL | `agent` \| `operator:<id>` \| `system` |
+| `actor` | TEXT NOT NULL | `runtime` \| `worker` |
 | `payload` | JSONB NOT NULL | |
 | `created_at` | TIMESTAMPTZ NOT NULL, indexed | |
 
 Event types, Phase 1:
 
 ```
-run_created    state_changed   model_called     retrieval_performed
-tool_proposed  tool_rejected   tool_executed    tool_failed
-approval_requested  approval_granted  approval_rejected
-run_completed  run_failed      knowledge_reindexed
+tool_executed    tool_failed    tool_rejected
+approval_requested    run_failed    model_called    retrieval_abstained
 ```
 
 Append-only by convention: no UPDATE or DELETE path exists in the repository
 layer, and `test_audit_is_append_only` asserts the repository exposes no
 mutating method.
+
+**The seven event types are the whole vocabulary.** An earlier revision of this
+table listed fourteen, and every one of the other eight — `run_created`,
+`state_changed`, `retrieval_performed`, `tool_proposed`, `approval_granted`,
+`approval_rejected`, `run_completed` and `knowledge_reindexed` — is **reserved
+by the schema and has no producer**: no code path in `src/` writes an event of
+any of them.
+
+`retrieval_performed` is the one worth singling out, because it is not merely
+unwritten but *misnamed*. The event that exists is `retrieval_abstained`, and
+it is written when the agent **declines to act** on the evidence it retrieved —
+so a reader who went looking for `retrieval_performed` in the ledger would
+find neither the retrieval nor its abstention, and would conclude the run never
+retrieved anything.
+
+**`actor` is `runtime` or `worker`, and nothing else.** Every event the agent
+loop writes names `runtime`; the one the worker's own loop writes — a run whose
+model call failed, so the agent loop never got to record it — names `worker`.
+An earlier revision of this table listed `agent`, `operator:<id>` and
+`system`, none of which any code path produces: the constant `runtime` is
+there precisely so that a writer that is *not* the runtime is distinguishable
+from it by reading one column, and that writer has not been written yet.
 
 ## 3. Why both `agent_steps` and `audit_events`
 

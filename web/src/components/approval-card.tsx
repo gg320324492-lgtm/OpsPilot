@@ -79,7 +79,7 @@ export function ApprovalCard({
   t: TFunction;
   /** The request's locale, needed to build the Client Component's own `t`. */
   locale: string;
-  /** The `decision` catalogue section, handed straight to `DecisionActions`. */
+  /** The catalogue sections the card's Client Component renders, handed straight to `DecisionActions`. */
   copy: DecisionCopy;
 }) {
   const risk = deriveRisk(toolCall?.permission, toolCall?.tool_name ?? null);

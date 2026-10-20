@@ -95,11 +95,12 @@ The payload the dashboard's run-detail screen renders.
   },
 
   "steps": [
-    { "sequence": 1, "step_type": "state_change", "output": {"to": "classifying"},
+    { "sequence": 1, "step_type": "state_change",
+      "output": {"from_status": "received", "to_status": "classifying",
+                 "at": "2026-10-05T10:42:03.481902+00:00"},
       "latency_ms": 0, "started_at": "…" },
     { "sequence": 2, "step_type": "classification",
-      "output": {"category": "duplicate_charge", "confidence": 0.93,
-                 "reasoning_summary": "Customer reports a duplicate charge on a named invoice."},
+      "output": {"category": "duplicate_charge", "confidence": 0.93},
       "latency_ms": 612, "started_at": "…" }
     // …
   ],
@@ -113,7 +114,7 @@ The payload the dashboard's run-detail screen renders.
 
     { "id": "aa07…", "tool_name": "billing.issue_refund",
       "arguments": {"transaction_id": "TX-88219", "amount": 129.00,
-                    "idempotency_key": "refund:7c1b…:TX-88219"},
+                    "currency": "USD", "reason": ""},
       "permission": "high_risk_write", "status": "awaiting_approval",
       "result": null, "latency_ms": null,
       "idempotency_key": "refund:7c1b…:TX-88219", "error": null }
@@ -131,8 +132,9 @@ The payload the dashboard's run-detail screen renders.
     "tool_call_id": "aa07…",
     "status": "pending",
     "reason": "Verified duplicate charge on TX-88219; proposing full refund of $129.00.",
-    "risk_explanation": "This moves $129.00 and cannot be undone automatically.",
-    "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00},
+    "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+    "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00,
+                           "currency": "USD", "reason": ""},
     "created_at": "…"
   },
 
@@ -151,6 +153,29 @@ Field notes:
 - `pending_approval` is present only when the run is parked. It is the only
   place in the API where an approver-visible payload is nested inside a run.
 - `customer_reply` is set only at `COMPLETED`.
+- **`steps[].output` has a different shape per `step_type`, and the shapes are
+  fixed by the writers.** A `state_change` step carries the transition it
+  accompanies: `{from_status, to_status, at}`. A `classification` step carries
+  `{category, confidence}` and nothing else. The other three step types carry
+  `{count, document_slugs}` (`retrieval`), `{tool_name, done}` (`planning`) and
+  `{escalated, chars, body}` (`response`).
+
+  There is no `reasoning_summary` and no `to`: no code path writes either, and
+  an earlier revision of this document showed both. The trace's own `label` and
+  `detail` (§4) are assembled server-side from these fields, which is why the
+  shape matters there too.
+- **`tool_calls[].arguments` is the *validated* call, and it is not the whole
+  proposal.** Gate 1 parses the model's arguments against the tool's schema and
+  dumps the result with `exclude_none=True`, so the dictionary holds exactly
+  the fields that schema declares — no more and no fewer. For
+  `billing.issue_refund` those are `transaction_id`, `amount`, `currency` and
+  `reason`; the last two are non-`None` defaults, so they are *always* present
+  even when the model named neither.
+
+  The `idempotency_key` is deliberately **not** one of them: a model may not
+  choose it, because the policy engine derives it from the run and the
+  transaction (`docs/tool-permissions.md` §4). It is stored in its own column,
+  which is the `idempotency_key` field beside `arguments` on the same row.
 - **`claim_lease`** says whether a worker is holding this run *right now*, which
   is not the same question as `status`. `state` is `unclaimed` (nothing has ever
   claimed it), `held` (a lease whose deadline is in the future, so no second
@@ -234,8 +259,9 @@ The run's audit ledger — the append-only record, not the execution timeline.
       "created_at": "2026-10-05T10:42:09Z",
       "actor": "runtime",
       "payload": { "tool_call_id": "aa07…", "tool_name": "billing.issue_refund",
-                   "risk_explanation": "This moves $129.00 and cannot be undone automatically.",
-                   "arguments": { "transaction_id": "TX-88219", "amount": 129.00 } }
+                   "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+                   "arguments": { "transaction_id": "TX-88219", "amount": 129.00,
+                                  "currency": "USD", "reason": "" } }
     },
     {
       "id": "e927…",
@@ -299,8 +325,9 @@ run id indistinguishable from a run that had just been created.
       "tool_call_id": "aa07…",
       "status": "pending",
       "reason": "Verified duplicate charge on TX-88219; proposing full refund of $129.00.",
-      "risk_explanation": "This moves $129.00 and cannot be undone automatically.",
-      "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00},
+      "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+      "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00,
+                             "currency": "USD", "reason": ""},
       "created_at": "2026-10-05T10:42:09Z",
       "decided_at": null,
       "decided_by": null,
@@ -365,13 +392,23 @@ The HTTP status is carried by `code`:
 |---|---|
 | 400 | `validation_error` |
 | 404 | `ticket_not_found`, `run_not_found`, `approval_not_found` |
-| 409 | `approval_already_decided`, `run_not_awaiting_approval`, `run_already_completed` |
+| 409 | `approval_already_decided`, `run_not_awaiting_approval`, `run_already_completed`, `ticket_exists` |
 | 422 | `schema_invalid` (Pydantic request validation) |
 | 500 | `internal_error` (message is generic; the detail is in the log, keyed by a `trace_id` returned in `details`) |
-| 503 | `not_ready` (from `/ready`) |
+| 503 | *(no code)* — `/ready` answers `{"status":"not_ready","checks":{…}}`, which is not this envelope (§7) |
 
 `code` is a stable machine identifier. Clients branch on it; they never parse
 `message`.
+
+**There is no `not_ready` code.** An earlier revision of this table listed one
+for the 503, and nothing in `src/` has ever constructed it: `/ready` reports an
+unready database with a `status`/`checks` body (§7), and it is the only route
+that answers 503 at all. A client must therefore read `/ready`'s body rather
+than branch on a code it will never see.
+
+`ticket_exists` is the code `POST /api/tickets` returns when the
+`external_id` it was given already exists (§9), and it is the **only** 409 that
+endpoint can produce.
 
 ## 7. Health and readiness
 

@@ -32,7 +32,7 @@ export function DecisionPanel({
 }: {
   failure: DecisionFailure;
   onDismiss: () => void;
-  /** A `t` over the `decision` catalogue section, built by `createScopedT`. */
+  /** A `t` over the catalogue sections `DecisionActions` was handed, built by `createScopedT`. */
   t: TFunction;
 }) {
   const view = describeDecisionFailure(failure, t);
