@@ -259,6 +259,17 @@ the file and not the problem. The decoded pixels are the same across every
 Pillow from 10.0.0 to 13.0.0 and on both platforms, so they are what the
 check compares.
 
+The pictures are not the whole file, though. An `.ico` is a directory of
+frames and the frames themselves, and the directory is the part a reader
+copies them with: the length an entry declares is the number of bytes
+Windows takes out of the resource for that frame, so an entry that declares
+more than its frame holds hands the reader rubbish at the end of it, and one
+that declares less hands it a picture cut short. A frame that decodes is not
+a frame the directory describes correctly -- Pillow seeks to the entry's
+offset and lets the PNG's own chunks decide where the frame ends -- so the
+check reads the directory of the committed file as well, and compares every
+declared length with the length of the picture actually there.
+
 It deliberately does not write the artefact it is checking. A check that
 repairs the tree it is checking is not a check: it would make the failure
 invisible in CI, where the working tree comes back clean, and it would
@@ -706,6 +717,118 @@ def _frames_or_none(path: pathlib.Path) -> dict[tuple[int, int], bytes] | None:
         return None
 
 
+#: The signature at the head of every frame of an `.ico`. The frames are
+#: PNGs, and this is what says so -- which is what makes the length of a
+#: frame the length of a picture, and not the number of bytes that happen
+#: to follow it.
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _png_length(data: bytes, offset: int) -> int | None:
+    """The length of the PNG at `offset`, or None when there is not one.
+
+    A PNG says where it ends: the file ends after the `IEND` chunk, and
+    the bytes after that are not part of the picture however many of them
+    there are. So the length of a frame is the length of its chunks, and
+    not the size of the space the file gave it -- and the difference
+    between the two is the difference between a frame and a frame with
+    rubbish in it.
+    """
+    if data[offset : offset + len(_PNG_SIGNATURE)] != _PNG_SIGNATURE:
+        return None
+    position = offset + len(_PNG_SIGNATURE)
+    while position + 8 <= len(data):
+        length = int.from_bytes(data[position : position + 4], "big")
+        chunk = data[position + 4 : position + 8]
+        # A chunk is a length, a type, the data and a CRC over the two.
+        position += 12 + length
+        if position > len(data):
+            return None
+        if chunk == b"IEND":
+            return position - offset
+    return None
+
+
+def _ico_frames(data: bytes) -> list[tuple[tuple[int, int], int, int]]:
+    """The frames an icon's directory declares: the size, the length, the offset.
+
+    The directory is read rather than the frames decoded, because the
+    directory is the part that can lie. A reader finds the frames of an
+    `.ico` by their offsets and their lengths, and takes that many bytes
+    out of the resource for each one, so a frame that decodes is a frame
+    the directory can still describe wrongly.
+    """
+    if len(data) < 6:
+        return []
+    reserved, kind, count = struct.unpack("<HHH", data[:6])
+    if (reserved, kind) != (0, 1):
+        return []
+    frames: list[tuple[tuple[int, int], int, int]] = []
+    for index in range(count):
+        record = 6 + index * 16
+        if record + 16 > len(data):
+            break
+        width, height, _colors, _reserved, _planes, _bits, length, offset = struct.unpack(
+            "<BBBBHHII", data[record : record + 16]
+        )
+        # A width or a height of 0 means 256: the byte cannot hold it.
+        frames.append(((width or 256, height or 256), length, offset))
+    return frames
+
+
+def _ico_container_problems(data: bytes) -> list[str]:
+    """The ways an icon's directory disagrees with the frames it holds.
+
+    Every frame is described twice -- once by the directory, which says
+    how long it is, and once by the file, which says how many bytes are
+    really there -- and the two have to agree. A reader copies the
+    declared length out of the resource, so a directory that overstates a
+    frame hands the reader rubbish at the end of it, and one that
+    understates a frame truncates the picture.
+
+    The length the file holds for a frame is the distance from its offset
+    to the next frame's offset, or to the end of the file for the last
+    one, and the length of the picture itself is what the PNG's own chunks
+    say. A frame is well formed when the directory, the file and the
+    picture all say the same number.
+    """
+    frames = _ico_frames(data)
+    if not frames:
+        return ["the file does not begin with an icon directory"]
+
+    problems: list[str] = []
+    ordered = sorted(frames, key=lambda frame: frame[2])
+    directory_end = 6 + 16 * len(frames)
+    first_offset = ordered[0][2]
+    if first_offset != directory_end:
+        problems.append(
+            f"the first frame starts at {first_offset} and the directory ends at "
+            f"{directory_end}: the frames follow the directory"
+        )
+
+    for index, ((width, height), declared, offset) in enumerate(ordered):
+        size = f"{width}x{height}"
+        if offset + declared > len(data):
+            problems.append(
+                f"the {size} frame declares {declared} bytes at {offset}, which runs "
+                f"past the end of the {len(data)}-byte file"
+            )
+            continue
+        following = ordered[index + 1][2] if index + 1 < len(ordered) else len(data)
+        held = following - offset
+        picture = _png_length(data, offset)
+        if picture is not None and picture != declared:
+            problems.append(
+                f"the {size} frame declares {declared} bytes but its picture is {picture} bytes"
+            )
+        if held != declared:
+            problems.append(
+                f"the {size} frame declares {declared} bytes but the file holds {held} for it"
+            )
+
+    return problems
+
+
 def _format_sizes(sizes: list[tuple[int, int]]) -> str:
     """Frame sizes as ``16x16, 20x20``, for a message a person can read."""
     return ", ".join(f"{width}x{height}" for width, height in sizes)
@@ -768,6 +891,17 @@ def check_icon(
     13.0.0 and on both platforms. The pictures are what the question is
     about: is the icon in the tree still the icon the artwork makes?
 
+    The container is checked as well as the pictures, because the two
+    answer different questions and a file can pass one and fail the
+    other. The pictures say whether the icon is the icon the artwork
+    makes; the directory at the head of the file says how long each of
+    the frames is, and Windows takes that many bytes out of the
+    resource for the frame. A directory that overstates a frame gives
+    the reader rubbish at the end of it, and one that understates a
+    frame gives it a picture cut short -- and neither shows up in the
+    pixels, because Pillow reads a frame by seeking to its offset and
+    letting the PNG's own chunks decide where the frame ends.
+
     The regeneration happens in a temporary directory, and the file being
     checked is never written to: a check that repairs the tree it is checking
     is not a check. The temporary directory goes away with the `with` block,
@@ -790,6 +924,24 @@ def check_icon(
             return 1
         committed_bytes = target.read_bytes()
         regenerated_bytes = candidate.read_bytes()
+
+        # The container is checked before the pictures, because a container
+        # that disagrees with itself is a fact about the file rather than a
+        # drift: the pictures in it may be the right ones and the file
+        # still says something false about them.
+        problems = _ico_container_problems(committed_bytes)
+        if problems:
+            print(f"the committed {name} is malformed: {target}", file=sys.stderr)
+            print(f"  committed:   {len(committed_bytes)} bytes", file=sys.stderr)
+            for line in problems:
+                print(f"  {line}", file=sys.stderr)
+            print(
+                f"\nRun:  python scripts/make_assets.py {name}\n"
+                f"The directory at the head of the {name} and the bytes in it "
+                "disagree, so the file is not the icon the artwork makes.",
+                file=sys.stderr,
+            )
+            return 1
 
         if committed_bytes == regenerated_bytes:
             print(

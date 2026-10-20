@@ -129,6 +129,42 @@ The wordmark has three:
    a horizontal lockup rather than a square, and it carries no leftover
    whitespace from the export it was cropped out of.
 
+Three more are about the tree around the artefacts rather than about the
+artefacts themselves, and they are here because the checks above cannot
+see the failures they are for:
+
+1. **The icon's directory says how long each of its frames is, and the file
+   agrees.** The frames of an `.ico` are found by their offsets and their
+   lengths, and Windows copies the declared length out of the resource, so
+   a directory that overstates a frame hands the reader rubbish at the end
+   of it, and one that understates a frame truncates the picture. Neither
+   shows up in the pixels: Pillow seeks to the entry's offset and lets the
+   PNG's own chunks decide where the frame ends, so a file whose directory
+   lies still decodes, and a check that compares pictures calls it current.
+2. **The README shows the committed wordmark.** The wordmark is the one
+   artefact with a reference to it, and a reference is only a reference
+   while the file it names is the file that is there. Pointing the tag at
+   the export the wordmark was cropped out of, or at a path that was
+   deleted, leaves every other guard green: the check says
+   `docs/assets/logo.png` is current, which is true, while the README
+   shows something else, or shows a broken image.
+3. **The exports are the exports the artefacts were built from.** The check
+   can say that the committed artefacts are what the tree's own exports
+   make; it cannot say which exports those are. A reviewer looking at a
+   954 KB binary has no diff to read, so an export that was swapped for a
+   different picture is indistinguishable from one that was redrawn, and
+   the size is what tells the two apart.
+
+And one is about the dashboard's directory rather than about any file in it:
+**the dashboard serves one favicon.** Next.js's App Router has a file
+convention for the browser's icon, and `app/favicon.ico` and `app/icon.png`
+are both it, so a tree with both puts two `<link rel="icon">` tags in the
+document and leaves the browser to choose. Which one it chooses is not
+defined anywhere, so the dashboard's icon would be settled by the order the
+framework happened to write the tags in. `app/apple-icon.png` is not in that
+set: it is the icon iOS puts on the home screen, and it has a different
+consumer and a different link tag.
+
 Reading an ICO back needs Pillow, which is in the repository's `dev` extra
 and is therefore present wherever the suite is run from a checkout.
 """
@@ -137,6 +173,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+import re
 import struct
 import subprocess
 import sys
@@ -152,10 +189,12 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 _BUILDER = _REPO_ROOT / "scripts" / "make_assets.py"
 _ARTWORK = _REPO_ROOT / "docs" / "assets" / "icon-source.png"
 _ICON = _REPO_ROOT / "desktop" / "assets" / "icon.ico"
-_FAVICON = _REPO_ROOT / "web" / "src" / "app" / "favicon.ico"
-_APPLE = _REPO_ROOT / "web" / "src" / "app" / "apple-icon.png"
+_APP_DIR = _REPO_ROOT / "web" / "src" / "app"
+_FAVICON = _APP_DIR / "favicon.ico"
+_APPLE = _APP_DIR / "apple-icon.png"
 _WORDMARK_ARTWORK = _REPO_ROOT / "docs" / "assets" / "logo-source.png"
 _WORDMARK = _REPO_ROOT / "docs" / "assets" / "logo.png"
+_README = _REPO_ROOT / "README.md"
 
 #: The sizes Windows may ask the shell for. Written out here rather than
 #: imported from the builder: a test that reads its expectation from the thing
@@ -207,6 +246,45 @@ _OPAQUE = 255
 #: Apple does not ask for. Written out here rather than imported from the
 #: builder, for the same reason the sizes above are.
 EXPECTED_APPLE_SIZE = (180, 180)
+
+#: The size the icon's export is drawn at, and the size the wordmark's
+#: export arrives at. The exports are the sources the artefacts are built
+#: from, and the check can only say that the committed artefacts are what
+#: the tree's own exports make -- not which exports those are, because a
+#: 954 KB binary is not something a reviewer can diff. The size is what
+#: tells one export from another, so it is the identity that is written
+#: down. Not a hash: the artwork is redrawn legitimately, and a hash would
+#: be a number that has to be updated every time it is -- and a number
+#: that is not updated is a red build rather than a stale picture.
+#: Written out here rather than imported from the builder, for the same
+#: reason the sizes above are.
+EXPECTED_ICON_SOURCE_SIZE = (1024, 1024)
+EXPECTED_LOGO_SOURCE_SIZE = (1254, 1254)
+
+#: The path the README's wordmark points at: the committed artefact, and
+#: not the export it was cropped out of. The README shows the wordmark,
+#: and the export is a 1254x1254 square with the lockup across the middle
+#: of it -- a different picture at a different size, and a broken image on
+#: the front page of the repository if the path is gone at all.
+EXPECTED_WORDMARK_REFERENCE = "docs/assets/logo.png"
+
+#: The file names Next.js turns into a `<link rel="icon">` for the page.
+#: The browser's icon and the home screen's icon are different files with
+#: different consumers, so only these names compete with each other: two
+#: of them at once is two icon links in the document, and which one a
+#: browser takes is not defined anywhere.
+FAVICON_METADATA_NAMES = (
+    "favicon.ico",
+    "favicon.png",
+    "favicon.jpg",
+    "favicon.jpeg",
+    "favicon.svg",
+    "icon.ico",
+    "icon.png",
+    "icon.jpg",
+    "icon.jpeg",
+    "icon.svg",
+)
 
 #: How far from white a pixel may be and still count as the drawing rather
 #: than the export's ground. The same measure the builder uses to find the
@@ -354,6 +432,56 @@ def test_the_check_compares_pictures_and_not_bytes(tmp_path: pathlib.Path) -> No
     )
 
 
+def test_the_check_catches_a_frame_that_declares_more_than_it_holds(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The check reads the directory, and not only the pictures.
+
+    An `.ico` describes its frames twice: the directory at the head of the
+    file says how long each frame is, and the bytes in the file say how
+    long each frame really is. A reader takes the frame out of the
+    resource by the length the directory declares, so a directory that
+    overstates a frame hands the reader rubbish at the end of it, and one
+    that understates a frame hands it a picture cut short.
+
+    The copy here is the committed icon with its 256-pixel frame's declared
+    length forty bytes longer than the frame is, and forty bytes of
+    rubbish at the end of the file so that the file's own layout agrees
+    with the directory: the declared length and the number of bytes held
+    for the frame are then the same, and the only thing false about the
+    file is the length of the picture inside it.
+
+    The frames still decode to the same pictures -- which is asserted
+    here, so that the failure the check reports is the one about the
+    directory and not about a picture -- and the check still has to fail,
+    and has to name the frame, because a report that does not say which
+    frame is wrong is a report nobody can act on.
+    """
+    stretched = tmp_path / "icon.ico"
+    _overstate_the_last_frame(_ICON, stretched, extra=40)
+
+    committed = {size: frame.tobytes() for size, frame in _icon_frames(_ICON)}
+    copied = {size: frame.tobytes() for size, frame in _icon_frames(stretched)}
+    assert copied == committed, (
+        "the copy does not hold the same pictures, so this test is not "
+        "exercising the difference it claims to: the directory's claim "
+        "about the last frame's length is the only thing wrong with it."
+    )
+
+    result = _run_builder("--check", stretched)
+
+    assert result.returncode != 0, (
+        "the check reported success for an icon whose directory claims a "
+        "frame is longer than it is, so the guard is empty.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert "256x256" in result.stderr, (
+        "the check failed but did not say which frame's length is wrong, so "
+        "the failure cannot be acted on.\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+
+
 def test_the_committed_icon_carries_every_size_windows_may_ask_for() -> None:
     """The committed icon holds all ten sizes, and nothing else.
 
@@ -402,6 +530,15 @@ def test_the_committed_icons_are_well_formed_containers() -> None:
     So the invariants are asserted here rather than left to the reader: the
     frames start where the directory ends, they do not overlap, and the
     last one ends exactly at the end of the file.
+
+    And the length an entry declares is the length of the frame it
+    describes, which is the one the paragraph above is about. The spans
+    used to be derived from the declared lengths, so the two could not
+    disagree -- the directory was checked against itself. The length a
+    frame really is comes from the file: the bytes from its offset to the
+    next frame's offset, or to the end of the file for the last one, and
+    the picture's own chunks. Those are the two numbers the declared
+    length is compared against here.
     """
     for path in (_ICON, _FAVICON):
         data = path.read_bytes()
@@ -414,12 +551,20 @@ def test_the_committed_icons_are_well_formed_containers() -> None:
         assert count > 0, f"{path} holds no frames at all."
 
         directory_end = 6 + 16 * count
-        spans: list[tuple[int, int]] = []
+        entries: list[tuple[int, int, int, int, int]] = []
         for index in range(count):
             record = 6 + index * 16
             width, height, _colors, _reserved, _planes, _bits, size, offset = struct.unpack(
                 "<BBBBHHII", data[record : record + 16]
             )
+            entries.append((index, width or 256, height or 256, size, offset))
+
+        # Where each frame really ends: at the next frame's offset, or at
+        # the end of the file for the last one. The declared lengths are
+        # not consulted, because they are what is being checked.
+        starts = sorted(offset for _index, _width, _height, _size, offset in entries)
+        spans: list[tuple[int, int]] = []
+        for index, width, height, size, offset in entries:
             assert offset >= directory_end, (
                 f"{path}'s frame {index} starts at {offset}, which is inside "
                 f"the directory -- the directory ends at {directory_end}. A "
@@ -431,11 +576,26 @@ def test_the_committed_icons_are_well_formed_containers() -> None:
                 "reader that copies that many bytes out of the resource gets "
                 "a truncated frame."
             )
+            following = [start for start in starts if start > offset]
+            end = following[0] if following else len(data)
+            assert size == end - offset, (
+                f"{path}'s {width}x{height} frame declares {size} bytes, and "
+                f"the file holds {end - offset} for it. Windows copies that "
+                "many bytes out of the resource, so the frame a reader gets "
+                "is not the frame the file holds."
+            )
             frame = data[offset : offset + size]
             assert frame[:8] == b"\x89PNG\r\n\x1a\n", (
-                f"{path}'s {width or 256}x{height or 256} frame is not a PNG. "
+                f"{path}'s {width}x{height} frame is not a PNG. "
                 "The frames of an `.ico` are PNGs, and a reader that finds "
                 "something else there has no picture to show."
+            )
+            picture = _png_length(data, offset)
+            assert picture == size, (
+                f"{path}'s {width}x{height} frame declares {size} bytes and "
+                f"its picture is {picture} bytes. Windows copies the declared "
+                "length out of the resource, so a frame that is not that long "
+                "is a frame with rubbish in it or a picture cut short."
             )
             spans.append((offset, offset + size))
 
@@ -1002,6 +1162,119 @@ def test_the_wordmark_is_a_horizontal_lockup() -> None:
     )
 
 
+def test_the_readme_shows_the_committed_wordmark() -> None:
+    """The README's picture is the committed wordmark, and the file is there.
+
+    The wordmark is the one artefact with a reference to it: the README
+    shows it in an `<img>` tag. A reference is only a reference while the
+    file it names is the file that is there, and nothing else in the tree
+    notices when it stops being so. Point the tag at the export the
+    wordmark was cropped out of -- a 1254x1254 square with the lockup
+    across the middle of it -- and every other guard stays green: the
+    check answers for `docs/assets/logo.png` and says it is current, which
+    is true, while the README shows something else. Point it at a path
+    that was deleted and the README shows a broken image, and the check
+    says nothing at all, because the file it is checking is still there.
+
+    The tag itself is what is asserted, and the file it names has to
+    exist: the README is the only place in the repository that shows the
+    wordmark, so a broken reference is a broken image on the front page
+    and nothing else in the tree would say so.
+    """
+    readme = _README.read_text(encoding="utf-8")
+    tags = re.findall(r"<img\b[^>]*>", readme)
+    assert len(tags) == 1, (
+        f"the README holds {len(tags)} <img> tags rather than one: {tags}. The "
+        "wordmark is the picture it shows in an <img> tag, and every other "
+        "image in the README is markdown, so a second <img> is a second "
+        "picture this guard cannot account for."
+    )
+
+    source = re.search(r'src="([^"]+)"', tags[0])
+    assert source is not None, (
+        f"the README's <img> tag names no source: {tags[0]}. A tag without a "
+        "src is a tag that shows nothing, and the wordmark is the first "
+        "thing anyone sees of the project."
+    )
+    assert source.group(1) == EXPECTED_WORDMARK_REFERENCE, (
+        f"the README shows {source.group(1)} rather than "
+        f"{EXPECTED_WORDMARK_REFERENCE}. The README shows the wordmark, and "
+        "the wordmark is the committed artefact: the export it was cropped "
+        "out of is a different picture at a different size, and the check "
+        "says nothing about it, because the check is about the artefact."
+    )
+    assert (_REPO_ROOT / EXPECTED_WORDMARK_REFERENCE).is_file(), (
+        f"{EXPECTED_WORDMARK_REFERENCE} is not in the tree, so the README's "
+        "wordmark is a broken image."
+    )
+
+
+def test_the_exports_are_the_size_they_were_drawn_at() -> None:
+    """The two exports are the exports the artefacts were built from.
+
+    The check can say that the committed artefacts are what the tree's own
+    exports make. It cannot say which exports those are: a reviewer
+    looking at a 954 KB binary has no diff to read, so an export that was
+    swapped for a different picture is indistinguishable from one that was
+    redrawn -- and the difference between the two is the difference between
+    the badge the project ships and a placeholder that happens to be the
+    same shape. The size is what tells the two apart, so it is the
+    identity that is written down.
+
+    Not a hash. The artwork is redrawn legitimately, and a hash would be
+    a number that has to be updated every time it is -- and a number that
+    is not updated is a red build rather than a stale picture.
+
+    The sizes are written out here rather than imported from the builder,
+    for the reason the other expectations in this file are: a test that
+    reads its expectation out of the thing it checks proves nothing.
+    """
+    for path, expected in (
+        (_ARTWORK, EXPECTED_ICON_SOURCE_SIZE),
+        (_WORDMARK_ARTWORK, EXPECTED_LOGO_SOURCE_SIZE),
+    ):
+        assert path.exists(), f"{path} is missing, so there is nothing to build from."
+        with Image.open(path) as image:
+            found = image.size
+
+        assert found == expected, (
+            f"{path} is {found[0]}x{found[1]}, not "
+            f"{expected[0]}x{expected[1]}. The size is the identity of an "
+            "export: the check can say that the committed artefacts are what "
+            "the tree's exports make, and it cannot say which exports those "
+            "are, because a binary is not something a diff shows."
+        )
+
+
+def test_the_dashboard_serves_one_favicon() -> None:
+    """The dashboard's directory holds one icon for the browser.
+
+    Next.js's App Router has a file convention for the browser's icon, and
+    `app/favicon.ico` and `app/icon.png` are both it: a tree with both
+    puts two `<link rel="icon">` tags in the document and leaves the
+    browser to choose. Which one it chooses is not defined anywhere, so
+    the dashboard's icon would be settled by the order the framework
+    happened to write the tags in -- and by nothing a person decided.
+
+    `apple-icon.png` is not one of these: it is the icon iOS puts on the
+    home screen, it has its own link tag and its own consumer, and it is
+    not competing with anything.
+
+    The directory is listed rather than the two file names checked, so
+    that the guard covers every name the convention has and not only the
+    two that are in the tree today.
+    """
+    found = sorted(name for name in FAVICON_METADATA_NAMES if (_APP_DIR / name).exists())
+
+    assert len(found) == 1, (
+        f"web/src/app/ holds {found or 'nothing'} for the browser's icon, and "
+        "there has to be exactly one of them. Next.js's App Router turns "
+        'each of these files into a `<link rel="icon">` in the document, and '
+        "two of them at once means two icon links and a browser choosing "
+        "between them by a rule nobody wrote down."
+    )
+
+
 # -- helpers -----------------------------------------------------------------
 
 
@@ -1036,6 +1309,65 @@ def _drawing_box(image: Image.Image) -> tuple[int, int, int, int] | None:
     distance = ImageChops.invert(darkest)
     mask = distance.point(lambda d: 255 if d > _DRAWING_TOLERANCE else 0)
     return mask.getbbox()
+
+
+def _png_length(data: bytes, offset: int) -> int | None:
+    """The length of the PNG at `offset`, or None when there is not one.
+
+    The PNG's own chunk structure says where the picture ends: the file
+    ends after the `IEND` chunk, and the bytes after it are not part of
+    the picture. Written out here rather than imported from the builder,
+    for the reason the expectations above are: this file does not read
+    what it checks out of the thing it checks.
+    """
+    if data[offset : offset + 8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    position = offset + 8
+    while position + 8 <= len(data):
+        length = int.from_bytes(data[position : position + 4], "big")
+        chunk = data[position + 4 : position + 8]
+        # A chunk is a length, a type, the data and a CRC over the two.
+        position += 12 + length
+        if position > len(data):
+            return None
+        if chunk == b"IEND":
+            return position - offset
+    return None
+
+
+def _overstate_the_last_frame(source: pathlib.Path, target: pathlib.Path, extra: int) -> None:
+    """Write a copy of an `.ico` whose last frame claims `extra` bytes too many.
+
+    The last frame is the 256-pixel one. The file is padded with `extra`
+    bytes of rubbish so that its own layout agrees with the directory:
+    the length the directory declares and the number of bytes the file
+    holds for the frame are then the same, and the only thing false about
+    the file is the length of the picture inside the frame.
+    """
+    data = bytearray(source.read_bytes())
+    _reserved, _kind, count = struct.unpack("<HHH", data[:6])
+    record = 6 + (count - 1) * 16
+    width, height, colors, reserved, planes, bits, size, offset = struct.unpack(
+        "<BBBBHHII", data[record : record + 16]
+    )
+    assert (width or 256, height or 256) == (256, 256), (
+        f"the last frame of {source} is {width or 256}x{height or 256}, not the "
+        "256-pixel one this helper overstates."
+    )
+    struct.pack_into(
+        "<BBBBHHII",
+        data,
+        record,
+        width,
+        height,
+        colors,
+        reserved,
+        planes,
+        bits,
+        size + extra,
+        offset,
+    )
+    target.write_bytes(bytes(data) + b"\x00" * extra)
 
 
 def _repack_with_a_different_compressor(source: pathlib.Path, target: pathlib.Path) -> None:
