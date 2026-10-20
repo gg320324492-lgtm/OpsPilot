@@ -40,10 +40,14 @@ The file this script installs is `OpsPilot-Setup-<version>-x64.exe`. The version
 comes from `desktop/package.json` and changes from build to build, so match the
 name and not the number.
 
-**Option 1 — download it from CI.** Every push builds the installer and
-attaches it to that run. The `desktop-package` job of the **CI** workflow runs
-on `windows-latest`, builds the NSIS installer, and uploads it as a workflow
-artifact named **`OpsPilot-Setup-windows-x64`**.
+**Two ways to get it, and which one applies to you depends on whether you have
+a GitHub account.** If you do not, go straight to Option B: you cannot download
+the file yourself, and that is not a problem with your machine.
+
+**Option A — you have a GitHub account: download it from CI.** Every push
+builds the installer and attaches it to that run. The `desktop-package` job of
+the **CI** workflow runs on `windows-latest`, builds the NSIS installer, and
+uploads it as a workflow artifact named **`OpsPilot-Setup-windows-x64`**.
 
 In the GitHub repository page, the path is:
 
@@ -81,18 +85,43 @@ file, so a successful run cannot have shipped nothing.
 that. If the run you picked has nothing to download, it is probably older than
 that — **pick a more recent run**.
 
+**Option B — you do not have a GitHub account: the person who gave you this
+script sends you the file.** This is the ordinary case, and it is the one this
+script is written for.
+
+**Downloading a workflow artifact requires being signed in to a GitHub
+account.** The repository is public, and without signing in you can still read
+a run's page and the list of artifacts — but the download itself is not
+available: asked for without a signed-in session, GitHub answers
+`401 Unauthorized`, and from a browser it redirects you into a sign-in flow
+and lands on a not-found page. That is GitHub's rule for artifact downloads; a
+public repository does not exempt you from it. It is not a property of this
+repository, and nothing on your machine changes it.
+
+So the download is done by someone who does have an account: **the person who
+gave you this script.** They download the artifact from CI — Option A above —
+and send you the `OpsPilot-Setup-<version>-x64.exe` inside it. You need no
+account, no repository and no toolchain to receive it. Any way of handing over
+a file works: email, a chat message, a shared drive, a USB stick. Unpack it if
+it arrives as a zip.
+
+**The provenance travels with the file even though the download did not.** The
+installer you receive is the same file the CI runner built, and the run and
+the commit behind it are named on that run's page. **Ask the person who sent
+it which run and which commit they took it from** — §7 asks you to report
+that, and it is what lets somebody else check your result afterwards.
+
 **There is no GitHub Release.** Do not go looking for one: this repository has
 no tag and no release page, and the README links to no download. The artifact
 is a build product attached to one run: it expires, and it is indexed nowhere.
 
-**Option 2 — take the file from a developer.** If someone hands you the `.exe`
-directly, install it; this script does not care where the file came from. But
-know what you are holding. A file built on somebody's machine is a build of a
-**working tree**, not of a **commit**: the build output is gitignored, no
-commit in the repository records it, and nothing inside the file says which
-source tree produced it. It is a perfectly installable file with no traceable
-provenance behind it, where the CI artifact has a run and a commit behind it.
-**Prefer the CI artifact.**
+**If the file you were given was built on somebody's own machine, know what
+you are holding.** It is a build of a **working tree**, not of a **commit**:
+the build output is gitignored, no commit in the repository records it, and
+nothing inside the file says which source tree produced it. It is a perfectly
+installable file with no traceable provenance behind it, where the CI artifact
+has a run and a commit behind it. **Prefer the CI artifact** — and if you are
+not sure which of the two you have been given, ask.
 
 ### Record the walk-through
 
@@ -481,7 +510,8 @@ If anything above failed, these five things make it diagnosable:
 4. Whether the first launch was the first launch, or a repeat.
 5. Which installer you ran, and where it came from — the CI run it was
    downloaded from (the run's id, and the commit that run built) or the person
-   who gave you the file.
+   who gave you the file. If it came through a person, that run's id and
+   commit are the ones they downloaded it from.
 
 **And one more, whether or not anything failed:**
 

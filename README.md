@@ -1057,7 +1057,19 @@ product on one developer's machine: gitignored, unreproducible from any
 commit, attached to no run. §P2-D2 asks for the walk to be run "by someone
 who did not build it", and in practice that means someone with no repository
 and no toolchain — who had no way to obtain the thing the script installs.
-**The blocker was a missing file, not a missing person**, and it is gone.
+**The blocker was a missing file, not a missing person**, and it is gone —
+with one wrinkle the walk-through now spells out: downloading a workflow
+artefact needs a signed-in GitHub account, so the download is done by whoever
+hands the script over and the file is sent on. The person being walked
+through needs no account, no repository and no toolchain to receive it.
+
+**What to hand over is three files**, and
+[`docs/installer-verification.request.md`](docs/installer-verification.request.md)
+is the first of them: a note that says what the project is, what the walker
+needs and what to send back, written to be sent as it stands. The other two
+are the installer and [`docs/installer-verification.md`](docs/installer-verification.md)
+itself, the step-by-step script (with a
+[Chinese companion](docs/installer-verification.zh-CN.md)).
 
 **A workflow artefact is not a GitHub Release, and the difference is the
 point.** An artefact is a build product attached to one run: it is not

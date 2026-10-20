@@ -79,7 +79,10 @@ start explorer.exe
 这份脚本要装的文件是 `OpsPilot-Setup-<version>-x64.exe`。版本号来自
 `desktop/package.json`，每次构建都可能变——**对上文件名就行，不要对版本号**。
 
-**方式一：从 CI 下载（推荐）。**
+**拿到它有两条路，走哪一条取决于你有没有 GitHub 账号。**
+**没有的话直接看「方式二」——你自己下载不了，这不是你机器的问题。**
+
+**方式一：你有 GitHub 账号 → 从 CI 下载。**
 
 每次 push 都会构建安装包，并把它作为 **workflow artifact** 挂在那次运行上。
 **CI** workflow 里的 **`desktop-package (the Windows artefact)`** job 在
@@ -119,18 +122,36 @@ commit** 构建出来的，运行页面会写明这次运行对应的是哪个 c
 如果你选的那次运行下面**什么都没有**，多半是它已经超过 90 天了——
 **换一次更近的运行**。
 
+**方式二：你没有 GitHub 账号 → 让给你这份脚本的人把安装包发给你。**
+**这是最常见的情况，也是这份脚本本来就是为它写的。**
+
+**下载 workflow artifact 需要登录 GitHub 账号。** 仓库是 public，
+不登录也能打开那次运行的页面、也能看到 artifact 的**列表**——但**下载本身**
+拿不到：不带登录态去要那个文件，GitHub 会回 `401 Unauthorized`；在浏览器里点，
+则先被重定向进登录流程，最后落到一个"找不到"的页面。这是 GitHub 对 artifact
+下载的规则，**仓库是 public 也不例外**。它不是这个仓库的什么特殊性质，
+你机器上做任何事都改变不了。
+
+所以"下载"这一步由**有账号的人**替你做——**就是给你这份脚本的那个人**：
+他从 CI 下载（方式一），把里面的 `OpsPilot-Setup-<version>-x64.exe` 发给你。
+**你不需要账号、不需要这个仓库，也不需要为了收一个文件装任何工具链。**
+怎么发都行：邮件、聊天软件、网盘、U 盘。如果发来的是 zip，先解压。
+
+**出处跟着文件走，只是"下载"这一步换了人做。** 你收到的安装程序，和 CI runner
+构建出来的是**同一个文件**，它背后的那次运行和那个 commit 就写在那个运行页面
+上。**问一句给你文件的人：这是哪次运行、哪个 commit 下载来的**——§7 会要你
+写下来，写下来之后别人才能复核你的结果。
+
 **⚠️ 没有 GitHub Release。** 别去找：本仓库既没有 tag，也没有 release 页面，
 README 里也没有任何下载链接。artifact 是挂在某一次运行上的构建产物——会过期，
 也没有被索引到任何地方。
 
-**方式二：直接从一个开发者那里拿文件。**
-
-如果有人直接把这个 `.exe` 给你，装它就行——脚本不关心文件从哪来。但你要知道
-自己手上是什么：**那是某台机器上一个工作区的构建，不是某个 commit 的构建。**
-构建产物是 gitignored 的，仓库里没有任何 commit 记录它，文件内部也没有任何
-东西说明它是哪一份源码树构建出来的。所以它是一个**完全能装、但没有可追溯
-出处**的文件；CI artifact 则有——**一次运行、一个 commit**。
-**能下载就下载 artifact。**
+**如果给你的文件是在某台开发者的机器上构建的，你得知道自己手上是什么。**
+那样一个文件是**某个工作区**的构建，不是**某个 commit** 的构建：构建产物是
+gitignored 的，仓库里没有任何 commit 记录它，文件内部也没有任何东西说明它是
+哪一份源码树构建出来的。所以它是一个**完全能装、但没有可追溯出处**的文件；
+CI artifact 则有——**一次运行、一个 commit**。
+**优先用 CI artifact**；不确定自己拿到的是哪一种，就问一句。
 
 ### 录下这次走查
 
@@ -517,7 +538,8 @@ Leaving the backend running: this app did not start it.
 3. Windows 版本、Docker Desktop 版本（`docker version`）。
 4. **首次启动确实是首次，还是重复启动。**
 5. **你装的是哪个安装包、它从哪来**——CI 的哪一次运行（run id，以及那次运行
-   构建的 commit），或者是谁给你的文件。
+   构建的 commit），或者是谁给你的文件。**如果是别人转交给你的，那串 run id
+   和 commit 就是他从 CI 下载时用的那一组。**
 
 **还有一条，不管有没有失败都要写：**
 
@@ -541,6 +563,7 @@ Leaving the backend running: this app did not start it.
 `OpsPilot-Setup-windows-x64`（artifact 名，**不带版本号**）·
 `OpsPilot-Setup-<version>-x64.exe`（安装包名）· `MZ`（PE 签名）· `NSIS`
 `Actions` · `Artifacts`（GitHub 界面上的名字）· 90 天（artifact 保留期）
+`401 Unauthorized`（未登录下载 artifact 时 GitHub 的回答）
 `MP4` · `H.264` · `1280x720` · `10 MiB`
 `docs/assets/d2-walkthrough.mp4` · `docs/assets/d2-walkthrough.webm`
 
