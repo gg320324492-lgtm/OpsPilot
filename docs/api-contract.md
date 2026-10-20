@@ -114,7 +114,7 @@ The payload the dashboard's run-detail screen renders.
 
     { "id": "aa07…", "tool_name": "billing.issue_refund",
       "arguments": {"transaction_id": "TX-88219", "amount": 129.00,
-                    "currency": "USD", "reason": ""},
+                    "reason": ""},
       "permission": "high_risk_write", "status": "awaiting_approval",
       "result": null, "latency_ms": null,
       "idempotency_key": "refund:7c1b…:TX-88219", "error": null }
@@ -132,9 +132,9 @@ The payload the dashboard's run-detail screen renders.
     "tool_call_id": "aa07…",
     "status": "pending",
     "reason": "Verified duplicate charge on TX-88219; proposing full refund of $129.00.",
-    "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+    "risk_explanation": "This moves 129.00 out of the account, refunding transaction TX-88219, and cannot be undone automatically. The amount is in the currency the transaction was charged in.",
     "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00,
-                           "currency": "USD", "reason": ""},
+                           "reason": ""},
     "created_at": "…"
   },
 
@@ -166,11 +166,17 @@ Field notes:
   shape matters there too.
 - **`tool_calls[].arguments` is the *validated* call, and it is not the whole
   proposal.** Gate 1 parses the model's arguments against the tool's schema and
-  dumps the result with `exclude_none=True`, so the dictionary holds exactly
-  the fields that schema declares — no more and no fewer. For
-  `billing.issue_refund` those are `transaction_id`, `amount`, `currency` and
-  `reason`; the last two are non-`None` defaults, so they are *always* present
-  even when the model named neither.
+  dumps the result with `exclude_none=True`, so the dictionary holds every
+  field that schema declares, except any the schema excludes — no more and no
+  fewer. For `billing.issue_refund` those are `transaction_id`, `amount` and
+  `reason`; `reason` is a non-`None` default, so it is *always* present even
+  when the model named none.
+
+  There is no `currency` among them, and that is the point rather than an
+  omission. The currency a refund moves is the currency the transaction was
+  charged in — a row only the billing server can read — and a currency in a
+  proposal is the model's guess at a fact no gate can know, so it never reaches
+  the approver, the snapshot or the dispatch (`docs/tool-permissions.md` §3.2).
 
   The `idempotency_key` is deliberately **not** one of them: a model may not
   choose it, because the policy engine derives it from the run and the
@@ -259,9 +265,9 @@ The run's audit ledger — the append-only record, not the execution timeline.
       "created_at": "2026-10-05T10:42:09Z",
       "actor": "runtime",
       "payload": { "tool_call_id": "aa07…", "tool_name": "billing.issue_refund",
-                   "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+                   "risk_explanation": "This moves 129.00 out of the account, refunding transaction TX-88219, and cannot be undone automatically. The amount is in the currency the transaction was charged in.",
                    "arguments": { "transaction_id": "TX-88219", "amount": 129.00,
-                                  "currency": "USD", "reason": "" } }
+                                  "reason": "" } }
     },
     {
       "id": "e927…",
@@ -325,9 +331,9 @@ run id indistinguishable from a run that had just been created.
       "tool_call_id": "aa07…",
       "status": "pending",
       "reason": "Verified duplicate charge on TX-88219; proposing full refund of $129.00.",
-      "risk_explanation": "This moves $129.00 USD out of the account, refunding transaction TX-88219, and cannot be undone automatically.",
+      "risk_explanation": "This moves 129.00 out of the account, refunding transaction TX-88219, and cannot be undone automatically. The amount is in the currency the transaction was charged in.",
       "arguments_snapshot": {"transaction_id": "TX-88219", "amount": 129.00,
-                             "currency": "USD", "reason": ""},
+                             "reason": ""},
       "created_at": "2026-10-05T10:42:09Z",
       "decided_at": null,
       "decided_by": null,

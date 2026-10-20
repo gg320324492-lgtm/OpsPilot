@@ -185,8 +185,7 @@
     "filterHint": {
       "pending": "等待决定。这就是收件箱。",
       "approved": "已决定。该运行已被释放给工作进程。",
-      "rejected": "已决定。该运行随后转为发送升级回复。",
-      "expired": "已无法再作出决定。"
+      "rejected": "已决定。该运行随后转为发送升级回复。"
     },
     "waitingSuffix": "条等待处理",
     "recordedSuffix": "条已记录",

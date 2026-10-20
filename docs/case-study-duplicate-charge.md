@@ -124,7 +124,7 @@ active" was assembled by the agent from three separate tool results.
 ## 4. The proposal, and where it stops
 
 The fourth call — `billing.issue_refund`, with
-`{amount: 129, currency: "USD", transaction_id: "TX-88219"}` — **did not execute.**
+`{amount: 129, transaction_id: "TX-88219"}` — **did not execute.**
 It parked.
 
 ```
@@ -143,8 +143,9 @@ it held:
 - The policy engine classified the call and required approval, **deriving the
   sentence deterministically** — no model wrote it:
 
-  > This moves $129.00 USD out of the account, refunding transaction TX-88219,
-  > and cannot be undone automatically.
+  > This moves 129.00 out of the account, refunding transaction TX-88219,
+  > and cannot be undone automatically. The amount is in the currency the
+  > transaction was charged in.
 
 - The model's own justification was recorded too, and **labelled untrusted**,
   because nothing verifies it before it reaches the operator:

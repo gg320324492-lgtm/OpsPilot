@@ -187,8 +187,7 @@
     "filterHint": {
       "pending": "Waiting for a decision. This is the inbox.",
       "approved": "Decided. The run was released to the worker.",
-      "rejected": "Decided. The run went on to an escalation reply.",
-      "expired": "No longer decidable."
+      "rejected": "Decided. The run went on to an escalation reply."
     },
     "waitingSuffix": "waiting",
     "recordedSuffix": "recorded",

@@ -360,8 +360,9 @@ The backend already running does not accept this app's operator token
 ```
 The duplicate is confirmed and policy supports a refund. This is
 HIGH_RISK_WRITE and requires human approval.
-This moves $129.00 USD out of the account, refunding transaction TX-88219,
-and cannot be undone automatically.
+This moves 129.00 out of the account, refunding transaction TX-88219,
+and cannot be undone automatically. The amount is in the currency the
+transaction was charged in.
 ```
 
 > **这就是整个产品的重点。** 模型提出；确定性代码判定它危险；run 停下，等人。
@@ -555,7 +556,7 @@ Leaving the backend running: this app did not start it.
 
 `x64` · `~6 GB` · `5–15 minutes` · `1–15 min` · `~1 s` · 约 10 秒 · 一分钟内 · 几秒内
 端口 **8000**（后端 API）· 端口 **3210**（仪表盘）· `127.0.0.1`（**绝不写 `localhost`**）
-`17 seen` / `17 indexed` / `98 chunks` · `$129.00 USD` · `TX-88219` · `HIGH_RISK_WRITE`
+`17 seen` / `17 indexed` / `98 chunks` · `129.00` · `TX-88219` · `HIGH_RISK_WRITE`
 `HTTP 409` · `HTTP 200` · `/runs/<uuid>` · `<approval-id>`
 `opspilot_postgres-data` · `opspilot_mcp-data` · `name=opspilot-` · `--tail 100`
 `%LOCALAPPDATA%\Programs\OpsPilot` · `%APPDATA%\OpsPilot\opspilot.env` · `resources\stack`

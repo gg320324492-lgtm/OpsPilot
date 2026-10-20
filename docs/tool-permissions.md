@@ -172,10 +172,11 @@ at a fact it cannot know, printed in the one string the approver is told to
 trust — and it was, and it was wrong: a proposal naming `EUR` described a
 refund the server was about to make in dollars.
 
-So a proposal's currency does not enter the call at all. `RefundArgs` parses it
-and drops it, which keeps it out of the explanation *and* out of the arguments
-snapshot the human approves against. The explanation says the amount and the
-transaction, and says where the currency is.
+So a proposal may not name a currency at all: the field is not in `RefundArgs`,
+and a proposal carrying one is refused at gate 1 -- which keeps it out of the
+explanation *and* out of the arguments snapshot the human approves against. The
+explanation says the amount and the transaction, and says where the currency
+is.
 
 ## 4. Idempotency
 

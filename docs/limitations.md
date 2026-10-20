@@ -427,7 +427,8 @@ a run can sit parked indefinitely in a real deployment.
 **Approvals do not expire in practice.** The `expired` status exists in the
 schema and a `pending` approval will sit forever. No TTL job is implemented. The
 schema is ahead of the behaviour here, and that is stated rather than quietly
-assumed.
+assumed. The Approvals screen does not offer an expired filter either — a tab
+for a category the system cannot produce is a promise the code does not keep.
 
 **One seeded demo dataset.** Ten customers, twenty-odd invoices. Real data has
 messier shapes — missing fields, multiple currencies, partial refunds across

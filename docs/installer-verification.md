@@ -374,8 +374,9 @@ The page shows a trace — classification, retrieval, planning — and an
 
 > The duplicate is confirmed and policy supports a refund. This is
 > HIGH_RISK_WRITE and requires human approval.
-> This moves $129.00 USD out of the account, refunding transaction TX-88219,
-> and cannot be undone automatically.
+> This moves 129.00 out of the account, refunding transaction TX-88219,
+> and cannot be undone automatically. The amount is in the currency the
+> transaction was charged in.
 
 **This is the point of the product.** The model proposed; deterministic code
 decided it was risky; the run stopped and is waiting for a human. **If the run
