@@ -90,7 +90,6 @@
           "arguments": {
             "transaction_id": "TX-88219",
             "amount": 129.0,
-            "currency": "USD",
             "reason": "Duplicate charge for INV-2026-384."
           },
           "reason": "The duplicate is confirmed and policy supports a refund. This is HIGH_RISK_WRITE and requires human approval.",

@@ -154,24 +154,48 @@ def test_unknown_fields_are_forbidden() -> None:
         )
 
 
-def test_a_proposed_currency_is_accepted_and_never_sent() -> None:
-    """A proposal may name a currency; the currency does not travel.
+def test_a_proposed_currency_is_refused_at_gate_1() -> None:
+    """A proposal may not name a currency, and the refusal happens here.
 
-    Gate 1's verdict on a proposal that names one is unchanged -- the
-    committed golden-path fixture and the evaluation runner's injected proposal
-    both name one -- but the *parsed* arguments are what the approver reads and
-    what the server is called with, and neither may carry a currency the server
-    would ignore. The billing server takes the currency from the transaction
-    row (``mcp_servers/billing/server.py``); a proposed one is a guess about a
-    row only the server can read, and the guess reached the approver twice
-    over: in the ``risk_explanation`` and in the arguments snapshot.
+    The field used to be *excluded* from the dump rather than removed, so that
+    gate 1's verdict on a proposal naming one would not change. That is the
+    weaker shape, and it is weaker in a specific way: the model could still see
+    the field and propose it, the proposal was still accepted, and the value was
+    dropped on the way to the approver -- so a call that said something the call
+    does not do got as far as the human deciding, and the rejection happened one
+    gate too late, on a value nothing ever read.
+
+    The billing server takes the currency from the transaction row
+    (``mcp_servers/billing/server.py``); a proposed one is a guess about a row
+    only the server can read, and the guess reached the approver twice over:
+    in the ``risk_explanation`` and in the arguments snapshot. With the field
+    gone, ``extra="forbid"`` refuses the proposal at gate 1 -- the same gate
+    that refuses a proposal carrying an ``idempotency_key``, and the same
+    direction: the model does not get to say it.
+    """
+    with pytest.raises(InvalidArgumentsError):
+        validate_tool_call(
+            "billing.issue_refund",
+            {"transaction_id": "TX-1", "amount": "1.00", "currency": "EUR"},
+        )
+
+
+def test_a_proposal_without_a_currency_is_parsed_and_carries_none() -> None:
+    """The ordinary proposal still parses, and the parsed arguments are the call.
+
+    The other side of the refusal above, and the reason it is a change of
+    direction rather than a change of behaviour: a refund proposal that says
+    nothing about the currency is still accepted, and what comes out of gate 1
+    is the argument set the server is called with -- transaction, amount and
+    reason, and no currency the server would ignore.
     """
     spec, parsed = validate_tool_call(
         "billing.issue_refund",
-        {"transaction_id": "TX-1", "amount": "1.00", "currency": "EUR"},
+        {"transaction_id": "TX-1", "amount": "1.00"},
     )
     assert spec is TOOL_REGISTRY["billing.issue_refund"]
     assert "currency" not in parsed
+    assert parsed["transaction_id"] == "TX-1"
 
 
 def test_validate_never_returns_a_spec_without_parsing() -> None:

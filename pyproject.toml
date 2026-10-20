@@ -150,7 +150,6 @@ dev = [
 opspilot-api = "opspilot.api.__main__:main"
 opspilot-worker = "opspilot.worker.__main__:main"
 opspilot-eval = "opspilot.evals.__main__:main"
-opspilot-seed = "opspilot.mcp_servers.seed:main"
 
 [project.urls]
 Homepage = "https://github.com/gg320324492-lgtm/OpsPilot"
@@ -315,7 +314,6 @@ ignore = [
 # alternative is a class per failure mode, and the failure modes here are
 # configuration values an operator changes, not conditions the code branches on.
 "src/opspilot/**/__main__.py" = ["T20", "TRY003"]
-"src/opspilot/mcp_servers/seed.py" = ["T20"]
 "src/opspilot/evals/*.py" = ["T20"]
 # The golden-path demo, whose stdout *is* the deliverable: it exists to be read
 # and to be recorded into the README GIF, so routing it through logging would put

@@ -23,6 +23,16 @@ and the refund the server performs must be in the transaction's own currency.
 The explanation cannot contradict the execution, because it says nothing the
 execution could contradict.
 
+**And that a proposal naming a currency never gets that far.** The field was
+first parsed and then dropped, so that gate 1's verdict on such a proposal
+would not change. That was the weaker shape: the proposal was still accepted,
+and the value was discarded on the way to the approver, so the refusal
+happened one gate too late, on a value nothing ever read. The field is now
+absent from the schema entirely, so a proposal naming one is refused at gate
+1 -- the model does not get to say it. This file asserts that refusal as well
+as the explanation's silence, because both are the same claim: the currency is
+not the model's to name.
+
 The currency is set on *this test's* store rather than in the committed seed,
 so the seed stays the demo's data and the committed golden path stays in
 dollars.
@@ -41,7 +51,7 @@ from mcp_servers._store import Store
 from mcp_servers.billing.server import create_server
 from opspilot.domain.policies import derive_idempotency_key, explain_risk
 from opspilot.domain.runs import AgentRun, RunStatus
-from opspilot.domain.tools import validate_tool_call
+from opspilot.domain.tools import InvalidArgumentsError, validate_tool_call
 
 _SEED_PATH = Path(__file__).resolve().parents[2] / "mcp_servers" / "billing" / "seed.json"
 
@@ -103,15 +113,15 @@ async def test_the_explanation_describes_the_refund_the_server_actually_makes(
 ) -> None:
     """The string the approver reads must match the refund that executes.
 
-    The proposal names a currency -- the model may, and did -- and the
-    transaction it refunds is charged in euros. The explanation must not name
-    any currency, because no gate can know which one the server will use, and
-    the refund the server performs must be in the transaction's own currency.
+    The proposal names no currency -- the model may not, and a proposal that
+    does is refused at gate 1 -- and the transaction it refunds is charged in
+    euros. The explanation must not name any currency, because no gate can know
+    which one the server will use, and the refund the server performs must be
+    in the transaction's own currency.
     """
     proposal: dict[str, object] = {
         "transaction_id": _TRANSACTION,
         "amount": _AMOUNT,
-        "currency": "USD",
         "reason": "Duplicate charge confirmed against invoice INV-2026-384.",
     }
 
@@ -176,15 +186,19 @@ async def test_a_proposal_that_names_no_currency_is_told_no_currency_either(
     assert executed["currency"] == _TRANSACTION_CURRENCY
 
 
-async def test_the_approvers_snapshot_carries_no_currency_the_server_will_ignore(
-    euro_store: Store,
-) -> None:
+async def test_the_approvers_snapshot_carries_no_currency_the_server_will_ignore() -> None:
     """The arguments the approver approves against are the ones the server acts on.
 
     The snapshot is documented as "the exact arguments the gate will execute"
     (``docs/tool-permissions.md`` §3.2). A currency in it would be a field the
     server ignores, sitting in front of the human who is deciding whether to
     release the money -- so the currency must not be in the snapshot either.
+
+    It is not in the snapshot because a proposal naming one never reaches the
+    snapshot: the field is not in the schema, and ``extra="forbid"`` refuses
+    the proposal at gate 1. The refusal is the assertion -- a currency the
+    model proposes is a guess about a row only the billing server can read, and
+    the stricter direction is that the guess never gets to be a proposal at all.
     """
     proposal: dict[str, object] = {
         "transaction_id": _TRANSACTION,
@@ -193,7 +207,19 @@ async def test_the_approvers_snapshot_carries_no_currency_the_server_will_ignore
         "reason": "Duplicate charge confirmed against invoice INV-2026-384.",
     }
 
-    _, parsed = validate_tool_call("billing.issue_refund", proposal)
+    with pytest.raises(InvalidArgumentsError):
+        validate_tool_call("billing.issue_refund", proposal)
+
+    # And the proposal that *is* accepted carries no currency either: what
+    # reaches the approver is the argument set the server will act on.
+    _, parsed = validate_tool_call(
+        "billing.issue_refund",
+        {
+            "transaction_id": _TRANSACTION,
+            "amount": _AMOUNT,
+            "reason": "Duplicate charge confirmed against invoice INV-2026-384.",
+        },
+    )
     assert "currency" not in parsed
     assert parsed["transaction_id"] == _TRANSACTION
     assert parsed["amount"] == _AMOUNT

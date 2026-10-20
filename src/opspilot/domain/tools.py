@@ -119,8 +119,8 @@ class RefundArgs(BaseModel):
     (``docs/tool-permissions.md`` §4), never supplied by the model, so accepting
     one would let a proposal pick a key that defeats the duplicate check.
 
-    **``currency`` is parsed and then discarded, and that is deliberate.** The
-    billing server takes the currency from the transaction row
+    **``currency`` is not a field here, and a proposal that names one is
+    refused.** The billing server takes the currency from the transaction row
     (``mcp_servers/billing/server.py`` reads ``transaction["currency"]``) and has
     no ``currency`` parameter to take: ``docs/mcp-contracts.md`` §2 documents the
     same four parameters the tool declares. A currency in a proposal is the
@@ -128,9 +128,18 @@ class RefundArgs(BaseModel):
     approver twice over -- in the ``risk_explanation``, the one string the
     approver is told to trust, and in the arguments snapshot they approve
     against. A proposal naming ``EUR`` described a refund the server was about
-    to make in the transaction's own currency. Excluding the field from the
-    dump keeps it out of both, and leaves gate 1's verdict on a proposal that
-    names one exactly as it was.
+    to make in the transaction's own currency.
+
+    The field was first *excluded* from the dump rather than removed, so that
+    gate 1's verdict on a proposal naming one would not change. That was the
+    wrong direction to leave it in. An excluded field is still a field the model
+    can see and propose, the proposal is still accepted, and the value is simply
+    dropped on the floor afterwards -- so a call that says something the call
+    does not do gets as far as the approver, and the rejection happens one gate
+    too late, on a value nothing ever read. Removing the field makes the
+    refusal happen at gate 1, where every other argument the model may not
+    supply is refused (``idempotency_key`` above all), so the schema, the
+    contract and the call describe the same thing.
 
     ``transaction_amount`` is not a field at all. The charged amount is a row
     only the billing server can read; a model-supplied one is a claim, and a
@@ -150,11 +159,6 @@ class RefundArgs(BaseModel):
     # (``_as_decimal`` accepts a ``float`` without going through a string), so
     # money rules do not acquire binary-roundoff behaviour.
     amount: float
-    # The currency a proposal may name. Excluded from the dump, so it never
-    # leaves this process -- see the class docstring. The default only keeps a
-    # proposal that says nothing about the currency valid; nothing reads the
-    # value, because nothing receives it.
-    currency: str = Field(default="USD", min_length=1, max_length=8, exclude=True)
     reason: str = Field(default="")
 
 
@@ -384,11 +388,14 @@ def validate_tool_call(
     call reached the tool, and what reached it was
     ``{"customer_email": None, "customer_id": "C1"}``.
 
-    A field marked ``exclude=True`` does not reach the server either, and by a
-    different route: it is not in the dump at all. ``RefundArgs.currency`` is
-    the only one, and the reason is in that class's docstring -- a currency the
-    model proposes is not a currency the refund would move, so it must not
-    reach the approver or the server.
+    A field marked ``exclude=True`` would not reach the server either, and by a
+    different route: it is not in the dump at all. There is no such field now.
+    There was one -- ``RefundArgs.currency`` -- and it was the last of a shape
+    this design no longer wants: a field the model may propose, that gate 1
+    accepts and then drops, so the proposal says something the call does not
+    do. The reason is in that class's docstring -- a currency the model proposes
+    is not a currency the refund would move -- and the field is removed rather
+    than excluded, so the refusal happens at gate 1.
 
     Raises:
         InvalidArgumentsError: If the tool is registered and the arguments do not
