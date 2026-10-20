@@ -156,15 +156,49 @@ something other than what runs. So `ToolCall.arguments` is immutable once the
 `ApprovalRequest` is created — enforced by a test that attempts to alter them
 between approval and execution and requires `ApprovalArgumentsChanged`.
 
+Two strings reach the approver, and they are not the same kind of string. The
+`reason` is the model's own, and is untrusted. The `risk_explanation` is
+generated deterministically from the tool's static permission and its arguments,
+and is the one the human is meant to rely on. Everything below follows from
+that: **the explanation may not say anything the call would not do.**
+
+**The explanation names the amount and the transaction, and no currency.** The
+currency a refund moves is the currency the transaction was charged in, and
+that is a row only the billing MCP server can read — the tool body reads it
+when the refund executes. No gate can know it: no tool returns a transaction by
+id, and `billing.list_transactions` needs an invoice id the runtime does not
+have. A currency read out of the proposal would therefore be the model's guess
+at a fact it cannot know, printed in the one string the approver is told to
+trust — and it was, and it was wrong: a proposal naming `EUR` described a
+refund the server was about to make in dollars.
+
+So a proposal's currency does not enter the call at all. `RefundArgs` parses it
+and drops it, which keeps it out of the explanation *and* out of the arguments
+snapshot the human approves against. The explanation says the amount and the
+transaction, and says where the currency is.
+
 ## 4. Idempotency
 
-`billing.issue_refund` requires an `idempotency_key` (schema-enforced: a
-`billing.issue_refund` call without one fails gate 1). The key is derived
-deterministically from the run and the intended effect:
+`billing.issue_refund` requires an `idempotency_key`, and **the model does not
+supply it**. The key is derived deterministically from the run and the intended
+effect:
 
 ```python
 idempotency_key = f"refund:{run.id}:{transaction_id}"
 ```
+
+Gate 1 and gate 4 have different jobs here, and the difference is the point:
+
+- **Gate 1** (schema validation) checks the model's own arguments against
+  `RefundArgs`, which deliberately does *not* declare `idempotency_key`. A
+  proposal that carries one is refused there, under `extra="forbid"`, because
+  a model that could choose its own key could pick a fresh one every time and
+  walk straight past the duplicate check. A proposal that carries **no** key
+  passes gate 1: the key is not the model's to provide.
+- **Gate 4** (policy) derives the key from the run and the transaction, and
+  short-circuits a call whose key has already been executed.
+- **The EXECUTE step** adds the derived key to the dispatch, which is where the
+  server's own required parameter is satisfied.
 
 Not a random UUID — a random key would make every call unique and defeat the
 purpose. Not derived from a timestamp — then a retry five minutes later would be
@@ -202,6 +236,7 @@ Given this design, here is the honest ledger of model influence:
 | Propose a `HIGH_RISK_WRITE` tool | Cause it to execute without an approval row |
 | Read retrieved text containing instructions | Make those instructions change gate 3's permission |
 | Produce a `reason` string shown to the approver | Make the approver's decision automatic |
+| Name a currency when proposing a refund | Make that currency the one the refund moves in |
 | Refuse to propose anything, and escalate | Reach `COMPLETED` while a required gate was skipped |
 
 The right-hand column is what "the model proposes, deterministic code decides"

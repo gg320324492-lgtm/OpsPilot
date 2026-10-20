@@ -223,9 +223,16 @@ async def test_high_risk_without_approval_parks_and_executes_nothing(
     approval = approvals[0]
     assert approval.status == "pending"
     assert approval.decided_by is None
-    assert "$129.00" in approval.risk_explanation
+    # The amount, and no currency: the currency a refund moves is the
+    # transaction's own, and no gate can read it (docs/tool-permissions.md
+    # §3.2). The explanation names the number and the transaction.
+    assert "129.00" in approval.risk_explanation
+    assert "USD" not in approval.risk_explanation
     assert approval.reason == "duplicate charge confirmed"  # the model's untrusted text
     assert approval.arguments_snapshot["transaction_id"] == "TX-88219"
+    # The snapshot is what the human approves against, so it carries the
+    # arguments the server will act on -- and no currency it would ignore.
+    assert "currency" not in approval.arguments_snapshot
 
     # The run is parked, and the tool call is awaiting approval.
     parked = await harness.run_store.get(harness.run.id)

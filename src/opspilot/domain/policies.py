@@ -14,7 +14,9 @@ at the MCP server, which is the only place that can prevent a duplicate row
 The principles: deterministic code decides. ``explain_risk`` produces the
 ``risk_explanation`` string shown to an approver -- generated from the tool's
 static permission and its arguments, never from the model's ``reason``, which is
-untrusted.
+untrusted, and never from a fact about the transaction that only the model
+claims (a refund's currency is the transaction's own, not the model's to say;
+see ``format_amount``).
 
 Honest note on scope. Phase 1's rule set is small on purpose. The two rules that
 carry real weight here are the refund ceiling and the refund-exceeds-transaction
@@ -41,8 +43,6 @@ from opspilot.domain.tools import Permission, ToolSpec
 _REFUND_TOOL: Final[str] = "billing.issue_refund"
 _TRANSACTION_FIELD: Final[str] = "transaction_id"
 _AMOUNT_FIELD: Final[str] = "amount"
-_CURRENCY_FIELD: Final[str] = "currency"
-_DEFAULT_CURRENCY: Final[str] = "USD"
 
 # The reason strings are machine-stable tokens: the gate that wrote a rejection
 # is recoverable from ``ToolCall.rejection_reason`` without parsing prose, and the
@@ -104,17 +104,25 @@ def _str_arg(arguments: dict[str, Any], field: str) -> str:
     return value if isinstance(value, str) else ""
 
 
-def format_amount(amount: Decimal, currency: str) -> str:
-    """Render an amount for the approver, e.g. ``"$129.00 USD"``.
+def format_amount(amount: Decimal) -> str:
+    """Render an amount for the approver, e.g. ``"129.00"``.
 
-    The symbol is a fixed lookup rather than a locale format on purpose: this
-    string is part of a security control (the human must see the number the
-    refund will move), and a locale the deployment happens to have installed must
-    not be able to change it.
+    **No currency, and that is the point.** The currency a refund moves is the
+    currency the transaction was charged in, and that value lives in the billing
+    server's own store -- the tool body reads it at execution time, and no gate
+    can read it before then (``docs/tool-permissions.md`` §3.2). A currency
+    rendered here would be one the refund would not use: a proposal naming
+    ``EUR`` over a transaction charged in dollars produced "EUR 129.00" in the
+    one string the approver is told to trust. The number is what the approver
+    can be shown truthfully, and the currency is on the transaction they are
+    looking at.
+
+    The thousands separator is fixed rather than a locale format on purpose:
+    this string is part of a security control (the human must see the number
+    the refund will move), and a locale the deployment happens to have installed
+    must not be able to change it.
     """
-    symbols = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
-    symbol = symbols.get(currency.upper(), "")
-    return f"{symbol}{amount:,.2f} {currency.upper()}".strip()
+    return f"{amount:,.2f}"
 
 
 def _refund_exceeds_transaction(arguments: dict[str, Any]) -> tuple[bool, Decimal | None]:
@@ -125,6 +133,16 @@ def _refund_exceeds_transaction(arguments: dict[str, Any]) -> tuple[bool, Decima
     (or a call whose arguments failed to parse) leaves the rule inapplicable and
     the MCP server remains the authoritative check. The comparison is ``>``, not
     ``>=``: a partial refund below the charge is the normal case and must pass.
+
+    **The charged amount is not a gate-1 argument any more.** ``RefundArgs``
+    does not declare ``transaction_amount`` (see ``domain.tools``): the number
+    would be the model's claim about a row only the billing server can read, and
+    a model that could supply it could also *suppress* this rule by claiming a
+    larger charge. So on the live path the rule is inapplicable and the MCP
+    server's own comparison against the transaction row is the check. The rule
+    stays because it is the policy the specification asks for, and because a
+    caller that can read the charged amount from an authoritative source has
+    exactly this input to give it.
     """
     refund = _as_decimal(arguments.get(_AMOUNT_FIELD))
     charged = _as_decimal(arguments.get("transaction_amount"))
@@ -171,13 +189,26 @@ def explain_risk(spec: ToolSpec, arguments: dict[str, Any]) -> str:
     are shown side by side, labelled differently
     (``docs/data-model.md`` §2, ``docs/tool-permissions.md`` §3.2).
 
-    Example: ``"This moves $129.00 USD and cannot be undone automatically."``
+    Example: ``"This moves 129.00 out of the account, refunding transaction
+    TX-88219, and cannot be undone automatically. The amount is in the currency
+    the transaction was charged in."``
 
     The base sentence is derived from the permission, never from the tool's
     description (which is authored text and could drift); the refund tool adds the
-    specific transaction and amount because an approver reading "$129.00 for
+    specific transaction and amount because an approver reading "129.00 for
     TX-88219" can check it against the invoice in front of them, while an
     approver reading "a refund" cannot.
+
+    **A currency the proposal names is not read here, and cannot be.** The
+    currency a refund moves is the currency of the transaction it refunds -- a
+    value in the billing server's own store, read by the tool body when it
+    executes. No gate can know it: there is no tool that returns a transaction by
+    id, and ``billing.list_transactions`` needs an invoice id the runtime does
+    not have. So a currency read out of the proposal would be the model's guess
+    at a fact it cannot know, printed in the one string the approver is told to
+    trust -- which is how a proposal naming ``EUR`` came to describe a refund
+    the server was about to make in dollars. The explanation names the amount
+    and the transaction, and says where the currency comes from.
     """
     permission = spec.permission
     if permission is Permission.HIGH_RISK_WRITE:
@@ -191,7 +222,6 @@ def explain_risk(spec: ToolSpec, arguments: dict[str, Any]) -> str:
         return base
 
     amount = _as_decimal(arguments.get(_AMOUNT_FIELD))
-    currency = _str_arg(arguments, _CURRENCY_FIELD) or _DEFAULT_CURRENCY
     transaction = _str_arg(arguments, _TRANSACTION_FIELD)
 
     if amount is None and not transaction:
@@ -199,12 +229,16 @@ def explain_risk(spec: ToolSpec, arguments: dict[str, Any]) -> str:
 
     if amount is None:
         return f"This issues a refund for transaction {transaction} and cannot be undone."
-    rendered = format_amount(amount, currency)
+    rendered = format_amount(amount)
     if not transaction:
         return f"This moves {rendered} and cannot be undone automatically."
+    # The currency sentence is stated only where there is a transaction to have
+    # one: without a transaction there is no currency to point at, and naming the
+    # amount alone is the honest thing left to say.
     return (
         f"This moves {rendered} out of the account, refunding transaction "
-        f"{transaction}, and cannot be undone automatically."
+        f"{transaction}, and cannot be undone automatically. The amount is in the "
+        f"currency the transaction was charged in."
     )
 
 

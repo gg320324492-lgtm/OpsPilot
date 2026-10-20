@@ -109,7 +109,10 @@ def test_valid_arguments_are_parsed_and_defaulted() -> None:
     )
     assert spec is TOOL_REGISTRY["billing.issue_refund"]
     assert parsed["transaction_id"] == "TX-1"
-    assert parsed["currency"] == "USD"  # a default is filled in, not dropped
+    assert parsed["reason"] == ""  # a default is filled in, not dropped
+    # No currency: the server takes it from the transaction row, so a parsed
+    # one would be a fact the model made up. See ``RefundArgs``.
+    assert "currency" not in parsed
 
 
 @pytest.mark.parametrize(
@@ -123,6 +126,10 @@ def test_valid_arguments_are_parsed_and_defaulted() -> None:
         ),  # both identifiers -- the contract's "exactly one"
         ("billing.issue_refund", {"transaction_id": "TX-1"}),  # missing amount
         ("billing.issue_refund", {"transaction_id": "", "amount": "1.00"}),  # empty id
+        (
+            "billing.issue_refund",
+            {"transaction_id": "TX-1", "amount": "1.00", "transaction_amount": "129.00"},
+        ),  # the charged amount is the server's to read, not the model's to assert
         ("knowledge.search", {"query": ""}),  # empty query
         ("issues.create", {}),  # missing title (description/priority/labels are optional)
         ("issues.create", {"title": "t", "body": "b"}),  # `body` is not a parameter
@@ -145,6 +152,26 @@ def test_unknown_fields_are_forbidden() -> None:
             "billing.issue_refund",
             {"transaction_id": "TX-1", "amount": "1.00", "approved": "true"},
         )
+
+
+def test_a_proposed_currency_is_accepted_and_never_sent() -> None:
+    """A proposal may name a currency; the currency does not travel.
+
+    Gate 1's verdict on a proposal that names one is unchanged -- the
+    committed golden-path fixture and the evaluation runner's injected proposal
+    both name one -- but the *parsed* arguments are what the approver reads and
+    what the server is called with, and neither may carry a currency the server
+    would ignore. The billing server takes the currency from the transaction
+    row (``mcp_servers/billing/server.py``); a proposed one is a guess about a
+    row only the server can read, and the guess reached the approver twice
+    over: in the ``risk_explanation`` and in the arguments snapshot.
+    """
+    spec, parsed = validate_tool_call(
+        "billing.issue_refund",
+        {"transaction_id": "TX-1", "amount": "1.00", "currency": "EUR"},
+    )
+    assert spec is TOOL_REGISTRY["billing.issue_refund"]
+    assert "currency" not in parsed
 
 
 def test_validate_never_returns_a_spec_without_parsing() -> None:

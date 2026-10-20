@@ -303,9 +303,47 @@ def test_risk_explanation_names_the_amount_and_transaction() -> None:
     """The approver must see the number and the transaction, not a vague
     sentence -- this is what makes the approval a real control."""
     explanation = explain_risk(REFUND, _refund_args())
-    assert "$129.00" in explanation
+    assert "129.00" in explanation
     assert "TX-88219" in explanation
     assert "cannot be undone" in explanation
+
+
+def test_risk_explanation_names_no_currency() -> None:
+    """The explanation may not name a currency, whatever the proposal says.
+
+    The currency a refund moves is the currency the transaction was charged in,
+    and that is a row only the billing server can read -- no gate can know it.
+    So a currency read out of the proposal is the model's guess at a fact it
+    cannot know, and the explanation is the one string the approver is told to
+    trust (``docs/tool-permissions.md`` §3.2). Printing the guess there is how
+    a refund the server was about to make in dollars was described to an
+    approver as a refund of euros.
+
+    The proposal is built as a plain dictionary rather than through gate 1, so
+    this asks the harder question: given a currency, does the explanation use
+    it? It must not.
+    """
+    for proposed in ("EUR", "USD", "GBP", "JPY"):
+        explanation = explain_risk(REFUND, _refund_args(currency=proposed))
+        assert proposed not in explanation, (
+            f"the risk explanation names {proposed!r}, a currency the proposal "
+            f"supplied and the server never takes: {explanation!r}"
+        )
+        assert not any(symbol in explanation for symbol in ("$", "€", "£", "¥")), (
+            f"the risk explanation carries a currency symbol: {explanation!r}"
+        )
+
+
+def test_risk_explanation_says_where_the_currency_comes_from() -> None:
+    """The currency is not named, so the explanation says where it is.
+
+    An omission the approver cannot interpret is an omission they will fill in
+    themselves -- and the thing they would fill in is the currency a proposal
+    named. Saying where the currency lives turns the absence into a statement.
+    """
+    explanation = explain_risk(REFUND, _refund_args())
+    assert "currency" in explanation
+    assert "charged in" in explanation
 
 
 def test_risk_explanation_ignores_the_models_untrusted_reason() -> None:
@@ -347,5 +385,5 @@ def test_a_permitted_decision_always_carries_an_explanation() -> None:
     the approver needs the deterministic string, not an empty field."""
     decision = evaluate_policy(REFUND, _refund_args(), _run())
     assert decision.explanation
-    assert "$129.00" in decision.explanation
+    assert "129.00" in decision.explanation
     assert REFUND.permission is Permission.HIGH_RISK_WRITE

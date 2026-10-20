@@ -173,7 +173,10 @@ pre-decides the question makes the agent's reasoning untestable.
 | Mutates | yes |
 
 ```jsonc
-// input — idempotency_key is REQUIRED; a call without one fails gate 1
+// input — the server's four parameters. The *model* proposes only
+// transaction_id, amount and reason: a proposal carrying an idempotency_key
+// is refused at gate 1, gate 4 derives the key from the run and the
+// transaction, and the runtime adds it to the dispatch.
 {
   "transaction_id": "TX-88219",
   "amount": 129.00,
@@ -200,6 +203,12 @@ pre-decides the question makes the agent's reasoning untestable.
   "replayed": true                  // ← the honest flag
 }
 ```
+
+**There is no `currency` parameter.** A refund is denominated in the currency
+the transaction was charged in, and `issue_refund` reads that from the
+transaction row rather than taking it from the caller — so a caller cannot
+choose it, and one that proposed it would be ignored. The refund row records
+the currency it used, which is where the value in the output below comes from.
 
 Refusals, each a structured error result rather than an exception:
 

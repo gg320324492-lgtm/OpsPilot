@@ -118,6 +118,27 @@ class RefundArgs(BaseModel):
     the policy engine from the run and the transaction
     (``docs/tool-permissions.md`` §4), never supplied by the model, so accepting
     one would let a proposal pick a key that defeats the duplicate check.
+
+    **``currency`` is parsed and then discarded, and that is deliberate.** The
+    billing server takes the currency from the transaction row
+    (``mcp_servers/billing/server.py`` reads ``transaction["currency"]``) and has
+    no ``currency`` parameter to take: ``docs/mcp-contracts.md`` §2 documents the
+    same four parameters the tool declares. A currency in a proposal is the
+    model's guess at a fact it cannot know, and the guess used to reach the
+    approver twice over -- in the ``risk_explanation``, the one string the
+    approver is told to trust, and in the arguments snapshot they approve
+    against. A proposal naming ``EUR`` described a refund the server was about
+    to make in the transaction's own currency. Excluding the field from the
+    dump keeps it out of both, and leaves gate 1's verdict on a proposal that
+    names one exactly as it was.
+
+    ``transaction_amount`` is not a field at all. The charged amount is a row
+    only the billing server can read; a model-supplied one is a claim, and a
+    claim the policy engine would then have compared a money rule against
+    (``domain.policies._refund_exceeds_transaction``) -- a model that could
+    supply it could also suppress that rule by claiming a larger charge. The
+    server's own comparison against the transaction row is the authoritative
+    check (``docs/tool-permissions.md`` §4).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -129,14 +150,12 @@ class RefundArgs(BaseModel):
     # (``_as_decimal`` accepts a ``float`` without going through a string), so
     # money rules do not acquire binary-roundoff behaviour.
     amount: float
-    currency: str = Field(default="USD", min_length=1, max_length=8)
+    # The currency a proposal may name. Excluded from the dump, so it never
+    # leaves this process -- see the class docstring. The default only keeps a
+    # proposal that says nothing about the currency valid; nothing reads the
+    # value, because nothing receives it.
+    currency: str = Field(default="USD", min_length=1, max_length=8, exclude=True)
     reason: str = Field(default="")
-    # The amount charged on the transaction, when the caller knows it. Gate 4
-    # uses it for the "refund exceeds the charge" fast fail; it is optional
-    # because the *authoritative* check is the MCP server, which reads the
-    # transaction itself (``docs/tool-permissions.md`` §4). This is a fast fail,
-    # not the guarantee.
-    transaction_amount: float | None = None
 
 
 class CustomerLookupArgs(BaseModel):
@@ -350,16 +369,13 @@ def validate_tool_call(
     than cosmetic. A field defaulted to ``None`` means *the model did not supply
     it*, and the dictionary built here is handed to the MCP server verbatim
     (``agents/runtime.py``'s EXECUTE step) -- so an included ``None`` is a
-    parameter the tool receives. Three schemas have such fields and none of them
-    wants the null:
+    parameter the tool receives. Two schemas have such fields and neither of
+    them wants the null:
 
     * ``crm.get_customer`` -- sending both ``customer_email: null`` and
       ``customer_id`` reads to the server as *both* identifiers given, which the
       contract refuses ("exactly one"). The null would turn the contract's own
       accepted form into a ``validation_error``.
-    * ``billing.issue_refund`` -- ``transaction_amount`` is gate 1's fast-fail
-      field, derived from the retrieved invoice; the MCP server has no such
-      parameter and rejects unknown ones under ``extra="forbid"``.
     * ``issues.create`` -- ``description`` and ``priority`` are optional on both
       sides, and a null is a value where the server expects an absent key.
 
@@ -367,6 +383,12 @@ def validate_tool_call(
     ``crm.get_customer`` grew its optional identifier: the test asserted the
     call reached the tool, and what reached it was
     ``{"customer_email": None, "customer_id": "C1"}``.
+
+    A field marked ``exclude=True`` does not reach the server either, and by a
+    different route: it is not in the dump at all. ``RefundArgs.currency`` is
+    the only one, and the reason is in that class's docstring -- a currency the
+    model proposes is not a currency the refund would move, so it must not
+    reach the approver or the server.
 
     Raises:
         InvalidArgumentsError: If the tool is registered and the arguments do not
