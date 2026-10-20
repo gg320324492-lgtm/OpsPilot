@@ -45,16 +45,30 @@
  *      (its healthcheck is `GET /`), and only the browser knew: Reindex, Submit
  *      and Approve did nothing. See `every bundle the page requests is served`
  *      below for what that assertion is and why it belongs here.
+ *   5. **The icons:** the bytes the browser is given for the two committed
+ *      icons -- `web/src/app/favicon.ico` and `web/src/app/apple-icon.png` --
+ *      are the bytes this repository holds. Item (4) is the same argument one
+ *      level down, and it named its own hole: it watches `script` and
+ *      `stylesheet` and ignores `other`, "which is where a favicon lands".
+ *      A favicon is not one of the kinds that are legitimately absent from a
+ *      fresh stack; it is committed, required, and its absence is the defect.
+ *      See `the browser is served the committed favicon and apple-touch icon`
+ *      below for what that assertion is and why it belongs here.
  *
  * Skipped cleanly where Docker is unavailable, per ADR-0004 (see `stack.ts`); a
  * stack Docker could attempt and did not bring up is a failure, not a skip.
  */
 
-import { expect, test } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { expect, test, type Page } from "@playwright/test";
 import {
   probeFromWebContainer,
   startContainerisedWebOrSkip,
   type StackHandle,
+  WEB_DIR,
   WEB_SERVICE_URL,
 } from "./stack";
 
@@ -214,4 +228,311 @@ test("every bundle the page requests is served", async ({ page }) => {
       `so its buttons do nothing. Check web/Dockerfile's \`public\` and ` +
       `\`\.next/static\` destinations -- they must be siblings of server.js.`,
   ).toEqual([]);
+});
+
+/**
+ * A resource the browser fetched, as the browser saw it.
+ *
+ * The bytes are the browser's own: the fetch happens IN the page (see
+ * `fetchInBrowser`), not in a test-side HTTP client, because the claim this
+ * file makes is about what the browser was handed.
+ */
+type FetchedResource = {
+  readonly status: number;
+  readonly contentType: string;
+  readonly bytes: Buffer;
+};
+
+/**
+ * Fetch a URL FROM THE PAGE, and hand back what came back.
+ *
+ * **Why the fetch happens in the page and not in the test process.** This
+ * spec's whole thesis is that the browser is the only witness to several
+ * defects -- the bundle 404s its docstring records were invisible to the
+ * document, the healthcheck and CI alike. A test-side HTTP client would be a
+ * second witness, and a different one: it would fetch the URL the TEST
+ * resolved, not the URL the document names, and it would not be the request
+ * a browser makes. Fetching from the page makes the resource one the page
+ * itself asked for.
+ *
+ * `cache: "no-store"` because the favicon route sends
+ * `cache-control: public, max-age=0, must-revalidate` and a cached copy
+ * would be a copy of an earlier answer, not of the tree under test.
+ *
+ * The bytes come back base64-encoded because `page.evaluate` serialises its
+ * return value and a 92 KiB `Uint8Array` does not survive that as anything
+ * useful. The encoding is done in 32 KiB chunks: `String.fromCharCode(...bytes)`
+ * over the whole buffer at once exceeds the argument limit, and one character
+ * at a time is a 92,000-iteration loop inside the page.
+ */
+async function fetchInBrowser(page: Page, href: string): Promise<FetchedResource> {
+  const raw = await page.evaluate(async (target: string) => {
+    try {
+      const response = await fetch(target, { cache: "no-store" });
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      const CHUNK = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK));
+      }
+      return {
+        status: response.status,
+        contentType: response.headers.get("content-type") ?? "",
+        base64: btoa(binary),
+        error: "",
+      };
+    } catch (error) {
+      return { status: 0, contentType: "", base64: "", error: String(error) };
+    }
+  }, href);
+
+  if (raw.error !== "") {
+    throw new Error(
+      `the browser could not fetch ${href} at all: ${raw.error}. A link that names ` +
+        `a resource the browser cannot reach is the silent failure this test exists ` +
+        `for, and it is reported as what it is rather than as a byte mismatch.`,
+    );
+  }
+
+  return {
+    status: raw.status,
+    contentType: raw.contentType,
+    bytes: Buffer.from(raw.base64, "base64"),
+  };
+}
+
+/**
+ * The `href` of a link, and a hard stop if there is not one.
+ *
+ * A `null` href and an empty one are the same defect -- a link that names
+ * nothing -- and both are refused here, before anything is fetched, so the
+ * failure says "the link is empty" rather than "the bytes were wrong".
+ */
+function requiredHref(href: string | null, what: string): string {
+  expect(href, `${what} has no href attribute at all.`).not.toBeNull();
+  const value = (href ?? "").trim();
+  expect(value, `${what} has an empty href.`).not.toBe("");
+  return value;
+}
+
+/**
+ * Byte-for-byte equality, and nothing else.
+ *
+ * `Buffer.equals` already compares lengths, so this is a named one-liner
+ * rather than a helper with a subtlety in it -- but it is named, because the
+ * test below has to be able to say that THIS comparison is the one that can
+ * tell two files apart, and a comparison the test cannot name is a
+ * comparison the test cannot show is doing anything.
+ */
+function sameBytes(a: Buffer, b: Buffer): boolean {
+  return a.length === b.length && a.equals(b);
+}
+
+/**
+ * A short fingerprint of some bytes, for a failure message.
+ *
+ * The first 16 hex characters of the SHA-256: enough to tell two artefacts
+ * apart in a log, short enough to read. The full digest is of no use to
+ * anyone reading a failed CI run.
+ */
+function fingerprint(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+}
+
+/**
+ * The browser is handed the two icons this repository committed.
+ *
+ * WHAT THIS PROVES, AND WHY IT IS NOT THE ARTWORK GUARD
+ * ------------------------------------------------------
+ * `web/src/app/favicon.ico` (the browser tab: 16, 32, 48, 64 and 256 pixels)
+ * and `web/src/app/apple-icon.png` (the iOS home screen: 180x180) are two
+ * artefacts the repository commits, and the `lint` job already proves they
+ * are current with their artwork: `python scripts/make_assets.py --check`
+ * regenerates them from `docs/assets/icon-source.png` and compares PICTURE
+ * against PICTURE. What no step proved is the NEXT link in that chain --
+ * that the bytes the browser is given are the bytes this repository holds.
+ *
+ * That link is not a small one, because nothing in the dashboard's source
+ * names either file. Next.js's App Router takes them over by the file
+ * convention alone (`app/favicon.ico`, `app/apple-icon.png`) and injects the
+ * `<link rel="icon">` and `<link rel="apple-touch-icon">` into the `<head>`
+ * itself. There is no import to follow, no component to read and no compiler
+ * to complain: a renamed file, a file that never made it into the image, or
+ * a change to Next's convention all remove the link SILENTLY. The page still
+ * renders, the container still reports `Healthy` (its healthcheck is
+ * `GET /`), CI stays green, the tab shows the browser's default page icon
+ * and the iOS home screen shows a blank tile -- and nothing says so.
+ *
+ * THE PRECEDENT, WHICH IS IN THIS FILE
+ * ------------------------------------
+ * The test above is the same argument about the bundles, and its docstring
+ * records the incident that made it necessary: `web/Dockerfile` copied
+ * `.next/static` and `public` to `./web/...` while the standalone server
+ * reads them as siblings of `server.js`, so every bundle 404'd. The page
+ * still rendered, the container still reported `Healthy`, and only the
+ * browser knew -- Reindex, Submit and Approve did nothing.
+ *
+ * That test also names its own hole, and this test is that hole filled:
+ * its `resourceType()` filter watches `script` and `stylesheet` and
+ * deliberately ignores `other`, "which is where a favicon lands", because
+ * the other kinds are legitimately absent from a freshly brought-up stack
+ * and would make it flaky. A favicon is not one of those kinds -- it is
+ * committed, it is required, and its absence is the defect rather than a
+ * property of a fresh stack. So it is asserted here, explicitly, and the
+ * filter above is left exactly as it is.
+ *
+ * WHY THE BYTES, AND NOT JUST THE LINK
+ * ------------------------------------
+ * A `<link>` in the `<head>` proves the framework INTENDED to serve the file.
+ * It does not prove the file was found, that it was copied into the image,
+ * or that the bytes behind the link are the committed ones: a stale image, a
+ * `public/` copy shadowing the convention, or a route serving the wrong
+ * artefact all leave the link in place and in perfect order.
+ *
+ * So the test compares the bytes the browser received with the bytes of the
+ * committed file, and it compares them as BYTES rather than as pictures. The
+ * picture is `make_assets.py --check`'s job, and it compares picture against
+ * picture on purpose: an `.ico`'s bytes depend on the zlib that packed them,
+ * so a byte comparison there would call an unchanged tree stale. Here the
+ * question is the other one -- is the artefact that reached the browser THE
+ * artefact in the tree -- and Next copies both files verbatim, which was
+ * measured rather than assumed: the build's `.next/server/app/favicon.ico.body`
+ * is byte-identical to `web/src/app/favicon.ico`, and the same holds for the
+ * apple-touch icon. The container's copy and the repository's copy are the
+ * same bytes because `web/Dockerfile` builds the image from `web/` itself
+ * (`COPY web/ ./`).
+ *
+ * WHY THE ORDER
+ * -------------
+ *   1. **The links are there, and they name a resource.** The convention was
+ *      taken over at all, and the href is not empty -- the first thing that
+ *      can be wrong, and the one whose failure is otherwise invisible.
+ *   2. **Both resources answer 200.** Fetched AS THE DOCUMENT NAMES THEM:
+ *      the href carries Next's own content hash (`?favicon.<hash>.ico`) and
+ *      the test uses it verbatim rather than rebuilding a path, because the
+ *      claim is about what the BROWSER is told to fetch.
+ *   3. **The comparison is shown to be able to say "different"** before it is
+ *      relied on to say "the same" (the one-byte flip below). A byte
+ *      comparison that cannot fail is not a guard, and "the served bytes
+ *      equal the committed bytes" is worth nothing if it is true of
+ *      everything.
+ *   4. **The served bytes equal the committed bytes** -- and, in the other
+ *      direction, do NOT equal the other icon's bytes. That last part is
+ *      what makes it a statement about THESE artefacts rather than about
+ *      bytes.
+ */
+test("the browser is served the committed favicon and apple-touch icon", async ({ page }) => {
+  skipUnlessUp();
+
+  await page.goto(WEB_SERVICE_URL, { waitUntil: "networkidle" });
+
+  // (1) The links. Exactly one of each: the repository has exactly one
+  // favicon and exactly one apple-touch icon, so a second link would mean
+  // the document is naming a resource this test does not know about, and
+  // "the first one" would then be an arbitrary choice.
+  const iconLink = page.locator('head link[rel="icon"]');
+  const appleLink = page.locator('head link[rel="apple-touch-icon"]');
+
+  await expect(
+    iconLink,
+    "the document has no <link rel=\"icon\"> in its <head>. Next.js's App Router " +
+      "injects that link from the app/favicon.ico file convention alone -- nothing " +
+      "in this repository names the file -- so a favicon that is missing, renamed " +
+      "or not copied into the image removes the link silently, and a tab with no " +
+      "icon is the only symptom.",
+  ).toHaveCount(1);
+
+  await expect(
+    appleLink,
+    "the document has no <link rel=\"apple-touch-icon\"> in its <head>, for the " +
+      "same reason: app/apple-icon.png is found by the file convention alone, and " +
+      "an iOS home screen with a blank tile says nothing about why.",
+  ).toHaveCount(1);
+
+  const iconHref = requiredHref(
+    await iconLink.getAttribute("href"),
+    'the <link rel="icon">',
+  );
+  const appleHref = requiredHref(
+    await appleLink.getAttribute("href"),
+    'the <link rel="apple-touch-icon">',
+  );
+
+  // (2) Both resources, fetched as the document names them.
+  const servedFavicon = await fetchInBrowser(page, iconHref);
+  const servedAppleIcon = await fetchInBrowser(page, appleHref);
+
+  expect(
+    servedFavicon.status,
+    `the browser asked for the favicon at ${iconHref} and got ${servedFavicon.status} ` +
+      `(content-type: ${servedFavicon.contentType}). A favicon that does not come ` +
+      `back is a page that renders, a container that reports itself healthy and a ` +
+      `tab with no icon -- the shape of the bundle incident above, one level down.`,
+  ).toBe(200);
+
+  expect(
+    servedAppleIcon.status,
+    `the browser asked for the apple-touch icon at ${appleHref} and got ` +
+      `${servedAppleIcon.status} (content-type: ${servedAppleIcon.contentType}).`,
+  ).toBe(200);
+
+  // The two artefacts this repository commits, read from the tree the image
+  // was built from.
+  const committedFavicon = readFileSync(path.join(WEB_DIR, "src", "app", "favicon.ico"));
+  const committedAppleIcon = readFileSync(path.join(WEB_DIR, "src", "app", "apple-icon.png"));
+
+  // (3) THE COMPARISON IS NOT VACUOUS -- proven, not assumed.
+  //
+  // Flip one bit of the committed favicon and the same comparison must now
+  // say "different" from what the browser received. A comparison that
+  // returned true for everything -- a constant, or two empty buffers -- fails
+  // here, which is what makes the assertion below mean something.
+  const flipped = Buffer.from(committedFavicon);
+  flipped[0] = flipped[0] ^ 0xff;
+  expect(
+    sameBytes(flipped, servedFavicon.bytes),
+    "the byte comparison says a favicon whose first byte is flipped is the same " +
+      "file as the one the browser received, so the comparison below is not " +
+      "comparing anything.",
+  ).toBe(false);
+
+  // And the two committed icons are genuinely different files, so the
+  // cross-check in (4) -- each served body is NOT the other icon -- is a real
+  // check and not a formality.
+  expect(
+    sameBytes(committedFavicon, committedAppleIcon),
+    "web/src/app/favicon.ico and web/src/app/apple-icon.png are byte-identical, so " +
+      "the cross-check below cannot tell the two artefacts apart.",
+  ).toBe(false);
+
+  // (4) The claim: the browser was given THESE artefacts.
+  expect(
+    sameBytes(servedFavicon.bytes, committedFavicon),
+    `the favicon the browser was given is not the committed web/src/app/favicon.ico: ` +
+      `served ${servedFavicon.bytes.length} bytes (sha256 ` +
+      `${fingerprint(servedFavicon.bytes)}), committed ${committedFavicon.length} bytes ` +
+      `(sha256 ${fingerprint(committedFavicon)}). Either the image was built from a ` +
+      `different tree than the one this test reads, or the route is serving something ` +
+      `other than the committed artefact.`,
+  ).toBe(true);
+
+  expect(
+    sameBytes(servedFavicon.bytes, committedAppleIcon),
+    "the favicon the browser was given is the apple-touch icon's bytes, so the " +
+      "comparison above is not discriminating between the two artefacts.",
+  ).toBe(false);
+
+  expect(
+    sameBytes(servedAppleIcon.bytes, committedAppleIcon),
+    `the apple-touch icon the browser was given is not the committed ` +
+      `web/src/app/apple-icon.png: served ${servedAppleIcon.bytes.length} bytes ` +
+      `(sha256 ${fingerprint(servedAppleIcon.bytes)}), committed ` +
+      `${committedAppleIcon.length} bytes (sha256 ${fingerprint(committedAppleIcon)}).`,
+  ).toBe(true);
+
+  expect(
+    sameBytes(servedAppleIcon.bytes, committedFavicon),
+    "the apple-touch icon the browser was given is the favicon's bytes, so the " +
+      "comparison above is not discriminating between the two artefacts.",
+  ).toBe(false);
 });

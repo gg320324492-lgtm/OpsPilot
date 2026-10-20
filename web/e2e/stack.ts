@@ -168,8 +168,15 @@ function findRepoRoot(): string {
   }
 }
 
-/** The `web/` directory (this file lives in `web/e2e/`). */
-const WEB_DIR = path.join(REPO_ROOT, "web");
+/**
+ * The `web/` directory (this file lives in `web/e2e/`).
+ *
+ * Exported because a spec has to name a file in the tree the image is built
+ * from: `web-service.spec.ts` compares the bytes the browser receives with
+ * the committed `web/src/app/favicon.ico`, and "the `web/` directory" is a
+ * fact with one definition here rather than a path each spec re-derives.
+ */
+export const WEB_DIR = path.join(REPO_ROOT, "web");
 
 /** The `web` service's own published URL. The dashboard, containerised. */
 export const WEB_SERVICE_URL = process.env.E2E_WEB_SERVICE_URL ?? "http://localhost:3000";
