@@ -320,7 +320,20 @@ jobs:
       - name: Migrations (alembic upgrade head)
         run: alembic upgrade head
       - name: Verify migrations reached head
-        run: alembic current
+        # `alembic current` exits 0 whether it reports the head or a revision
+        # three steps behind it -- it prints the revision and stops. The step
+        # was named "Verify migrations reached head" and verified nothing, so a
+        # migration that applied only part way would have been green here and
+        # red three steps later, in a place that reads as somebody else's
+        # failure. It compares the two answers now.
+        run: |
+          set -o pipefail
+          head=$(alembic heads | head -1 | cut -d' ' -f1)
+          current=$(alembic current | head -1 | cut -d' ' -f1)
+          echo "head=$head current=$current"
+          [ -n "$head" ] || { echo "::error::alembic heads reported no head revision"; exit 1; }
+          [ "$current" = "$head" ] \
+            || { echo "::error::alembic current is $current, expected the head $head. The migration did not run to completion."; exit 1; }
       - name: Vector differential test against the real pgvector store
         # The differential test (tests/integration/test_citations.py) does real
         # work: it creates the pgvector schema, upserts identical chunks into a
@@ -417,6 +430,55 @@ jobs:
         env:
           OPSPILOT_DATABASE_URL: postgresql+psycopg://opspilot:opspilot@localhost:5432/opspilot
         run: pytest tests/integration tests/agent -q -m "not postgres"
+      - name: The postgres-marked tests the other steps do not reach
+        # Three files carry the `postgres` mark and were named by **no** step in
+        # this job: `test_migration_schema.py`, `test_pgvector_target_is_never_destroyed.py`
+        # and `test_ticket_external_id_dedupe.py`. The `-m "not postgres"`
+        # selection above excludes them, and no step named them by node id, so
+        # they were **never run in CI** -- they only ever *skipped*. Two of
+        # them say so themselves: the ticket-dedupe test's docstring says "CI's
+        # `verify` job names it by node id and asserts PASSED", and the
+        # pgvector-target file's says "the `verify` job's own assertion that
+        # this test PASSED is what keeps the skip from reading as a pass".
+        # Neither was true.
+        #
+        # The drift that proved it: `0003` was added, `test_migration_schema.py`
+        # kept saying the chain's head was `0002`, and the failure appeared on
+        # the first machine that actually had a PostgreSQL. The file whose
+        # module docstring tells the whole story of `0001` -- a migration green
+        # on SQLite for the whole of M0-M9 that had **never** applied to a real
+        # PostgreSQL -- was itself only ever skipped.
+        #
+        # This step is LAST, and that is load-bearing rather than incidental:
+        # the migration-schema and ticket-dedupe fixtures drop and recreate the
+        # `public` schema to migrate onto a clean slate, so anything running
+        # after them against the service container would find no tables. The
+        # service container is disposable, so the drop destroys nothing that
+        # matters.
+        #
+        # Named by file rather than selected by marker, because a skip here
+        # would be the same silent green the other steps guard against: if
+        # `OPSPILOT_DATABASE_URL` did not reach pytest, or the service was
+        # unreachable, every test in every file would skip and the step would
+        # still exit 0.
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_migration_schema.py \
+                 tests/integration/test_pgvector_target_is_never_destroyed.py \
+                 tests/integration/test_ticket_external_id_dedupe.py \
+                 -rA -v 2>&1 | tee /tmp/pg.txt
+          echo "--- assertion ---"
+          for node in test_migration_runs_to_head \
+                      test_the_migrated_postgres_enforces_the_constraint_under_the_expected_name \
+                      test_a_duplicate_external_id_on_postgres_is_409 \
+                      test_a_populated_target_refuses_and_loses_nothing; do
+            grep -qE "$node .*PASSED" /tmp/pg.txt \
+              || { echo "::error::$node did not PASS. A SKIPPED result means OPSPILOT_DATABASE_URL did not reach pytest, or the service was unreachable -- which is exactly the failure this job must not read as green (ADR-0004)."; exit 1; }
+          done
+          if grep -q "SKIPPED" /tmp/pg.txt; then
+            echo "::error::a postgres-marked test skipped in the pgvector job. A skip means the environment did not reach pytest."
+            exit 1
+          fi
 
   # ------------------------------------------------------------------------- #
   # mcp-contract — the MCP servers register exactly the tools docs/mcp-contracts.md

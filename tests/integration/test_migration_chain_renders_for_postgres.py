@@ -57,6 +57,8 @@ import sys
 
 import pytest
 
+from tests._migration_head import head_revision, revision_files
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 #: A PostgreSQL URL that is never dialled: ``--sql`` renders without connecting.
@@ -64,10 +66,15 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 #: local defaults rather than secrets.
 _POSTGRES_URL = "postgresql+psycopg://opspilot:opspilot@localhost:5432/opspilot"
 
-#: The revision the chain must reach. Named rather than read from
-#: ``versions/``, so that adding a migration without updating this file is a
-#: failure instead of a test that quietly checks the old head.
-_HEAD = "0003"
+#: The revision the chain must reach -- the chain's head, computed rather than
+#: written down. The first version of this file *did* write it down, and
+#: claimed that doing so meant "adding a migration without updating this file
+#: is a failure instead of a test that quietly checks the old head". That was
+#: false: alembic renders every revision as it goes, so the old head's stamp
+#: is still in the SQL after a new revision is added and the assertion kept
+#: passing. The head is computed, and the assertion below reads the *last*
+#: stamp rather than looking for one anywhere in the text.
+_HEAD = head_revision()
 
 
 @pytest.fixture(scope="module")
@@ -148,11 +155,21 @@ def test_the_chain_reaches_head(rendered: str) -> None:
 
     The stamp is an ``UPDATE`` rather than an ``INSERT`` for every revision
     after the first -- alembic inserts the first and updates as it goes -- so
-    the head is recorded as ``version_num='0003'``.
+    the head is recorded as the **last** ``version_num='...'`` in the rendered
+    SQL.
+
+    The word "last" is load-bearing. Alembic renders every revision as it
+    walks the chain, so after a new revision is added the *old* head's stamp
+    is still somewhere in the text; a test that merely looked for the head's
+    stamp anywhere in the output would keep passing while the chain moved on
+    without it. Reading the final stamp is what makes this an assertion about
+    where the chain ended rather than about a substring.
     """
-    assert f"version_num='{_HEAD}'" in rendered, (
-        f"the rendered chain does not reach {_HEAD}; the versions it records "
-        f"are: {sorted(set(re.findall(r'version_num=.(\\d+)', rendered)))}"
+    stamped = re.findall(r"version_num='(\d+)'", rendered)
+    assert stamped, "the rendered chain records no version stamp at all"
+    assert stamped[-1] == _HEAD, (
+        f"the rendered chain ends at {stamped[-1]!r}, expected the head {_HEAD!r}. "
+        f"The versions it records, in order, are: {stamped}"
     )
 
 
@@ -212,18 +229,22 @@ def test_no_migration_is_left_out_of_the_rendered_chain(rendered: str) -> None:
     chain, because its ``down_revision`` names a revision that does not exist,
     or because it was committed to the wrong directory -- renders as nothing,
     and the schema the deployment gets is the schema one revision behind.
-    """
-    versions = REPO_ROOT / "migrations" / "versions"
-    files = sorted(versions.glob("*.py"))
-    assert files, "there are no migration files at all; the chain is broken"
 
-    # Each revision stamps its own id into the version table as it runs.
-    stamped = [
+    The revisions compared against are the ones alembic's own script directory
+    declares, read from each file's ``revision = "..."`` attribute rather than
+    from its file name. The names agree today; the attribute is the identity.
+    """
+    declared = revision_files()
+    assert declared, "there are no migration files at all; the chain is broken"
+
+    # Each revision stamps its own id into the version table as it runs: the
+    # first as an INSERT, every one after it as an UPDATE.
+    stamped = {
         revision
-        for revision in (path.stem.split("_", 1)[0] for path in files)
+        for revision, _ in declared
         if f"VALUES ('{revision}')" in rendered or f"version_num='{revision}'" in rendered
-    ]
-    missing = [path.name for path in files if path.stem.split("_", 1)[0] not in stamped]
+    }
+    missing = [name for revision, name in declared if revision not in stamped]
     assert not missing, (
         f"these migration files did not appear in the rendered chain: {missing}. "
         "A revision that does not run is a schema the deployment never gets."

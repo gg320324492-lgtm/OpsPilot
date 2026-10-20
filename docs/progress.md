@@ -7667,17 +7667,190 @@ They run against the real gates, the real policy engine and the real SQLite
 repositories; nothing is faked except the model and the tool transport, because
 the controls under test are exactly the code those real components run.
 
+## The machine finally had a PostgreSQL, and the machine was not the problem
+
+**Date:** 2026-10-21, later still. The round began with a housekeeping task —
+updating the README's own numbers — and turned into the most productive
+verification this repository has had, because **Docker Desktop was installed on
+this machine and simply not running**. It was started.
+
+That one act changed what the suite could prove. Sixteen `postgres`-marked
+tests had never executed here: they skip wherever no server is reachable, and
+until now there was none. And the twenty-two Compose-backed browser specs had
+never executed here either, for the same reason in a different guise. Both
+halves of the ADR-0004 promise — "PostgreSQL is the production target, SQLite
+is a tests-only path" — were being *skipped* on the machine where the code
+lives.
+
+### What running them found
+
+**The migration chain's head was pinned to a revision that no longer existed.**
+`tests/integration/test_migration_schema.py` carried `_HEAD = "0002"` while the
+chain's head was `0003`. The file's own comment said "a future schema change
+gets a new revision, and this test follows it there" — and it did not follow it.
+The test failed on its first execution in a year and a half of existence.
+
+**And the file had never run in CI at all.** It carries the `postgres` mark,
+the `verify` job's broad step excludes `-m "not postgres"`, and no step named
+it by node id. So the file whose module docstring tells the whole story of
+`0001` — a migration that was green on SQLite for the whole of M0–M9 and had
+**never** applied to a real PostgreSQL — was itself only ever *skipped*. Two
+other files were in the same position, and each **says in its own docstring
+that CI runs it**:
+
+- `tests/integration/test_ticket_external_id_dedupe.py`: "CI's `verify` job
+  names it by node id and asserts PASSED, so a skip there cannot read as
+  coverage." It did not.
+- `tests/integration/test_pgvector_target_is_never_destroyed.py`: "the `verify`
+  job's own assertion that this test PASSED is what keeps the skip from reading
+  as a pass." It did not.
+
+So nine of the sixteen postgres-marked tests were never executed by anything.
+All nine now are, and the CI step asserts them `PASSED` and fails on a skip —
+the same discipline the other steps in that job already used.
+
+**"Verify migrations reached head" verified nothing.** The step ran
+`alembic current`, which prints the revision and exits 0 whether it is the head
+or three steps behind it. A migration that applied only part way would have
+been green there and red three steps later, in a place that reads as somebody
+else's failure. It now compares `alembic current` with `alembic heads` and
+fails when they differ.
+
+**A guard of my own was making a claim it could not keep.** The file written
+earlier this round said: "the revision the chain must reach is *named* rather
+than read from `versions/`, so that adding a migration without updating this
+file is a failure instead of a test that quietly checks the old head." That was
+false. Alembic renders every revision as it walks the chain, so the old head's
+stamp is still in the rendered SQL after a new revision is added — the
+assertion looked for `version_num='0003'` *anywhere* in the text and would have
+kept passing with a `0004` in the chain.
+
+Proven, not argued: a temporary `0004` probe migration was added, the old
+assertion was restored, and the test **passed** — the old form is blind to the
+chain moving on. With the assertion reading the **last** stamp instead, the
+same tree went red with `the rendered chain ends at '0004', expected the head
+'0003'`. The head is now **computed** from Alembic's own script directory
+(`tests/_migration_head.py`), so there is no second answer left to drift from.
+
+### The state machine's table did not describe the machine the runtime runs
+
+This is the one that matters, and it was found by the same unlatching: the
+`postgres`-marked migration test failed, which meant reading the state machine
+document for the first time in a while, which meant reading the table against
+the code.
+
+The golden path's recorded transitions, read back from the `state_change` rows
+the run actually wrote:
+
+```
+received → classifying → retrieving → planning → executing
+→ planning → executing → planning → executing → planning → executing
+→ waiting_approval → executing → responding → completed
+```
+
+**`EXECUTING → PLANNING` is on that sequence four times** — once per tool
+round, because each tool is a separate plan→gate→execute round. The table did
+not carry that edge. It carried `EXECUTING → EXECUTING` instead, which the
+runtime never takes. **The table described a machine the code did not run**, and
+ADR-0002's central claim — "the domain owns the state machine" — was true of
+the code and false of the data.
+
+Nothing caught it because **no runtime transition was ever checked**. The
+runtime assigned `ctx.run.status` directly, in four places, so a transition the
+table forbade was written silently, and `IllegalTransition` — the exception
+ADR-0002 exists for — was unreachable in production. The two guards that
+existed were blind to it, and blind in the interesting way:
+`tests/unit/test_run_state.py` compares the table against the **enum**, and
+`tests/unit/test_state_machine_document_matches_the_code.py` compares the
+**document** against the **table**. Both compared two artefacts that agreed
+with each other, and neither with the runtime. A transcription check between a
+document and its copy proves the copy is faithful — it says nothing about
+whether the copy describes the thing.
+
+What changed:
+
+- the table carries the edge the runtime takes, and the specification's prose
+  says so, including the four recorded occurrences;
+- the runtime's **progression** goes through `transition_to`
+  (`agents/runtime.py::_transition`), so an illegal progression raises
+  `IllegalTransition` instead of being written — which is what ADR-0002's
+  Decision section always said it did;
+- `tests/agent/test_every_transition_is_in_the_table.py` drives the golden path
+  through the real worker and asserts that **every recorded transition is an
+  edge the table allows**. That is the guard the other two could not be.
+
+The new guard was mutation-verified in both configurations, because the two
+mutations fail differently and only one of them is informative. Removing the
+edge from the table *with* the runtime's check in place makes the run refuse:
+`IllegalTransition: illegal run transition: executing -> planning`. Removing it
+*and* the runtime's check makes the guard's own assertion fire: `the runtime
+took transitions the table forbids: [('executing', 'planning'), ('executing',
+'planning'), ('executing', 'planning')]`. Both are red, and both name the
+edge. A guard that is red for the wrong reason is not a discrimination, which
+is why both were run.
+
+**One park was deliberately left unchecked, and the reason is a product
+decision.** Routing the park through `transition_to` would refuse a run that
+has already reached `COMPLETED` — and refusing it *raises*, which escapes the
+drive, and the worker does not swallow an exception it does not know, so a
+completed run re-driven would take the poll loop down with it. The gate is a
+*unit* that does not consult the run's status to decide; a completed run
+re-driven parks rather than executing, and that property is pinned by a
+security test. What *should* happen to a finished run that is driven again is
+recorded as open in `docs/limitations.md` §7 rather than answered here.
+
+### The ADR sweep found eleven, and one of them was this
+
+Five ADRs were audited against the code. Eleven drifts: one high, four medium,
+six low. The high one is the state machine above, and it is now corrected in
+ADR-0002 as its "Correction 3" — the document's own convention for a later
+finding.
+
+The other ten are queued rather than fixed in this round, and two of them are
+recorded here because they are the same *kind* of drift as the one above, and
+because leaving them unsaid would be the mistake this project keeps making:
+
+- **ADR-0004 still says the two-worker guarantee is not provided** — in three
+  places, in the present tense, about a `claim_next` that the lease made false
+  in commit `b9bbd5c`. ADR-0005 in the same directory already records the
+  change and `docs/limitations.md` §2 has been rewritten around it; ADR-0004
+  was never updated. A reader deciding whether a deployment may run two workers
+  against one database would read ADR-0004 and conclude it may not.
+- **ADR-0004 says the claim-predicate index "exists only in Postgres by
+  design"** — and the ORM and the migration both create it on SQLite too, with
+  the migration's own header saying so. The ADR's stated handling for one of
+  its four named divergences is the opposite of what the code does.
+- **ADR-0004 says "the only `if dialect ==` branches in the codebase are the
+  four above"** — and the SQLite foreign-key pragma in `db.py` is a fifth, and
+  a safety-relevant one: without it, SQLite would accept an approval pointing
+  at a tool call that does not exist.
+
+These are next round's work, and they are named here so that the next round
+starts from a list rather than from a sweep.
+
+### The browser walkthrough ran here, and reproduced its CI number
+
+With Docker up, `npm run e2e` ran **67 passed, 0 skipped** — the twenty-two
+Compose-backed specs included, and the number the README cites for CI's
+`web-e2e` job. Before this, the local run was 45 passed and 22 skipped, and
+the twenty-two that skipped were the ones that bring up PostgreSQL, migrate,
+api and worker and click through the dashboard: the ones the M9 criterion is
+about.
+
 ### What the tree looks like after it
 
-`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 205
-files. `pytest` — **1064 passed, 21 skipped** (1085 collected); the 21 skips are
+`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 207
+files. `pytest` — **1066 passed, 21 skipped** (1087 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
-for committed result files written before the breakdown was recorded. On the web
+for committed result files written before the breakdown was recorded — and all
+sixteen of the first are now executed by CI's `verify` job, each named by node
+id and asserted `PASSED`, so a skip there cannot read as coverage. On the web
 side, `tsc --noEmit` and `eslint` clean, `npm run check:types` reports that the
 generated client types are current with the live OpenAPI schema — which is the
 check that would have caught `decided_by` being removed from the request schema
 and `note` being added to the two response schemas without the dashboard's
-client being regenerated — and `npm run e2e` is **45 passed, 22 skipped**, the
-skips being the Compose-backed specs that need a Docker daemon this machine does
-not have.
+client being regenerated — and `npm run e2e` is **67 passed, 0 skipped** with
+Docker running, which is the same number CI's `web-e2e` job reports and
+includes the twenty-two Compose-backed specs that had never executed on this
+machine.
 

@@ -67,6 +67,7 @@ ALLOWED_TRANSITIONS: Final[dict[RunStatus, frozenset[RunStatus]]] = {
     RunStatus.EXECUTING: frozenset(
         {
             RunStatus.EXECUTING,
+            RunStatus.PLANNING,
             RunStatus.WAITING_APPROVAL,
             RunStatus.RESPONDING,
             RunStatus.FAILED,

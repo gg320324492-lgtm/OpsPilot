@@ -65,15 +65,25 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from tests._migration_head import head_revision
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# The revision under test. A future schema change gets a new revision, and this
-# test follows it there -- it is about *the migration*, not about one file name.
-_HEAD = "0002"
+#: The revision under test -- the chain's head, **computed** rather than
+#: written down. A literal here was a promise that had to be remembered every
+#: time a revision was added, and it was broken exactly once: ``0003`` landed
+#: and this file kept saying ``"0002"``. The test that exists to prove the
+#: migration chain works on the production dialect then failed on the first
+#: machine that had a PostgreSQL, and had never been run anywhere else -- it
+#: carries the ``postgres`` mark and skips wherever no server is reachable.
+#: See ``tests/_migration_head.py`` for the whole of that story.
+_HEAD = head_revision()
 
 #: The revision the claim-lease migration is applied on top of. Named so the
 #: populated-table test can migrate *to* it, insert a row the way a deployment
-#: would have, and then run the lease migration over real data.
+#: would have, and then run the lease migration over real data. This one is a
+#: literal on purpose: it is a *fixed* point in the chain's history, and the
+#: test is about what ``0002`` does to a table that already has rows.
 _PRE_LEASE = "0001"
 
 

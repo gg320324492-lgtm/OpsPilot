@@ -29,7 +29,8 @@ unmeetable by construction.
 
 The state machine is domain code. `src/opspilot/domain/runs.py` declares
 `RunStatus`, `ALLOWED_TRANSITIONS` and `AgentRun.transition_to()`, importing only
-`enum` and Pydantic. Status changes go through `transition_to`, which:
+the standard library and Pydantic. Status changes go through `transition_to`,
+which:
 
 1. looks up `ALLOWED_TRANSITIONS[current]`,
 2. raises `IllegalTransition` if the target is not in it,
@@ -40,12 +41,12 @@ The orchestrator is a port:
 
 ```python
 class Orchestrator(Protocol):
-    async def step(self, run: AgentRun, ctx: RunContext) -> StepOutcome: ...
+    async def step(self, run: AgentRun) -> StepResult: ...
 ```
 
 with `LinearOrchestrator` (a deterministic driver used by tests) and
-`LangGraphOrchestrator` (production). Both call `run.transition_to(...)`; neither
-decides what is legal.
+`LangGraphOrchestrator` (production). Neither decides what is legal: the
+transition table does, and the runtime's progression goes through it.
 
 The transition table is asserted against the enum in a test that iterates
 `RunStatus` and requires every member to appear as a key, so adding a state
@@ -107,6 +108,63 @@ still unbuilt; it is recorded as an acceptance criterion in `docs/milestones.md`
 M4 before the LangGraph adapter. Building the adapter first would make the graph
 the de facto design and the domain table a transcription of it — the outcome
 this ADR exists to prevent.
+
+**Correction 3 (the table did not describe the machine the runtime runs).**
+This ADR's central claim — that the domain owns the state machine — was true of
+the *code* and false of the *table*, and the gap between them was invisible
+because nothing compared the runtime's actual transitions with the table.
+
+What the golden path records, read back from the `state_change` rows it wrote:
+
+```
+received → classifying → retrieving → planning → executing
+→ planning → executing → planning → executing → planning → executing
+→ waiting_approval → executing → responding → completed
+```
+
+`EXECUTING → PLANNING` is on that sequence **four times** — once per tool
+round, because each tool is a separate plan→gate→execute round. The table did
+not carry that edge. It carried `EXECUTING → EXECUTING` instead, which the
+runtime never takes. So the table described a machine the code did not run, and
+the two guards that existed were blind to it: `tests/unit/test_run_state.py`
+compares the table against the **enum**, and
+`tests/unit/test_state_machine_document_matches_the_code.py` compares the
+**document** against the **table**. Both compared two artefacts that agreed
+with each other, and neither with the runtime.
+
+Nothing caught it because **no runtime transition was ever checked**. The
+runtime assigned `ctx.run.status` directly, in four places, so a transition
+the table forbade was written silently — and `IllegalTransition`, the
+exception this ADR exists for, was unreachable in production. The two guards
+that were named in this ADR as the mitigation for graph drift could not have
+caught it either: they compare artefacts, not behaviour.
+
+What changed:
+
+- the table now carries the edge the runtime takes
+  (`docs/agent-state-machine.md` §2), and the specification's prose says so;
+- the runtime's **progression** goes through `transition_to`
+  (`agents/runtime.py::_transition`), so an illegal progression raises
+  `IllegalTransition` instead of being written — which is what this ADR's
+  Decision section always said it did;
+- `tests/agent/test_every_transition_is_in_the_table.py` drives the golden path
+  through the real worker and asserts that **every recorded transition is an
+  edge the table allows**. That is the guard the other two could not be: it
+  compares the runtime's behaviour with the specification.
+
+The Decision section's quoted `Orchestrator` protocol was stale in the same
+way — it showed `step(self, run, ctx) -> StepOutcome`, and the shipped port is
+`step(self, run) -> StepResult` with no context parameter, because `ports/`
+cannot import `agents/`. The context is bound at run time by a `StageDriver`
+instead. The quote above has been corrected.
+
+One write remains outside the table's reach, and it is named in
+`docs/agent-state-machine.md` §2.2 rather than left implicit: the park. The
+failure is checked (`FAILED` is reachable from every non-terminal state, and
+the table has no edge out of a terminal one, so a finished run cannot be
+overwritten by an error that arrived afterwards). The park is not, for a reason
+that is a product decision rather than a technical one and is recorded as open
+in `docs/limitations.md` §7.
 
 ## Alternatives rejected
 

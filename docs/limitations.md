@@ -466,6 +466,27 @@ messier shapes — missing fields, multiple currencies, partial refunds across
 periods — and the fake servers return clean records. The agent's argument
 validation is exercised against a schema, not against real-world messiness.
 
+**What should happen when a *finished* run is driven again is not decided.** The
+gate is a unit: it decides whether a tool call may execute, and it does not
+consult the run's status to decide — the five gates are the decision. So a run
+that has already reached `COMPLETED` and is driven again **parks** rather than
+executing, which is the property a security test pins
+(`tests/security/test_approval_bypass.py::test_run_step_refuses_to_execute_for_a_completed_run_after_transition`:
+"completion does not leave an execution path open"). Parking writes
+`WAITING_APPROVAL`, and the transition table has **no edge out of a terminal
+state** — so the park is the one status write the runtime makes that the table
+does not cover (`docs/agent-state-machine.md` §2.2).
+
+It cannot happen in a deployment today: `COMPLETED` and `FAILED` are not
+claimable, so the worker never picks such a run up. It is reachable only by a
+caller that drives the gate directly, which is what the test does. **The open
+question is what *should* happen** — refuse the proposal and record why, park
+it and accept that a finished run becomes unfinished, or leave the run's status
+alone and refuse the proposal only — and the answer changes what the gate
+means. It is recorded here rather than answered, because it is a product
+decision: the security property (no dispatch) holds under all three, and only
+the status bookkeeping differs.
+
 **The native menu is localized; the operating system around it is not.** The
 application's own menu bar is built in the operator's language and follows the
 *same* cookie the dashboard renders from (`opspilot_locale`), so the menu and
@@ -949,6 +970,42 @@ legible):
   edges in both directions, and §1's "Is it terminal?" column against
   `TERMINAL`. The document and the code agree today; an agreement nobody
   checked is an agreement that lasts until the next edit.
+
+- **…and the transcription was faithful to a table that did not describe the
+  runtime.** The guard above compares the **document** against the **table**,
+  and the table is a copy of the document — so both of them agreed, and neither
+  was compared with the **runtime**. The runtime took `EXECUTING → PLANNING`
+  once per tool round (four times on the golden path's recorded transitions)
+  and the table did not carry that edge; it carried `EXECUTING → EXECUTING`,
+  which the runtime never takes. The table described a machine the code did not
+  run, and nothing noticed, because **no runtime transition was ever checked**
+  against it: the runtime assigned `ctx.run.status` directly, so a transition
+  the table forbade was written silently and `IllegalTransition` was
+  unreachable in production.
+
+  The table now carries the edge the runtime takes; the runtime's progression
+  goes through `transition_to` and refuses an edge the table does not have;
+  and `tests/agent/test_every_transition_is_in_the_table.py` drives the golden
+  path through the real worker and asserts that **every recorded transition is
+  an edge the table allows**. That last one is the guard the other two could
+  not be — it compares the runtime's behaviour with the specification, rather
+  than two copies of the specification with each other.
+
+- **Nine of the sixteen `postgres`-marked tests were never executed by
+  anything.** They carry the `postgres` mark and skip wherever no server is
+  reachable; the `verify` job's broad step excludes `-m "not postgres"`, and no
+  step named them by node id. So the file whose module docstring tells the
+  whole story of `0001` — a migration that was green on SQLite for the whole
+  of M0–M9 and had **never** applied to a real PostgreSQL — was itself only
+  ever *skipped*. Two of the nine **say in their own docstrings that CI runs
+  them** ("CI's `verify` job names it by node id and asserts PASSED"), and CI
+  did not.
+
+  The `verify` job now runs all nine by file, asserts the named ones `PASSED`
+  and fails on a skip — the discipline the other steps in that job already
+  used. And the step called "Verify migrations reached head", which ran
+  `alembic current` (which exits 0 whatever it reports), now compares
+  `alembic current` with `alembic heads` and fails when they differ.
 
 The rule the list enforces: a claim about running belongs in this section until
 something actually runs it.

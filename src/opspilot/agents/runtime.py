@@ -39,7 +39,7 @@ from pydantic import ValidationError
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
 from opspilot.agents.state import RunContext, ToolCallRecord, default_max_steps
 from opspilot.domain.approvals import ApprovalContext, ApprovalRequest
-from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
+from opspilot.domain.errors import IllegalTransition, MaxStepsExceeded, MCPUnavailable, RunParked
 from opspilot.domain.policies import (
     derive_idempotency_key,
     evaluate_policy,
@@ -828,6 +828,19 @@ async def _park_run(
             context=_approval_context(ctx),
         )
         await approval_store.create(approval)
+    # NOT routed through ``transition_to``, and deliberately so. The table's
+    # only edge into the parked state is ``EXECUTING -> WAITING_APPROVAL``, but
+    # the gate is a unit that does not consult the run's status to *decide*:
+    # a run re-driven after it completed parks rather than executing, and that
+    # is a property a security test pins
+    # (``tests/security/test_approval_bypass.py``). Checking the edge here
+    # would turn "a completed run cannot reach a dispatch" into an
+    # ``IllegalTransition`` escaping the drive -- and the worker does not
+    # swallow an exception it does not know, so a completed run re-driven
+    # would take the poll loop down with it. The question of what should
+    # happen to a *terminal* run that is re-driven is a product decision, and
+    # it is recorded as open rather than answered here
+    # (``docs/limitations.md`` §7).
     await run_store.set_status(ctx.run.id, RunStatus.WAITING_APPROVAL)
     ctx.run.status = RunStatus.WAITING_APPROVAL
     await recorder.record_audit(
@@ -1157,10 +1170,25 @@ async def _advance_chain(
 
 
 async def _transition(ctx: RunContext, run_store: RunStore, target: RunStatus) -> None:
-    """Persist one legal transition; the in-memory status follows the store."""
+    """Persist one legal transition; the in-memory status follows the store.
+
+    The legality check is the domain's, not this function's: ``transition_to``
+    consults ``ALLOWED_TRANSITIONS`` and raises ``IllegalTransition`` for an
+    edge the table does not carry. The table is the specification
+    (``docs/agent-state-machine.md`` §2).
+
+    This used to assign ``ctx.run.status = target`` directly, which meant **no
+    transition the runtime took was ever checked** -- the table described a
+    machine the code did not run. It went unnoticed because the one edge the
+    runtime takes that the table forbids (``EXECUTING -> PLANNING``, once per
+    tool round) was exactly the edge nobody looked for, and the table's own
+    self-loop (``EXECUTING -> EXECUTING``) was never taken at all. The
+    specification now carries the edge the code takes, and this function
+    refuses the ones it does not.
+    """
     if ctx.run.status is target:
         return
-    ctx.run.status = target
+    ctx.run.transition_to(target)
     await run_store.set_status(ctx.run.id, target)
 
 
@@ -1952,7 +1980,24 @@ async def _fail_run(
     ``FAILED`` means OpsPilot did not finish the job -- distinct from a rejected
     approval or a policy refusal, which ``COMPLETED`` via ``RESPONDING``
     (``docs/agent-state-machine.md`` §3).
+
+    The legality of the edge is the domain's to decide: ``FAILED`` is reachable
+    from every non-terminal state, and the table has no edge out of a terminal
+    one. The check is made here -- before the row is written -- rather than by
+    assigning the status, so a run that had already finished could not be
+    overwritten by an error that arrived afterwards.
+
+    It raises ``IllegalTransition`` rather than logging, even though this runs
+    on the error path. The case is unreachable in the current runtime (the run
+    being driven is non-terminal by construction), and an unreachable branch
+    that silently does nothing is the kind of thing that becomes reachable.
+    ``can_transition_to`` is the domain's own predicate; ``transition_to`` is
+    its single implementation of the rule and would raise the same error, but
+    it also mutates, and the store write has to come first so a failed write
+    leaves the in-memory mirror agreeing with the row.
     """
+    if not ctx.run.can_transition_to(RunStatus.FAILED):
+        raise IllegalTransition(ctx.run.status, RunStatus.FAILED)
     await run_store.set_status(ctx.run.id, RunStatus.FAILED, failure_reason=reason)
     ctx.run.status = RunStatus.FAILED
     trace = recorder if recorder is not None else TraceRecorder(run_id=ctx.run.id)

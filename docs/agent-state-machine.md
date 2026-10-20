@@ -6,8 +6,11 @@ means, and the failure semantics.
 
 Implementation: `src/opspilot/domain/runs.py`.
 Enforcement: the transition table is data, and `AgentRun.transition_to()` is the
-only way to change status — it raises `IllegalTransition` otherwise. There is no
-setter.
+one implementation of the rule — it raises `IllegalTransition` for an edge the
+table does not carry. There is no setter. The runtime's **progression** goes
+through it (`_transition`, which covers every edge the run walks), so an
+illegal progression is refused rather than written; the one write that is
+*not* table-checked is named in §2.2, with the reason for it.
 
 ---
 
@@ -50,7 +53,7 @@ ALLOWED_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     CLASSIFYING:      frozenset({RETRIEVING, FAILED}),
     RETRIEVING:       frozenset({PLANNING, FAILED}),
     PLANNING:         frozenset({EXECUTING, RESPONDING, FAILED}),
-    EXECUTING:        frozenset({EXECUTING, WAITING_APPROVAL, RESPONDING, FAILED}),
+    EXECUTING:        frozenset({EXECUTING, PLANNING, WAITING_APPROVAL, RESPONDING, FAILED}),
     WAITING_APPROVAL: frozenset({EXECUTING, RESPONDING, FAILED}),
     RESPONDING:       frozenset({COMPLETED, FAILED}),
     COMPLETED:        frozenset(),
@@ -117,11 +120,26 @@ Read as a diagram, with the loops that matter:
 
 ### 2.1 Why these specific edges exist
 
-- **`EXECUTING → EXECUTING` (self-loop).** The golden path calls several tools in
-  sequence (`crm.get_customer`, then `billing.get_invoice`, then
-  `billing.list_transactions`). Each is a separate plan→gate→execute round, and
-  the run stays in `EXECUTING` for the tool-call segment. Modelling each tool call
-  as its own state would multiply states without adding a single distinct
+- **`EXECUTING → PLANNING` (the re-plan edge).** The golden path calls several
+  tools in sequence (`crm.get_customer`, then `billing.get_invoice`, then
+  `billing.list_transactions`), and **each is a separate plan→gate→execute
+  round**: the run returns to `PLANNING` to choose the next action, and walks
+  forward to `EXECUTING` again for the tool. The golden path's recorded
+  transitions are the proof, and they carry this edge four times:
+  `… planning → executing → planning → executing → planning → executing …`.
+
+  This edge was **missing from the table** while the runtime had taken it all
+  along, and nothing noticed, because no runtime transition was ever checked
+  against the table. The table described a machine the code did not run: it
+  offered `EXECUTING → EXECUTING` (a self-loop the runtime never took) and
+  withheld `EXECUTING → PLANNING` (an edge it took on every tool round). The
+  table now carries the edge the code takes, and the runtime refuses the ones
+  it does not.
+
+- **`EXECUTING → EXECUTING` (self-loop).** Available, and rarely taken: the
+  run stays in `EXECUTING` across a tool call's own dispatch, so a second tool
+  dispatched without an intervening plan would land here. Modelling each tool
+  call as its own state would multiply states without adding a single distinct
   invariant. The step-level detail lives in `AgentStep`/`ToolCall`, not in
   `RunStatus`.
 
@@ -134,14 +152,43 @@ Read as a diagram, with the loops that matter:
   edge is the difference between a system that models an approval as a *gate*
   and one that models it as an *error*.
 
-- **`PLANNING → EXECUTING` directly is *not* allowed.** Planning always routes
+- **`PLANNING → a tool` directly is *not* allowed.** Planning always routes
   through `EXECUTING` to touch a tool, and `EXECUTING` is where the five gates
-  live. There is no edge from `PLANNING` to a tool.
+  live. (`PLANNING → EXECUTING` *is* allowed — that is the edge that routes it
+  there. The bullet used to be titled "PLANNING → EXECUTING directly is not
+  allowed", which said the opposite of what the table lists and of what the
+  test it cites asserts:
+  `tests/unit/test_run_state.py::test_planning_cannot_reach_a_tool_without_executing`
+  requires `EXECUTING in ALLOWED_TRANSITIONS[PLANNING]`.)
 
 - **`COMPLETED` and `FAILED` have empty successor sets.** `COMPLETED →
   EXECUTING` raises. This is asserted in `tests/unit/test_run_state.py` against
   the enum itself, not against a hand-written list, so adding a state without
   adding its transitions fails the test.
+
+### 2.2 The one write that is not table-checked
+
+The table governs the run's **progression**: every edge `_transition` walks is
+checked against it, and an illegal one raises `IllegalTransition` rather than
+being written. The **failure** is checked too — `FAILED` is reachable from
+every non-terminal state, and the table has no edge out of a terminal one, so
+the check is made before the row is written and a run that had already
+finished cannot be overwritten by an error that arrived afterwards.
+
+One write is not checked, and it is named here rather than left implicit.
+
+- **The park (`EXECUTING → WAITING_APPROVAL`).** The table's only edge into
+  the parked state, and the runtime does not consult the table before writing
+  it. The reason is that the gate is a *unit* that does not consult the run's
+  status to decide: a run re-driven after it completed parks rather than
+  executing, and that is a property a security test pins
+  (`tests/security/test_approval_bypass.py::test_run_step_refuses_to_execute_for_a_completed_run_after_transition`).
+  Checking the edge there would turn "a completed run cannot reach a dispatch"
+  into an exception escaping the drive — and the worker does not swallow an
+  exception it does not know, so a completed run re-driven would take the poll
+  loop down with it. **What should happen to a terminal run that is re-driven
+  is a product decision**, and it is recorded as open
+  (`docs/limitations.md` §7) rather than answered here.
 
 ## 3. Failure semantics
 
