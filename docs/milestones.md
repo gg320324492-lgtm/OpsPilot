@@ -895,7 +895,9 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 **Acceptance criteria**
 
 - [x] GitHub Actions jobs: `lint`, `typecheck`, `test` (3.12/3.13), `verify`
-      (pgvector container: migrations, vector differential, worker concurrency),
+      (pgvector container: migrations, the vector differential, the worker
+      concurrency, and the **migration-schema** tests -- the file whose own
+      docstring tells the story of `0001`, which is the reason that job exists),
       `mcp-contract`, `security`, `eval-smoke`, `web-lint`, `web-typecheck`,
       `docker-build`, `web-e2e`. (All eleven ids exist in `ci.yml` — the
       Phase 1 set; Phase 2 added four more, and the Phase 2 DoD's CI row

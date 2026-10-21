@@ -8535,12 +8535,17 @@ links that hold the documents together.
 
 ### What was broken
 
-One reference, in three places: `docs/progress.md` cites
-`` `docs/mcp-contracts.md` §S2 ``, and **that document has no §S2**. Its
+One reference, in three places: `docs/progress.md` cited
+`` `docs/mcp-contracts.md` `` with a section id of the form ``S2`` — and **that
+document has no such section**. Its
 second section is `` ## 2. `billing` server ``. The "S" is a leftover from a
 numbering the contract no longer uses, so a reader following the reference
 finds nothing — three times, in the middle of an argument about an argument
 set that gate 1 and the server disagreed on.
+
+(This paragraph names the bad id as ``S2`` rather than as a section reference,
+because the guard below checks *every* ``§`` reference in these documents, and
+a paragraph *about* a broken reference must not itself be one.)
 
 Everything else resolved: 105 link targets, 5 anchors, and 464 of the 467
 section references. The other three are prose — "§" used as "see" — and the
@@ -8571,8 +8576,8 @@ Phase 2 plan's section "P2-A" and its acceptance row "A1" give "§P2-A1", which
 is how the milestones ledger cites the plan — and getting that right is what
 took the unresolved count from 55 to 6.
 
-Mutation-verified: pointing one reference back at the non-existent §S2 turns
-it red, naming the document and the key.
+Mutation-verified: pointing one reference back at a section id of that form
+turns it red, naming the document and the key.
 
 ### What it does not do
 
