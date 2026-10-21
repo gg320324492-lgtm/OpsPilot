@@ -29,6 +29,21 @@ enumeration. UUIDs cost nothing here.
 
 All timestamps are `TIMESTAMPTZ`, stored UTC, named `*_at`.
 
+**`TEXT` versus `VARCHAR`.** The two are not interchangeable *as declarations*,
+so the tables below name the one each column actually has: `TEXT` for free
+text (a subject, a body, a chunk's content) and `VARCHAR` for the short
+enumerated or identifier columns (`status`, `permission`, `step_type`,
+`model_provider`, `idempotency_key`, and so on). In PostgreSQL they behave the
+same — `varchar` with no length limit is accepted anywhere `text` is, and
+neither enforces a limit — so the difference is in how the schema is written
+down, not in what the database will let you store. The authority for which is
+which is the **migration**, and
+`tests/unit/test_migration_and_orm_agree_on_column_types.py` asserts that the
+ORM and the migration chain declare the same type for every column, because
+SQLite would not catch a disagreement: both types have `TEXT` affinity there,
+so a `create_all`-built database and an `alembic upgrade`-built one are
+identical there and differ on Postgres.
+
 ## 2. Tables
 
 ### `tickets`
@@ -48,15 +63,15 @@ All timestamps are `TIMESTAMPTZ`, stored UTC, named `*_at`.
 |---|---|---|
 | `id` | UUID PK | |
 | `ticket_id` | UUID FK → tickets, indexed | |
-| `status` | TEXT NOT NULL, indexed | `RunStatus` value. Indexed because the worker's claim query filters on it. |
-| `model_provider` | TEXT NOT NULL | `fake` \| `openai` \| `anthropic` |
-| `model_name` | TEXT NOT NULL | e.g. `claude-sonnet-5-5` |
+| `status` | VARCHAR NOT NULL, indexed | `RunStatus` value. Indexed because the worker's claim query filters on it. |
+| `model_provider` | VARCHAR NOT NULL | `fake` \| `openai` \| `anthropic` |
+| `model_name` | VARCHAR NOT NULL | e.g. `claude-sonnet-5-5` |
 | `started_at` | TIMESTAMPTZ NULL | Set on first transition out of `RECEIVED` |
 | `completed_at` | TIMESTAMPTZ NULL | Set on entry to `COMPLETED`/`FAILED` |
 | `failure_reason` | TEXT NULL | Machine-stable token; see state-machine doc §3 |
 | `created_at` | TIMESTAMPTZ NOT NULL | |
 | `claimed_until` | TIMESTAMPTZ NULL | When the claim lease expires. See below |
-| `claimed_by` | TEXT NULL | The `WORKER_ID` holding the lease. See below |
+| `claimed_by` | VARCHAR NULL | The `WORKER_ID` holding the lease. See below |
 
 Index for the worker:
 
@@ -105,7 +120,7 @@ field on `GET /api/runs/{id}` ([api-contract.md](api-contract.md) §3).
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs, indexed | |
 | `sequence` | INTEGER NOT NULL | Monotonic within a run. `UNIQUE (run_id, sequence)`. |
-| `step_type` | TEXT NOT NULL | `state_change` \| `classification` \| `retrieval` \| `planning` \| `response` |
+| `step_type` | VARCHAR NOT NULL | `state_change` \| `classification` \| `retrieval` \| `planning` \| `response` |
 | `input` | JSONB NULL | |
 | `output` | JSONB NULL | |
 | `latency_ms` | INTEGER NULL | |
@@ -115,9 +130,30 @@ field on `GET /api/runs/{id}` ([api-contract.md](api-contract.md) §3).
 `UNIQUE (run_id, sequence)` is a correctness constraint, not tidiness: the
 timeline the dashboard renders is ordered by `sequence`, and a duplicate would
 silently reorder a trace. The sequence is allocated inside the same transaction
-as the step insert (`SELECT COALESCE(MAX(sequence),0)+1 ... FOR UPDATE`), so two
-writers on one run cannot race — and there is only ever one writer per run
-anyway, because the claim query takes the row with `FOR UPDATE SKIP LOCKED`.
+as the step insert: the run's highest sequence is read with
+`ORDER BY sequence DESC LIMIT 1 ... FOR UPDATE` and one is added to it. (Not
+`SELECT COALESCE(MAX(sequence),0)+1` — Postgres refuses `FOR UPDATE` on an
+aggregate query, so the highest value is read as a row rather than computed.)
+On Postgres that select takes a row lock; on SQLite, which has no such clause,
+SQLAlchemy's dialect renders the lock away, and the store runs on both
+(ADR-0004).
+
+Two writers cannot end up with the same number, and it is worth being precise
+about which mechanism does that, because they are not the same thing:
+
+- **The claim path** is the reason there is only ever one writer per run: the
+  claim query takes the run row with `FOR UPDATE SKIP LOCKED`.
+- **The `UNIQUE (run_id, sequence)` constraint** is the backstop. A writer that
+  got through anyway is *refused* by the database rather than allowed to
+  reorder a trace.
+- **The row lock on the step** is not what prevents the duplicate. A step row is
+  immutable, so nothing else contends for it, and on a run with no steps yet the
+  locking select matches no row at all and locks nothing.
+
+`tests/unit/test_step_sequence_allocation.py` asserts each of those claims: that
+the statement really carries `FOR UPDATE` on Postgres and really runs without it
+on SQLite, and that two writers racing for one run leave the table with one step
+per sequence number.
 
 **The five step types are the whole vocabulary.** `state_change`,
 `classification`, `retrieval`, `planning` and `response` are every
@@ -149,14 +185,14 @@ file claimed otherwise.
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs, indexed | |
 | `step_id` | UUID FK → agent_steps NULL | |
-| `tool_name` | TEXT NOT NULL | |
+| `tool_name` | VARCHAR NOT NULL | |
 | `arguments` | JSONB NOT NULL | **Immutable once an `ApprovalRequest` references this call.** |
-| `permission` | TEXT NOT NULL | Snapshotted at call time from the registry |
-| `status` | TEXT NOT NULL | `proposed` \| `rejected` \| `awaiting_approval` \| `executed` \| `failed` |
+| `permission` | VARCHAR NOT NULL | Snapshotted at call time from the registry |
+| `status` | VARCHAR NOT NULL | `proposed` \| `rejected` \| `awaiting_approval` \| `executed` \| `failed` |
 | `result` | JSONB NULL | |
 | `error` | TEXT NULL | |
 | `rejection_reason` | TEXT NULL | Which gate rejected it |
-| `idempotency_key` | TEXT NULL, indexed | `UNIQUE (idempotency_key) WHERE idempotency_key IS NOT NULL AND status='executed'` |
+| `idempotency_key` | VARCHAR NULL, indexed | `UNIQUE (idempotency_key) WHERE idempotency_key IS NOT NULL AND status='executed'` |
 | `latency_ms` | INTEGER NULL | |
 | `created_at` | TIMESTAMPTZ NOT NULL | |
 | `completed_at` | TIMESTAMPTZ NULL | |
@@ -178,13 +214,13 @@ Two things worth stating:
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs, indexed | |
 | `tool_call_id` | UUID FK → tool_calls, **unique** | One approval per call, enforced |
-| `status` | TEXT NOT NULL | `pending` \| `approved` \| `rejected` \| `expired`. All four are reachable: the worker sweeps a pending approval older than `APPROVAL_TTL_SECONDS` to `expired` |
+| `status` | VARCHAR NOT NULL | `pending` \| `approved` \| `rejected` \| `expired`. All four are reachable: the worker sweeps a pending approval older than `APPROVAL_TTL_SECONDS` to `expired` |
 | `reason` | TEXT NOT NULL | The model's stated justification, shown to the human |
 | `risk_explanation` | TEXT NOT NULL | Deterministic, generated from the policy engine — *not* from the model |
 | `arguments_snapshot` | JSONB NOT NULL | Copy of the arguments as shown to the approver |
 | `created_at` | TIMESTAMPTZ NOT NULL | |
 | `decided_at` | TIMESTAMPTZ NULL | |
-| `decided_by` | TEXT NULL | Operator identity — **assigned by the server** from the bearer token, never by the client |
+| `decided_by` | VARCHAR NULL | Operator identity — **assigned by the server** from the bearer token, never by the client |
 | `note` | TEXT NULL | The operator's own remark on the decision, e.g. `"Confirmed in billing console."` Free text, nullable, set only on a decision |
 | `context` | JSONB NULL | Supplementary display context for the approver, e.g. `{"company": "ACME", "ticket_subject": "…"}`. Assembled when the run parks. `NULL` when there is nothing to show |
 
@@ -253,7 +289,7 @@ show.
 | `source` | TEXT NOT NULL, unique | Repo-relative path, e.g. `refund-policy.md` |
 | `content` | TEXT NOT NULL | Full Markdown |
 | `doc_metadata` | JSONB NOT NULL | Front-matter (owner, effective date, tags) |
-| `content_hash` | TEXT NOT NULL | sha256; re-indexing compares this |
+| `content_hash` | VARCHAR NOT NULL | sha256; re-indexing compares this |
 | `indexed_at` | TIMESTAMPTZ NOT NULL | |
 
 Named `doc_metadata` rather than `metadata` because `metadata` is a reserved
@@ -271,7 +307,21 @@ still `metadata`.
 | `heading_path` | TEXT NOT NULL | e.g. `Refund Policy > Limits` |
 | `content` | TEXT NOT NULL | |
 | `token_count` | INTEGER NOT NULL | |
-| `embedding` | `vector(1536)` | pgvector; dimension from `EMBEDDING_DIM` setting |
+| `embedding` | `vector(1536)` | pgvector. The width is **frozen at 1536** by migration `0001`; `EMBEDDING_DIM` must be 1536 — see below. |
+
+**`EMBEDDING_DIM` is not a knob.** The migration creates the column as
+`vector(1536)` and the width there is a frozen literal, deliberately: a
+migration must be a fixed point of history, not a function of the deploying
+environment. The setting still reaches the ORM and the embedder, so on SQLite
+a different width would "work" — and on Postgres, where the migration is the
+authority, it cannot. `PgVectorStore` compares the width it is handed against
+the column's and raises `DimensionMismatch` at construction if they differ, so
+a deployment that set `EMBEDDING_DIM` to anything but 1536 fails while it is
+being wired, not when it inserts its first vector. Changing the width means a
+new migration that alters the column, which Phase 1 does not have; the four
+places that declare it (`0001`'s literal, `models._EMBEDDING_DIM`,
+`PgVectorStore.DEFAULT_DIM` and the setting) are asserted to agree by
+`tests/integration/test_migration_schema.py`.
 
 ```sql
 CREATE INDEX ix_knowledge_chunks_embedding
@@ -279,7 +329,7 @@ CREATE INDEX ix_knowledge_chunks_embedding
 ```
 
 HNSW rather than IVFFlat: IVFFlat needs a training pass and a row count estimate
-to build useful lists, and with 30 documents and a few hundred chunks HNSW is
+to build useful lists, and with 17 documents and 98 chunks HNSW is
 both simpler and faster. Recall is not the Phase 1 bottleneck.
 
 ### `citations`
@@ -290,12 +340,25 @@ both simpler and faster. Recall is not the Phase 1 bottleneck.
 | `run_id` | UUID FK → agent_runs, indexed | |
 | `document_id` | UUID FK → knowledge_documents | |
 | `chunk_id` | UUID FK → knowledge_chunks | |
-| `score` | REAL NOT NULL | Cosine similarity |
+| `score` | FLOAT NOT NULL | Cosine similarity. An 8-byte float, not a 4-byte `REAL`. |
 | `rank` | INTEGER NOT NULL | Position in the retriever's result list |
 
 A row per cited chunk, not a JSON blob on the run. The UI's "Sources" panel is a
 join, and the eval's Recall@K metric is a query over `rank` — both of which a
 blob would force into application code.
+
+**How `chunk_id` is resolved when a citation is written.** The retrieval hit
+knows exactly which chunk it returned, and the store has to find that chunk's
+row. It resolves the document by its `source` and the chunk by the hit's
+**ordinal** — the pair `UNIQUE (document_id, ordinal)` names, and the pair both
+vector stores derive the chunk id from. The ordinal is not recoverable from the
+citation's `"{source}#{anchor}"` label: the anchor is a *heading* slug, and a
+heading longer than the per-chunk token ceiling is split into several chunks
+that all carry that one anchor, so `(document_id, anchor)` can match more than
+one chunk row. A record with no ordinal falls back to the anchor and then to
+the lowest matching ordinal — deterministic, but not necessarily the chunk that
+was retrieved. The label the API renders (`docs/api-contract.md` §3) carries the
+anchor only; the ordinal is a write-side field and is not in the response.
 
 ### `audit_events`
 
@@ -303,8 +366,8 @@ blob would force into application code.
 |---|---|---|
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs NULL, indexed | Nullable: auth and reindex events have no run |
-| `event_type` | TEXT NOT NULL, indexed | See below |
-| `actor` | TEXT NOT NULL | `runtime` \| `worker` |
+| `event_type` | VARCHAR NOT NULL, indexed | See below |
+| `actor` | VARCHAR NOT NULL | `runtime` \| `worker` |
 | `payload` | JSONB NOT NULL | |
 | `created_at` | TIMESTAMPTZ NOT NULL, indexed | |
 
@@ -316,8 +379,12 @@ approval_requested    run_failed    model_called    retrieval_abstained
 ```
 
 Append-only by convention: no UPDATE or DELETE path exists in the repository
-layer, and `test_audit_is_append_only` asserts the repository exposes no
-mutating method.
+layer, and `tests/unit/test_audit_is_append_only.py` guards that three ways —
+it reads the whole of `src/` with `ast` and fails if any statement mutates the
+table, it runs the append and the read paths against a real database with an
+SQL listener attached and fails if the SQL that reaches the driver rewrites a
+row, and it asserts the public interface offers exactly one append
+(`record_audit`) and one read (`list_audit_events`).
 
 **The seven event types are the whole vocabulary.** An earlier revision of this
 table listed fourteen, and every one of the other eight — `run_created`,
@@ -359,7 +426,7 @@ duplication is a few hundred bytes per run.
 
 ## 4. Status value enums
 
-Stored as `TEXT` with a Python `Enum` on the model side, not as PG `ENUM` types.
+Stored as `VARCHAR` with a Python `Enum` on the model side, not as PG `ENUM` types.
 Rationale: PG enums require `ALTER TYPE ... ADD VALUE` migrations that cannot run
 inside a transaction in older versions, and a new `RunStatus` in Phase 2 should
 not need a database type migration. Validation lives in Pydantic and SQLAlchemy.
@@ -371,7 +438,10 @@ over these columns and a bogus value would fail those checks loudly.
 
 Alembic, one migration per milestone, never squashed during Phase 1. The
 migration history is part of the review surface: a reviewer should be able to see
-that the approval table arrived in M1 and the idempotency index in M3.
+that the approval table and the idempotency index both arrived in M1 — they are
+in the same revision, `0001`, because the index is what makes a duplicate
+refund impossible at the database level and the approval table is what makes a
+refund possible at all.
 
 `0003` adds the two columns the human half of the approval gate was missing:
 `note` (the operator's remark) and `context` (the approver's display

@@ -383,12 +383,24 @@ class CitationRecord:
     ``chunk`` as ``"{document}#{anchor}"`` (``docs/api-contract.md`` §3). The
     store resolves the document slug and composes the chunk string, so the
     router never joins tables itself.
+
+    ``ordinal`` is the chunk's position in its document, and it is what makes
+    the citation *unambiguous*. The ``chunk`` string carries the anchor, and an
+    anchor is a heading slug: one heading longer than the per-chunk token
+    ceiling is split into several chunks that all carry that same anchor, so
+    ``(document_id, anchor)`` can match more than one chunk row and picking the
+    first of them points the citation at a chunk retrieval never returned.
+    ``(document_id, ordinal)`` is the pair the table's
+    ``UNIQUE (document_id, ordinal)`` constraint names, so it identifies
+    exactly one row. It is optional because the router's read shape does not
+    carry it, and a writer that has the ordinal should always supply it.
     """
 
     document: str
     chunk: str
     score: float
     rank: int
+    ordinal: int | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +529,12 @@ class CitationStore(Protocol):
         the store resolves the ``document_id`` and ``chunk_id`` the ``citations``
         table's foreign keys require. The chunk rows must already exist, which
         they do because retrieval reads them -- see the store docstring.
+
+        A record that carries an ``ordinal`` names its chunk exactly, by the
+        ``(document_id, ordinal)`` pair the table's uniqueness constraint is
+        built on. A record without one can only be resolved by its anchor, and
+        an anchor is not unique within a document when one heading was split
+        into several chunks.
         """
         ...
 

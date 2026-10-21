@@ -278,6 +278,7 @@ class InMemoryVectorStore:
                     content=chunk.content,
                     score=score,
                     rank=rank,
+                    ordinal=chunk.ordinal,
                 )
             )
         return hits

@@ -37,6 +37,7 @@ def _hit(content: str = "Policy text.", slug: str = "refund-policy.md") -> Searc
         content=content,
         score=0.91,
         rank=0,
+        ordinal=0,
     )
 
 

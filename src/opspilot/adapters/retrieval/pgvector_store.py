@@ -9,7 +9,7 @@ Layer: ``adapters`` (retrieval). Implements
 
 Index choice note (``docs/data-model.md`` §2): HNSW rather than IVFFlat, because
 IVFFlat needs a training pass and a row-estimate to build useful lists, and at
-30 documents a few hundred chunks HNSW is both simpler and faster. Recall is not
+17 documents and 98 chunks HNSW is both simpler and faster. Recall is not
 the Phase 1 bottleneck.
 
 Session binding follows the house style in
@@ -62,8 +62,9 @@ class PgVectorStore:
     """Postgres/pgvector-backed ``VectorStore``."""
 
     #: The dimension the ``knowledge_chunks.embedding`` column is declared at,
-    #: kept in sync with ``migrations/versions/0001_initial_schema.py``'s
-    #: ``ALTER COLUMN embedding TYPE vector(1536)``. See the class docstring.
+    #: kept in sync with ``migrations/versions/0001_initial_schema.py``, which
+    #: creates the column as ``vector(1536)`` -- it is born a vector, not
+    #: altered into one. See the class docstring.
     DEFAULT_DIM = 1536
 
     def __init__(
@@ -206,6 +207,7 @@ class PgVectorStore:
                         content=chunk.content,
                         score=1.0 - float(dist),
                         rank=rank,
+                        ordinal=chunk.ordinal,
                     )
                 )
             return hits

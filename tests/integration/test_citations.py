@@ -50,9 +50,11 @@ from collections.abc import Iterator
 from uuid import UUID
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from opspilot.adapters.persistence import db
+from opspilot.adapters.persistence import models
 from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.persistence.repositories import (
     SqlCitationStore,
@@ -286,6 +288,147 @@ async def test_create_many_skips_a_hit_with_no_chunk_row(
 
     rows = await store.list_citations(run_id)
     assert [row.document for row in rows] == [_DOC_SOURCE]
+
+
+# --------------------------------------------------------------------------- #
+# The chunk a citation names
+# --------------------------------------------------------------------------- #
+
+
+#: A body whose single section is longer than the 500-token per-chunk ceiling,
+#: so the chunker splits it into **two chunks that share one anchor**. The
+#: anchor is the slug of the nearest *heading*, and a heading that does not fit
+#: in one chunk is cut into pieces that all sit under it. This is the case that
+#: makes ``(document_id, anchor)`` ambiguous and ``(document_id, ordinal)``
+#: exact.
+_SPLIT_SOURCE = "long-policy.md"
+_SPLIT_BODY = (
+    "# Long Policy\n\n"
+    "## Limits\n\n"
+    + ("Refunds above the documented ceiling need a human approval. " * 90)
+    + "\n\n"
+    "## Scope\n\n"
+    "Applies to every plan tier.\n"
+)
+
+
+async def _seed_split_document(factory: sessionmaker[Session]) -> tuple[UUID, list[UUID]]:
+    """Seed a document whose ``limits`` section is split into several chunks.
+
+    Returns the document id and the chunk ids, in ordinal order.
+    """
+    from opspilot.adapters.persistence import models
+
+    store = SqlKnowledgeDocumentStore(factory)
+    document_id = await store.upsert_document(
+        source=_SPLIT_SOURCE,
+        title="Long Policy",
+        content=_SPLIT_BODY,
+        metadata={},
+        content_hash="cafe",
+    )
+    chunks = split_document(_SPLIT_BODY)
+    chunk_ids: list[UUID] = []
+    with db.session_scope(factory) as session:
+        for chunk in chunks:
+            chunk_id = derive_chunk_id(document_id, chunk.ordinal)
+            chunk_ids.append(chunk_id)
+            session.add(
+                models.KnowledgeChunk(
+                    id=chunk_id,
+                    document_id=document_id,
+                    ordinal=chunk.ordinal,
+                    anchor=chunk.anchor,
+                    heading_path=chunk.heading_path,
+                    content=chunk.content,
+                    token_count=chunk.token_count,
+                    embedding=None,
+                )
+            )
+    return document_id, chunk_ids
+
+
+async def test_the_ordinal_names_the_chunk_a_citation_points_at(
+    factory: sessionmaker[Session],
+) -> None:
+    """A citation names its chunk by ordinal, so a shared anchor cannot confuse it.
+
+    The defect this guards: ``create_many`` used to resolve the chunk by
+    ``(document_id, anchor)`` and take the first match. A heading longer than
+    the per-chunk token ceiling is split into several chunks that all carry
+    that one anchor, so the first match is *a* chunk of that section but not
+    necessarily the one retrieval returned -- and the citation then carried
+    the retrieved chunk's ``score`` and ``rank`` beside a ``chunk_id`` pointing
+    at its sibling.
+
+    The ordinal is the pair the table's ``UNIQUE (document_id, ordinal)``
+    constraint is built on, so it names exactly one row.
+    """
+    document_id, chunk_ids = await _seed_split_document(factory)
+    store = SqlCitationStore(factory)
+    run_id = await _make_run(factory)
+
+    # The last chunk of the split section -- not the first one.
+    target_ordinal = 1
+    await store.create_many(
+        run_id,
+        [
+            CitationRecord(
+                document=_SPLIT_SOURCE,
+                chunk=f"{_SPLIT_SOURCE}#limits",
+                score=0.83,
+                rank=1,
+                ordinal=target_ordinal,
+            ),
+        ],
+    )
+
+    with db.session_scope(factory) as session:
+        row = session.execute(
+            select(models.Citation).where(models.Citation.run_id == run_id)
+        ).scalar_one()
+        assert row.chunk_id == chunk_ids[target_ordinal]
+        assert row.chunk_id != chunk_ids[0], (
+            "the citation points at the first chunk of the section, which is the "
+            "defect: the anchor is shared, so the anchor alone cannot name the "
+            "chunk that was retrieved."
+        )
+        assert row.chunk_id == derive_chunk_id(document_id, target_ordinal)
+
+
+async def test_a_citation_without_an_ordinal_falls_back_to_the_anchor(
+    factory: sessionmaker[Session],
+) -> None:
+    """A record with no ordinal still resolves -- to the lowest matching ordinal.
+
+    The fallback is the anchor, which is what the record carries. When the
+    anchor is shared the answer is a *choice*, so the choice is made
+    deterministic: the lowest ordinal among the matches. It is not necessarily
+    the chunk retrieval returned -- that is what the ordinal is for -- but it
+    is never "whichever row the query happened to return first".
+    """
+    document_id, chunk_ids = await _seed_split_document(factory)
+    store = SqlCitationStore(factory)
+    run_id = await _make_run(factory)
+
+    await store.create_many(
+        run_id,
+        [
+            CitationRecord(
+                document=_SPLIT_SOURCE,
+                chunk=f"{_SPLIT_SOURCE}#limits",
+                score=0.83,
+                rank=1,
+            ),
+        ],
+    )
+
+    with db.session_scope(factory) as session:
+        row = session.execute(
+            select(models.Citation).where(models.Citation.run_id == run_id)
+        ).scalar_one()
+        assert row.chunk_id == chunk_ids[0]
+        assert row.chunk_id == derive_chunk_id(document_id, 0)
 
 
 async def test_create_writes_one_row_with_explicit_ids(

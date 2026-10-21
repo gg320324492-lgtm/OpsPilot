@@ -33,7 +33,16 @@ class ChunkRecord(BaseModel):
 
 
 class SearchHit(BaseModel):
-    """One retrieval result: the chunk, its document, and the cosine similarity."""
+    """One retrieval result: the chunk, its document, and the cosine similarity.
+
+    ``ordinal`` is the chunk's position in its document, and it is the half of
+    the chunk's identity that the anchor is not: ``anchor`` is the *heading*
+    the chunk sits under, and one heading that is longer than the per-chunk
+    token ceiling is split into several chunks that **share** that anchor.
+    ``(document_id, ordinal)`` is the pair the table's
+    ``UNIQUE (document_id, ordinal)`` constraint names, so it -- and not the
+    anchor -- is what identifies the chunk a citation points at.
+    """
 
     chunk_id: UUID
     document_id: UUID
@@ -42,6 +51,7 @@ class SearchHit(BaseModel):
     content: str
     score: float
     rank: int
+    ordinal: int
 
 
 @runtime_checkable

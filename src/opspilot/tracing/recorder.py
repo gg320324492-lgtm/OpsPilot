@@ -134,9 +134,9 @@ class TraceRecorder:
     ) -> UUID:
         """Append an ``AgentStep``, allocating the next ``sequence`` atomically.
 
-        The sequence is allocated inside the same transaction as the insert
-        (``SELECT COALESCE(MAX(sequence),0)+1``), so the timeline the dashboard
-        renders cannot silently reorder.
+        The sequence is allocated inside the same transaction as the insert --
+        the run's highest sequence, read under a ``FOR UPDATE`` row lock, plus
+        one -- so the timeline the dashboard renders cannot silently reorder.
 
         ``STORE_FULL_PROMPTS=false`` replaces the full-text values in both
         payloads with :data:`_WITHHELD` and writes the row otherwise unchanged:

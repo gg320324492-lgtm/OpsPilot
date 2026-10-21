@@ -38,6 +38,7 @@ def _hit(score: float, rank: int, anchor: str = "limits") -> SearchHit:
         content="Refunds above $100 need approval.",
         score=score,
         rank=rank,
+        ordinal=0,
     )
 
 

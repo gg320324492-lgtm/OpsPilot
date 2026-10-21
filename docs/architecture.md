@@ -55,7 +55,7 @@ influence:
         └────────────────────┬───────────────────────┘  Postgres. Never bypassed.
                              ▼
                     ┌────────────────┐
-                    │ TOOL EXECUTION │  via ToolGateway -> MCP server
+                    │ TOOL EXECUTION │  via ToolGateway -> in-process or MCP
                     └────────┬───────┘
                              ▼
                     ┌────────────────┐
@@ -132,8 +132,9 @@ nothing above it.
 │ adapters/       concrete implementations of the ports:        │
 │                 models/{fake,openai,anthropic}                │
 │                 tools/mcp_gateway.py                          │
-│                 persistence/{sqlalchemy_repositories}         │
-│                 retrieval/{pgvector,in_memory}.py             │
+│                 persistence/repositories.py                   │
+│                 retrieval/pgvector_store.py                   │
+│                 retrieval/memory_store.py                     │
 │                 orchestration/langgraph_adapter.py            │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -312,11 +313,11 @@ registration lives in a module that a model cannot write to. This is the whole
 mechanism. `docs/tool-permissions.md` has the full table and the argument for why
 it is static.
 
-## 8. MCP servers
+## 8. Tool gateways and MCP servers
 
-Three small, deterministic demo services, each a real MCP server over stdio,
-each backed by its own seeded database. They stand in for Salesforce, Stripe and
-Jira, which Phase 1 deliberately does not integrate.
+Three small, deterministic demo services, each backed by its own seeded
+database. They stand in for Salesforce, Stripe and Jira, which Phase 1
+deliberately does not integrate.
 
 | Server | Tools | Seed |
 |---|---|---|
@@ -330,7 +331,7 @@ create a second refund. This is tested at the MCP contract layer, not only at th
 agent layer, because the failure it prevents ("an agent re-runs a tool step after
 a crash and pays the customer twice") is a data-layer risk.
 
-The MCP transport is never visible to `domain/`. It sits behind:
+The transport is never visible to `domain/`. It sits behind:
 
 ```python
 class ToolGateway(Protocol):
@@ -338,8 +339,41 @@ class ToolGateway(Protocol):
     async def call_tool(self, name: str, arguments: dict) -> ToolResult: ...
 ```
 
-with `MCPToolGateway` as the Phase 1 implementation. A `RESTToolGateway` is the
-obvious Phase 2 addition and needs no domain change.
+**The Phase 1 implementation is a composite, not a single gateway.**
+`CompositeToolGateway` holds two halves and routes each call to the one that
+owns the tool's `server` field in the registry:
+
+| Half | Owns | Reached by |
+|---|---|---|
+| `internal` — `KnowledgeTool` | `knowledge.search` | in-process, always |
+| `mcp` — `MCPToolGateway` | `crm.*`, `billing.*`, `issues.*` | over the MCP transport |
+
+So `knowledge.search` — a READ tool, and one of the five the permission table
+above lists — **never crosses a process boundary**. It is served by the
+in-process knowledge tool, and the MCP half is never asked for it: the MCP
+gateway refuses a server name it does not know, and `internal` is not one of
+them. That is deliberate: retrieval reads the same database the worker already
+has open, and a subprocess would only add a round trip to reach it.
+
+**Two transports, one default.** The MCP half speaks MCP over one of two
+transports, chosen by `MCP_TRANSPORT`:
+
+- **`inprocess` (the default).** The three servers are built in this process
+  and called in it. Fast, no subprocess, no wire.
+- **`stdio` (opt-in).** The gateway reads `MCP_CRM_COMMAND` and its siblings
+  and spawns each server as a real child process. This is the path that
+  exercises the thing the in-process transport does not: stdio framing, the
+  subprocess handshake, and the wire serialisation. It is the only path that
+  can honestly claim these are MCP servers rather than functions with a
+  decorator, so it is the path
+  `tests/integration/test_mcp_stdio_transport.py` drives for real.
+
+The default is `inprocess` for three recorded reasons (flipping it would change
+what the test suite exercises; a subprocess server owns its own on-disk store
+and would leak state between tests; and each spawn is an interpreter boot plus
+a handshake), not because stdio is less correct.
+
+A `RESTToolGateway` is the obvious Phase 2 addition and needs no domain change.
 
 ## 9. RAG
 
@@ -385,7 +419,10 @@ interface.
 ## 10. Observability
 
 Every model call, tool call and retrieval writes a row. Not logs — rows, queryable
-from the UI.
+from the API and the database. The dashboard renders two of the four: a run's
+tool calls (Run Detail's tool-call panel) and the documents it cited (the
+Sources panel). The model-call ledger and the audit ledger are readable through
+the API and the database, but have no screen in the UI.
 
 | Event | Recorded |
 |---|---|

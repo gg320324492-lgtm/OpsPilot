@@ -20,7 +20,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, event, select
+from sqlalchemy import Engine, Select, event, select
 from sqlalchemy import create_engine as _sa_create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -196,7 +196,7 @@ def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
             session.add(
                 AgentStep(
                     run_id=row.id,
-                    sequence=_next_step_sequence(session, row.id),
+                    sequence=next_step_sequence(session, row.id),
                     step_type="state_change",
                     output={
                         "from_status": from_status,
@@ -209,21 +209,49 @@ def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
         return len(rows)
 
 
-def _next_step_sequence(session: Session, run_id: object) -> int:
-    """Allocate the next step sequence for a run, monotonic within it.
+def next_step_sequence_statement(run_id: object) -> Select[int]:
+    """The statement that reads a run's highest step sequence, under a row lock.
 
-    The same rule ``SqlRunStore.set_status`` uses: ``MAX(sequence) + 1`` in the
-    same transaction as the insert, so two writers on one run cannot allocate
-    the same number. Duplicated rather than imported because the repository
-    layer's copy is a method on a store this module does not own, and the rule
-    is two lines.
+    ``FOR UPDATE`` is a real row lock on Postgres. SQLite has no such clause,
+    and SQLAlchemy's SQLite dialect renders it **away** rather than failing --
+    the SQLite compiler's ``for_update_clause`` returns the empty string. This
+    store runs on both (ADR-0004), so the clause has to be one the SQLite
+    dialect can drop.
+
+    The statement is a function of its argument so that a test can compile it
+    for either dialect and assert exactly that: ``FOR UPDATE`` on Postgres,
+    absent on SQLite. A test that rebuilt the statement itself would keep
+    passing if this one lost its lock.
     """
-    highest = session.execute(
+    return (
         select(AgentStep.sequence)
         .where(AgentStep.run_id == run_id)
         .order_by(AgentStep.sequence.desc())
         .limit(1)
-    ).scalar()
+        .with_for_update()
+    )
+
+
+def next_step_sequence(session: Session, run_id: object) -> int:
+    """Allocate the next step sequence for a run, monotonic within it.
+
+    The run's highest sequence, read in the same transaction as the insert and
+    under a ``FOR UPDATE`` row lock on that row -- the statement
+    ``docs/data-model.md`` §2 names.
+
+    What keeps two writers off the same number is **not** that row lock: a
+    step row is immutable, so nothing else ever contends for it. It is the
+    claim path -- ``claim_next`` takes the run row with ``FOR UPDATE SKIP
+    LOCKED``, so a run has exactly one writer -- and, behind that, the table's
+    ``UNIQUE (run_id, sequence)`` constraint, which refuses a duplicate rather
+    than letting the timeline silently reorder.
+
+    Shared by ``SqlRunStore.set_status`` (which calls it) and the
+    interrupted-run sweep below (which calls it too), rather than written out
+    twice. The two were separate copies of the same two lines, and a copy is a
+    place for the two to drift.
+    """
+    highest: int | None = session.execute(next_step_sequence_statement(run_id)).scalar()
     return (highest or 0) + 1
 
 
@@ -236,6 +264,8 @@ def run_exists(factory: sessionmaker[Session], run_id: object) -> bool:
 __all__ = [
     "create_engine",
     "mark_interrupted_runs",
+    "next_step_sequence",
+    "next_step_sequence_statement",
     "register_sqlite_pragmas",
     "run_exists",
     "session_factory",

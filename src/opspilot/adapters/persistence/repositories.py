@@ -707,17 +707,11 @@ class SqlRunStore(_SessionBound):
     def _next_sequence(self, session: Session, run_id: UUID) -> int:
         """Allocate the next step sequence for a run, monotonic within it.
 
-        ``SELECT COALESCE(MAX(sequence), 0) + 1`` in the same transaction as the
-        insert, so two writers on one run cannot allocate the same number. There
-        is only ever one writer per run because the claim takes the row first.
+        The rule and the reasoning live in one place -- ``db.next_step_sequence``
+        -- because there are two callers for it (this one and the
+        interrupted-run sweep) and a copy is a place for the two to drift.
         """
-        highest = session.execute(
-            select(models.AgentStep.sequence)
-            .where(models.AgentStep.run_id == run_id)
-            .order_by(models.AgentStep.sequence.desc())
-            .limit(1)
-        ).scalar()
-        return (highest or 0) + 1
+        return db.next_step_sequence(session, run_id)
 
     # -- reads the dashboard needs ---------------------------------------
     #
@@ -1120,7 +1114,11 @@ class SqlToolCallStore(_SessionBound):
         Gate 4's idempotency lookup (Gap A): the policy engine cannot read the
         database, so the runtime performs this read and hands the ``(found,
         result)`` tuple to the pure decision function. The partial unique index
-        makes ``(run_id, idempotency_key)`` at most one executed row.
+        makes ``idempotency_key`` at most one executed row **across the whole
+        table** -- it is not scoped to ``run_id``, so the database is stricter
+        than this lookup: a key already executed under one run cannot be
+        executed under another. ``docs/data-model.md`` §2 records the index the
+        same way.
         """
         with self._scope() as session:
             row = (
@@ -1541,9 +1539,10 @@ class SqlCitationStore(_SessionBound):
     ``knowledge_documents.id`` (``docs/data-model.md`` §2), so a citation can
     only be written after the chunk it names exists. Retrieval guarantees this:
     a hit comes from a row in ``knowledge_chunks``, which means ingestion wrote
-    it first. ``create_many`` resolves the ``chunk_id`` by the same
-    ``(document_id, ordinal)`` derivative the vector stores use, so the id it
-    writes is the id of the row retrieval read -- not a second, orphan row.
+    it first. ``create_many`` resolves the ``chunk_id`` by the
+    ``(document_id, ordinal)`` pair the vector stores derive the id from, so
+    the id it writes is the id of the row retrieval read -- not a second,
+    orphan row.
     """
 
     async def create(
@@ -1565,13 +1564,26 @@ class SqlCitationStore(_SessionBound):
     async def create_many(self, run_id: UUID, records: list[CitationRecord]) -> None:
         """Persist a run's retrieval hits as citations.
 
-        Each record's ``chunk`` is ``"{document_slug}#{anchor}"``. The document is
-        resolved by ``source`` and the chunk by ``(document_id, ordinal)`` -- the
-        ``citations`` table has no ``ordinal`` column, and the anchor is not
-        guaranteed unique, so the ordinal is recovered from the label on the way
-        in. A hit whose document or chunk row is absent is skipped rather than
-        written as a dangling reference: the foreign keys would reject it anyway,
-        and skipping keeps a partially-indexed run's citations honest.
+        Each record's ``chunk`` is ``"{document_slug}#{anchor}"``. The document
+        is resolved by ``source`` and the chunk by the record's ``ordinal`` --
+        the pair ``UNIQUE (document_id, ordinal)`` names, and the pair both
+        vector stores derive the chunk's id from -- so the ``chunk_id`` written
+        here is the id of the row retrieval actually read.
+
+        The ordinal is **not** recoverable from the label. The label is
+        ``"{slug}#{anchor}"`` and the anchor is a heading slug: a heading whose
+        body is longer than the per-chunk token ceiling is split into several
+        chunks that all carry that one anchor, so ``(document_id, anchor)`` can
+        match more than one chunk row. Resolving by anchor alone therefore
+        points the citation at whichever of those rows the query happened to
+        return first, while the ``score`` and ``rank`` stored beside it describe
+        the chunk retrieval returned. A record with no ordinal falls back to the
+        anchor, and then to the **lowest** ordinal among the matches -- a
+        deterministic answer, but not necessarily the retrieved one.
+
+        A hit whose document or chunk row is absent is skipped rather than
+        written as a dangling reference: the foreign keys would reject it
+        anyway, and skipping keeps a partially-indexed run's citations honest.
         """
         with self._scope() as session:
             for record in records:
@@ -1582,17 +1594,7 @@ class SqlCitationStore(_SessionBound):
                 ).scalar()
                 if document_id is None:
                     continue
-                anchor = _split_citation_chunk(record.chunk)
-                chunk_id = (
-                    session.execute(
-                        select(models.KnowledgeChunk.id).where(
-                            models.KnowledgeChunk.document_id == document_id,
-                            models.KnowledgeChunk.anchor == anchor,
-                        )
-                    )
-                    .scalars()
-                    .first()
-                )
+                chunk_id = self._resolve_chunk_id(session, document_id, record)
                 if chunk_id is None:
                     continue
                 session.add(
@@ -1605,6 +1607,36 @@ class SqlCitationStore(_SessionBound):
                     )
                 )
             session.flush()
+
+    @staticmethod
+    def _resolve_chunk_id(
+        session: Session, document_id: UUID, record: CitationRecord
+    ) -> UUID | None:
+        """The ``knowledge_chunks.id`` a citation record names, or ``None``.
+
+        Resolved by ``(document_id, ordinal)`` when the record carries an
+        ordinal -- the exact pair the table's uniqueness constraint is built on,
+        so it names one row and only one. Resolved by ``(document_id, anchor)``
+        otherwise, taking the lowest ordinal among the matches so the answer
+        is deterministic rather than whatever the query returned first.
+        """
+        if record.ordinal is not None:
+            return session.execute(
+                select(models.KnowledgeChunk.id).where(
+                    models.KnowledgeChunk.document_id == document_id,
+                    models.KnowledgeChunk.ordinal == record.ordinal,
+                )
+            ).scalar()
+        anchor = _split_citation_chunk(record.chunk)
+        return session.execute(
+            select(models.KnowledgeChunk.id)
+            .where(
+                models.KnowledgeChunk.document_id == document_id,
+                models.KnowledgeChunk.anchor == anchor,
+            )
+            .order_by(models.KnowledgeChunk.ordinal)
+            .limit(1)
+        ).scalar()
 
     async def list_citations(self, run_id: UUID) -> list[CitationRecord]:
         """Return a run's citations, best rank first.

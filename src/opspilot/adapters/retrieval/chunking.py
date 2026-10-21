@@ -264,9 +264,17 @@ def split_document(
 
     Every chunk carries the slug of its *nearest* heading as ``anchor`` and the
     full ancestry as ``heading_path`` (e.g. ``Refund Policy > Refund Limits``).
-    Anchors are unique within the document: repeated heading text is
-    deduplicated GitHub-style (``notes``, ``notes-1``, ``notes-2``), because a
-    duplicate anchor would make the citation ``"{slug}#{anchor}"`` ambiguous.
+    Repeated heading *text* is deduplicated GitHub-style (``notes``,
+    ``notes-1``, ``notes-2``).
+
+    An anchor is **not** unique within the document, though, and the difference
+    matters: a section whose body is longer than ``max_tokens`` is split into
+    several chunks, and every one of them carries that section's anchor. So
+    ``(document_id, anchor)`` can match more than one chunk row, while
+    ``(document_id, ordinal)`` -- the pair the table's uniqueness constraint is
+    built on -- always matches exactly one. A citation that has to be resolved
+    from the anchor alone is therefore ambiguous, which is why the retrieval
+    hit and the citation record both carry the ordinal.
 
     Content before the first heading is emitted under the preamble anchor
     (``""``), which cites the document itself -- see ``_PREAMBLE_ANCHOR``. A

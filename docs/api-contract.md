@@ -67,8 +67,10 @@ The handler inserts the ticket and the run in **one transaction** and returns
 immediately. It does not call a model and does not call the worker. The run is
 picked up by the worker's next poll — a latency of up to `WORKER_POLL_INTERVAL`
 (1s default), which is why the response says `status: "received"` and the client
-polls rather than expecting a completed workflow. Phase 1 has no websocket; the
-dashboard polls `GET /api/runs/{id}` every 2s while a run is active.
+has to ask again later rather than expecting a completed workflow. Phase 1 has
+no websocket, and the dashboard polls nothing: its Run Detail screen is a
+Server Component with no client-side timer, so an operator refreshes the page
+to see a run move.
 
 **Both rows land, or neither does.** The two inserts share one transaction
 boundary, so there is no window in which a ticket exists without its run:
@@ -206,9 +208,9 @@ The payload the dashboard's run-detail screen renders.
   ],
 
   "citations": [
-    { "document": "refund-policy.md", "chunk": "refund-policy#refund-limits",
+    { "document": "refund-policy.md", "chunk": "refund-policy.md#refund-limits",
       "score": 0.83, "rank": 1 },
-    { "document": "duplicate-charge-sop.md", "chunk": "duplicate-charge-sop#detection",
+    { "document": "duplicate-charge-sop.md", "chunk": "duplicate-charge-sop.md#detection",
       "score": 0.79, "rank": 2 }
   ],
 
@@ -234,7 +236,13 @@ The payload the dashboard's run-detail screen renders.
 Field notes:
 
 - `citations[].chunk` is `"{document_slug}#{anchor}"` — a stable string a reader
-  can grep for in `knowledge/`. The UI links it.
+  can grep for in `knowledge/`. The UI links it. The anchor is the slug of the
+  *heading* the chunk sits under, so when one heading is longer than the
+  per-chunk token ceiling and is split into several chunks, those chunks share
+  an anchor: the string names the section, not always one chunk within it. The
+  citation row itself always points at exactly one chunk — the store resolves
+  it by the chunk's ordinal, not by the anchor (`docs/data-model.md` §2). The
+  ordinal is a write-side field and is not part of this response.
 - `pending_approval` is present only when the run is parked. It is the only
   place in the API where an approver-visible payload is nested inside a run.
 - **`customer_reply` is `null` until the run reaches `COMPLETED`, and then it
@@ -400,12 +408,16 @@ Raises `404 ticket_not_found` when the ticket does not exist.
 ## 4. `GET /api/runs/{run_id}/trace`
 
 The timeline, without tool arguments or model payloads — the cheap endpoint the
-dashboard polls while a run is moving. A `steps` array of
+dashboard renders a run's progress from. A `steps` array of
 `{sequence, step_type, label, detail, latency_ms, at}` where `label` is already
 human-readable and `detail` is a short summary string. Rendering this requires no
 client-side logic beyond ordering, which is the point: the timeline is assembled
 server-side so the screenshot in the README and the dashboard show the same
 thing.
+
+The dashboard reads this endpoint server-side, once per page load, and does not
+poll it: its Run Detail screen is a Server Component with no client-side timer,
+so an operator refreshes the page to watch a run move.
 
 ## 4.1 `GET /api/runs/{run_id}/audit`
 

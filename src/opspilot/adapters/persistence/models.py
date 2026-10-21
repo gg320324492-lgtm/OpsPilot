@@ -152,7 +152,14 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    external_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    # ``Text()``, not ``String()``: the migration declares this column as
+    # ``sa.Text()`` (``0001_initial_schema.py``), and the migration is the
+    # schema's authority. ``String()`` with no length renders as
+    # ``VARCHAR``, so the two disagreed -- a ``create_all``-built SQLite
+    # database and an ``alembic upgrade``-built one had different types on
+    # this column. The other short-text columns are ``String()`` on both
+    # sides; this one is the only column where they did not agree.
+    external_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     subject: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     customer_email: Mapped[str] = mapped_column(Text, nullable=False, index=True)
@@ -374,8 +381,11 @@ class AuditEvent(Base):
     """An append-only compliance record. ``docs/data-model.md`` §2.
 
     Append-only by convention: no UPDATE or DELETE path exists in the repository
-    layer, and ``test_audit_is_append_only`` asserts the repository exposes no
-    mutating method.
+    layer, and ``tests/unit/test_audit_is_append_only.py`` guards that -- it
+    scans the whole of ``src/`` for a statement that mutates the table, it runs
+    the append and read paths against a real database and inspects the SQL that
+    reaches the driver, and it asserts the public interface offers exactly one
+    append and one read.
     """
 
     __tablename__ = "audit_events"
