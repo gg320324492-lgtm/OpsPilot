@@ -1,10 +1,16 @@
 """Bearer-token authentication dependency.
 
-Responsibility: the single FastAPI dependency that guards every route. It reads
-the ``Authorization: Bearer <token>`` header and compares it to
+Responsibility: the single FastAPI dependency that guards every route
+**except the two health probes**. It reads the
+``Authorization: Bearer <token>`` header and compares it to
 ``OPSPILOT_OPERATOR_TOKEN`` using ``secrets.compare_digest``, so the comparison
 is constant-time and the token cannot be recovered by timing a byte-at-a-time
 guess.
+
+The exemptions are ``/health`` and ``/ready``, and they are exempt on purpose:
+a liveness probe carries no credential, so requiring one would mean the probe
+reports on the credential rather than on the service. Everything that reads or
+writes the deployment's data is behind this dependency.
 
 Layer: ``api``.
 

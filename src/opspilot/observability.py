@@ -32,12 +32,15 @@ the worker image sets ``PYTHONUNBUFFERED=1`` and ``docker compose logs`` reads
 stderr. Under pytest the root logger already has handlers, so none is added and
 no record is emitted twice.
 
-**What this does not cover.** In-process ``alembic`` runs, which call
-``fileConfig`` and disable every logger it does not name -- that is
-``migrations/env.py``'s business, and the hazard is pinned by
-``tests/integration/test_failed_tool_call_visibility.py``. Setting the
-application's own logger's level directly (below) is what keeps that class of
-reconfiguration from turning the application's records off silently.
+**What this does not cover.** In-process ``alembic`` runs call ``fileConfig``,
+which by default disables every logger it does not name -- and ``alembic.ini``
+names only alembic's own. ``migrations/env.py`` passes
+``disable_existing_loggers=False`` precisely so that does not happen, and the
+test that found the hazard is
+``tests/integration/test_failed_tool_call_visibility.py``. So the hazard is
+**closed** here rather than open; what this module adds is the second line
+under it, setting the application's own logger's level directly, so that a
+reconfiguration somewhere else still cannot turn the records off silently.
 """
 
 from __future__ import annotations

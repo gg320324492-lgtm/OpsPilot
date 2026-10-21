@@ -36,10 +36,12 @@ own vocabulary, and it is not a claim about semantic retrieval.
 
 What remains true and is asserted in ``tests/unit/test_embeddings.py``: it is
 deterministic across processes, unit-norm, needs no API key, and imports no
-provider SDK. Any number quoted in the README comes from a run with a real
-provider, and the run's config is recorded with it (``docs/limitations.md`` §3).
-The ``openai`` SDK is imported inside the method, so this module imports without
-it.
+provider SDK. **Any number quoted in the README comes from a run that used
+this embedder** -- the committed results file records
+``config.embedding_provider = "local"`` -- so those retrieval rows measure
+the lexical retriever rather than a provider's, and the run's config is
+recorded with them (``docs/limitations.md`` §3). The ``openai`` SDK is
+imported inside the method, so this module imports without it.
 """
 
 from __future__ import annotations
