@@ -657,9 +657,12 @@ its meaning.
 asserted *"a fresh build re-seeds from the committed seed, so no prior refund"* —
 it was written from the implementation and it agreed with the implementation. Its
 real intent was store isolation between tests, which is a property of the
-*data directory*. That is now two tests: one asserting two directories are
-isolated, one asserting a write survives reconstruction, one asserting `reset`
-still returns to the seed. All three were needed; the original blurred them.
+*data directory*. That is now three tests —
+`test_separate_data_directories_are_isolated`,
+`test_a_write_survives_reconstruction_of_the_store` and
+`test_reset_returns_a_store_to_the_seed`, all three in
+`tests/integration/test_mcp_gateway.py`. All three were needed; the original
+blurred them.
 
 ### Known gaps carried forward
 
@@ -918,10 +921,10 @@ restored, suite re-run green).
 
 | Break applied | Test(s) that failed |
 |---|---|
-| `name="knowledge.search"` dropped from the decorator (bare function name) | `test_server_registers_the_tool_under_the_contracted_name` + 5 dispatch tests |
-| `not_configured` replaced with an empty success | `test_not_configured_is_a_refusal_with_a_code`, `test_gateway_reports_not_configured_as_ok_false` |
-| `abstained` hard-coded `False` | `test_abstention_is_a_successful_result_carrying_the_flag` |
-| retriever called with the default `top_k`, ignoring the argument | `test_gateway_dispatch_passes_query_and_top_k` |
+| `name="knowledge.search"` dropped from the decorator (bare function name) | `test_the_tool_name_is_registered_as_read_internal` + 5 dispatch tests |
+| `not_configured` replaced with an empty success | `test_not_configured_is_a_refusal_with_a_code` |
+| `abstained` hard-coded `False` | `test_abstention_is_a_success_carrying_the_flag` |
+| retriever called with the default `top_k`, ignoring the argument | `test_arguments_reach_the_retriever_with_a_bounded_top_k` |
 | `knowledge` removed from `_KNOWN_SERVERS` | 4 gateway dispatch tests |
 | `_SERVER_ALIASES` emptied (`internal` unresolved) | 4 gateway dispatch tests |
 
@@ -1156,7 +1159,7 @@ identical). Which named test caught each:
 | Inline list parsed as a scalar | `test_parse_front_matter_returns_keys_and_body` |
 | Indented (nested) line accepted | `test_parse_front_matter_rejects_nested_mapping` |
 | No-hit outcome sets `abstained=False` | `test_retrieve_abstains_when_no_hits` |
-| Threshold comparison inverted (`>`) | `test_retrieve_abstains_below_threshold`, `test_retrieve_default_min_score_is_0_35` |
+| Threshold comparison inverted (`>`) | `test_retrieve_abstains_below_threshold`, `test_retrieve_default_min_score_matches_the_configured_setting` |
 | Query embedded twice | `test_retrieve_embeds_the_query_exactly_once` |
 | Citation `chunk` string drops the anchor | `test_create_many_resolves_chunk_and_lists_back` |
 | `list_citations` ordered rank-descending | `test_list_citations_orders_by_rank` |
