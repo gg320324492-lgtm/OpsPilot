@@ -8447,8 +8447,8 @@ side, `tsc --noEmit` and `eslint` clean, `npm run check:types` reports that the
 generated client types are current with the live OpenAPI schema — which is the
 check that would have caught `decided_by` being removed from the request schema
 and `note` being added to the two response schemas without the dashboard's
-client being regenerated — and `npm run e2e` is **67 passed, 0 skipped** with
-Docker running, which is the same number CI's `web-e2e` job reports and
-includes the twenty-two Compose-backed specs that had never executed on this
-machine.
+client being regenerated — and `npm run e2e` is **76 passed, 0 skipped** with
+Docker running: the same number CI's `web-e2e` job reported, plus the nine
+specs added since, and the twenty-two Compose-backed specs that had never
+executed on this machine.
 
