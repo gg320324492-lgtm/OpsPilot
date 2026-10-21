@@ -2,9 +2,9 @@
 
 ## Why this file exists
 
-``docs/mcp-contracts.md`` §5.2 says it plainly: "Each server returns a
-structured error object with a ``code``, which the gateway maps to
-``ToolCall.error`` and ``rejection_reason``." The agent can then reason about
+``docs/mcp-contracts.md`` §5.2 says it plainly: each server returns the
+refusal code as a **top-level** ``code`` on the result, and the gateway reads
+it there and maps it to ``ToolCall.error``. The agent can then reason about
 *why* a tool failed, which is what makes the "already refunded → do not refund
 again" scenario work.
 

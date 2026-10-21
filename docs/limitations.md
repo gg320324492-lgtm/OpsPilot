@@ -1036,12 +1036,16 @@ legible):
   than two copies of the specification with each other.
 
 - **The contract promised the CRM's error codes would reach the agent, and
-  they did not.** `docs/mcp-contracts.md` §5.2: "Each server returns a
-  structured error object with a `code`, which the gateway maps to
-  `ToolCall.error` and `rejection_reason`." The gateway maps the code by
-  reading a **top-level** `code`; the `billing` and `issues` servers put it
-  there and the `crm` server nested it one level down, inside an `error`
-  object.
+  they did not.** `docs/mcp-contracts.md` §5.2 used to read "Each server
+  returns a structured error object with a `code`" -- and the `crm` server took
+  that literally, nesting the code one level down inside an `error` object.
+  The gateway maps the code by reading a **top-level** `code`; the `billing`
+  and `issues` servers put it there and the `crm` server nested it.
+
+  (The same section also used to say the code lands in `rejection_reason`. It
+  does not, and §5.2 now says so: `rejection_reason` names the *gate* that
+  refused a call, and a tool that ran and failed writes its code to
+  `ToolCall.error`.)
 
   So every CRM refusal arrived at the runtime as a **successful** call:
   `ToolCall.status='executed'`, `error=NULL`, and a `tool_executed` audit

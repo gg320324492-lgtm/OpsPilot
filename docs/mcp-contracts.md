@@ -144,13 +144,14 @@ This is the server where correctness matters. It mutates state.
 ```jsonc
 { "invoice_id": "INV-2026-384" }
 → {
+    "code": null,
     "invoice_id": "INV-2026-384",
     "customer_id": "CUS-1001",
     "issued_at": "2026-10-01T00:00:00Z",
     "due_at": "2026-10-31T00:00:00Z",
     "currency": "USD",
     "line_items": [
-      { "description": "Enterprise plan — October 2026", "amount": 129.00 }
+      { "description": "Enterprise plan -- October 2026", "amount": 129.00 }
     ],
     "total": 129.00,
     "amount_paid": 129.00,
@@ -165,6 +166,7 @@ An invoice that does not exist → `not_found`, at the top level.
 ```jsonc
 { "invoice_id": "INV-2026-384" }
 → {
+    "code": null,
     "transactions": [
       { "transaction_id": "TX-88218", "invoice_id": "INV-2026-384",
         "amount": 129.00, "currency": "USD", "status": "charged",
@@ -216,6 +218,7 @@ pre-decides the question makes the agent's reasoning untestable.
 
 // output — first call
 {
+  "code": null,
   "refund_id": "REF-10091",
   "transaction_id": "TX-88219",
   "amount": 129.00,
@@ -228,6 +231,7 @@ pre-decides the question makes the agent's reasoning untestable.
 
 // output — same key, second call: SAME refund_id, no second refund
 {
+  "code": null,
   "refund_id": "REF-10091",
   ...,
   "replayed": true                  // ← the honest flag
@@ -300,7 +304,8 @@ change if the guarantee is ever made.
 
 ```jsonc
 { "query": "duplicate billing ACME" }
-→ { "issues": [ { "key": "OPS-1001", "title": "…", "description": "…",
+→ { "code": null,
+    "issues": [ { "key": "OPS-1001", "title": "…", "description": "…",
                   "status": "open", "priority": "medium",
                   "labels": ["billing"], "created_at": "…" } ],
     "total": 1 }
@@ -327,7 +332,7 @@ error, and there is no `not_found` path (see §5.2).
 { "title": "Duplicate billing incident for ACME (INV-2026-384)",
   "description": "…", "priority": "high",
   "labels": ["billing", "duplicate-charge"] }
-→ { "key": "OPS-1002", "title": "…", "description": "…", "status": "open",
+→ { "code": null, "key": "OPS-1001", "title": "…", "description": "…", "status": "open",
     "priority": "high", "labels": ["billing", "duplicate-charge"],
     "created_at": "…" }
 ```
@@ -432,8 +437,8 @@ in the main `test` job rather than in `mcp-contract`.
 Everything in §6 runs **in-process**, which covers every contract above — the
 schemas, the structured errors, the idempotency behaviour — and skips only the
 pipe. `tests/integration/test_mcp_stdio_transport.py` covers the pipe (40 tests,
-of which the ones that actually spawn a child outnumber the pure-parser
-assertions). The three that matter most:
+split about evenly between the ones that spawn a real child process and the
+pure-parser assertions). The three that matter most:
 
 1. `crm.get_customer` is answered by a real child process, verified by checking
    that a `crm` server process actually appeared in the OS process table while
@@ -451,6 +456,19 @@ assertions). The three that matter most:
 3. A server that cannot start surfaces as a named error naming the command and
    quoting the child's own stderr, rather than as `ExceptionGroup: unhandled
    errors in a TaskGroup (1 sub-exception)`.
+
+**The first two run on Windows only, and that is a real limit rather than a
+formality.** The process-table check enumerates through `powershell` and
+`Win32_Process` (CIM), which the Linux runner does not have, so the marked
+tests **skip** there rather than fail for an environment reason -- a skipped
+test is the honest alternative to a red one for a missing platform facility.
+The main `test` job runs on `ubuntu-latest`, so **in CI the first two of the
+three do not execute**; they run on a Windows machine, and the README's
+figures table records the four-test platform delta rather than rounding it
+away. The spawn-and-reap path *is* covered on every platform, by
+`test_a_closed_gateway_refuses_to_reopen_its_process_boundary`, which does not
+enumerate processes; what the Windows-only pair adds is the evidence that the
+child was really there and really reaped.
 
 **There is no `MCP_TRANSPORT=stdio` environment variable in the test suite**, and
 none is needed. Isolation is by construction rather than by process environment:

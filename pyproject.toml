@@ -63,7 +63,16 @@ dependencies = [
   # vector column. A dependency that only the author's machine happens to have is
   # a dependency the package does not really have.
   "pgvector>=0.3",
-  "mcp>=1.2",
+  # The MCP SDK. The lower bound is **2.0**, and it is not a formality: the
+  # three servers and the gateway import ``mcp.server.mcpserver.MCPServer``,
+  # which does not exist in 1.x -- 1.x has ``mcp.server.fastmcp.FastMCP``, and
+  # the installed 2.x SDK's own ``fastmcp.py`` opens with "Removed in mcp 2".
+  # So ``mcp>=1.2`` would resolve, on a machine that pinned the old SDK, to a
+  # package that cannot be imported at all -- and the failure would look like
+  # a broken checkout rather than a constraint that was too loose. The same
+  # defect as the pgvector note above: a constraint has to say what the code
+  # actually needs, not what happens to install today.
+  "mcp>=2.0",
   "httpx>=0.28",
   "python-multipart>=0.0.20",
 ]

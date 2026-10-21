@@ -5,7 +5,10 @@ because the installed SDK is **2.x**, where the API differs from the 1.x example
 that dominate every search result and every tutorial — so the version that gets
 copied is the version that does not work.
 
-Install line: `mcp>=1.2` in `pyproject.toml` resolves to 2.3.0 today.
+Install line: `mcp>=2.0` in `pyproject.toml` resolves to 2.3.0 today, and the
+lower bound says so — the code imports `mcp.server.mcpserver.MCPServer`, which
+1.x does not have, so a constraint that allowed 1.x would allow an install
+that cannot be imported at all.
 
 ---
 
