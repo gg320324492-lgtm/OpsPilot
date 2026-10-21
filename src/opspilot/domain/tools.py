@@ -50,14 +50,31 @@ class ToolSpec(BaseModel):
     for tools such as ``billing.issue_refund``.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
     permission: Permission
     server: str
     description: str = ""
     requires_idempotency_key: bool = False
-    requires_approval: bool = False
+
+    @property
+    def requires_approval(self) -> bool:
+        """Whether this tool needs a human before it runs.
+
+        **Derived from ``permission``, and not a second switch.** It used to be
+        a field of its own, set to ``True`` on the refund -- and nothing read
+        it: gate 5 decides from ``permission is HIGH_RISK_WRITE``
+        (``agents/runtime.py``). A field that says "this needs approval" and
+        decides nothing is worse than no field, because registering a
+        ``SAFE_WRITE`` tool with it set would *look* like it needed one.
+
+        Deriving it keeps the name -- it is a useful thing to ask about a
+        tool -- while making it impossible to disagree with the permission.
+        The direction matters: a tool that is high-risk needs approval
+        whether or not anybody remembered to say so.
+        """
+        return self.permission is Permission.HIGH_RISK_WRITE
 
 
 # The Phase 1 registry. Transcribed from docs/tool-permissions.md §2 so the
@@ -88,7 +105,6 @@ TOOL_REGISTRY: Final[dict[str, ToolSpec]] = {
         server="billing",
         description="Refund a transaction. Never automatic; requires human approval.",
         requires_idempotency_key=True,
-        requires_approval=True,
     ),
     "issues.search": ToolSpec(name="issues.search", permission=Permission.READ, server="issues"),
     "issues.create": ToolSpec(

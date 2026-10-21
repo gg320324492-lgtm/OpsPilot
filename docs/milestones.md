@@ -246,7 +246,7 @@ imports with no business logic, and a published GitHub repository.
 **Acceptance criteria**
 
 - [x] `TOOL_REGISTRY` with all nine tools and their static permissions.
-      (`domain/tools.py:67`, `Final[dict[str, ToolSpec]]`, nine entries:
+      (`domain/tools.py:84`, `Final[dict[str, ToolSpec]]`, nine entries:
       `knowledge.search`, `crm.get_customer`, `crm.get_account`,
       `crm.get_subscription`, `billing.get_invoice`, `billing.list_transactions`,
       `billing.issue_refund` (HIGH_RISK_WRITE, requires_idempotency_key,
@@ -289,7 +289,7 @@ imports with no business logic, and a published GitHub repository.
       reads the audit table back from the database on the line after the gate
       returns.)
 - [x] Unknown tool name → `ToolCall` recorded as rejected, never dispatched.
-      (Gate 2 at `runtime.py:452` calls `_reject` — a persisted `rejected` row
+      (Gate 2 at `runtime.py:481` calls `_reject` — a persisted `rejected` row
       plus a `tool_rejected` audit event — and returns before the execute block.
       `test_model_cannot_invent_a_tool_name` asserts `dispatch_count == 0`.)
 - [x] `OPSPILOT_TOOL_DENYLIST` can refuse a tool and **cannot** grant one.
@@ -615,7 +615,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `web/src/lib/format.ts:154-158` ("a null here is not missing data and is not
       rendered as zero … a column that showed `0` for fourteen rows would teach
       a reader that the column measures something when it does not") and
-      `web/src/app/runs/[runId]/page.tsx:387-388` ("a `0` there would be a regression
+      `web/src/app/runs/[runId]/page.tsx:402-403` ("a `0` there would be a regression
       that this component exists to make visible"). "Every step with latency"
       therefore could not be satisfied as written; it is ticked as **work** step.
       *Tool execution.* There is no tool-execution `agent_steps` row, and that is
@@ -655,7 +655,8 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `refund-policy.md` **plus** `enterprise-billing.md`, not the expected pair,
       so it is not the evidence for this criterion; the records above are. One
       test name overstated the pair:
-      `test_retrieval_threshold.py::test_the_golden_path_cites_exactly_the_two_expected_documents`
+      the test named `test_the_golden_path_cites_exactly_the_two_expected_documents`
+      in `test_retrieval_threshold.py`
       asserted only the subset (`missing = expected - slugs`), so "exactly"
       there was inherited wording, not a checked condition. It has been renamed
       to `test_the_golden_path_retrieves_the_two_expected_documents`, and the

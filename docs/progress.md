@@ -861,7 +861,7 @@ because no test *can*: the code path is unreachable for any input.
 ### Scope (original attempt — reverted)
 
 One focused slice: make `knowledge.search` — already declared in
-`TOOL_REGISTRY` (`domain/tools.py:68`) as `permission=READ, server="internal"` —
+`TOOL_REGISTRY` (`domain/tools.py:84`) as `permission=READ, server="internal"` —
 a real, callable tool reachable through the tool gateway. Previously no server
 implemented it and no gateway could dispatch it.
 
@@ -4844,7 +4844,7 @@ edit.) One label from the suggested set is **split into two** and one is
   proposed. Both directions wrong in the same case.
 - **nothing proposed** — `proposed_tools` is `[]`.
 - **unregistered** — a proposed name absent from `TOOL_REGISTRY`
-  (`src/opspilot/domain/tools.py:67-100`). Kept as a category because gate 2
+  (`src/opspilot/domain/tools.py:84-116`). Kept as a category because gate 2
   rejects these (`runtime.py:434-444`) as a different failure from a bad choice
   among real tools.
 

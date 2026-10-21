@@ -237,7 +237,7 @@ and the existing `refund_id`, and the trace is corrected rather than duplicated.
 In Phase 1 an interrupted run is **preserved and resumed**, not failed: the
 boot sweep spares `EXECUTING` precisely so that a run whose approval a human
 already granted is not thrown away, and a restarted worker resumes it
-(`workers/loop.py::_resolve_resume` → `agents/runtime.py::_resume`). The
+(`worker/loop.py::_resolve_resume` → `agents/runtime.py::_resume`). The
 refunded call is re-driven under the *same* tool-call id, so the idempotency key
 is the same one and the server answers `replayed: true` with the original
 `refund_id`.

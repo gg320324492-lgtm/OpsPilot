@@ -33,6 +33,8 @@ What this file deliberately does **not** assert:
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -137,3 +139,31 @@ async def test_a_gateway_advertised_tool_the_registry_lacks_is_refused_at_gate_2
 
     # And no approval row: the proposal never got as far as a human.
     assert await stores.approval_store.get_for_tool_call(call.id) is None
+
+
+def test_approval_is_decided_by_the_permission_and_by_nothing_else() -> None:
+    """One source for the answer "does this need a human".
+
+    ``ToolSpec.requires_approval`` used to be a field of its own, set to
+    ``True`` on the refund, and read by **nobody**: gate 5 decides from
+    ``permission is HIGH_RISK_WRITE`` (``agents/runtime.py``). Two answers to
+    one question is one too many, and the field was the dangerous one of the
+    two -- a ``SAFE_WRITE`` tool registered with it set would have *looked*
+    approval-gated and run automatically.
+
+    It is now derived from the permission, so the two cannot disagree, and the
+    model refuses the field as an input, so "it cannot be set separately" is
+    enforced rather than merely intended. The direction of the derivation is
+    the point: a high-risk tool needs approval whether or not anybody
+    remembered to say so.
+    """
+    for name, spec in TOOL_REGISTRY.items():
+        assert spec.requires_approval is (spec.permission is Permission.HIGH_RISK_WRITE), name
+
+    with pytest.raises(ValidationError):
+        ToolSpec(
+            name="billing.issue_refund",
+            permission=Permission.SAFE_WRITE,
+            server="billing",
+            requires_approval=True,
+        )
