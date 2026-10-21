@@ -47,7 +47,7 @@ LITERAL_HEADINGS = {
 #: The heading of the record sheet, in each language.
 SHEET_HEADINGS = {
     ENGLISH: "A record sheet for the person doing it",
-    CHINESE: "给执行者的记录表（建议填写）",
+    CHINESE: "给执行者的记录表（建议填写）",  # noqa: RUF001 -- the heading is Chinese
 }
 
 #: A backticked token.

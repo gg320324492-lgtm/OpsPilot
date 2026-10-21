@@ -73,7 +73,7 @@ def _aliases() -> dict[str, str]:
     aliases: dict[str, str] = {}
     for field, info in Settings.model_fields.items():
         alias = info.alias or info.validation_alias
-        if alias:
+        if isinstance(alias, str):
             aliases[alias] = field
     return aliases
 
