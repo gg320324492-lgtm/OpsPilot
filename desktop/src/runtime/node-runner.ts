@@ -19,9 +19,18 @@
  *
  * `docker info` against a Docker Desktop that is starting can block on the
  * engine's lock instead of failing. A command that never returns is the same
- * user-visible failure as one that returns the wrong thing, so every command
- * this app runs has a deadline; on expiry it is killed and the outcome says
- * `timedOut`, which `describeOutcome` renders as its own branch.
+ * user-visible failure as one that returns the wrong thing, so the commands
+ * that are *supposed* to finish have a deadline; on expiry the process is
+ * killed and the outcome says `timedOut`, which `describeOutcome` renders as
+ * its own branch.
+ *
+ * **Two of them do not have one, on purpose.** `docker compose up` is
+ * unbounded, because the image pull that precedes it is the slow part and
+ * Compose's own `--wait-timeout` bounds only the wait for healthy containers
+ * after it; and the dashboard server is meant to run for the life of the
+ * window. Both are places where a deadline would be wrong, and both are
+ * places where a wedged process shows up as a window that never becomes
+ * ready.
  */
 
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";

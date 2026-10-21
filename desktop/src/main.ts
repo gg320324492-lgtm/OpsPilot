@@ -61,7 +61,7 @@ import { dashboardUrl, startApplication, type Application } from "./lifecycle/se
 import { resolveOperatorToken } from "./lifecycle/token";
 import type { Progress, SessionDeps, UserFacing } from "./lifecycle/types";
 import { buildDependencies, readEnvValue, resolveDashboardPort, resolveStackRoot } from "./runtime/dependencies";
-import { ensureOperatorToken, TOKEN_ENV_FILENAME } from "./runtime/operator-token";
+import { ensureOperatorToken, TOKEN_ENV_FILENAME, TOKEN_ENV_KEY } from "./runtime/operator-token";
 
 // Before `app.whenReady()`: scheme privileges are fixed at registration, and
 // registering afterwards does not retroactively apply them.
@@ -79,11 +79,21 @@ let lastFailure: UserFacing | null = null;
 /**
  * The origins this app's window may ever be on.
  *
- * Both are known before the window exists — the dashboard's port is chosen by
- * `buildDependencies` — so `restrictWebContents` is installed once, from the
- * application-level `web-contents-created` hook below. Installing it twice on
- * the same `webContents` would add a second `will-navigate` listener, and the
+ * `restrictWebContents` is installed once, from the application-level
+ * `web-contents-created` hook below. Installing it twice on the same
+ * `webContents` would add a second `will-navigate` listener, and the
  * duplication would be invisible.
+ *
+ * **The dashboard's origin is NOT known when the guard is installed.** The
+ * hook fires while `createWindow()` runs, and the dashboard's port is chosen
+ * later, inside `launch()` — so at the moment the guard is installed this
+ * list holds only the bootstrap origin. The guard is correct anyway, because
+ * it reads the origins through a **getter** at navigation time rather than
+ * through a snapshot taken at install time. That is not a stylistic choice:
+ * an array captured at install time refuses every page-initiated navigation
+ * in the running app, because the dashboard's origin is not in it. That defect
+ * shipped once, and `src/security-web-contents.ts` and
+ * `docs/limitations.md` both record it.
  */
 let allowedOrigins: string[] = [BOOTSTRAP_ORIGIN];
 
@@ -226,9 +236,9 @@ function registerIpc(): void {
  */
 function attachOperatorToken(deps: SessionDeps): boolean {
   const resolution = resolveOperatorToken({
-    fromEnvironment: process.env.OPSPILOT_OPERATOR_TOKEN,
-    fromRepositoryEnv: readEnvValue(path.join(deps.repoRoot, ".env"), "OPSPILOT_OPERATOR_TOKEN"),
-    fromWebEnvLocal: readEnvValue(path.join(deps.webDir, ".env.local"), "OPSPILOT_OPERATOR_TOKEN"),
+    fromEnvironment: process.env[TOKEN_ENV_KEY],
+    fromRepositoryEnv: readEnvValue(path.join(deps.repoRoot, ".env"), TOKEN_ENV_KEY),
+    fromWebEnvLocal: readEnvValue(path.join(deps.webDir, ".env.local"), TOKEN_ENV_KEY),
     fromAppDataEnv: app.isPackaged ? ensureOperatorToken(app.getPath("userData")) : undefined,
   });
   if (!resolution.ok) {
@@ -267,8 +277,10 @@ async function launch(): Promise<void> {
     dashboardPort: resolveDashboardPort(process.env.OPSPILOT_DESKTOP_PORT),
   });
 
-  // Known before the window opens, so the navigation allowlist is complete the
-  // first time it is installed.
+  // The dashboard's origin, learned here and read by the navigation guard
+  // through its getter. The guard was installed earlier, while this window
+  // was being created, so it is this assignment -- not the ordering of the
+  // two -- that makes the allowlist complete.
   const url = dashboardUrl(deps);
   allowedOrigins = [BOOTSTRAP_ORIGIN, originOf(url) ?? url];
 

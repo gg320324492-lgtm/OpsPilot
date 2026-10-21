@@ -84,7 +84,12 @@ export function composeDownArgs(options: { readonly removeVolumes?: boolean } = 
   return ["compose", "down", ...(options.removeVolumes === true ? ["-v"] : []), "--remove-orphans"];
 }
 
-/** `docker compose ps -a`, for the teardown's diagnostics. */
+/**
+ * `docker compose ps -a`, for the teardown's diagnostics.
+ *
+ * Kept for the teardown's use and for the specs, which build the same command
+ * to read the container states.
+ */
 export function composePsArgs(): string[] {
   return ["compose", "ps", "-a"];
 }
