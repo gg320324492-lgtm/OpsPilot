@@ -335,20 +335,6 @@ TOOL_ARGUMENT_SCHEMAS: Final[dict[str, type[BaseModel]]] = {
 }
 
 
-class UnknownToolError(ValueError):
-    """Gate 1/2: the proposed tool name is not in the static registry.
-
-    A ``ValueError`` subclass so a pump that only knows how to fail closed still
-    catches it; the runtime catches it by this name at gate 2 and records the
-    call as ``rejected`` (``reason='unknown_tool'``) rather than letting it
-    propagate as a crash.
-    """
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__(f"tool {name!r} is not registered")
-
-
 class InvalidArgumentsError(ValueError):
     """Gate 1: the arguments do not parse into the tool's Pydantic model.
 

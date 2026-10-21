@@ -126,14 +126,18 @@ def _settings_max_steps() -> int:
     return get_settings().max_steps
 
 
-# The abstention threshold used when a caller does not supply one. It used to be
-# a literal ``0.35`` here, duplicating ``settings.py``; that was a defect, because
-# the number then lived in three places -- here, ``agents/runtime.py`` and
-# ``settings.py`` -- so lowering it in one left the others stale and a caller
-# relying on the default abstained on a threshold the deployment had already
-# moved. It is now read from settings, the same reason ``domain/policies.py``
-# reads ``refund_ceiling`` there. One knob, one place.
-_DEFAULT_MIN_SCORE: float = _settings_retrieval_min_score()
+# The abstention threshold used when a caller does not supply one used to be a
+# module constant here, and that was a defect twice over. It duplicated
+# ``settings.py`` -- the number lived in three places, this one, ``agents/
+# runtime.py`` and ``settings.py`` -- so lowering it in one left the others
+# stale, and a caller relying on the default abstained on a threshold the
+# deployment had already moved. And it froze the value at *import*, which is
+# the thing the ``max_steps`` comment above explicitly refuses: a number read
+# once when the module loads cannot follow a setting an operator moves
+# afterwards. The threshold is now resolved when it is used, through
+# :func:`_settings_retrieval_min_score`, the same reason
+# ``domain/policies.py`` reads ``refund_ceiling`` there. One knob, one place,
+# read when it is needed.
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +629,11 @@ async def drain_once(
         run, tool_call_store=tool_call_store, approval_store=approval_store
     )
 
-    min_score = retrieval_min_score if retrieval_min_score is not None else _DEFAULT_MIN_SCORE
+    min_score = (
+        retrieval_min_score
+        if retrieval_min_score is not None
+        else _settings_retrieval_min_score()
+    )
 
     # The lease renewer: a background task, so the drive below is not charged for
     # it and a slow model call cannot starve the heartbeat. Started before the

@@ -16,6 +16,19 @@ number the caller happened to reach.
 This is the same shape as the M2 bare tool names and the M5 ingest probe: a
 value *copied* where it should have been *referenced*. A guard is the only thing
 that stops the fourth copy appearing, because nothing else fails when one does.
+
+## The second half of the property
+
+A value that is *referenced* can still be frozen at the wrong moment. A
+module-level constant -- even one assigned from the setting -- is resolved when
+the module is imported, so it cannot follow a setting an operator moves
+afterwards, and it is a second place a copy of the number can live.
+
+So the property this file keeps is two-sided, and it covers **three** modules
+now: ``agents/runtime.py``, ``worker/loop.py`` and
+``adapters/retrieval/search.py``. Each resolves the threshold through a helper
+that reads the settings, at the point of use; none of them holds a threshold
+constant at module level.
 """
 
 from __future__ import annotations
@@ -33,6 +46,15 @@ SRC = REPO_ROOT / "src" / "opspilot"
 # Modules that legitimately hold a *reference* to the setting. Anything outside
 # this set that mentions the threshold is a second definition.
 _ALLOWED = frozenset({"settings.py", "api/app.py"})
+
+#: The modules that resolve the threshold, and the helper each resolves it
+#: through. Every one of them must have no threshold constant of its own, and
+#: must read the setting when the threshold is needed -- not at import.
+_RESOLVERS: tuple[tuple[str, str], ...] = (
+    ("agents/runtime.py", "_settings_min_score"),
+    ("worker/loop.py", "_settings_retrieval_min_score"),
+    ("adapters/retrieval/search.py", "_default_min_score"),
+)
 
 
 def _threshold_constants() -> list[tuple[pathlib.Path, int, float]]:
@@ -71,6 +93,75 @@ def _threshold_constants() -> list[tuple[pathlib.Path, int, float]]:
     return found
 
 
+def _module_level_threshold_names(module_path: str) -> list[str]:
+    """Every module-level name in ``module_path`` that looks like the threshold.
+
+    Module level only, and that is the point: a name assigned at module scope
+    is resolved when the module is imported, so it is frozen at import and
+    cannot follow a setting an operator moves afterwards. A name assigned
+    inside a function is resolved when the function runs, and cannot go stale
+    that way.
+    """
+    source = (SRC / module_path).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=module_path)
+    found: list[str] = []
+    for node in tree.body:
+        targets: list[str] = []
+        if isinstance(node, ast.Assign):
+            targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        else:
+            continue
+        found.extend(name for name in targets if "MIN_SCORE" in name or "min_score" in name)
+    return found
+
+
+def _calls_to(module_path: str, name: str) -> list[ast.Call]:
+    """Every call to ``name`` anywhere in ``module_path``."""
+    source = (SRC / module_path).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=module_path)
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+    ]
+
+
+def _module_level_calls(module_path: str, name: str) -> list[int]:
+    """The line numbers of the calls to ``name`` made at module level.
+
+    A call at module level is a call at import time, which is what freezes a
+    value.
+    """
+    source = (SRC / module_path).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=module_path)
+    lines: list[int] = []
+    for node in tree.body:
+        # A function body runs when the function is called, not at import, so
+        # the calls inside it are not module-level calls.
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == name
+            ):
+                lines.append(child.lineno)
+    return lines
+
+
+def _function_source(module_path: str, name: str) -> str | None:
+    """The source of the function ``name``, or ``None`` if it is not there."""
+    source = (SRC / module_path).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=module_path)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
+            return ast.unparse(node)
+    return None
+
+
 def test_the_threshold_is_defined_once_in_the_source() -> None:
     """No module under ``src/`` may carry its own float for the threshold."""
     offenders = [
@@ -88,46 +179,63 @@ def test_the_threshold_is_defined_once_in_the_source() -> None:
     )
 
 
-def test_the_runtime_and_worker_defaults_follow_settings() -> None:
-    """Both runtime defaults equal the setting, not a remembered literal."""
-    from opspilot.agents.runtime import _DEFAULT_RETRIEVAL_MIN_SCORE
-    from opspilot.worker.loop import _DEFAULT_MIN_SCORE
+def test_the_setting_is_what_the_helpers_return() -> None:
+    """Every resolver returns the configured value, not a remembered one."""
+    import importlib
 
     configured = get_settings().retrieval_min_score
-    assert configured == _DEFAULT_RETRIEVAL_MIN_SCORE
-    assert configured == _DEFAULT_MIN_SCORE
+    for module_path, helper in _RESOLVERS:
+        body = _function_source(module_path, helper)
+        assert body is not None, f"{module_path} no longer defines {helper}"
+        assert "get_settings()" in body, f"{helper} must read the threshold through get_settings()"
+        assert "retrieval_min_score" in body, f"{helper} must read Settings.retrieval_min_score"
+        dotted = module_path.removesuffix(".py").replace("/", ".")
+        module = importlib.import_module(f"opspilot.{dotted}")
+        assert getattr(module, helper)() == configured, (
+            f"{helper}() does not return the configured threshold"
+        )
 
 
-@pytest.mark.parametrize(
-    ("module_path", "attribute"),
-    [
-        ("opspilot/agents/runtime.py", "_DEFAULT_RETRIEVAL_MIN_SCORE"),
-        ("opspilot/worker/loop.py", "_DEFAULT_MIN_SCORE"),
-    ],
-)
-def test_each_default_is_derived_from_settings_not_written(
-    module_path: str, attribute: str
-) -> None:
-    """The module reaches the setting rather than restating its value.
+@pytest.mark.parametrize(("module_path", "helper"), _RESOLVERS)
+def test_no_module_holds_a_threshold_constant(module_path: str, helper: str) -> None:
+    """A threshold constant at module scope is frozen at import.
 
-    Asserted structurally rather than by value: a test comparing two numbers
-    passes when both are stale in the same way, which is exactly what happened.
-    This reads the module's source and requires that the assignment to
-    ``attribute`` is a call, not a number.
+    Not even one derived from the setting: a module-level assignment is
+    resolved when the module is imported, so it cannot follow a setting an
+    operator moves afterwards, and it is a second place a copy of the number
+    can live. The module reads the setting at the point of use instead.
     """
-    source = (REPO_ROOT / "src" / module_path).read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=module_path)
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AnnAssign | ast.Assign)
-        and attribute in ast.dump(node)
-        and isinstance(node.value, ast.Call)
-    ]
-    assert calls, (
-        f"{module_path} must assign {attribute} from a call that reads "
-        f"Settings.retrieval_min_score, not from a literal"
+    offenders = _module_level_threshold_names(module_path)
+    assert not offenders, (
+        f"{module_path} defines {offenders} at module level. A threshold constant "
+        "at module scope is frozen at import, so it cannot follow a setting an "
+        "operator moves afterwards, and it is a second copy of the number to "
+        f"keep in step. Resolve the threshold where it is used instead -- {helper}()."
     )
-    assert "get_settings" in source, (
-        f"{module_path} reads the threshold without consulting settings"
+
+
+@pytest.mark.parametrize(("module_path", "helper"), _RESOLVERS)
+def test_each_module_resolves_the_threshold_when_it_is_used(module_path: str, helper: str) -> None:
+    """The threshold is read at the point of use, never at import.
+
+    Three things, and each is load-bearing:
+
+    * the helper exists and reads ``get_settings().retrieval_min_score`` -- a
+      call into the settings, not a number;
+    * it is called from inside a function -- so the value is resolved when the
+      run needs it;
+    * it is **not** called at module level -- so nothing about the threshold is
+      resolved when the module is imported.
+
+    The last one is the difference between "the threshold has one definition"
+    and "the threshold has one definition, frozen at import".
+    """
+    uses = _calls_to(module_path, helper)
+    assert uses, f"{module_path} never calls {helper}(); the threshold is never read"
+
+    at_import = _module_level_calls(module_path, helper)
+    assert not at_import, (
+        f"{module_path} calls {helper}() at module level (line(s) "
+        f"{at_import}), which resolves the threshold at import time and freezes "
+        "it. Call it where the threshold is needed instead."
     )

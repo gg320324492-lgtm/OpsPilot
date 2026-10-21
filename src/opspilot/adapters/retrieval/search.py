@@ -49,16 +49,13 @@ def _default_min_score() -> float:
     return get_settings().retrieval_min_score
 
 
-_DEFAULT_MIN_SCORE = _default_min_score()
-
-
 async def retrieve(
     query: str,
     *,
     embedder: Embedder,
     store: VectorStore,
     top_k: int = 5,
-    min_score: float = _DEFAULT_MIN_SCORE,
+    min_score: float | None = None,
 ) -> RetrievalOutcome:
     """Embed ``query`` and return the top-k hits, or abstain.
 
@@ -72,10 +69,13 @@ async def retrieve(
         embedder: Turns the query into a vector.
         store: The ``VectorStore`` holding the corpus.
         top_k: How many hits to ask the store for.
-        min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``). Defaults
-            to :data:`_DEFAULT_MIN_SCORE`, which is the same number
-            ``Settings.retrieval_min_score`` carries; the adapter cannot import
-            settings, so the equality is asserted by a test instead.
+        min_score: The abstention threshold (``RETRIEVAL_MIN_SCORE``). ``None``
+            resolves it from the settings **when the call is made** -- not
+            when this module was imported, which is what the constant this
+            replaced did. A threshold frozen at import is a threshold that
+            cannot follow a setting an operator moves; the adapter cannot
+            import settings, so the resolution is a call rather than an
+            import-time value.
 
     Returns:
         A ``RetrievalOutcome``. ``abstained`` is ``True`` when the store returns
@@ -94,8 +94,9 @@ async def retrieve(
         return RetrievalOutcome(hits=[], abstained=True, top_score=None)
 
     top_score = hits[0].score
+    threshold = min_score if min_score is not None else _default_min_score()
     return RetrievalOutcome(
         hits=hits,
-        abstained=top_score < min_score,
+        abstained=top_score < threshold,
         top_score=top_score,
     )

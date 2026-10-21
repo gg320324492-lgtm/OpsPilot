@@ -18,11 +18,23 @@ untrusted, and never from a fact about the transaction that only the model
 claims (a refund's currency is the transaction's own, not the model's to say;
 see ``format_amount``).
 
-Honest note on scope. Phase 1's rule set is small on purpose. The two rules that
-carry real weight here are the refund ceiling and the refund-exceeds-transaction
-fast fail; everything else is ledger bookkeeping. The denylist check is a
-*subtraction* mechanically (see ``_denied_by_denylist``), and the idempotency
-short-circuit reports a remembered result rather than a new decision.
+Honest note on scope. Phase 1's rule set is small on purpose, and it is worth
+being exact about which of its rules can actually refuse. **Three** of them
+can, and they are the three ``docs/tool-permissions.md`` §3 lists: the
+denylist (a removal of capability, checked first), the idempotency
+short-circuit, and the refund ceiling. The denylist is a *subtraction*
+mechanically (see ``_denied_by_denylist``) and the idempotency short-circuit
+reports a remembered result rather than a new decision -- but both of them are
+refusals, and the one that is pure bookkeeping is not a rule at all.
+
+A fourth rule lives in this module -- "cannot refund more than the
+transaction was charged for" -- and it **cannot fire on the live path**. It
+needs the charged amount, which is a row only the billing server can read, and
+``RefundArgs`` deliberately does not declare it: a model that could supply the
+number could also suppress the rule by claiming a larger charge. The check
+lives at the server, as its ``amount_exceeds_transaction``; here the rule is
+inapplicable. See ``_refund_exceeds_transaction`` and
+``docs/tool-permissions.md`` §4.
 """
 
 from __future__ import annotations

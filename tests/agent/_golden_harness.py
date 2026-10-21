@@ -190,16 +190,18 @@ class Harness:
         rather than a test.
 
         ``retrieval_min_score`` is passed explicitly from **settings**, and that
-        is deliberate. ``drain_once`` falls back to a module constant
-        ``_DEFAULT_MIN_SCORE = 0.35``, but the shipped configuration is
-        ``RETRIEVAL_MIN_SCORE = 0.22`` (``settings.py``), and the golden path's
-        top hit scores 0.3355. At 0.35 the run **abstains**: it reaches
-        ``COMPLETED`` with zero tool calls, zero citations and no refund -- the
-        customer's duplicate charge is never investigated, and the run's own
-        status looks like success. The production entry point (``worker/
-        __main__.py``) is the piece that should pass the setting through; it is
-        still a ``NotImplementedError`` stub, so the harness passes it explicitly
-        rather than inheriting a threshold no shipped query can clear.
+        is deliberate rather than redundant. It used to be that ``drain_once``
+        fell back to a module constant of ``0.35`` while the shipped
+        configuration was ``RETRIEVAL_MIN_SCORE = 0.22`` (``settings.py``), and
+        the golden path's top hit scores 0.3355 -- at 0.35 the run
+        **abstains**: it reaches ``COMPLETED`` with zero tool calls, zero
+        citations and no refund, so the customer's duplicate charge is never
+        investigated and the run's own status looks like success. The fallback
+        now reads the setting when it is used
+        (``_settings_retrieval_min_score``), so the number is the
+        deployment's either way; the harness still passes it explicitly,
+        because a test that inherits a threshold is a test whose result
+        depends on the ambient configuration.
         """
         processed: bool = await worker_loop.drain_once(
             worker_id=worker_id,
