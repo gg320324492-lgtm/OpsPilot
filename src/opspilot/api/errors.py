@@ -71,8 +71,13 @@ ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     # code generates did not declare one. An undeclared 500 is not a client
     # that handles it; it is a client whose type says the failure cannot
     # happen.
+    # The description names the *code* a client branches on, and the field the
+    # detail is in -- not the key inside that field. A name in backticks here
+    # is read by the contract's own guard as a code, so a key would be
+    # collected as one the API cannot send.
     500: _envelope(
-        "Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``)"
+        "Internal error (``internal_error``; the detail is in the log, keyed by a "
+        "trace id returned in ``details``)"
     ),
 }
 

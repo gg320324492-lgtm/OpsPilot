@@ -1203,7 +1203,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1281,7 +1281,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1363,7 +1363,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1445,7 +1445,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1521,7 +1521,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1597,7 +1597,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1677,7 +1677,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1757,7 +1757,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1835,7 +1835,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1913,7 +1913,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -1991,7 +1991,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -2070,7 +2070,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -2150,7 +2150,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -2228,7 +2228,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
             500: {
                 headers: {
                     [name: string]: unknown;

@@ -27,19 +27,19 @@
  * setting the repository already ships -- `OPSPILOT_REFUND_CEILING` and
  * `MAX_STEPS` -- not a product change.
  *
- * The one exception is the **expired** approval, which is staged by running
- * the worker's own TTL sweep -- `SqlApprovalStore.expire_pending`, the same
- * conditional `UPDATE` the worker runs -- inside the api container. The sweep
- * runs on a 60-second timer, and a browser walkthrough that waited for it
- * would spend a minute to reach a state the store can produce in a
- * millisecond. What is asserted is the *dashboard's* rendering of the 409 the
- * API then produces; the API's own refusal of a decision on an expired approval
- * is pinned in Python (`tests/integration/test_approval_expiry.py`).
+ * The **expired** approval is the one state that lives in its own file
+ * (`expired-approval.spec.ts`), because it needs a run of its own: the fake
+ * model provider answers a scenario's recorded calls in order, with a cursor
+ * per method, so it can drive exactly one golden run -- and the case above
+ * decides the approval this file's run is holding, leaving nothing pending to
+ * expire. That file stages the expiry with the worker's own TTL sweep, inside
+ * the api container, so what it asserts is the *dashboard's* rendering of the
+ * 409 the API then produces; the API's own refusal of a decision on an expired
+ * approval is pinned in Python (`tests/integration/test_approval_expiry.py`).
  *
  * | State | How the system gets there |
  * | --- | --- |
  * | A second click on a decided approval | Two tabs, both holding the same pending card; the first decides it |
-| A click on an expired approval | Two tabs holding the same pending card; the TTL sweep expires it underneath them |
  * | An approval that was already decided | The decided card, read under `?status=approved` |
  * | A run nothing claimed | The worker container stopped before the ticket was submitted |
  * | A run that failed | The same run, driven by a worker whose step budget the golden script exhausts |
@@ -97,7 +97,6 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import {
-  expireApprovalsThroughTheRepository,
   recreateWorker,
   startStackOrSkip,
   stopWorker,
@@ -110,6 +109,7 @@ import {
 // not a `fetch`.
 const SUBJECT = "We were charged twice for invoice INV-2026-384";
 const CUSTOMER_EMAIL = "billing@acme.example";
+
 
 /**
  * A refund ceiling under the golden script's one refund ($129.00).
@@ -276,78 +276,6 @@ test("a second click on a decided approval is rendered as the guard working, not
   // would take away believing the dashboard had lost the decision.
   await expect(panel).not.toContainText("The API refused this decision with 409");
   await expect(panel).not.toContainText("The decision did not go through");
-  await expect(panel).not.toContainText("Something went wrong");
-});
-
-// ---------------------------------------------------------------------------
-// The other 409: an approval nobody decided, because it timed out.
-// ---------------------------------------------------------------------------
-
-test("a click on an expired approval says nobody decided, not that somebody else did", async ({
-  page,
-  context,
-}) => {
-  skipUnlessUp();
-  const goldenRun = goldenRunId;
-  if (goldenRun === null) {
-    test.skip(true, "the golden ticket was submitted -- the setup before this file did not reach it");
-    return;
-  }
-  skipUnlessReached("the golden ticket parked on the approval gate", goldenRunId);
-
-  // Wait for the park first, the way the case above does.
-  await withWorkerDiagnosis("waiting for the run to park on the approval gate", () =>
-    expect
-      .poll(
-        async () => {
-          await page.goto(`/runs/${goldenRun}`);
-          return (await page.getByText(/Parked\. Nothing has been sent\./).count()) > 0;
-        },
-        { timeout: 90_000, intervals: [2_000] },
-      )
-      .toBe(true),
-  );
-
-  // Both tabs load the inbox while the card is still PENDING, so both hold a
-  // card with a button on it. An expired card renders **no** button -- the card
-  // is a statement, not a control -- so the only way an operator reaches this
-  // 409 is a tab that was already holding the card when it expired. That is the
-  // same shape as the already-decided case, and it is why the case is staged
-  // this way rather than by opening the expired tab.
-  await page.goto("/approvals");
-  await expect(page.getByRole("button", { name: /^Approve$/ }).first()).toBeVisible({
-    timeout: 30_000,
-  });
-  const secondTab = await context.newPage();
-  await secondTab.goto("/approvals");
-  await expect(secondTab.getByRole("button", { name: /^Approve$/ }).first()).toBeVisible({
-    timeout: 30_000,
-  });
-
-  // Now the approval times out. The staging is the worker's own TTL sweep --
-  // the same conditional UPDATE through the same store method -- rather than a
-  // hand-written imitation of it.
-  const expired = expireApprovalsThroughTheRepository();
-  expect(expired, "there was no pending approval to expire").toBeGreaterThan(0);
-
-  // The second tab, still holding the card it loaded, clicks.
-  await secondTab.getByRole("button", { name: /^Approve$/ }).first().click();
-  const panel = secondTab.locator('div[role="alert"]').filter({ hasText: "Dismiss" });
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-
-  // The point of the whole branch: it does not say somebody decided. "Already
-  // decided" would put a person in a sentence that is false -- nobody was here
-  // at all, and the run is still parked.
-  await expect(panel).toContainText("This approval expired — this click granted nothing.");
-  await expect(panel).toContainText("HTTP 409");
-  await expect(panel).toContainText("code: approval_expired");
-
-  // ...and it must not read as the other 409, which says a *person* decided.
-  await expect(panel).not.toContainText("Already decided");
-  await expect(panel).not.toContainText("was already approved by operator at");
-  // ...nor as a generic refusal, which is what an unrecognised 409 would read
-  // as (`decision-error.ts`'s `generic` branch).
-  await expect(panel).not.toContainText("The API refused this decision with 409");
   await expect(panel).not.toContainText("Something went wrong");
 });
 

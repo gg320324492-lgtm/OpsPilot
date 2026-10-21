@@ -827,7 +827,8 @@ export type DiagnosticLabel =
   | "failure-states"
   | "web-service"
   | "claim-lease"
-  | "i18n";
+  | "i18n"
+  | "expired-approval";
 
 /** The directory `label`'s capture goes in, relative to `web/`. */
 const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
@@ -1272,19 +1273,46 @@ export function claimOldestRunThroughTheRepository(options: {
  * Python (`tests/integration/test_approval_expiry.py`); what this exists for is
  * the *dashboard's* rendering of the 409 it produces.
  */
-export function expireApprovalsThroughTheRepository(): number {
+/**
+ * Expire one run's pending approvals, the way the worker's TTL sweep does.
+ *
+ * The sweep is `SqlApprovalStore.expire_pending` -- a conditional `UPDATE` of
+ * the pending rows -- so this is the same statement with the run's filter added,
+ * which is what makes it safe to call from a test that shares the stack with
+ * other cases: it cannot touch another run's approval.
+ *
+ * The count comes back so the caller can fail on "nothing was pending to
+ * expire" instead of quietly asserting about a state that never happened.
+ *
+ * The API's own refusal of a decision on an expired approval is pinned in
+ * Python (`tests/integration/test_approval_expiry.py`); what this exists for is
+ * the *dashboard's* rendering of the 409 it produces.
+ */
+export function expireApprovalsForRunThroughTheRepository(runId: string): number {
   const program = [
     "import asyncio, json",
     "from datetime import UTC, datetime",
-    "from opspilot.adapters.persistence import db",
-    "from opspilot.adapters.persistence.repositories import SqlApprovalStore",
+    "from sqlalchemy import update",
+    "from opspilot.adapters.persistence import db, models",
+    "from opspilot.domain.approvals import ApprovalStatus",
     "from opspilot.settings import get_settings",
     "async def main():",
     "    factory = db.session_factory(get_settings())",
-    "    expired = await SqlApprovalStore(factory).expire_pending(before=datetime.now(UTC))",
-    `    print(${JSON.stringify(EXPIRE_MARKER)} + json.dumps(expired))`,
+    "    with db.session_scope(factory) as session:",
+    "        result = session.execute(",
+    "            update(models.ApprovalRequest)",
+    "            .where(",
+    "                models.ApprovalRequest.run_id == RUN_ID,",
+    "                models.ApprovalRequest.status == ApprovalStatus.PENDING.value,",
+    "                models.ApprovalRequest.created_at < datetime.now(UTC),",
+    "            )",
+    "            .values(status=ApprovalStatus.EXPIRED.value)",
+    "        )",
+    "        print(MARKER + json.dumps(int(result.rowcount or 0)))",
     "asyncio.run(main())",
-  ].join("\n");
+  ].join("\n")
+    .replace("RUN_ID", JSON.stringify(runId))
+    .replace("MARKER", JSON.stringify(EXPIRE_MARKER));
 
   const out = execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", program], {
     cwd: REPO_ROOT,

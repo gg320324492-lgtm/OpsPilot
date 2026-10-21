@@ -53,12 +53,12 @@ mistaken for one.
 
 from __future__ import annotations
 
-import ast
 import json
 import pathlib
 import re
 
 from opspilot.domain.tools import TOOL_REGISTRY
+from tests._api_codes import backend_error_codes
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _API_DIR = REPO_ROOT / "src" / "opspilot" / "api"
@@ -112,55 +112,6 @@ def _object_literal(source: str, name: str) -> str:
             if depth == 0:
                 return source[opening + 1 : index]
     raise AssertionError(f"the object literal for {name} is not closed")
-
-
-def _backend_error_codes() -> set[str]:
-    """Every error code the API can send, read out of ``src/opspilot/api/``.
-
-    The three shapes are the three the codes are written in; anything else is
-    not a code and is not collected.
-    """
-    codes: set[str] = set()
-    for path in sorted(_API_DIR.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                codes.update(_codes_from_call(node))
-            elif isinstance(node, ast.FunctionDef) and node.name == "_code_for_status":
-                codes.update(_codes_returned(node))
-    return {code for code in codes if _CODE_SHAPE.match(code)}
-
-
-def _codes_from_call(node: ast.Call) -> set[str]:
-    """The codes a call can carry: ``code="..."`` or ``ApiError(status, "...")``."""
-    found: set[str] = set()
-    for keyword in node.keywords:
-        if keyword.arg == "code" and isinstance(keyword.value, ast.Constant):
-            value = keyword.value.value
-            if isinstance(value, str):
-                found.add(value)
-    function = node.func
-    if (
-        isinstance(function, ast.Name)
-        and function.id == "ApiError"
-        and len(node.args) >= 2
-        and isinstance(node.args[1], ast.Constant)
-    ):
-        value = node.args[1].value
-        if isinstance(value, str):
-            found.add(value)
-    return found
-
-
-def _codes_returned(node: ast.FunctionDef) -> set[str]:
-    """The literal codes ``_code_for_status`` can return."""
-    found: set[str] = set()
-    for child in ast.walk(node):
-        if isinstance(child, ast.Return) and isinstance(child.value, ast.Constant):
-            value = child.value.value
-            if isinstance(value, str):
-                found.add(value)
-    return found
 
 
 def _frontend_error_codes() -> set[str]:
@@ -233,7 +184,7 @@ def test_the_dashboard_knows_every_code_the_api_can_send() -> None:
     the dashboard has no branch for; a code the dashboard names and the API
     never sends is a branch that can never be taken.
     """
-    backend = _backend_error_codes()
+    backend = backend_error_codes()
     frontend = _frontend_error_codes()
 
     assert backend, "the scan found no error codes at all; the scan is broken, not the code"

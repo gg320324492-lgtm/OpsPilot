@@ -1,4 +1,4 @@
-"""The generated OpenAPI document must name the codes the API actually sends.
+"""The error vocabulary must agree: the contract, the OpenAPI document, and the API.
 
 ## Why this file exists
 
@@ -20,18 +20,27 @@ descriptions name the *code* a client branches on, never the message."*
 
 ## What this file asserts
 
-For every status in the generated document's shared ``responses`` mapping, each
-code its description names must be one the contract's §6 table maps to **that
-same status**.
+**Two directions, because the table is the authority and the API is the
+truth.**
 
-A description that names no code — a prose one, or a wildcard like
-``*_already_decided`` — is not checked, because it makes no claim a client
-could read as a branch. A description that names a code is checked against the
-table, and a mismatch is a document that would mislead a generator.
+1. **Document → table.** For every status in the generated document's shared
+   ``responses`` mapping, each code its description names must be one the
+   contract's §6 table maps to **that same status**.
+
+   A description that names no code — a prose one, or a wildcard like
+   ``*_already_decided`` — is not checked, because it makes no claim a client
+   could read as a branch. A description that names a code is checked against
+   the table, and a mismatch is a document that would mislead a generator.
+
+2. **Table → API.** Every code the §6 table lists must be a code the API can
+   actually send. A contract that promises a code the API never produces is
+   the same defect the other way round: a client that branches on it is
+   branching on a branch that cannot be taken.
 
 The table is the authority, not the code: the point is that the *published*
-document agrees with the *written* contract, so a client that reads either one
-is not told something the other denies.
+document agrees with the *written* contract, and that the written contract
+agrees with what the API does, so a client that reads any one of the three is
+not told something the other two deny.
 """
 
 from __future__ import annotations
@@ -40,6 +49,11 @@ import pathlib
 import re
 
 from opspilot.api.errors import ERROR_RESPONSES
+from tests._api_codes import backend_codes_by_status, backend_error_codes, backend_field_names
+
+#: The field names the API's models declare. A name in this set is a field,
+#: not a code, and the contract's table mentions fields beside codes.
+_FIELD_NAMES = backend_field_names()
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -68,10 +82,27 @@ def _contract_codes_by_status() -> dict[int, set[str]]:
         if match is None:
             continue
         status = int(match.group(1))
-        found = {token for token in _BACKTICKED.findall(match.group(2)) if _CODE.match(token)}
+        cell = _without_parentheses(match.group(2))
+        found = {
+            token
+            for token in _BACKTICKED.findall(cell)
+            if _CODE.match(token) and token not in _FIELD_NAMES
+        }
         if found:
             codes.setdefault(status, set()).update(found)
     return codes
+
+
+def _without_parentheses(cell: str) -> str:
+    """The cell with its parenthesised asides removed.
+
+    A row's *codes* are the backticked words outside the parentheses; inside
+    them the table names **field names** -- the 500 row says the detail is
+    "keyed by a `trace_id` returned in `details`", and those are not codes. A
+    code is a lowercase snake_case word, so `trace_id` and `details` would
+    otherwise be collected as codes the API cannot send.
+    """
+    return re.sub(r"\([^)]*\)", " ", cell)
 
 
 def test_the_contract_table_was_found() -> None:
@@ -101,9 +132,11 @@ def test_every_description_names_a_code_the_contract_maps_to_that_status() -> No
     for status, response in ERROR_RESPONSES.items():
         description = str(response.get("description", ""))
         for token in _BACKTICKED.findall(description):
-            if not _CODE.match(token):
+            if not _CODE.match(token) or token in _FIELD_NAMES:
                 # A wildcard or a prose phrase: it names no single code, so it
-                # makes no claim a generator could read as a branch.
+                # makes no claim a generator could read as a branch. A name the
+                # API's models declare is a *field* -- the 500 description names
+                # the `trace_id` the detail is keyed by, which is not a code.
                 continue
             allowed = codes.get(int(status), set())
             if token not in allowed:
@@ -133,3 +166,44 @@ def test_the_422_the_api_raises_is_the_one_the_document_names() -> None:
         "the document's 422 description names `validation_error`, which the API "
         "never sends with a 422 — it is the 400's code"
     )
+
+
+def test_every_code_the_contract_lists_is_one_the_api_can_send() -> None:
+    """The contract does not promise a code the API never produces.
+
+    The other direction of the same agreement: a §6 row naming a code the
+    API has no path to is a claim about the API that is false, and a client
+    written from it waits for a branch that cannot arrive.
+    """
+    table = _contract_codes_by_status()
+    listed = {code for codes in table.values() for code in codes}
+    producible = backend_error_codes()
+
+    unreachable = sorted(listed - producible)
+    assert not unreachable, (
+        "the contract's §6 table lists codes the API cannot send: "
+        f"{unreachable}. Either the code was renamed and the table was not, or "
+        "the table promises a branch that cannot be taken."
+    )
+
+
+def test_every_code_the_api_raises_is_in_the_contract_table() -> None:
+    """A code the API raises is a code the contract lists.
+
+    The other direction of the same agreement, and the more dangerous one: a
+    code the API sends that the contract does not mention is a failure a client
+    was never told about — the client's branch for it does not exist, so the
+    failure arrives as something the client has to guess at.
+
+    The API is the authority here, not the table: the ``ApiError(status, code)``
+    calls say, in one place, which status carries which code.
+    """
+    table = _contract_codes_by_status()
+    for status, codes in sorted(backend_codes_by_status().items()):
+        listed = table.get(status, set())
+        missing = sorted(codes - listed)
+        assert not missing, (
+            f"the API raises {missing} with a {status}, and the contract's §6 "
+            f"table does not list them for that status (it lists {sorted(listed)}). "
+            "A client written from the contract has no branch for these."
+        )
