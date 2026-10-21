@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from typing import Final
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -84,19 +85,59 @@ ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
 # The stable machine identifier -> HTTP status mapping from contract §6. The
 # codes are the contract; the numbers are how the contract is served. Keeping
 # the pair in one table means a new code cannot be added with a made-up status.
+#
+# **Every code the API can send is in here, and every code in here is one the
+# API can send.** The table used to be neither: it listed eleven codes, the
+# API sent nineteen, and nothing read the table at all -- so the promise in the
+# sentence above was kept by nothing. It is now checked against the API's own
+# source in both directions
+# (``tests/unit/test_the_error_status_table_matches_the_api.py``), and
+# :class:`ApiError` consults it on every construction, so a code and a status
+# that disagree fail loudly instead of being served.
+#
+# ``error`` is deliberately **absent**: it is the code
+# :func:`_code_for_status` hands out for a status it has no specific code for,
+# and it travels with whatever status the framework raised -- 400, 404 or 500 --
+# so there is no single status to put it against. A code that can be several
+# statuses is not a code with a status, and pretending otherwise is how this
+# table would start lying again.
 _CODE_STATUS: dict[str, int] = {
+    # 400 -- the request itself is malformed.
     "validation_error": 400,
+    # 401 -- no or wrong operator token.
+    "unauthorized": 401,
+    # 404 -- the addressed thing is not there.
+    "not_found": 404,
     "ticket_not_found": 404,
     "run_not_found": 404,
     "approval_not_found": 404,
+    # 405 -- the framework's own "that path takes another method".
+    "method_not_allowed": 405,
+    # 409 -- the state does not allow it.
     "approval_already_decided": 409,
+    "approval_expired": 409,
     "run_not_awaiting_approval": 409,
     "run_already_completed": 409,
     "ticket_exists": 409,
+    "illegal_transition": 409,
+    "approval_arguments_changed": 409,
+    "policy_denied": 409,
+    # 422 -- the body parsed but does not satisfy the schema.
     "schema_invalid": 422,
+    "unknown_tool": 422,
+    # 500 -- an unhandled bug.
     "internal_error": 500,
-    "not_ready": 503,
 }
+
+
+#: The message for a code and a status that disagree. A module-level template
+#: rather than a literal in the ``raise``, so the sentence lives in one place
+#: and the lint that objects to long messages in a raise stays quiet.
+_STATUS_MISMATCH: Final[str] = (
+    "the code {code!r} is served as {expected}, not {given}. The code-to-status "
+    "table is the contract; if one of them is wrong, the table is what has to "
+    "change, and it is checked against the API's own source."
+)
 
 
 class ApiError(HTTPException):
@@ -107,11 +148,21 @@ class ApiError(HTTPException):
     the client branches on -- and not an indistinguishable generic 404. A bare
     ``HTTPException`` is still handled (see :func:`_http_exception_handler`) but
     loses the code, which is why none of our own code raises one.
+
+    **The code and the status are checked against
+    :data:`_CODE_STATUS` here.** A router that pairs ``ticket_not_found`` with
+    a 500 is a bug the table was written to prevent, and the table only
+    prevents it if something reads it.
     """
 
     def __init__(
         self, status_code: int, code: str, message: str, details: dict[str, object] | None = None
     ) -> None:
+        expected = _CODE_STATUS.get(code)
+        if expected is not None and expected != status_code:
+            raise ValueError(
+                _STATUS_MISMATCH.format(code=code, expected=expected, given=status_code)
+            )
         self.code = code
         self.message = message
         self.details = details
@@ -151,11 +202,6 @@ def _json_error(
         status_code=status_code,
         content=error_response(code=code, message=message, details=details),
     )
-
-
-def _status_code_for(code: str, *, fallback: int) -> int:
-    """Look up the contract status for ``code``, falling back when unknown."""
-    return _CODE_STATUS.get(code, fallback)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

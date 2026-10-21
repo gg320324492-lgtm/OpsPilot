@@ -117,6 +117,37 @@ def backend_codes_by_status() -> dict[int, set[str]]:
     return by_status
 
 
+def backend_handler_codes_by_status() -> dict[int, set[str]]:
+    """Every ``(status, code)`` the exception handlers serve.
+
+    The handlers do not raise ``ApiError`` -- they build the envelope
+    directly, through ``_json_error`` -- so :func:`backend_codes_by_status`
+    does not see them. They are where the codes that are **not** a router's
+    fault live: ``unauthorized``, ``method_not_allowed``, ``not_found``,
+    ``illegal_transition``, ``approval_arguments_changed``, ``policy_denied``,
+    ``unknown_tool``, ``schema_invalid`` and ``internal_error``.
+    """
+    by_status: dict[int, set[str]] = {}
+    for path in sorted(API_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            if not (isinstance(function, ast.Name) and function.id == "_json_error"):
+                continue
+            status: object = None
+            code: object = None
+            for keyword in node.keywords:
+                if keyword.arg == "status_code" and isinstance(keyword.value, ast.Constant):
+                    status = keyword.value.value
+                if keyword.arg == "code" and isinstance(keyword.value, ast.Constant):
+                    code = keyword.value.value
+            if isinstance(status, int) and isinstance(code, str) and CODE_SHAPE.match(code):
+                by_status.setdefault(status, set()).add(code)
+    return by_status
+
+
 def backend_field_names() -> set[str]:
     """Every field name the API's models declare.
 
