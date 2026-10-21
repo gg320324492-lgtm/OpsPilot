@@ -60,6 +60,7 @@ import {
 
 /** A worker container Docker is happy with: up, never restarted. */
 const HEALTHY: WorkerContainerState = {
+  probeError: "",
   found: true,
   status: "running",
   restarting: false,
@@ -69,6 +70,7 @@ const HEALTHY: WorkerContainerState = {
 
 /** A `restart: unless-stopped` worker mid-crash-loop, as `docker inspect` reports it. */
 const CRASH_LOOPING: WorkerContainerState = {
+  probeError: "",
   found: true,
   status: "restarting",
   restarting: true,
@@ -78,6 +80,7 @@ const CRASH_LOOPING: WorkerContainerState = {
 
 /** Booted once, then died and stayed dead (`restart` not in force, or the window before it). */
 const EXITED_AFTER_BOOTING: WorkerContainerState = {
+  probeError: "",
   found: true,
   status: "exited",
   restarting: false,
@@ -87,6 +90,25 @@ const EXITED_AFTER_BOOTING: WorkerContainerState = {
 
 /** Compose reports no worker container at all -- `ps -aq worker` came back empty. */
 const ABSENT: WorkerContainerState = {
+  probeError: "",
+  found: false,
+  status: "",
+  restarting: false,
+  exitCode: 0,
+  restarts: 0,
+};
+
+/**
+ * Compose could not be asked: the daemon is down, the plugin is missing, the
+ * file will not render.
+ *
+ * A distinct shape, because it is a different question. "There is no worker
+ * container" is a fact about the worker; "compose could not answer" is a fact
+ * about Docker, and the reader has to go and look in a different place for
+ * each.
+ */
+const COMPOSE_UNREACHABLE: WorkerContainerState = {
+  probeError: "Cannot connect to the Docker daemon",
   found: false,
   status: "",
   restarting: false,
@@ -268,6 +290,16 @@ test.describe("the worker state line", () => {
     // 0 restart(s))", which reads as a real measurement rather than an absence.
     expect(describeWorkerState(ABSENT)).toBe(
       "no worker container (compose reports no worker container at all)",
+    );
+  });
+
+  test("says compose could not be asked, rather than that the worker is absent", () => {
+    // A Docker that cannot answer produces no stdout, which used to be read as
+    // "compose says there is no worker" -- so a broken engine was reported as
+    // a fact about the worker, and the reader went to look in the wrong place.
+    expect(describeWorkerState(COMPOSE_UNREACHABLE)).toBe(
+      "no worker container -- and compose could not be asked: " +
+        "Cannot connect to the Docker daemon",
     );
   });
 });

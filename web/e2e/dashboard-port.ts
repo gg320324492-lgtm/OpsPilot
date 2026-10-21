@@ -99,11 +99,27 @@ export const DASHBOARD_PORT: number = (() => {
   return DEFAULT_DASHBOARD_PORT;
 })();
 
-/** The dashboard's URL, as the browser must reach it. */
-export const DASHBOARD_URL: string =
-  process.env.E2E_BASE_URL !== undefined && process.env.E2E_BASE_URL !== ""
-    ? process.env.E2E_BASE_URL
-    : `http://localhost:${DASHBOARD_PORT}`;
+/**
+ * The dashboard's URL, as the browser must reach it.
+ *
+ * **The port is filled in when the base URL names none.** `DASHBOARD_PORT`
+ * already falls back to the default when the URL carries no port, so a URL
+ * returned as-is would send the browser to port 80 while the server binds
+ * 3100 -- the two halves of one URL disagreeing, which is the thing this
+ * module exists to prevent. Normalising here means the port the browser uses
+ * and the port the server binds are read out of the same place.
+ */
+export const DASHBOARD_URL: string = (() => {
+  const baseUrl = process.env.E2E_BASE_URL;
+  if (baseUrl === undefined || baseUrl === "") {
+    return `http://localhost:${DASHBOARD_PORT}`;
+  }
+  const parsed = new URL(baseUrl);
+  if (parsed.port !== "") {
+    return baseUrl;
+  }
+  return `${parsed.protocol}//${parsed.hostname}:${DASHBOARD_PORT}`;
+})();
 
 /**
  * The TCP port a base URL names, or `fallback` when it names none.

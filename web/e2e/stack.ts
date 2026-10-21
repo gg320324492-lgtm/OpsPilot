@@ -229,8 +229,34 @@ export const API_URL = process.env.E2E_API_URL ?? "http://localhost:8000";
  * unset, which would turn "here are the worker's logs" into an empty file and a
  * second, entirely invented mystery.
  */
+/**
+ * The compose project this harness owns.
+ *
+ * Its own, so that `docker compose down -v` here cannot reach the desktop
+ * application's volumes -- see `stackEnv`.
+ */
+const COMPOSE_PROJECT = "opspilot-e2e";
+
 function stackEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, OPSPILOT_OPERATOR_TOKEN: THROWAWAY_TOKEN, ...PROVIDER_ENV };
+  return {
+    ...process.env,
+    OPSPILOT_OPERATOR_TOKEN: THROWAWAY_TOKEN,
+    // **This stack's own compose project.** The compose file declares
+    // `name: opspilot`, which the desktop application also uses -- and the
+    // desktop app deliberately runs `compose down` *without* `-v`, so that
+    // quitting the window does not delete the operator's runs, approvals and
+    // refund ledger. This harness's teardown does use `-v`, because a
+    // walk-through wants a clean database. With one shared project name those
+    // two choices collide: the walk-through's first command would delete the
+    // desktop app's volumes, and its database and refund ledger would be
+    // gone.
+    //
+    // `COMPOSE_PROJECT_NAME` wins over the file's top-level `name` (verified
+    // against the installed compose), so every command in this file gets its
+    // own project, its own containers and its own volumes.
+    COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
+    ...PROVIDER_ENV,
+  };
 }
 
 export type StackHandle =
@@ -248,7 +274,7 @@ function dockerUnusableReason(): string | null {
   if (process.env.E2E_SKIP_DOCKER) {
     return "E2E_SKIP_DOCKER is set";
   }
-  const probe = spawnSync("docker", ["info"], { stdio: "ignore" });
+  const probe = spawnSync("docker", ["info"], { stdio: "ignore", timeout: 20_000 });
   if (probe.error || probe.status !== 0) {
     return "no reachable Docker daemon (`docker info` failed); set E2E_SKIP_DOCKER to silence";
   }
@@ -297,6 +323,7 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   spawnSync("docker", ["compose", "down", "-v", "--remove-orphans"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
+    timeout: 120000,
     env,
   });
 
@@ -309,12 +336,17 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
       "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
       "postgres", "migrate", "api", "worker",
     ],
-    { cwd: REPO_ROOT, stdio: "inherit", env },
+    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 900000 },
   );
   if (up.error || up.status !== 0) {
     // NOT a skip: Docker was reachable and the stack did not come up. A skip
     // here would be the "green run that proved nothing" ADR-0004 warns about.
-    spawnSync("docker", ["compose", "down", "-v"], { cwd: REPO_ROOT, stdio: "inherit", env });
+    spawnSync("docker", ["compose", "down", "-v"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env,
+    timeout: 120_000,
+  });
     throw new Error(
       "`docker compose up` did not bring postgres/migrate/api/worker up. Docker " +
         "was reachable, so this is a failure rather than a skip -- see the " +
@@ -350,11 +382,17 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   const build = spawnSync("npm", ["run", "build"], {
     cwd: WEB_DIR,
     stdio: "inherit",
+    timeout: 30000,
     env: webEnv,
     shell: process.platform === "win32",
   });
   if (build.error || build.status !== 0) {
-    spawnSync("docker", ["compose", "down", "-v"], { cwd: REPO_ROOT, stdio: "inherit", env });
+    spawnSync("docker", ["compose", "down", "-v"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env,
+    timeout: 120_000,
+  });
     throw new Error("`next build` failed for the dashboard (see output above).");
   }
 
@@ -388,22 +426,32 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   return {
     skip: false,
     teardown: async () => {
-      // The port first, then the containers. Ordering is not cosmetic: the
-      // dashboard is the only thing here that survives `compose down`, and
-      // releasing it before returning is what makes a second run in the same
-      // session safe.
-      await stopDashboard(child, DASHBOARD_PORT);
-      // BEFORE `down -v`, which is the whole point -- see the module docstring.
-      // After it there is nothing left to ask. Into this spec's OWN directory:
-      // `web-service.spec.ts` runs after this one, tears down the same Compose
-      // project, and used to write over these files with the output of a stack
-      // that has no worker in it.
-      writeComposeDiagnostics(env, label);
-      spawnSync("docker", ["compose", "down", "-v"], {
-        cwd: REPO_ROOT,
-        stdio: "inherit",
-        env,
-      });
+      try {
+        // The port first, then the containers. Ordering is not cosmetic: the
+        // dashboard is the only thing here that survives `compose down`, and
+        // releasing it before returning is what makes a second run in the same
+        // session safe.
+        await stopDashboard(child, DASHBOARD_PORT);
+      } finally {
+        // The evidence, and the teardown, in a `finally` -- because
+        // `stopDashboard` **throws** when the port is still answering, and that
+        // is precisely the failure this directory exists for. With the write
+        // after it, the one failure the module exists to diagnose was the one
+        // that produced no evidence at all, and the containers stayed up.
+        //
+        // BEFORE `down -v`, which is the whole point -- see the module
+        // docstring. After it there is nothing left to ask. Into this spec's
+        // OWN directory: `web-service.spec.ts` runs after this one, tears down
+        // the same Compose project, and used to write over these files with the
+        // output of a stack that has no worker in it.
+        writeComposeDiagnostics(env, label);
+        spawnSync("docker", ["compose", "down", "-v"], {
+          cwd: REPO_ROOT,
+          stdio: "inherit",
+          timeout: 120000,
+          env,
+        });
+      }
     },
   };
 }
@@ -457,6 +505,7 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
   spawnSync("docker", ["compose", "down", "-v", "--remove-orphans"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
+    timeout: 120000,
     env,
   });
 
@@ -470,10 +519,15 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
       "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
       "postgres", "migrate", "api", "web",
     ],
-    { cwd: REPO_ROOT, stdio: "inherit", env },
+    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 900000 },
   );
   if (up.error || up.status !== 0) {
-    spawnSync("docker", ["compose", "down", "-v"], { cwd: REPO_ROOT, stdio: "inherit", env });
+    spawnSync("docker", ["compose", "down", "-v"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env,
+    timeout: 120_000,
+  });
     throw new Error(
       "`docker compose up` did not bring postgres/migrate/api/web up. Docker " +
         "was reachable, so this is a failure rather than a skip -- see the " +
@@ -496,6 +550,7 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
       spawnSync("docker", ["compose", "down", "-v"], {
         cwd: REPO_ROOT,
         stdio: "inherit",
+        timeout: 120000,
         env,
       });
     },
@@ -520,6 +575,7 @@ export function probeFromWebContainer(url: string): { ok: boolean; detail: strin
   const out = execFileSync("docker", ["compose", "exec", "-T", "web", "node", "-e", program], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 60000,
     env: stackEnv(),
   });
   const line = out.trim().split("\n").pop() ?? "";
@@ -549,6 +605,7 @@ function composeOutput(args: string[], env: NodeJS.ProcessEnv): string {
   const out = spawnSync("docker", ["compose", ...args], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 30000,
     env,
   });
   const text = `${out.stdout ?? ""}${out.stderr ?? ""}`.trim();
@@ -558,6 +615,16 @@ function composeOutput(args: string[], env: NodeJS.ProcessEnv): string {
 /** What Docker says about the worker's container. Read, never asserted on directly. */
 export type WorkerContainerState = {
   readonly found: boolean;
+  /**
+   * Why compose could not be asked, when it could not.
+   *
+   * Empty when compose answered -- including when the answer was "no such
+   * container". A Docker-level failure (the daemon is down, the compose plugin
+   * is missing, the file will not render) produces **no** stdout, which used to
+   * be indistinguishable from "compose says there is no worker", so a broken
+   * engine was reported as a fact about the worker.
+   */
+  readonly probeError: string;
   readonly status: string;
   readonly restarting: boolean;
   readonly exitCode: number;
@@ -582,11 +649,23 @@ function workerContainerState(env: NodeJS.ProcessEnv): WorkerContainerState {
   const ids = spawnSync("docker", ["compose", "ps", "-aq", "worker"], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 30000,
     env,
   });
   const id = (ids.stdout ?? "").trim().split("\n").pop() ?? "";
   if (id === "") {
-    return { found: false, status: "", restarting: false, exitCode: 0, restarts: 0 };
+    // Compose said nothing. Whether it said "no such container" or failed
+    // outright is the difference between a fact about the worker and a fact
+    // about Docker, and the two need different words.
+    const stderr = (ids.stderr ?? "").trim();
+    return {
+      found: false,
+      probeError: stderr === "" ? "" : stderr,
+      status: "",
+      restarting: false,
+      exitCode: 0,
+      restarts: 0,
+    };
   }
   const fields = spawnSync(
     "docker",
@@ -596,13 +675,14 @@ function workerContainerState(env: NodeJS.ProcessEnv): WorkerContainerState {
       "{{.State.Status}}|{{.State.Restarting}}|{{.State.ExitCode}}|{{.RestartCount}}",
       id,
     ],
-    { cwd: REPO_ROOT, encoding: "utf-8", env },
+    { cwd: REPO_ROOT, encoding: "utf-8", env, timeout: 30000 },
   );
   const [status = "", restarting = "", exitCode = "0", restarts = "0"] = (fields.stdout ?? "")
     .trim()
     .split("|");
   return {
     found: true,
+    probeError: "",
     status,
     restarting: restarting === "true",
     exitCode: Number(exitCode),
@@ -626,6 +706,11 @@ function workerLogs(env: NodeJS.ProcessEnv, tail = 200): string {
  */
 export function describeWorkerState(state: WorkerContainerState): string {
   if (!state.found) {
+    if (state.probeError !== "") {
+      // Docker could not be asked. Say that, rather than saying something
+      // about the worker.
+      return `no worker container -- and compose could not be asked: ${state.probeError}`;
+    }
     return "no worker container (compose reports no worker container at all)";
   }
   return (
@@ -1111,6 +1196,7 @@ export function stopWorker(): void {
   const stopped = spawnSync("docker", ["compose", "stop", "worker"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
+    timeout: 120000,
     env: stackEnv(),
   });
   if (stopped.error || stopped.status !== 0) {
@@ -1142,6 +1228,7 @@ export async function recreateWorker(extra: Record<string, string> = {}): Promis
   const up = spawnSync("docker", ["compose", "up", "-d", "--force-recreate", "worker"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
+    timeout: 900000,
     env,
   });
   if (up.error || up.status !== 0) {
@@ -1235,6 +1322,7 @@ export function claimOldestRunThroughTheRepository(options: {
   const out = execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", program], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 60000,
     env: stackEnv(),
   });
   const line = out
@@ -1317,6 +1405,7 @@ export function expireApprovalsForRunThroughTheRepository(runId: string): number
   const out = execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", program], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 60000,
     env: stackEnv(),
   });
   const line = out
@@ -1365,7 +1454,8 @@ export function refundedTransactionIds(invoiceId: string): string[] {
     {
       cwd: REPO_ROOT,
       encoding: "utf-8",
-      env: { ...process.env, OPSPILOT_OPERATOR_TOKEN: THROWAWAY_TOKEN, ...PROVIDER_ENV },
+      timeout: 60000,
+      env: stackEnv(),
     },
   );
   const line = out.trim().split("\n").pop() ?? "[]";
