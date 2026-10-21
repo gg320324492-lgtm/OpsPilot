@@ -1396,7 +1396,7 @@ mutation to set up, which the fixture format has no way to express.
 **A layer disagreement this work could not fix, pinned instead.**
 `domain/tools.py`'s `TransactionListArgs` declares
 `billing.list_transactions(account_id, limit)`; the billing server implements
-`list_transactions(invoice_id=...)` and `docs/mcp-contracts.md` §S2 documents
+`list_transactions(invoice_id=...)` and `docs/mcp-contracts.md` §2 documents
 `invoice_id`. **No argument set satisfies both**, so gate 1 and the server cannot
 both be enforced for this tool — which means the golden path's duplicate
 detection cannot execute as shipped. The fixtures target the server (the thing
@@ -1759,7 +1759,7 @@ resumes under a restarted worker.
 
 `TOOL_ARGUMENT_SCHEMAS["billing.list_transactions"]` declared
 `TransactionListArgs(account_id, limit)`; `mcp_servers/billing/server.py` and
-`docs/mcp-contracts.md` §S2 both declare `invoice_id`. **No argument set
+`docs/mcp-contracts.md` §2 both declare `invoice_id`. **No argument set
 satisfied both sides** — gate 1 accepted `account_id` and the server returned
 `validation_error`; the server accepted `invoice_id` and gate 1 rejected it under
 `extra="forbid"`. The golden path's duplicate-detection step could not execute at
@@ -1887,7 +1887,7 @@ caller reaches.
 
 ### M6c — the milestone, and two spec decisions the review had to make
 
-`TransactionListArgs` now matches the server and `docs/mcp-contracts.md` §S2:
+`TransactionListArgs` now matches the server and `docs/mcp-contracts.md` §2:
 `(invoice_id)`. `limit` was dropped rather than kept — the server's signature is
 `list_transactions(invoice_id)` and the MCP layer ignores unknown fields, so a
 declared `limit` would promise a bound that does not exist. Two drift guards now
@@ -8527,10 +8527,65 @@ there is nothing mechanical to check them against, so they are counted and
 printed rather than checked. The coverage is visible rather than implied, which
 is the difference between a guard and a claim.
 
+## The cross-references that pointed at nothing
+
+**Date:** 2026-10-21, late. While five audits swept the code, this one swept
+the **documents' own cross-references** — the `§` references and the markdown
+links that hold the documents together.
+
+### What was broken
+
+One reference, in three places: `docs/progress.md` cites
+`` `docs/mcp-contracts.md` §S2 ``, and **that document has no §S2**. Its
+second section is `` ## 2. `billing` server ``. The "S" is a leftover from a
+numbering the contract no longer uses, so a reader following the reference
+finds nothing — three times, in the middle of an argument about an argument
+set that gate 1 and the server disagreed on.
+
+Everything else resolved: 105 link targets, 5 anchors, and 464 of the 467
+section references. The other three are prose — "§" used as "see" — and the
+guard tells them apart by shape rather than by guessing.
+
+### The guard
+
+`tests/unit/test_doc_cross_references_resolve.py` checks three things:
+
+1. every markdown link's file target exists;
+2. every markdown link's anchor is a heading in the file it points at, compared
+   against the headings' slugs the way GitHub writes them;
+3. every `§` reference **that looks like a section id** names a section some
+   document offers.
+
+The third needed one rule worth writing down: **`§` is used in these documents
+both as a section reference and as a prose "see"** ("the detail is in § The
+170 calls below"). A guard that checked the prose would be guessing. The
+discriminator is the *shape* of a section id in this repository — every one
+contains a digit or a hyphen (`2`, `3.1`, `M4`, `P2-D1`) — and prose does
+not. So a reference is checked when it carries a digit or a hyphen, and
+counted-but-not-checked when it does not.
+
+A document offers a section key when one of its headings carries one, and a
+**row** of a table whose first cell is an identifier offers that identifier
+too. A section's prefix with a row's identifier makes the composite: the
+Phase 2 plan's section "P2-A" and its acceptance row "A1" give "§P2-A1", which
+is how the milestones ledger cites the plan — and getting that right is what
+took the unresolved count from 55 to 6.
+
+Mutation-verified: pointing one reference back at the non-existent §S2 turns
+it red, naming the document and the key.
+
+### What it does not do
+
+It does not check that a reference points at the **right** section. That is a
+question of meaning, and a guard that guessed would misfire — so it checks the
+half that is mechanical: that the thing referenced exists. The coverage is
+printed rather than implied: 105 link targets, 5 anchors, 464 section
+references, 3 read as prose.
+
 ### What the tree looks like after it
 
 `ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210
-files. `pytest` — **1086 passed, 21 skipped** (1107 collected); the 21 skips are
+files. `pytest` — **1090 passed, 21 skipped** (1111 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
 sixteen of the first are now executed by CI's `verify` job, each named by node
