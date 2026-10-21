@@ -281,6 +281,27 @@ test.describe("the dashboard", () => {
     expect(asked).toEqual([`${DASHBOARD_URL}/`]);
   });
 
+  test("streams its own output to the window, the way a real child does", async () => {
+    const runner = fakeRunner();
+    const { probe } = fakeHttp({ [`${DASHBOARD_URL}/`]: 200 });
+    const events = collector();
+
+    await startDashboard(fakeDeps({ runner, http: probe }), events.emit);
+
+    // The dashboard server's own stdout is what the window shows while it
+    // waits for the server to answer -- "ready - Local: http://127.0.0.1:3210"
+    // -- and it arrives line by line as the child speaks.
+    //
+    // This path had **no** coverage at all: the fake's `start` dropped the
+    // options, so the callback the real runner streams through never fired,
+    // and the dashboard's log panel was a thing no spec could observe.
+    runner.emitOutput("ready - Local: http://127.0.0.1:3210");
+
+    const log = events.events.find((event) => event.kind === "log" && event.source === "dashboard");
+    expect(log?.note).toContain("ready - Local:");
+    expect(runner.output).toContain("ready - Local: http://127.0.0.1:3210");
+  });
+
   test("refuses a port something already holds, rather than adopting it", async () => {
     const runner = fakeRunner();
 

@@ -72,6 +72,16 @@ export interface FakeRunner extends Omit<CommandRunner, "start"> {
   readonly composeCalls: string[][];
   /** Lines the lifecycle reported through `onOutput`. */
   readonly output: string[];
+  /**
+   * Deliver a line of output to the process the lifecycle **started**.
+   *
+   * The real runner streams a long-running child's output as it arrives
+   * (`node-runner.ts`), and the dashboard's window is fed by exactly that
+   * callback -- so the streaming path had no way to be observed here: the
+   * fake's `start` dropped the options, and the dashboard's log panel was
+   * therefore untestable.
+   */
+  emitOutput(line: string): void;
   /** Start a command and hand back the handle; it stays alive until finished. */
   start(command: string, args: readonly string[], options?: RunOptions): FakeProcess;
   /** The same thing under a name that says what it is for. */
@@ -89,6 +99,9 @@ export interface FakeProcess extends StartedProcess {
 export function fakeRunner(options: FakeRunnerOptions = {}): FakeRunner {
   const commands: RecordedCommand[] = [];
   const output: string[] = [];
+  // The `onOutput` of the most recently **started** process, so a test can
+  // hand it a line the way the real child's stdout would.
+  let startedOutput: ((line: string) => void) | undefined;
 
   const resolve = (command: string, args: readonly string[], runOptions?: RunOptions): CommandOutcome => {
     const key = `${command} ${args.join(" ")}`;
@@ -103,6 +116,13 @@ export function fakeRunner(options: FakeRunnerOptions = {}): FakeRunner {
     const exited = new Promise<CommandOutcome>((resolvePromise) => {
       resolveExit = resolvePromise;
     });
+
+    // The same streaming the real runner does, and the same shape the
+    // dashboard's window depends on.
+    startedOutput = (line: string): void => {
+      output.push(line);
+      runOptions?.onOutput?.(line);
+    };
 
     const pid = 4242 + commands.length;
     let killedFlag = false;
@@ -129,6 +149,9 @@ export function fakeRunner(options: FakeRunnerOptions = {}): FakeRunner {
       return commands.filter((entry) => entry.args[0] === "compose").map((entry) => [...entry.args]);
     },
     spawnHanging: start,
+    emitOutput(line: string) {
+      startedOutput?.(line);
+    },
     run(command, args, runOptions) {
       commands.push({ command, args: [...args], ...(runOptions === undefined ? {} : { options: runOptions }) });
       const result = resolve(command, args, runOptions);
