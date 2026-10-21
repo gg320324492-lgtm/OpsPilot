@@ -194,8 +194,27 @@ One write is not checked, and it is named here rather than left implicit.
 
 `FAILED` is reachable from every non-terminal state. When entering it:
 
-- `failure_reason` is set to a short machine-stable token (`interrupted`,
-  `mcp_unavailable`, `schema_invalid`, `tool_error`, `max_steps_exceeded`), and
+- `failure_reason` is set to a short machine-stable token. The set of tokens is
+  **closed**, and it has two owners:
+
+  | Token | Owner | Written when |
+  |---|---|---|
+  | `interrupted` | the boot sweep | the worker died with the run mid-flight |
+  | `mcp_unavailable` | the runtime | the MCP server could not be reached |
+  | `schema_invalid` | the runtime | the model proposed arguments the tool's schema refused, twice |
+  | `tool_error` | the runtime | a tool failed in a way the runtime could not turn into a refusal |
+  | `max_steps_exceeded` | the runtime | the run spent its step budget |
+  | `model_unavailable` | the worker | the provider could not be reached: a refused connection, a timeout, a 5xx, a 429 |
+  | `model_rejected` | the worker | the provider answered with a 401/403 -- our key is wrong, revoked or under-privileged |
+  | `model_invalid_response` | the worker | the provider's answer did not fit the SDK's model of its API (a proxy or an SSO page answering in its place) |
+  | `model_error` | the worker | any other provider-side error, deliberately unclassified |
+
+  The last four are the **worker's** (`src/opspilot/worker/loop.py`), written
+  when a provider SDK raised. They are separate tokens because they need
+  different people to act: `model_unavailable` is a network, `model_rejected`
+  is a credential, and a dashboard that renders both as "the model failed" is
+  throwing the distinction away.
+
 - an `AuditEvent(event_type='run_failed')` is written with the detail payload.
 
 Failures that are *expected and handled* do not map to `FAILED`:
