@@ -5,8 +5,9 @@ import { foreignOriginRefusal } from "@/lib/request-origin";
 /**
  * `POST /api/tickets`, proxied from the browser to the API.
  *
- * **This is the only route handler in the dashboard, and it is the reason the
- * browser is allowed to submit anything at all.**
+ * **This is one of the dashboard's four Route Handlers** -- `tickets`,
+ * `approvals/.../[decision]`, `knowledge/reindex` and `locale` -- and the one
+ * the browser posts a new ticket to.
  *
  * The form is a Client Component, and a Client Component cannot call the API
  * directly without one of two things going wrong: it has no token (it is not
@@ -25,12 +26,14 @@ import { foreignOriginRefusal } from "@/lib/request-origin";
  * (`@/lib/request-origin`), one test file -- because three near-identical checks
  * are three things a later edit can make disagree.
  *
- * The API's CORS policy exists for the reads a browser makes directly; this
- * write goes through the same origin as the page, so it needs no CORS at all.
- * That is also why `docs/api-contract.md` §8.1's argument about a rewrite proxy
- * not being chosen does not apply to *this* route: it is an explicit
- * application route, not a transparent config-level rewrite, so a misconfigured
- * one fails loudly here rather than silently returning "no data".
+ * The API's CORS policy is not what makes the dashboard work: every read the
+ * dashboard makes happens on the server, so the browser never makes a
+ * cross-origin request at all. This write goes through the same origin as the
+ * page, so it needs no CORS either way. That is also why
+ * `docs/api-contract.md` §8.1's argument about a rewrite proxy not being chosen
+ * does not apply to *this* route: it is an explicit application route, not a
+ * transparent config-level rewrite, so a misconfigured one fails loudly here
+ * rather than silently returning "no data".
  *
  * The 201 body is passed through verbatim -- `{ticket, run}` -- so the client
  * has both ids and can link straight to the run without a second request.

@@ -26,6 +26,20 @@ import type { components } from "@/lib/api/types";
  * screens and sees the model's text styled as evidence on one of them has been
  * told two different things about the same sentence.
  *
+ * ## The tool name and the arguments come from two different places
+ *
+ * The **arguments** are on the approval itself: `arguments_snapshot` is the
+ * exact gate arguments (contract §5), and they are rendered whether or not the
+ * run's tool call could be found.
+ *
+ * The **tool name**, and the `permission` the call was gated under, come from
+ * the run's tool-call row -- the same row `RunDetailPage` looks up by
+ * `tool_call_id` and hands down as `toolCall`. **They were missing here
+ * entirely**: this card used to be rendered with no `toolCall` at all, so it
+ * showed an Approve button, an "unknown" risk badge, and no tool name and no
+ * arguments at all. On the one screen where an operator approves a refund,
+ * that is the dashboard offering a decision without the thing being decided.
+ *
  * ## Why this component resolves the locale itself
  *
  * `RunDetailPage` has a `t` already and could pass one down, but this card is
@@ -48,6 +62,12 @@ export async function ApprovalSummaryCard({
     copy,
   } = await getCopy("common", "decision", "status", "explanation", "risk", "approvalSummary");
   const risk = deriveRisk(toolCall?.permission, toolCall?.tool_name ?? null);
+  // The gate arguments, from the approval itself. The tool call's own
+  // `arguments` are the same call's arguments, and are preferred when they are
+  // on screen -- but they are not required for the arguments to be shown, and
+  // a card that showed nothing because one lookup came back empty would be the
+  // same defect this component exists to fix.
+  const arguments_ = toolCall ? toolCall.arguments : approval.arguments_snapshot;
 
   return (
     <Panel
@@ -72,13 +92,11 @@ export async function ApprovalSummaryCard({
           </span>
         </div>
 
-        {toolCall ? (
-          <ToolAndArguments
-            toolName={toolCall.tool_name}
-            arguments={toolCall.arguments}
-            t={t}
-          />
-        ) : null}
+        <ToolAndArguments
+          toolName={toolCall?.tool_name}
+          arguments={arguments_}
+          t={t}
+        />
 
         {/* The policy engine's sentence and the model's, verbatim. */}
         <TrustedExplanation text={approval.risk_explanation} t={t} />
@@ -120,6 +138,13 @@ export async function ApprovalSummaryCard({
 
 /**
  * The tool name and its full argument snapshot.
+ *
+ * **The arguments are always shown; the tool name is shown when the run's
+ * tool-call row is on screen.** The arguments come from the approval's own
+ * `arguments_snapshot` -- the exact gate arguments -- so they are there even
+ * when the tool call could not be resolved. The tool *name* is the one thing
+ * that needs the tool-call row, and a card without it says nothing about a
+ * risk level rather than guessing one.
  *
  * Both are shown because the operator is approving *this call*: the tool decides
  * what happens, and the arguments decide to what. A snapshot with one field

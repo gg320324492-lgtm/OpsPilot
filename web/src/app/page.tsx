@@ -6,8 +6,10 @@ import {
   loadKnowledge,
   loadRecentRuns,
   loadStatusCounts,
+  type RunStatus,
 } from "@/lib/data";
 import { getT } from "@/i18n/server";
+import type { TFunction } from "@/i18n/format";
 
 /**
  * The Dashboard answers one question: **is the system working right now?**
@@ -25,6 +27,21 @@ import { getT } from "@/i18n/server";
  * "total" -- which is the kind of small lie that makes a dashboard untrustworthy
  * precisely when it is needed. The API's `total` is the count of the rows that
  * match the filter, so reading it is a real count and not a page length.
+ *
+ * ## A count that could not be read is not a zero
+ *
+ * **A failed status query used to be rendered as `0`.** `loadStatusCounts`
+ * folded every failure into a zero and reported its own `error` field as
+ * `null` unconditionally, so the two facts -- "nothing is waiting" and "the API
+ * would not answer" -- were indistinguishable on screen. The Dashboard then
+ * said "0 waiting for approval" in green, which is the exact lie
+ * `components/ui.tsx` warns about: a dashboard that reports an empty system
+ * while the system is unreachable is untrustworthy precisely when it is needed.
+ *
+ * So a count that could not be read is `null` here, and it is rendered as the
+ * failure it is -- through `ErrorPanel`, the component that names a failure
+ * rather than leaving a reader to infer it from a missing number. The green
+ * "0" only ever means a real zero now.
  *
  * ## The replay notice is localised, the run ids inside it are not
  *
@@ -45,16 +62,21 @@ export default async function DashboardPage() {
     loadKnowledge(),
   ]);
 
-  const { counts } = statusCounts;
+  const { counts, errors } = statusCounts;
+  // The two counts the headline cards are about. `null` means the count could
+  // not be read -- not that it is zero.
   const needsHuman = counts.waiting_approval;
   const failed = counts.failed;
+
+  // The in-flight row is the sum of six statuses, so it is unknown when any
+  // one of them is.
+  const inFlightErrors = IN_FLIGHT_STATUSES.map((status) => errors[status]).filter(
+    (error) => error !== undefined,
+  );
   const inFlight =
-    counts.received +
-    counts.classifying +
-    counts.retrieving +
-    counts.planning +
-    counts.executing +
-    counts.responding;
+    inFlightErrors.length > 0
+      ? null
+      : IN_FLIGHT_STATUSES.reduce((total, status) => total + (counts[status] ?? 0), 0);
 
   // Only groups where the *same proposal* is on screen twice. A run holding two
   // genuinely different refunds is two proposals and needs no warning here --
@@ -73,24 +95,34 @@ export default async function DashboardPage() {
         {/* -- the two facts that change what an operator does next ---------- */}
         <div className="grid gap-4 md:grid-cols-2">
           <Headline
-            tone={needsHuman > 0 ? "warn" : "ok"}
+            tone={needsHuman === null ? "danger" : needsHuman > 0 ? "warn" : "ok"}
             label={t("dashboard.waitingLabel")}
             value={needsHuman}
             hint={
-              needsHuman > 0
-                ? t("dashboard.waitingHintSome")
-                : t("dashboard.waitingHintNone")
+              needsHuman === null
+                ? t("dashboard.couldNotCount")
+                : needsHuman > 0
+                  ? t("dashboard.waitingHintSome")
+                  : t("dashboard.waitingHintNone")
             }
             href="/approvals"
             cta={t("dashboard.waitingCta")}
+            error={errors.waiting_approval}
           />
           <Headline
-            tone={failed > 0 ? "danger" : "ok"}
+            tone={failed === null ? "danger" : failed > 0 ? "danger" : "ok"}
             label={t("dashboard.failedLabel")}
             value={failed}
-            hint={failed > 0 ? t("dashboard.failedHintSome") : t("dashboard.failedHintNone")}
+            hint={
+              failed === null
+                ? t("dashboard.couldNotCount")
+                : failed > 0
+                  ? t("dashboard.failedHintSome")
+                  : t("dashboard.failedHintNone")
+            }
             href="/runs?status=failed"
             cta={t("dashboard.failedCta")}
+            error={errors.failed}
           />
         </div>
 
@@ -124,28 +156,40 @@ export default async function DashboardPage() {
         <div className="grid gap-6 lg:grid-cols-3">
           <Panel
             title={t("dashboard.runStatusPanel")}
-            aside={inFlight > 0 ? `${inFlight} ${t("dashboard.inFlightSuffix")}` : undefined}
+            aside={
+              inFlight !== null && inFlight > 0
+                ? `${inFlight} ${t("dashboard.inFlightSuffix")}`
+                : undefined
+            }
           >
             <dl className="space-y-2 text-sm">
               <Row
                 label={t("dashboard.rowInFlight")}
                 value={inFlight}
                 hint={t("dashboard.rowInFlightHint")}
+                error={inFlightErrors[0]}
+                t={t}
               />
               <Row
                 label={t("dashboard.rowWaiting")}
                 value={counts.waiting_approval}
                 hint={t("dashboard.rowWaitingHint")}
+                error={errors.waiting_approval}
+                t={t}
               />
               <Row
                 label={t("dashboard.rowCompleted")}
                 value={counts.completed}
                 hint={t("dashboard.rowCompletedHint")}
+                error={errors.completed}
+                t={t}
               />
               <Row
                 label={t("dashboard.rowFailed")}
                 value={counts.failed}
                 hint={t("dashboard.rowFailedHint")}
+                error={errors.failed}
+                t={t}
               />
             </dl>
             <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
@@ -260,6 +304,14 @@ export default async function DashboardPage() {
  * `label`, `hint` and `cta` arrive already resolved: every sentence this
  * component shows is chosen by the page above it from a branch on a count, and
  * the branch is where the locale belongs.
+ *
+ * ## `value: null` is the count that could not be read
+ *
+ * A `null` value is not rendered as a zero and not rendered at all: it is
+ * rendered as the failure behind it, through `ErrorPanel`. **A green `0` here
+ * would be the dashboard asserting that nothing needs a human while the API
+ * would not answer**, and that is the one claim on this screen that must never
+ * be made on a failed read.
  */
 function Headline({
   tone,
@@ -268,14 +320,30 @@ function Headline({
   hint,
   href,
   cta,
+  error,
 }: {
   tone: "ok" | "warn" | "danger";
   label: string;
-  value: number;
+  value: number | null;
   hint: string;
   href: string;
   cta: string;
+  /** The failure behind a `null` value, when there is one. */
+  error?: unknown;
 }) {
+  if (value === null) {
+    return (
+      <div className="rounded-lg border border-red-300 bg-white px-5 py-4 dark:border-neutral-900 dark:border-red-800">
+        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          {label}
+        </p>
+        <p className="mt-1 text-sm text-red-700 dark:text-red-300">{hint}</p>
+        <div className="mt-2">
+          <ErrorPanel error={error} />
+        </div>
+      </div>
+    );
+  }
   const ring =
     tone === "danger"
       ? "border-red-300 dark:border-red-800"
@@ -302,7 +370,39 @@ function Headline({
   );
 }
 
-function Row({ label, value, hint }: { label: string; value: number; hint: string }) {
+/**
+ * One row of the Run status panel.
+ *
+ * `value: null` renders the failure instead of a number, for the reason the
+ * `Headline` above gives: a zero here would be a claim about the state of the
+ * system that the API never made.
+ */
+function Row({
+  label,
+  value,
+  hint,
+  error,
+  t,
+}: {
+  label: string;
+  value: number | null;
+  hint: string;
+  error?: unknown;
+  t: TFunction;
+}) {
+  if (value === null) {
+    return (
+      <div className="border-b border-neutral-100 pb-2 last:border-0 dark:border-neutral-800">
+        <dt className="font-medium">{label}</dt>
+        <dd className="mt-0.5">
+          <p className="text-xs text-red-700 dark:text-red-300">{t("dashboard.couldNotCount")}</p>
+          <div className="mt-1">
+            <ErrorPanel error={error} />
+          </div>
+        </dd>
+      </div>
+    );
+  }
   return (
     <div className="flex items-start justify-between gap-4 border-b border-neutral-100 pb-2 last:border-0 dark:border-neutral-800">
       <div>
@@ -313,3 +413,19 @@ function Row({ label, value, hint }: { label: string; value: number; hint: strin
     </div>
   );
 }
+
+/**
+ * The statuses that make up the "in flight" row.
+ *
+ * The same six the Dashboard's own hint sentence names: a run that is claimed
+ * by the worker and moving. `waiting_approval` is deliberately not one of them
+ * -- a parked run is not moving, and it has a row of its own.
+ */
+const IN_FLIGHT_STATUSES: RunStatus[] = [
+  "received",
+  "classifying",
+  "retrieving",
+  "planning",
+  "executing",
+  "responding",
+];

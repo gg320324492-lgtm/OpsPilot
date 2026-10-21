@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { EmptyState, ErrorPanel, Page, Panel, Time } from "@/components/ui";
 import { formatTimestamp } from "@/lib/format";
-import { loadTickets } from "@/lib/data";
+import { isNotFound, loadTicketList, loadTickets } from "@/lib/data";
 import { getCopy } from "@/i18n/server";
 import { TicketForm } from "./ticket-form";
 
@@ -25,12 +25,32 @@ import { TicketForm } from "./ticket-form";
  * back to them would be a data-corruption bug wearing a localisation feature's
  * clothes. The screen's own copy is the headings, the empty state, and the
  * `runs` link label.
+ *
+ * ## `?ticket=` -- the filter the links on other screens actually mean
+ *
+ * A run's ticket id is a link, and it links here. **A link that points at a
+ * filter the screen does not apply is a promise the code does not keep**, and
+ * this one was pointed at by two screens: the Runs table and the Run Detail
+ * page. So the query parameter is honoured -- `GET /api/tickets/{id}` is read
+ * and that one ticket is what the list shows.
+ *
+ * It shows one ticket rather than a filtered list because that is what the
+ * link is for: the operator clicked a ticket id and wants *that* ticket, not a
+ * list to re-scan. The row is the same row the unfiltered list draws, so
+ * there is one rendering of a ticket rather than two.
  */
-export default async function TicketsPage() {
-  const [tickets, { t, locale, copy }] = await Promise.all([
-    loadTickets(),
+export default async function TicketsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ticket?: string }>;
+}) {
+  const [{ ticket }, { t, locale, copy }] = await Promise.all([
+    searchParams,
     getCopy("common", "ticketForm"),
   ]);
+  const ticketId = typeof ticket === "string" && ticket.length > 0 ? ticket : undefined;
+  const tickets = ticketId ? await loadTicketList(ticketId) : await loadTickets();
+  const noSuchTicket = ticketId !== undefined && isNotFound(tickets.error);
 
   return (
     <Page title={t("tickets.title")} description={t("tickets.description")}>
@@ -38,9 +58,29 @@ export default async function TicketsPage() {
         <div className="lg:col-span-3">
           <Panel
             title={t("tickets.title")}
-            aside={tickets.data ? `${tickets.data.total} ${t("tickets.totalSuffix")}` : undefined}
+            aside={
+              tickets.data
+                ? ticketId
+                  ? t("tickets.filteredToTicket", { id: ticketId.slice(0, 8) })
+                  : `${tickets.data.total} ${t("tickets.totalSuffix")}`
+                : undefined
+            }
           >
-            {tickets.error ? (
+            {noSuchTicket ? (
+              /* A ticket this deployment does not have has its own branch,
+                 rather than falling into the generic error panel: "there is no
+                 such ticket" and "the API is down" are different problems, and
+                 an empty list would say neither. */
+              <div className="space-y-4">
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  <p className="font-medium">{t("tickets.notFoundTitle")}</p>
+                  <p className="mt-1">{t("tickets.notFoundBody", { id: ticketId.slice(0, 8) })}</p>
+                </div>
+                <Link href="/tickets" className="text-sm underline underline-offset-2">
+                  {t("tickets.backToTickets")}
+                </Link>
+              </div>
+            ) : tickets.error ? (
               <ErrorPanel error={tickets.error} title={t("tickets.couldNotLoad")} />
             ) : tickets.data && tickets.data.items.length > 0 ? (
               <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">

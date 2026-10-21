@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { EmptyState, ErrorPanel, Page, Panel, StatusBadge, Time } from "@/components/ui";
 import { formatTimestamp } from "@/lib/format";
-import { loadRuns } from "@/lib/data";
+import { isNotFound, loadRuns, loadRunsByTicket, type RunSummary } from "@/lib/data";
 import { runStatusLabel } from "@/i18n/enums";
 import { getT } from "@/i18n/server";
 import type { TFunction } from "@/i18n/format";
 
 /**
- * The Runs list, filterable by status through `GET /api/runs?status=`.
+ * The Runs list, filterable by status through `GET /api/runs?status=`, and by
+ * ticket through `?ticket=`.
  *
  * The filter is a **server** filter, in the query string, not a client-side
  * filter over a fetched page. That is the contract's shape (§1) and it matters
@@ -17,6 +18,20 @@ import type { TFunction } from "@/i18n/format";
  * rather than a `<select onChange>` because the filtered view has to be a URL --
  * an operator needs to paste "the failed runs" into a colleague's chat and have
  * it mean the same thing.
+ *
+ * ## The ticket filter is one the API does not have
+ *
+ * `GET /api/runs` filters by status and by nothing else (contract §1), so
+ * `?ticket=` is applied by reading the list and keeping the rows whose
+ * `ticket_id` matches -- every page of it, so the filter cannot drop the
+ * ticket's oldest run. `lib/data.ts` says what that costs.
+ *
+ * **The two filters compose, and the ticket one is the narrower.** A status
+ * filter is applied by the API and narrows the set before the ticket filter
+ * sees it; a ticket filter narrows it further. The Tickets screen links here
+ * with `?ticket=` alone, and the Run Detail screen links to the *ticket*, not
+ * to a run list, so a run's ticket id and a ticket's runs are two different
+ * links on purpose.
  *
  * ## The filter labels are labels; the filter values are identifiers
  *
@@ -29,13 +44,23 @@ import type { TFunction } from "@/i18n/format";
 export default async function RunsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; ticket?: string }>;
 }) {
   // Async `searchParams` is required from Next.js 16: synchronous access was
   // removed with the rest of the request APIs.
-  const [{ status }, t] = await Promise.all([searchParams, getT()]);
+  const [{ status, ticket }, t] = await Promise.all([searchParams, getT()]);
   const valid = isRunStatus(status) ? status : undefined;
-  const runs = await loadRuns(valid ? { status: valid } : {});
+  // An empty `?ticket=` is not a filter; it is a link with nothing in it, and
+  // it is dropped rather than forwarded, the way an unknown status is. A
+  // *wrong* id is forwarded, and the API's answer to it is what the screen
+  // shows -- see `lib/data.ts`.
+  const ticketId = typeof ticket === "string" && ticket.length > 0 ? ticket : undefined;
+
+  const runs = ticketId
+    ? await loadRunsByTicket(ticketId, valid ? { status: valid } : {})
+    : await loadRuns(valid ? { status: valid } : {});
+  const rows: RunSummary[] = runs.data ?? [];
+  const noSuchTicket = ticketId !== undefined && isNotFound(runs.error);
 
   return (
     <Page
@@ -47,15 +72,31 @@ export default async function RunsPage({
         title={t("runs.panelTitle")}
         aside={
           runs.data
-            ? `${runs.data.items.length} ${t("runs.shownSuffix")}${
+            ? `${rows.length} ${t("runs.shownSuffix")}${
                 valid ? ` ${t("runs.filteredTo", { status: runStatusLabel(valid, t) })}` : ""
+              }${
+                ticketId ? ` ${t("runs.filteredToTicket", { id: ticketId.slice(0, 8) })}` : ""
               }`
             : undefined
         }
       >
-        {runs.error ? (
+        {noSuchTicket ? (
+          /* A ticket this deployment does not have has its own branch, rather
+             than falling into the generic error panel: "there is no such
+             ticket" and "the API is down" are different problems, and an empty
+             table would say neither. */
+          <div className="space-y-4">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">{t("runs.notFoundTitle")}</p>
+              <p className="mt-1">{t("runs.notFoundBody", { id: ticketId.slice(0, 8) })}</p>
+            </div>
+            <Link href="/runs" className="text-sm underline underline-offset-2">
+              {t("runs.backToRuns")}
+            </Link>
+          </div>
+        ) : runs.error ? (
           <ErrorPanel error={runs.error} title={t("runs.couldNotLoad")} />
-        ) : runs.data && runs.data.items.length > 0 ? (
+        ) : rows.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -71,7 +112,7 @@ export default async function RunsPage({
                 </tr>
               </thead>
               <tbody>
-                {runs.data.items.map((run) => (
+                {rows.map((run) => (
                   <tr
                     key={run.id}
                     className="border-b border-neutral-100 align-top last:border-0 dark:border-neutral-800"
@@ -123,14 +164,14 @@ export default async function RunsPage({
         ) : (
           <EmptyState
             title={
-              valid
-                ? t("runs.emptyFilteredTitle", { status: runStatusLabel(valid, t) })
-                : t("runs.emptyUnfilteredTitle")
+              ticketId
+                ? t("runs.emptyTicketTitle")
+                : valid
+                  ? t("runs.emptyFilteredTitle", { status: runStatusLabel(valid, t) })
+                  : t("runs.emptyUnfilteredTitle")
             }
             hint={
-              valid
-                ? t("runs.emptyFilteredHint")
-                : t("runs.emptyUnfilteredHint")
+              ticketId || valid ? t("runs.emptyFilteredHint") : t("runs.emptyUnfilteredHint")
             }
           />
         )}
@@ -167,10 +208,16 @@ function isRunStatus(value: string | undefined): value is (typeof RUN_STATUSES)[
 /**
  * The filter control.
  *
- * The three groups are the three questions an operator actually asks: *what is
- * moving*, *what is stuck on me*, *what broke*. Grouping by urgency rather than
- * alphabetically is the same argument the Dashboard makes -- the order is the
- * answer to "what should I look at".
+ * **Two groups of statuses, three visual segments.** The segment boundaries are
+ * the `|` separators: "All", then the seven statuses a run is parked in or
+ * moving through, then the two it ends in.
+ *
+ * The order inside the first group puts `waiting_approval` first -- the one
+ * status an operator is waiting on -- and the second group puts `failed`
+ * before `completed`, because a broken run is the one worth reading and a
+ * finished one is not. Grouping by urgency rather than alphabetically is the
+ * same argument the Dashboard makes: the order is the answer to "what should I
+ * look at".
  *
  * The `href`s carry the raw enum and the labels carry the locale, which is the
  * split this screen's docstring describes.

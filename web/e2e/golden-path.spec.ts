@@ -31,7 +31,11 @@
  *
  *   3. **Follow the run to its trace screen** -- the Run Detail page, whose
  *      Timeline panel renders `GET /api/runs/{id}/trace` server-ordered -- and
- *      wait for it to park on the approval gate.
+ *      wait for it to park on the approval gate. While it is parked, the
+ *      approver card on that screen is read: the tool, the arguments the gate
+ *      would run with, and the permission the call was gated under. The
+ *      Tickets screen's link to this ticket's runs is followed too, because it
+ *      says it filters and the list has to be the ticket's runs.
  *
  *   4. **Approve the parked refund by clicking "Approve"** on the Approvals
  *      screen. Approval does not execute the refund in the request; it releases
@@ -225,6 +229,47 @@ test("the golden path is walkable in a browser start to finish", async ({ page }
   // panel's field LABEL is also the literal word "Completed" (a `<dt>`) and
   // matching it would assert the wrong thing.
   await expect(page.locator("span").filter({ hasText: /^Completed$/ })).toHaveCount(0);
+
+  // -- 3a. The approver card on THIS screen says what it is approving -----
+  //
+  // It used to say nothing: an "Approve" button, a risk badge that read
+  // "unknown", and no tool name and no arguments at all -- on the one screen
+  // where an operator decides whether money moves. The card now resolves the
+  // run's tool call by `tool_call_id`, so the tool, the arguments the gate
+  // would run with, and the permission the call was gated under are on it.
+  //
+  // Scoped to the card, because the tool name and the transaction id are also
+  // on the Tool calls panel further down the same page: an unscoped locator
+  // would pass on the wrong element and prove nothing.
+  const approverCard = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Awaiting approval" }) });
+  await expect(approverCard).toBeVisible();
+  await expect(approverCard.getByText("billing.issue_refund", { exact: true })).toBeVisible();
+  // The arguments, whole -- the snapshot the gate was given.
+  await expect(approverCard.locator("pre")).toContainText(REFUNDED_TRANSACTION);
+  // The risk level, and -- the part that matters -- where it came from. The
+  // provenance sentence distinguishes the tool call's own `permission` field
+  // from the fallback that derives a level out of the tool's name, so this
+  // asserts that the tool call was actually resolved rather than guessed at.
+  await expect(approverCard.getByText("High risk write", { exact: true }).first()).toBeVisible();
+  await expect(approverCard.getByText(/From the tool call's permission field/)).toBeVisible();
+
+  // -- 3b. The ticket's "runs" link filters, because it says it filters ---
+  //
+  // The Tickets screen links to `/runs?ticket=...` and the comment in the
+  // specs that submit a ticket calls it a filter. It used to be a link to
+  // every run there is, because nothing read the parameter. It is a filter
+  // now: the list is the ticket's runs, and the aside says which ticket.
+  await page.goto("/tickets");
+  const ticketRunsLink = page.locator('a[href^="/runs?ticket="]').first();
+  await expect(ticketRunsLink).toBeVisible();
+  await ticketRunsLink.click();
+  await expect(page).toHaveURL(/\/runs\?ticket=/);
+  await expect(page.getByText(/filtered to ticket/)).toBeVisible();
+  // The run that ticket owns is on the filtered list -- and only it.
+  await expect(page.locator(`a[href="/runs/${runId}"]`)).toBeVisible();
+  await expect(page.locator('table a[href^="/runs/"]')).toHaveCount(1);
 
   // -- 4. Approve the parked refund, by clicking the control ---------------
   await page.goto("/approvals");

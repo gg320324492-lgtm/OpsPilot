@@ -83,8 +83,10 @@ export function Panel({
  * is a label while an error `code` is not.
  *
  * `t` is a prop rather than a `getT()` call because this component renders on
- * four screens and every one of them already resolved the locale; taking it as
- * a prop keeps the badge synchronous and the locale read at one place per page.
+ * three screens -- the Dashboard's recent-runs table, the Runs list, and Run
+ * Detail (where it appears twice) -- and every one of them already resolved
+ * the locale; taking it as a prop keeps the badge synchronous and the locale
+ * read at one place per page.
  */
 export function StatusBadge({ status, t }: { status: string; t: TFunction }) {
   return (

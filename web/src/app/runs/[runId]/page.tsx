@@ -10,6 +10,7 @@ import {
 } from "@/components/ui";
 import { formatClock, formatLatency, formatTimestamp, humanise } from "@/lib/format";
 import {
+  isNotFound,
   loadRunDetail,
   type Citation,
   type ClaimLease,
@@ -97,6 +98,20 @@ export default async function RunDetailPage({
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
   const failedCalls = detail.failed_tool_calls ?? [];
+  // The tool call the parked approval is about, matched by `tool_call_id`.
+  //
+  // **The approver card needs it, and it is already on this page.** The run
+  // detail carries the run's `tool_calls[]` (contract §3), each with the tool
+  // name and the `permission` the call was gated under -- and the approval
+  // names the call it is about. So the lookup is a `.find` over rows this page
+  // has already read: no second request, and no card that renders without the
+  // tool it is asking an operator to approve.
+  //
+  // It can still come back empty -- a run whose tool-call rows the deployment
+  // did not return -- and the card says so rather than inventing a risk level.
+  const pendingCall = pending
+    ? toolCalls.find((call) => call.id === pending.tool_call_id)
+    : undefined;
   // The claim lease, resolved once here. An absent field means the API predates
   // it (`docs/api-contract.md` §3), and the honest reading of "this deployment
   // does not tell me" is still "nothing has claimed it" -- which is what the
@@ -195,7 +210,7 @@ export default async function RunDetailPage({
           </div>
 
           <div className="space-y-6">
-            {pending ? <ApprovalSummaryCard approval={pending} /> : null}
+            {pending ? <ApprovalSummaryCard approval={pending} toolCall={pendingCall} /> : null}
             <Citations citations={citations} t={t} />
             <CustomerReply reply={detail.customer_reply} status={detail.status} t={t} />
           </div>
@@ -616,13 +631,4 @@ function toolStatusTone(status: string): "neutral" | "warn" | "danger" | "ok" {
   if (status === "failed" || status === "rejected") return "danger";
   if (status === "awaiting_approval") return "warn";
   return "neutral";
-}
-
-function isNotFound(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { status: number }).status === 404
-  );
 }

@@ -30,12 +30,13 @@
  *
  * So the token stays on the server. Every request below is made from a React
  * **Server Component** or a **Route Handler** -- never from the browser -- which
- * is what lets the browser bundle never contain it. The cost is that a route
- * Handler proxy (or a server action) is the only way to reach the API; the
- * screens that need to poll use one. `docs/api-contract.md` §8 already notes
- * that CORS is a browser policy and the bearer token is the only authorisation;
- * keeping the token server-side means the CORS question does not even arise for
- * authenticated reads.
+ * is what lets the browser bundle never contain it. The cost is that the
+ * browser can only reach the API through a route Handler proxy (or a server
+ * action); every read below is made on the server instead, which is also why
+ * the dashboard has no cross-origin request and no client-side polling.
+ * `docs/api-contract.md` §8 already notes that CORS is a browser policy and the
+ * bearer token is the only authorisation; keeping the token server-side means
+ * the CORS question does not even arise for authenticated reads.
  *
  * If a future phase needs the token in the browser, the change is one function
  * (`getOperatorToken`) and one env var name -- but it should be a deliberate
@@ -327,9 +328,10 @@ export async function apiFetch<T>(
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     headers,
-    // The dashboard polls a run while it moves, and a cached `/api/runs/{id}`
-    // would make the timeline look frozen. Reads are therefore uncached by
-    // default; a caller that wants the platform cache passes it explicitly.
+    // The dashboard re-reads a run on every page load, and a cached
+    // `/api/runs/{id}` would make the timeline look frozen between reloads.
+    // Reads are therefore uncached by default; a caller that wants the platform
+    // cache passes it explicitly.
     cache: init.cache ?? "no-store",
   });
 
@@ -361,9 +363,16 @@ async function readBody(response: Response): Promise<unknown> {
 }
 
 // -- Endpoints ---------------------------------------------------------------
-// Thin bindings, one per contract §1 endpoint. Each returns the generated type
-// for its own `response_model`, so a backend field rename becomes a TypeScript
-// error at every call site rather than an `undefined` at runtime.
+// Thin bindings, one per endpoint the dashboard reads or writes. Each returns
+// the generated type for its own `response_model`, so a backend field rename
+// becomes a TypeScript error at every call site rather than an `undefined` at
+// runtime.
+//
+// Contract §1 lists sixteen endpoints; these are the thirteen the dashboard
+// actually uses. The three it does not bind are `GET /api/runs/{run_id}/audit`,
+// `GET /health` and `GET /ready`: the audit ledger has no screen in the UI,
+// and the two health endpoints are reached by `checkApiReachability` above --
+// which fetches `/health` directly -- rather than through this table.
 
 export const api = {
   /** `POST /api/tickets` -- the only write that starts work (contract §2). */
@@ -390,9 +399,9 @@ export const api = {
    *
    * Note the asymmetry with `createTicket`, which is not a typo here: ticket
    * creation returns the `{ticket, run}` envelope because the client needs both
-   * ids to begin polling, while a re-run already has the ticket id and returns a
-   * bare `RunRef`. Both shapes are confirmed against the running schema, so the
-   * two bindings return different types on purpose.
+   * ids to follow the run, while a re-run already has the ticket id and returns
+   * a bare `RunRef`. Both shapes are confirmed against the running schema, so
+   * the two bindings return different types on purpose.
    */
   createRun: (body: components["schemas"]["RunCreateRequest"]) =>
     apiFetch<components["schemas"]["RunRef"]>("/api/runs", {
@@ -411,7 +420,8 @@ export const api = {
     ),
 
   /**
-   * `GET /api/runs/{run_id}/trace` -- the cheap timeline the dashboard polls.
+   * `GET /api/runs/{run_id}/trace` -- the cheap timeline the dashboard renders
+   * a run's progress from.
    *
    * Rendered in the order the server sent it: the handler sorts by `sequence`
    * and assembles `label`/`detail` server-side, so re-sorting or re-deriving

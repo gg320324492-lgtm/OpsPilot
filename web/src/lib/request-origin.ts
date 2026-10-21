@@ -3,14 +3,19 @@
  *
  * ## The gap this closes
  *
- * Every Route Handler under `web/src/app/api/` holds the operator token
- * (`OPSPILOT_OPERATOR_TOKEN`) in the server environment and calls the API with
- * it on the browser's behalf. That is the right design and it is deliberate --
- * `lib/api/client.ts` explains why a `NEXT_PUBLIC_`-prefixed token must never
- * exist, and a refund-capable credential in a JavaScript bundle is not a
- * trade-off worth making. The token staying server-side is *also* what makes
- * these routes dangerous: the handler attaches the credential to any request
- * that reaches it, so the only question left is **who** is asking.
+ * Every **privileged** Route Handler under `web/src/app/api/` holds the operator
+ * token (`OPSPILOT_OPERATOR_TOKEN`) in the server environment and calls the API
+ * with it on the browser's behalf. That is the right design and it is
+ * deliberate -- `lib/api/client.ts` explains why a `NEXT_PUBLIC_`-prefixed token
+ * must never exist, and a refund-capable credential in a JavaScript bundle is
+ * not a trade-off worth making. The token staying server-side is *also* what
+ * makes these routes dangerous: the handler attaches the credential to any
+ * request that reaches it, so the only question left is **who** is asking.
+ *
+ * "Privileged" is not decoration: there are four Route Handlers under
+ * `web/src/app/api/`, and the fourth -- `locale` -- consumes no credential and
+ * calls no API, so this check has nothing to say about it. The three this
+ * module guards are the ones that spend the token.
  *
  * Until this module existed, nothing answered that question. A request to
  * `POST /api/approvals/{id}/approve` was checked for a valid `decision` value

@@ -13,7 +13,7 @@
  * ## WHY `t` TAKES THE DICTIONARY RATHER THAN FINDING IT
  *
  * A `t` that reached for a global would be unusable in the four `"use client"`
- * components (`decision-actions`, `decision-panel`, `reindex-button`,
+ * components (`decision-actions`, `locale-switcher`, `reindex-button`,
  * `ticket-form`): they cannot read a cookie, and importing the English
  * catalogue to do it would ship every string in the dashboard to the browser.
  * So the server resolves the locale and hands each Client Component the slice
@@ -206,12 +206,13 @@ export function createT(messages: Messages, locale: string): TFunction {
 /**
  * A `t` over a *slice* of the English catalogue, for a Client Component.
  *
- * The four `"use client"` components in this app cannot read the locale cookie
- * and must not import a catalogue: `import en from ".../en.json"` inside one
- * would put every string in the dashboard into the browser bundle for the sake
- * of the ten that component renders. So a Server Component passes the sections
- * it needs down as `copy`, this builds the `t`, and the bundle carries only what
- * is rendered there.
+ * The four `"use client"` components in this app -- `decision-actions`,
+ * `locale-switcher`, `reindex-button` and `ticket-form` -- cannot read the
+ * locale cookie and must not import a catalogue: `import en from ".../en.json"`
+ * inside one would put every string in the dashboard into the browser bundle
+ * for the sake of the ten that component renders. So a Server Component passes
+ * the sections it needs down as `copy`, this builds the `t`, and the bundle
+ * carries only what is rendered there.
  *
  * The `K` keeps the two ends honest -- a component names the sections it needs
  * and TypeScript checks the names against the catalogue -- while the cast to

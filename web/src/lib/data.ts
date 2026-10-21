@@ -26,6 +26,7 @@ export type Trace = components["schemas"]["TraceResponse"];
 export type ApprovalList = components["schemas"]["ApprovalListResponse"];
 export type Approval = components["schemas"]["ApprovalSummary"];
 export type TicketList = components["schemas"]["TicketListResponse"];
+export type TicketDetail = components["schemas"]["TicketDetailResponse"];
 export type KnowledgeList = components["schemas"]["KnowledgeListResponse"];
 export type RunSummary = components["schemas"]["RunSummary"];
 export type Citation = components["schemas"]["CitationDetail"];
@@ -76,13 +77,114 @@ export function apiStatus() {
   return checkApiReachability();
 }
 
-/** `GET /api/runs`, optionally filtered. Returns newest first, as the API does. */
+/**
+ * `GET /api/runs`, optionally filtered by status. Returns newest first, as the API does.
+ *
+ * The rows are the list's `items`, not the list envelope: the Runs screen
+ * renders one row per run, and a `total` it does not show is not worth
+ * carrying across the layer.
+ */
 export function loadRuns(params: { status?: string } = {}) {
-  return load<RunList>(async () => {
+  return load<RunSummary[]>(async () => {
     const { status, ...rest } = params;
-    return api.listRuns(status ? { ...rest, status } : rest);
+    const list = await api.listRuns(status ? { ...rest, status } : rest);
+    return list.items;
   });
 }
+
+/**
+ * The runs of one ticket, for `/runs?ticket=`.
+ *
+ * **The API has no ticket filter.** Contract §1 gives `GET /api/runs` a status
+ * and nothing else, so the runs of a ticket are found by reading the list and
+ * keeping the rows whose `ticket_id` matches -- and by reading *all* of it,
+ * because the list is paginated (contract §10) and a filter that quietly drops
+ * the ticket's oldest run is not a filter. `total` is the count of the whole
+ * matching set, so the pages are read until that many rows have been seen.
+ *
+ * The cost is one request per 200 runs in the deployment, which is a fair
+ * price for a screen that shows every run of one ticket and says so. It is
+ * worth stating plainly because the alternative -- filtering the first page
+ * only -- is cheaper and wrong.
+ *
+ * `GET /api/tickets/{id}` is read first, for one reason: it is what tells
+ * *no such ticket* apart from *a ticket with no runs*. Without it, a filter
+ * for a ticket this deployment does not have renders as an empty list, which
+ * reads as "this ticket has done nothing" rather than "this ticket does not
+ * exist".
+ */
+export async function loadRunsByTicket(
+  ticketId: string,
+  params: { status?: string } = {},
+): Promise<Loaded<RunSummary[]>> {
+  const ticket = await load<TicketDetail>(async () => {
+    try {
+      return await api.getTicket(ticketId);
+    } catch (error) {
+      throw ticketIdError(ticketId, error);
+    }
+  });
+  if (!ticket.data) {
+    // The ticket itself could not be read: a 404 for a ticket this deployment
+    // does not have, or a failure the operator needs to see. Either way the
+    // screen must not fall back to showing every run as though the filter had
+    // matched something.
+    return { data: null, error: ticket.error };
+  }
+  const rows = await load<RunSummary[]>(() => listEveryRun(params.status));
+  if (!rows.data) {
+    return { data: null, error: rows.error };
+  }
+  const mine = rows.data.filter((row) => row.ticket_id === ticketId);
+  return { data: params.status ? mine.filter((row) => row.status === params.status) : mine, error: null };
+}
+
+/**
+ * Every run the API has, read page by page.
+ *
+ * `GET /api/runs` returns a page and a `total` (contract §10); the `total` is
+ * the count of the whole matching set, so the pages are read until that many
+ * rows have arrived. Reading the first page and stopping would be a filter
+ * that drops rows, and the drops would be invisible.
+ *
+ * `limit: 200` is the API's own maximum (contract §10), so one request per
+ * 200 runs is the fewest this can be done in.
+ */
+async function listEveryRun(status?: string): Promise<RunSummary[]> {
+  const rows: RunSummary[] = [];
+  let offset = 0;
+  let total: number | null = null;
+  while (total === null || rows.length < total) {
+    const page = await api.listRuns({
+      limit: 200,
+      offset,
+      ...(status ? { status } : {}),
+    });
+    rows.push(...page.items);
+    total = page.total;
+    // A page that comes back empty ends the walk: the API said there were
+    // `total` rows and then ran out, and looping on that would never finish.
+    if (page.items.length === 0) {
+      break;
+    }
+    offset += page.items.length;
+  }
+  return rows;
+}
+
+/**
+ * The Dashboard's per-status counts, and the failures behind the missing ones.
+ *
+ * `counts[status]` is `null` where the count could not be read. It is
+ * deliberately not `0`: a status the API could not answer for is not a status
+ * with nothing in it, and the Dashboard's first screen exists to say whether
+ * something needs a human.
+ */
+export type StatusCounts = {
+  counts: Record<RunStatus, number | null>;
+  /** The failure behind each `null` count. */
+  errors: Partial<Record<RunStatus, unknown>>;
+};
 
 /**
  * `GET /api/runs?status=` counts, for the Dashboard.
@@ -99,11 +201,23 @@ export function loadRuns(params: { status?: string } = {}) {
  * that `total` was the count; it was not, it was the page length, so a
  * deployment with more than 200 parked runs reported 200. Asking for one row
  * and reading a real count is both smaller and correct.
+ *
+ * ## A count that could not be read is not a count of zero
+ *
+ * **A failed query used to be folded into a zero.** Every status was read
+ * through `load`, which catches the failure, and the row was then reported as
+ * `0` -- and the function's own `error` field was returned as `null`
+ * unconditionally, so nothing downstream could tell a real zero from a failed
+ * read. The Dashboard's first screen then said "0 waiting for approval" in
+ * green while the API was unreachable, which is the exact failure
+ * `components/ui.tsx` names: an empty list and a console error read as "no
+ * tickets yet", and a dashboard that says so is untrustworthy precisely when
+ * it is needed.
+ *
+ * So a status whose query failed is reported as `null` with its failure
+ * attached, and the screen renders that failure instead of a number.
  */
-export async function loadStatusCounts(): Promise<{
-  counts: Record<RunStatus, number>;
-  error: unknown;
-}> {
+export async function loadStatusCounts(): Promise<StatusCounts> {
   const statuses: RunStatus[] = [
     "waiting_approval",
     "executing",
@@ -118,11 +232,37 @@ export async function loadStatusCounts(): Promise<{
   const results = await Promise.all(
     statuses.map(async (status) => {
       const loaded = await load<RunList>(() => api.listRuns({ status, limit: 1 }));
-      return [status, loaded.data ? loaded.data.total : 0] as const;
+      return { status, loaded };
     }),
   );
-  const counts = Object.fromEntries(results) as Record<RunStatus, number>;
-  return { counts, error: null };
+  const counts = {} as Record<RunStatus, number | null>;
+  const errors: Partial<Record<RunStatus, unknown>> = {};
+  for (const { status, loaded } of results) {
+    if (loaded.data) {
+      counts[status] = loaded.data.total;
+    } else {
+      counts[status] = null;
+      errors[status] = loaded.error;
+    }
+  }
+  return { counts, errors };
+}
+
+/**
+ * Whether a failed read was a 404 -- a resource this deployment does not have.
+ *
+ * Duck-typed rather than an `instanceof ApiError` check, so a failure that
+ * never reached the API is not mistaken for one that did: only a `status` of
+ * 404 means "it is not there", and everything else is a different problem with
+ * a different instruction.
+ */
+export function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status: number }).status === 404
+  );
 }
 
 /** `GET /api/runs/{id}` plus `GET /api/runs/{id}/trace`, fetched together. */
@@ -250,6 +390,53 @@ function canonicalJson(value: unknown): string {
 /** `GET /api/tickets`, newest first. */
 export function loadTickets() {
   return load<TicketList>(async () => api.listTickets({ limit: 200 }));
+}
+
+/**
+ * One ticket, as a one-row list, for `/tickets?ticket=`.
+ *
+ * `GET /api/tickets/{id}` is the endpoint that answers "this ticket", so the
+ * filter reads it rather than paging the list and keeping the matching row:
+ * the read is one request, and it cannot miss a ticket that the list's own
+ * page does not reach.
+ *
+ * The shape is a list of one on purpose -- the screen that renders it draws
+ * the same row either way, and a filtered view that drew a *different* row
+ * would be a second rendering of the same thing.
+ */
+export async function loadTicketList(ticketId: string): Promise<Loaded<TicketList>> {
+  const ticket = await load<TicketDetail>(async () => {
+    try {
+      return await api.getTicket(ticketId);
+    } catch (error) {
+      throw ticketIdError(ticketId, error);
+    }
+  });
+  if (!ticket.data) {
+    // A 404 for a ticket this deployment does not have, or a failure the
+    // operator needs to see. Either way the screen must not fall back to the
+    // whole list, which would read as "the filter matched everything".
+    return { data: null, error: ticket.error };
+  }
+  return { data: { items: [ticket.data.ticket], total: 1 }, error: null };
+}
+
+/**
+ * A ticket id the API rejected, said in words rather than as a validation dump.
+ *
+ * FastAPI answers 422 for an unparseable UUID in a path, and a path parameter
+ * is not covered by the contract's error envelope -- so the raw answer is a
+ * validation dump, not a sentence. `loadRunDetail` already says this in words
+ * for a run id; the two ticket filters say it for a ticket id, in the same
+ * place and for the same reason.
+ */
+function ticketIdError(ticketId: string, error: unknown): unknown {
+  if (error instanceof ApiError && error.status === 422) {
+    return new Error(
+      `"${ticketId}" is not a ticket id. A ticket id is the UUID from GET /api/tickets, or the last path segment of a /tickets/... URL.`,
+    );
+  }
+  return error;
 }
 
 /** `GET /api/knowledge` -- the indexed documents and their chunk counts. */

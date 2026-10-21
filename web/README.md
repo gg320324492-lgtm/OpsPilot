@@ -5,10 +5,17 @@ The operator-facing dashboard. Next.js 16 (App Router) + TypeScript + Tailwind 4
 It never *writes* to the API on `:8000` from the browser. Writes go through
 Next.js Route Handlers under `src/app/api/` — `tickets`, `approvals/.../[decision]`,
 `knowledge/reindex` — which read `OPSPILOT_OPERATOR_TOKEN` from the server
-environment and call the API themselves. The token is deliberately absent from
-the client bundle: a token in browser JavaScript is a refund-capable credential
-published to anyone who can fetch the bundle. Reads go direct, and the API's CORS
-policy (`docs/api-contract.md` §8.1) is what makes those work.
+environment and call the API themselves. (`locale` is a fourth Route Handler
+under the same directory, and it is not privileged: it reads no credential and
+calls no API.) The token is deliberately absent from the client bundle: a token
+in browser JavaScript is a refund-capable credential published to anyone who can
+fetch the bundle.
+
+**Reads go the same way.** Every read is made from the server, by
+`src/lib/api/client.ts`, so the browser only ever fetches this app's own
+same-origin `/api/...` routes. No dashboard read is cross-origin, so the API's
+CORS policy (`docs/api-contract.md` §8.1) is not what makes the dashboard work
+— the token staying server-side is.
 
 ## Running it
 
@@ -45,8 +52,7 @@ credential.
 | File | What it is |
 |---|---|
 | `types.ts` | **Generated.** Do not edit. |
-| `client.ts` | Hand-written: bearer token, error envelope, one binding per endpoint. |
-| `error-envelope.ts` | The single hand-written type, and why it is an exception. |
+| `client.ts` | Hand-written: bearer token, error envelope, one binding per endpoint the dashboard uses. |
 
 ### Types are generated, not transcribed
 
@@ -83,13 +89,13 @@ constructing the app in-process.
 ### The drift guard
 
 Generation alone is a one-time act; the copy starts drifting the day it is
-written. Three checks keep it honest, all in
+written. Two checks keep it honest, both in
 `tests/integration/test_web_client_types.py`:
 
 1. the committed `types.ts` still matches the live schema (`npm run check:types`);
-2. the hand-written error envelope still matches `schemas.ErrorBody`;
-3. if the backend ever starts *exposing* that envelope in its schema, the test
-   fails on purpose — because the hand-written copy should then be deleted.
+2. no hand-written type file is left under `src/lib/api/` — every type there
+   comes from the generated schema, and a hand-written copy is caught when it
+   appears rather than when someone remembers to add a guard.
 
 The guard has been verified to go red on a real backend field addition, and to
 name the field that drifted.

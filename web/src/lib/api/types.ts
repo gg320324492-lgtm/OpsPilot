@@ -329,10 +329,10 @@ export interface paths {
          * List Tickets
          * @description List tickets, newest first (contract §10).
          *
-         *     Raises:
-         *         ApiError: 500 if the store cannot list -- it is not required to by the
-         *             ``TicketStore`` port, so this endpoint degrades to an empty page
-         *             rather than pretending.
+         *     **It degrades rather than raising.** The ``TicketStore`` port does not
+         *     require a ``list``, so a store that does not offer one is served an empty
+         *     page instead of a 500: this endpoint is a convenience, not part of the
+         *     workflow, and a store that cannot list has no tickets to be missing.
          */
         get: operations["list_tickets_api_tickets_get"];
         put?: never;
