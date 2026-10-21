@@ -1043,7 +1043,7 @@ than 467) that installs correctly on every platform.
 ### The desktop installer, and what a GitHub Release would take
 
 There is a **built Windows installer** on this machine at
-`desktop/release/OpsPilot-Setup-0.1.0-x64.exe` — **116 MB** (122,052,011
+`desktop/release/OpsPilot-Setup-0.1.0-x64.exe` — **116 MB** (122,126,389
 bytes in the build that is there now), an Electron shell that owns the window
 and the Compose lifecycle and generates its own operator token. It requires
 Docker Desktop; Node is not required.
