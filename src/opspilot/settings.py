@@ -1,7 +1,11 @@
 """Application settings for OpsPilot.
 
 Responsibility: the single, typed source of runtime configuration. Every
-variable named in ``.env.example`` is read here and nowhere else.
+variable named in ``.env.example`` is read here and nowhere else -- with one
+exception, ``POSTGRES_PASSWORD``, which is the Compose stack's database
+password and is read by ``docker-compose.yml``. The template says so too, and
+``tests/unit/test_the_env_example_matches_the_settings.py`` holds the two
+lists together.
 
 **"Fails loudly at startup" is true of some settings and not of all**, and the
 difference is worth naming. The ones that decide whether the process can serve
