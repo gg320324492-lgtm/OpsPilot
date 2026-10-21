@@ -157,11 +157,6 @@ class AgentRun(BaseModel):
     claimed_until: datetime | None = None
     claimed_by: str | None = None
 
-    @property
-    def is_terminal(self) -> bool:
-        """Whether the run has reached a terminal state."""
-        return self.status in TERMINAL
-
     def claim_state(self, now: datetime | None = None) -> ClaimLeaseState:
         """Whether a worker holds this run's claim lease at ``now``.
 

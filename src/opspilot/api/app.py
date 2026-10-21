@@ -202,8 +202,10 @@ def _cors_options(settings: Settings) -> _CorsOptions:
     there because every write in the contract posts JSON.
 
     ``max_age`` is 600s so a developer editing the dashboard does not send a
-    preflight on every hot-reload, without being long enough that revoking an
-    origin takes ten minutes to take effect.
+    preflight on every hot-reload. It is the **preflight cache**, and it is not
+    how long a revoked origin keeps working: the allowlist is consulted on
+    every actual request, so removing an origin takes effect at once, while
+    the cached preflight only decides whether the browser re-asks.
 
     An empty ``allow_origins`` installs the middleware with an empty allowlist,
     which refuses every cross-origin request. That is the intended behaviour for

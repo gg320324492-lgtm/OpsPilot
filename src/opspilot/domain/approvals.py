@@ -101,35 +101,14 @@ class ApprovalRequest(BaseModel):
 
     @property
     def is_decided(self) -> bool:
-        """Whether a human has decided (approved or rejected) this request."""
+        """Whether a human has decided (approved or rejected) this request.
+
+        **Nothing in the system asks this.** It is here because a status enum
+        that can be ``pending`` invites the question, and the answer is one
+        line -- but the *decision* itself is made by the store's ``decide``,
+        which is a conditional update, not a function that returns a value
+        object. A decision made in the database is not a decision that can be
+        modelled as a return value, which is why there is no ``approve()``
+        here to mirror it.
+        """
         return self.status in {ApprovalStatus.APPROVED, ApprovalStatus.REJECTED}
-
-
-class ApprovalDecision(BaseModel):
-    """A value object describing a human's decision on an approval request."""
-
-    model_config = ConfigDict(frozen=True)
-
-    approval_id: UUID
-    status: ApprovalStatus
-    decided_by: str
-    decided_at: datetime
-    note: str | None = None
-
-
-def approve(
-    approval: ApprovalRequest, *, decided_by: str, note: str | None = None
-) -> ApprovalDecision:
-    """Record an approval decision. M0 stub -- implementation lands in M1."""
-    raise NotImplementedError
-
-
-def reject(
-    approval: ApprovalRequest, *, decided_by: str, note: str | None = None
-) -> ApprovalDecision:
-    """Record a rejection decision.
-
-    A rejected refund does not fail the run: the correct outcome is an
-    escalation reply via ``WAITING_APPROVAL -> RESPONDING``. M0 stub.
-    """
-    raise NotImplementedError

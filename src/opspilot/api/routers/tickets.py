@@ -57,13 +57,19 @@ class TicketReads(Protocol):
 
     Declared for documentation; the router probes with ``getattr`` so a store that
     does not offer them still serves the endpoints that can degrade.
+
+    **``rollback`` used to be declared here and is gone.** It described a
+    compensating delete the route used to attempt between two writes, and the
+    SQL store does not answer it -- so the compensation was dead code and the
+    orphan ticket was real. The route's two writes are now one transaction
+    (the ``TicketIntake`` port), and the only thing that still has a
+    ``rollback`` is the *test* double, which needs it to model the atomicity
+    the real store provides for free.
     """
 
     async def get(self, ticket_id: UUID) -> TicketRow | None: ...
 
     async def list(self, *, limit: int = 50, offset: int = 0) -> list[TicketRow]: ...
-
-    async def rollback(self, ticket_id: UUID) -> None: ...
 
 
 def _settings() -> Settings:
@@ -188,10 +194,10 @@ async def list_tickets(
 ) -> TicketListResponse:
     """List tickets, newest first (contract §10).
 
-    Raises:
-        ApiError: 500 if the store cannot list -- it is not required to by the
-            ``TicketStore`` port, so this endpoint degrades to an empty page
-            rather than pretending.
+    **It degrades rather than raising.** The ``TicketStore`` port does not
+    require a ``list``, so a store that does not offer one is served an empty
+    page instead of a 500: this endpoint is a convenience, not part of the
+    workflow, and a store that cannot list has no tickets to be missing.
     """
     lister = getattr(tickets, "list", None)
     if lister is None:

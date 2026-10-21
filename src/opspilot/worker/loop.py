@@ -598,8 +598,12 @@ async def drain_once(
     ``citation_store`` is threaded to the runtime so a run's retrieved hits are
     persisted as citation rows bound to the run. It is injected like
     ``approval_store`` -- a database collaborator, not something this module
-    constructs. ``retrieval_min_score`` overrides the runtime's default
-    abstention threshold; ``None`` leaves the runtime's own default in place.
+    constructs. ``retrieval_min_score`` overrides the abstention threshold the
+    run is driven with; ``None`` resolves the **same setting** the runtime
+    would have used -- ``Settings.retrieval_min_score``, read when the drive
+    starts. The two are equal by construction rather than by agreement: there
+    is one setting, and both readers of it ask the settings at the point of
+    use.
 
     ``RunParked`` is caught here -- and only here -- because release-the-row is
     exactly what the worker is for. It is *not* mapped to ``FAILED``.
