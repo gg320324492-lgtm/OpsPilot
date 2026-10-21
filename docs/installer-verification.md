@@ -524,9 +524,65 @@ If anything above failed, these five things make it diagnosable:
 
 ---
 
+## Literals that must not change
+
+When this document is translated or paraphrased, **not one character** of the
+following may change — they are the things you compare against what is on
+your screen:
+
+`x64` · `~6 GB` · `5–15 minutes` · `1–15 min` · `~1 s` · about 10 seconds ·
+within a minute · within a few seconds
+port **8000** (the backend API) · port **3210** (the dashboard) · `127.0.0.1`
+(**never `localhost`**)
+`17 seen` / `17 indexed` / `98 chunks` · `129.00` · `TX-88219` ·
+`HIGH_RISK_WRITE`
+`HTTP 409` · `HTTP 200` · `/runs/<uuid>` · `<approval-id>`
+`opspilot_postgres-data` · `opspilot_mcp-data` · `name=opspilot-` · `--tail 100`
+`%LOCALAPPDATA%\Programs\OpsPilot` · `%APPDATA%\OpsPilot\opspilot.env` ·
+`resources\stack`
+`OPSPILOT_OPERATOR_TOKEN` · `:?` · `NUL`
+`OpsPilot-Setup-windows-x64` (the artefact's name, **with no version**) ·
+`OpsPilot-Setup-<version>-x64.exe` (the installer's name) · `MZ` (the PE
+signature) · `NSIS`
+`Actions` · `Artifacts` (the names on GitHub's page) · 90 days (the artefact
+retention)
+`401 Unauthorized` (GitHub's answer when the artefact is downloaded without
+being logged in)
+`MP4` · `H.264` · `1280x720` · `10 MiB`
+`docs/assets/d2-walkthrough.mp4` · `docs/assets/d2-walkthrough.webm`
+
+---
+
 ## What this document does not claim
 
 The installer's first launch builds the API and worker images **from source on
 your machine**. That is a deliberate consequence of not publishing images to a
 registry, and it is why the first launch takes minutes. Everything after it is
 fast, and nothing is downloaded from OpsPilot at run time.
+
+---
+
+## A record sheet for the person doing it
+
+| Step | Result | Notes |
+|---|---|---|
+| 0 environment (Docker started) | ☐ pass ☐ fail | |
+| 0b obtain the installer | ☐ pass ☐ fail | source: ____ (CI run id / commit, or who gave you the file) |
+| 1 install | ☐ pass ☐ fail | icon: ☐ blue square (new)  ☐ black triangle with a white circle (**cached** → rebuild the cache) |
+| 2 launch to the dashboard | ☐ pass ☐ fail | first launch took: ____ minutes |
+| 3.1 index 17/17/98 | ☐ pass ☐ fail | the actual numbers: ____ |
+| 3.2 submit the ticket | ☐ pass ☐ fail | run id: ____ |
+| 3.3 **stops at the approval gate** | ☐ pass ☐ fail | **going straight to completed = the safety gate degraded** |
+| 3.4 approve → one refund | ☐ pass ☐ fail | |
+| 3.5 approve again → 409 | ☐ pass ☐ fail | |
+| 4 `/ready` answers 200 + ok | ☐ pass ☐ fail | |
+| 5.1 the ports bind loopback only | ☐ pass ☐ fail | |
+| 5.2 a cross-origin write is refused | ☐ pass ☐ fail | |
+| 5.3 a request with no token is refused | ☐ pass ☐ fail | |
+| 5.4 no credential in the package | ☐ pass ☐ fail | |
+| 6 the containers stop, the volumes stay | ☐ pass ☐ fail | |
+| 6b the run is still there after a restart | ☐ pass ☐ fail | |
+
+**Done by:** ______________  **Date:** ____________
+**Windows version:** ______________  **Docker version:** ______________
+**Installer's SHA256 (first 16):** ______________
