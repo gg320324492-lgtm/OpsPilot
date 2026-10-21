@@ -173,11 +173,16 @@ test.describe("the app-data token file", () => {
     expect(ensureOperatorToken(dir)).toBe("chosen-by-hand");
   });
 
-  test("leaves no file for a launch that resolved a token some other way", () => {
-    // `main.ts` only calls this for a packaged launch and only as the last
-    // source, so an operator who exported a token never causes a file to be
-    // written at all — and never has one appear later holding a value that
-    // disagrees with theirs.
+  test("generates a token of its own when there is no file to read", () => {
+    // This is what the function does when it is asked to generate one.
+    //
+    // The behaviour the old name promised -- "leaves no file for a launch
+    // that resolved a token some other way" -- is **not** this function's to
+    // decide: `main.ts` only calls it for a packaged launch, and only as the
+    // last source, so an operator who exported a token never causes a file
+    // to be written at all. That condition lives in `main.ts`, and this
+    // package's specs cannot reach it -- so the name said a thing nothing
+    // here asserted, and a reader would have believed it was covered.
     const dir = scratch();
     expect(ensureOperatorToken(dir)).toMatch(/^[0-9a-f]{64}$/);
     rmSync(dir, { recursive: true, force: true });

@@ -246,8 +246,7 @@ test.describe("A3: the installer ships no credential", () => {
   });
 
   test("the token the installer would otherwise embed appears in no packaged file", () => {
-    const stack = packagedStackOrSkip();
-    if (stack === null) {
+    if (packagedStackOrSkip() === null) {
       return;
     }
 
@@ -268,24 +267,42 @@ test.describe("A3: the installer ships no credential", () => {
     }
 
     const hits: string[] = [];
-    for (const relative of walk(stack)) {
-      const full = path.join(stack, relative);
-      // Only text files are read; a binary match would be a coincidence, not a
-      // leak, and reading 100 MB of images to look for a string is not a check.
-      if (statSync(full).size > 2_000_000) {
+    const skipped: string[] = [];
+    // **The whole unpacked tree**, not just `resources/stack`. The token could
+    // also be baked into `app.asar` -- where the app's own `dist/` lives -- or
+    // into anything `electron-builder.yml` lists under `extraResources`. The
+    // test name says "no packaged file", so the scan has to be the package.
+    for (const relative of walk(UNPACKED_DIR)) {
+      const full = path.join(UNPACKED_DIR, relative);
+      // High enough to cover the packaged `OpsPilot.exe` (an Electron
+      // binary of well over 100 MB), so the scan really is the whole
+      // package and the "skipped" list stays empty on a normal build.
+      if (statSync(full).size > 256_000_000) {
+        // Not skipped silently. A file too large to read is a file the check
+        // did not cover, and saying so is the difference between a check and
+        // a hope.
+        skipped.push(relative);
         continue;
       }
-      let content: string;
+      let content: Buffer;
       try {
-        content = readFileSync(full, "utf8");
+        content = readFileSync(full);
       } catch {
         continue;
       }
-      if (content.includes(expected)) {
+      // A Buffer, not a string: `app.asar` is an archive, and a token inside
+      // it is plain bytes. Searching decoded text would both miss the asar and
+      // risk a binary match being read as a leak.
+      if (content.includes(Buffer.from(expected, "utf8"))) {
         hits.push(relative);
       }
     }
 
+    expect(
+      skipped,
+      "these packaged files were too large to scan for the token, so the check " +
+        "did not cover them",
+    ).toEqual([]);
     expect(hits).toEqual([]);
   });
 });

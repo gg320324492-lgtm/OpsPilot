@@ -128,8 +128,10 @@ test("opens the dashboard, keeps the renderer untrusted, and stops what it start
 
     // ---- the window is showing the dashboard ---------------------------------
     await expect(page).toHaveTitle(/OpsPilot/);
-    // The dashboard's own navigation. These are Server Components: they exist on
-    // the page only if the app rendered and the API answered it.
+    // The dashboard's own navigation. These are Server Components: they exist
+    // on the page when the app rendered. They do **not** depend on the API --
+    // the nav reads the locale cookie and nothing else -- so this proves the
+    // window is showing the dashboard, not that the API answered.
     await expect(page.getByRole("link", { name: /tickets/i }).first()).toBeVisible();
 
     // ---- the renderer cannot reach Node -------------------------------------
@@ -154,10 +156,15 @@ test("opens the dashboard, keeps the renderer untrusted, and stops what it start
     // type-checked against this package's `lib`, which is ES2022 and has no
     // `window`, while this code runs in Chromium. Playwright evaluates the
     // string in the page.
+    // The refusal is proved by **no navigation happening**, not by the URL
+    // still reading the dashboard: a navigation that was slow, or blocked by
+    // something other than the guard, would leave the URL where it was and
+    // the old assertion would pass for the wrong reason.
+    const navigated = page
+      .waitForEvent("framenavigated", { timeout: 2_000 })
+      .catch(() => null);
     await page.evaluate("window.location.href = 'https://example.com/'");
-    // Give the refused navigation every chance to happen before asserting that
-    // it did not.
-    await page.waitForTimeout(2_000);
+    expect(await navigated).toBeNull();
     expect(page.url()).toMatch(DASHBOARD_PATTERN);
 
   } finally {

@@ -36,6 +36,8 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import {
   BOOTSTRAP_CSP,
@@ -54,6 +56,9 @@ import {
 // Electron binary, and `require("electron")` downloads one at import time.
 import { restrictWebContents } from "../src/security-web-contents";
 
+/** The main process source, read to pin the *wiring*. */
+const MAIN_SOURCE = path.resolve(__dirname, "..", "src", "main.ts");
+
 const DASHBOARD_ORIGIN = "http://127.0.0.1:3210";
 // Origins, not URLs: `isAllowedUrl` compares `protocol + "//" + host`, so
 // putting a full URL in the allowlist would silently refuse the app's own page.
@@ -71,6 +76,23 @@ test.describe("webPreferences", () => {
     // A `<webview>` is a whole second renderer with its own webPreferences; this
     // app has no use for one and no safe way to configure it.
     expect(SECURE_WEB_PREFERENCES.webviewTag).toBe(false);
+  });
+
+  test("the window is built FROM the policy, not from a copy of it", () => {
+    // The tests above assert the *constant*. What nothing asserted is that the
+    // **window** is built from that constant -- so replacing the spread with
+    // a hand-written `webPreferences` (or dropping `sandbox: true` on the way
+    // past) would leave every assertion in this file green, and the renderer
+    // unsandboxed.
+    //
+    // The behaviour is proven in a real window by `e2e/shell.spec.ts`; this
+    // pins the *wiring*, the same way `menu.spec.ts` pins the menu's three
+    // calls into `main.ts`.
+    const main = readFileSync(MAIN_SOURCE, "utf8");
+    expect(main).toMatch(/webPreferences:\s*\{\s*\.\.\.SECURE_WEB_PREFERENCES/);
+    // And the policy is imported from the one module, rather than a local
+    // copy that could be edited independently.
+    expect(main).toMatch(/from "\.\/security-policy"/);
   });
 
   test("names no setting this app has not justified", () => {

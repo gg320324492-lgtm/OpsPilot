@@ -127,6 +127,12 @@ The fourth call — `billing.issue_refund`, with
 `{amount: 129, transaction_id: "TX-88219"}` — **did not execute.**
 It parked.
 
+(The argument snapshot in screenshot 10 carries two more fields — `currency`
+and `transaction_amount` — because the schema accepted them then. `RefundArgs`
+no longer does: a proposal that names a currency is refused, because the
+refund is denominated in the transaction's own currency and a model's guess at
+it is not a fact. The two above are what the schema accepts today.)
+
 ```
 billing.issue_refund   HIGH_RISK_WRITE   Awaiting approval
 ```
@@ -141,11 +147,25 @@ it held:
   refactor that reclassified it would fail a CI gate that prints the old and new
   permission side by side.
 - The policy engine classified the call and required approval, **deriving the
-  sentence deterministically** — no model wrote it:
+  sentence deterministically** — no model wrote it. That run's own screenshot
+  (screenshot 10) records:
+
+  > This moves $129.00 USD out of the account, refunding transaction TX-88219,
+  > and cannot be undone automatically.
+
+  **That is what the run said, and it is no longer what the code says.**
+  `296c89b` (2026-10-21) rewrote the sentence, because the explanation used
+  to name a currency the money would not move in — the refund goes back the way
+  it came, in the transaction's own currency, and "$129.00 USD" told the
+  approver a currency the transaction might not have been charged in. The
+  current code produces:
 
   > This moves 129.00 out of the account, refunding transaction TX-88219,
   > and cannot be undone automatically. The amount is in the currency the
   > transaction was charged in.
+
+  The screenshot has not been re-taken since, which is the honest reason both
+  sentences are quoted here.
 
 - The model's own justification was recorded too, and **labelled untrusted**,
   because nothing verifies it before it reaches the operator:
