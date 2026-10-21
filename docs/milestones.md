@@ -65,7 +65,7 @@ imports with no business logic, and a published GitHub repository.
 - [x] `.env.example` has every setting the code reads. (First clause holds: all
       31 `Settings` fields appear in `.env.example`, matching once case is
       normalised. The original wording's "empty value" clause is dropped, not
-      softened — 16 of the 31 carry a shipped value on purpose
+      softened — 18 of the 31 carry a shipped value on purpose
       (`MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536`, …). DoD row D8
       resolves the same clause the same way: corrected, not satisfied.)
 - [x] GitHub repository created, `main` pushed. (`origin` is
@@ -104,8 +104,9 @@ imports with no business logic, and a published GitHub repository.
       `tool_calls(idempotency_key)` where `status = 'executed'`, at 203-209.)
 - [x] `alembic upgrade head` runs against a pgvector container in CI. (Job
       `verify (pgvector)` in `.github/workflows/ci.yml` declares the service
-      container `pgvector/pgvector:pg16` (line 175) and its first step is
-      `alembic upgrade head` (line 219), followed by `alembic current`.)
+      container `pgvector/pgvector:pg16` (line 277), and one of its steps is
+      `alembic upgrade head` (line 321), followed by `alembic current` — which
+      the job now compares against `alembic heads` rather than merely printing.)
 - [x] `POST /api/tickets` inserts a ticket and a `RECEIVED` run in one
       transaction and returns 201 **without starting any agent work**.
       (`routers/tickets.py:118`. Asserted three ways:
@@ -288,24 +289,32 @@ imports with no business logic, and a published GitHub repository.
       reads the audit table back from the database on the line after the gate
       returns.)
 - [x] Unknown tool name → `ToolCall` recorded as rejected, never dispatched.
-      (Gate 2 at `runtime.py:460` calls `_reject` — a persisted `rejected` row
+      (Gate 2 at `runtime.py:452` calls `_reject` — a persisted `rejected` row
       plus a `tool_rejected` audit event — and returns before the execute block.
       `test_model_cannot_invent_a_tool_name` asserts `dispatch_count == 0`.)
 - [x] `OPSPILOT_TOOL_DENYLIST` can refuse a tool and **cannot** grant one.
       (`policies.py:169` consults the registry, so an unlisted name in the
       denylist grants nothing; `test_policy_denylist_cannot_grant_only_remove`
       drives both cases through the real gate.)
-- [x] The four security invariant queries return 0 after the whole suite.
+- [x] The four security invariant queries return 0 over an **assembled**
+      database — one the file builds per test, causing the scenarios that could
+      violate an invariant before asserting it survived.
       (`tests/security/test_invariants.py` — one query per row of
       `tool-permissions.md §6`, each `== 0`, plus
       `test_all_four_invariants_are_declared` and
       `test_the_attack_database_is_not_empty` so a zero over an empty database
       cannot read as a pass. The CI `security` job runs `pytest tests/security`.)
-- [x] `tests/security/` has an adversarial test per row of
-      `tool-permissions.md §5`'s right-hand column.
-      (Six rows, six adversaries in `test_approval_bypass.py`, whose docstring
-      maps each row to its test name; each also asserts the spy dispatched
-      nothing.)
+- [x] `tests/security/` has an adversarial test for **six of the seven**
+      rows of `tool-permissions.md §5`'s right-hand column, each also asserting
+      the spy dispatched nothing.
+      (The seventh is the currency row, and it is not in `tests/security/` **by
+      design**: a currency never reaches the approver — it is refused at gate
+      1, before any of this — so the refusal is tested where it happens, in
+      `tests/unit/test_permissions.py` and
+      `tests/integration/test_refund_risk_explanation.py`.
+      `test_approval_bypass.py`'s docstring used to claim it implemented that
+      column "verbatim", and it does not: its six items are two that the column
+      does not list and three that the column does.)
 
 **Why this is the milestone that matters.** If the gate has a hole, the rest of
 the project is a demonstration of a system that does not do what its README says.
@@ -429,7 +438,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       same transaction as the status update.
       (`SqlRunStore.set_status` mutates the row and `session.add`s the
       `state_change` step, then flushes once, in one `_scope` —
-      `repositories.py:395-420`; `test_runtime_fake.py::test_every_state_transition_is_persisted_in_order`.)
+      `repositories.py:665-705`; `test_runtime_fake.py::test_every_state_transition_is_persisted_in_order`.)
 - [x] `agent_steps.sequence` is unique per run.
       (`UniqueConstraint("run_id", "sequence")` on the model and the migration;
       `test_models.py::test_agent_steps_unique_run_id_sequence` asserts the
@@ -588,11 +597,11 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       run ever emits a step type the file neither times nor documents.)
       *The `state_change` NULL is a decision, not a gap.* Those rows are written
       by the `AgentStep(step_type="state_change", …)` constructor in
-      `SqlRunStore.set_status` (`adapters/persistence/repositories.py:407-418`),
+      `SqlRunStore.set_status` (`adapters/persistence/repositories.py:693-703`),
       which is the path every transition takes — it writes the step in the same
       transaction as the `agent_runs.status` update, so the step and the status
       cannot disagree. An earlier version of this note blamed
-      `TraceRecorder.record_state_change` (`tracing/recorder.py:179`) for
+      `TraceRecorder.record_state_change` (`tracing/recorder.py:180`) for
       omitting the argument. That is true of the source but false of the runs:
       the method has **no call sites in `src/`** — its only caller anywhere is
       `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would
@@ -603,10 +612,10 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `docs/progress.md:2375`, which no longer holds that text — a number drifts
       on the next edit, so the section is named instead). The dashboard renders it
       as a dash and says why —
-      `web/src/lib/format.ts:136` ("a null here is not missing data and is not
+      `web/src/lib/format.ts:154-158` ("a null here is not missing data and is not
       rendered as zero … a column that showed `0` for fourteen rows would teach
       a reader that the column measures something when it does not") and
-      `web/src/app/runs/[runId]/page.tsx:255` ("a `0` there would be a regression
+      `web/src/app/runs/[runId]/page.tsx:387-388` ("a `0` there would be a regression
       that this component exists to make visible"). "Every step with latency"
       therefore could not be satisfied as written; it is ticked as **work** step.
       *Tool execution.* There is no tool-execution `agent_steps` row, and that is
@@ -718,9 +727,9 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       server-rendered routes.)
 - [x] Run Detail renders the timeline from `GET /runs/{id}/trace` server-ordered.
       (The endpoint is mounted under the router's own prefix, so the real path
-      is `GET /api/runs/{run_id}/trace` — `runs.py:53` sets `prefix="/api"` and
+      is `GET /api/runs/{run_id}/trace` — `runs.py:54` sets `prefix="/api"` and
       the generated OpenAPI lists it. Order is the server's: the handler does
-      `timeline.sort(key=lambda step: step.sequence)` (`runs.py:266`) and
+      `timeline.sort(key=lambda step: step.sequence)` (`runs.py:304`) and
       assembles `label`/`detail` server-side in `_to_trace_step`; the page maps
       `trace.data.steps` in the order received, keyed on `step.sequence`, and
       does not re-sort.)
@@ -742,12 +751,12 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `approval_already_decided` (:182), rejecting an already-approved request is
       409 (:249), and approving a run that has moved on is 409
       `run_not_awaiting_approval` (:196). Client side:
-      `lib/decision-error.ts:164` maps it to `tone: "conflict"` with the
+      `lib/decision-error.ts:125` maps it to `tone: "conflict"` with the
       headline "Already decided — this click granted nothing", and never folds
       it into the generic failure styling. No React test suite exists — the
       client wiring is covered by `tsc --noEmit` and `eslint`, not by tests.)
 - [x] The "Sources" panel renders citations from the run's `Citation` rows.
-      (`runs/[runId]/page.tsx:333-370` — the `Citations` panel maps
+      (`runs/[runId]/page.tsx:486-510`, rendered at :199 — the `Citations` panel maps
       `detail.citations` and shows each row's `document`, `chunk`, `score` (to
       4 dp, with its `#rank`) and counts the chunks in the panel header.)
 - [x] `eslint` and `tsc --noEmit` clean in CI.
@@ -857,12 +866,12 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `::test_zero_gate_exits_zero` both pass.)
 - [x] Results written to `evals/results/<timestamp>.json` with the provider,
       model, date and config recorded. (`_write_results` emits exactly
-      `provider`/`model`/`date`/`timestamp`/`config`; both committed files carry
+      `provider`/`model`/`date`/`timestamp`/`config`; the four committed files carry
       them — `2026-10-08T05-24-41.json` (anthropic / `claude-sonnet-5-5`) and
       `2026-10-11T15-39-42.json` (openai / `MiniMax-M3.1-Flash-Preview`). Pinned
       by `test_eval_cli.py::test_results_file_records_provider_model_date_and_config`.)
 - [x] One live run performed; its real numbers, with the model and date, go in
-      the README. **No fabricated scores.** (Two live runs are committed; the
+      the README. **No fabricated scores.** (Four live runs are committed; the
       README quotes the later one, and every figure in its table matches
       `2026-10-11T15-39-42.json` recomputed through `metrics.summarize` —
       p50 26.8s, p95 276.7s, tokens in 1146 / out 646, cost $0.0000. The nine
@@ -931,10 +940,10 @@ what got built rather than what was promised.
 | D2 | `ruff format --check` is clean. | M0 acceptance criteria. |
 | D3 | Bare `mypy` (no path argument) reports no errors. | README "Tests"; `pyproject.toml [tool.mypy] files`. |
 | D4 | `pytest` is green, with the skip count printed and non-zero. | README "Tests"; ADR-0004. |
-| D5 | The four CI invariants each return 0 after the whole suite. | `tool-permissions.md` §6; README "Evaluation". |
+| D5 | The four CI invariants each return 0 over the attack database the file assembles. | `tool-permissions.md` §6; README "Evaluation". |
 | D6 | The four safety properties in `limitations.md` "What is *not* on this list" hold: the permission model is verified; the refund cannot execute twice; retrieved text cannot escalate a permission. | `limitations.md` §"What is not on this list". |
 | D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. **The call was deliberately not added to the golden path — see D19a below.** | `milestones.md` §M3; `architecture.md` §7. |
-| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 31 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
+| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 18 of the 31 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
 | D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
 | D10 | The CI jobs §M9 names exist and run the commands the README documents. **CI first went fully green on GitHub Actions run 38076989911 at `0144d83` — 11 of 11 jobs — which retires the "no job has ever passed" caveat this line used to carry, and the 17-commit gap to `origin/main` recorded at `472c09a` is closed: `0144d83` is on the remote.** | `milestones.md` §M9; README "Tests". |
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
@@ -1037,7 +1046,7 @@ stays one.
 | D3 | **Partial: met for the artefact, not for a running instance.** `desktop/e2e/packaged-posture.spec.ts` checks what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env` or operator token, and the security policy inside `app.asar` — and it deliberately does **not** launch `OpsPilot.exe`, because doing that spawns Docker and writes a token into `%APPDATA%`, which is the manual step `installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit. | `docs/phase2-plan.md` §P2-D3 and its acceptance table; `desktop/e2e/packaged-posture.spec.ts`; `docs/installer-verification.md` §5. |
 | E | **Partial.** A stranger can clone, follow the README and reproduce the golden path: the README states the simulated billing in its first section, the case study walks one duplicate charge from intake to audited refund with every number traceable, and the GIF and ten screenshots are committed. **Not met:** §P2-E's bullet list asks for "a video, screenshots, and a case study", and there is no video — the recording has not been made, because the walk that would produce it is D2 and D2 has not been run. `README.md` §"Why there is no video yet, and which one there will be" says so, and now says **which one there will be**: the **D2 walk-through's recording, and not a browser capture** — a stranger installing the packaged installer on a clean Windows machine and walking the golden path, which is the one claim the ten screenshots do not make (they show the application on the machine that built it; a recording of the install shows it working on a machine that did not). The browser recording and the failure states rank below it for the reasons that section gives, and the name, the format and the size are fixed in advance: `docs/assets/d2-walkthrough.mp4`, MP4 (H.264), under 10 MiB, with the WebM kept beside it as the source. The judgement that the screenshots are the stronger evidence now stands where it holds — browser recordings — and does not cover the walk-through's recording, where the reverse is true. The Release has its own row below. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The billing in this project is simulated" and §"Why there is no video yet, and which one there will be"; `docs/case-study-duplicate-charge.md`; `docs/assets/golden-path.gif`; `docs/assets/screenshots/`; `tests/unit/test_d2_walkthrough_recording.py`. |
 | E-a | **Boundary recorded, and held back on purpose.** There is no GitHub Release: `git tag` returns nothing and `gh release list` is empty. A release needs a tag, and a tag is a publish, not a document. The built artefact on this machine is a local build of a working tree, not of a tag, so it is not reproducible from any commit — and D2 has not been run. **The CI artefact is not a Release either, and is not a step towards one:** `OpsPilot-Setup-windows-x64` is a build product attached to one run, indexed nowhere, expiring after 90 days, and linked by nothing in this repository. Publishing an unverified installer as `0.1.0` would put a download link in front of the test the plan says it must pass first, which is why the tag is not cut even though the tree is clean and pushed. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The desktop installer, and what a GitHub Release would take". |
-| F | **Met, for the first catalogue.** A locale the operator chooses, English by default: `web/src/i18n/` ships `en` (338 leaves) and `zh-CN` (334 — the four-leaf difference is the `.one` plural forms Chinese does not have), the choice is an explicit `httpOnly` cookie resolved on the server, and `DEFAULT_LOCALE` is `en`, so a fresh clone still runs in English with no configuration. Adding further languages is a product decision this plan does not make. | `docs/phase2-plan.md` §P2-F; `web/src/i18n/config.ts`; `web/src/i18n/dictionaries/en.json`, `web/src/i18n/dictionaries/zh-CN.json`; `web/e2e/i18n.spec.ts`, `web/e2e/i18n-catalogue.spec.ts`. |
+| F | **Met, for the first catalogue.** A locale the operator chooses, English by default: `web/src/i18n/` ships `en` (337 string leaves) and `zh-CN` (333 — the four-leaf difference is the `.one` plural forms Chinese does not have), the choice is an explicit `httpOnly` cookie resolved on the server, and `DEFAULT_LOCALE` is `en`, so a fresh clone still runs in English with no configuration. Adding further languages is a product decision this plan does not make. | `docs/phase2-plan.md` §P2-F; `web/src/i18n/config.ts`; `web/src/i18n/dictionaries/en.json`, `web/src/i18n/dictionaries/zh-CN.json`; `web/e2e/i18n.spec.ts`, `web/e2e/i18n-catalogue.spec.ts`. |
 | CI | **Met.** The Phase 2 CI jobs exist and run the commands the repository documents. Phase 2 added three to the Phase 1 set: `desktop-check` (eslint, `tsc --noEmit` and the lifecycle tests, with no Electron, no Docker and no browser, so it stays cheap), `desktop-menu` (the native menu in a real Electron under `xvfb-run`, where a *skip* is a failure — a green skipped run would mean the job proved nothing while reporting success) and `desktop-package` (the Windows artefact built and checked against A1–A3 on every push, which is the only place the packaged-app check was ever reached — before it, `packaged-posture.spec.ts` ran only on a machine that had locally built the package). The workflow now names **fifteen** job ids — the eleven §M9 names, plus `desktop-check`, `desktop-menu`, `desktop-package` and `assets-windows` (the committed artwork regenerated on `windows-latest`, so that the pair `docs/limitations.md` §6 records as "produced on Windows and checked on Linux" is checked at both ends rather than one) — and therefore **sixteen** runs, because `test` is the 3.12/3.13 matrix and runs twice. A green run of the pushed tree, `39316991857` at `07ef46e`, is **15 of 15**: that run carried the fourteen job ids the workflow named then, and the earlier run `39299905779` at `60cda57` was 14 of 14 and predates `desktop-package`. The quoted run is the one this row was checked against, not the newest, and a green conclusion that does not say which tree it was checked against is one nobody can re-check. `eval-live` remains `workflow_dispatch`-only, in its own workflow. | `.github/workflows/ci.yml`; `.github/workflows/eval-live.yml`; `docs/milestones.md` §M9 (the Phase 1 job list); GitHub Actions run `39316991857`. |
 
 **Checked against the tree at `3da3a9f`**, the 2026-10-20 commit whose

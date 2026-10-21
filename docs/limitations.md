@@ -129,7 +129,7 @@ run that has been claimed and not driven
 stays `RECEIVED`, and from every surface this repository has, that is
 indistinguishable from a run nothing ever claimed:
 
-- the boot sweep deliberately skips `RECEIVED` (`db.py:150`,
+- the boot sweep deliberately skips `RECEIVED` (`db.py:149`,
   `mark_interrupted_runs`), so a worker restart does not clear the lease;
 - only a worker *driving* the run renews it (`worker/loop.py::_renew_lease_while_driving`),
   so a claimer that died stops renewing and the run simply waits the lease out.

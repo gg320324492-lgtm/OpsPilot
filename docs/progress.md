@@ -1988,7 +1988,7 @@ which, and record it.**
   is not tested at all.
 
 **3. A second "absence of an answer" token escapes the gate.** The gateway can
-return `server_unavailable` (`mcp_gateway.py:205`) as well as
+return `server_unavailable` (`mcp_gateway.py:380`) as well as
 `mcp_unavailable` (`:233`); the runtime special-cases only the second. Reached
 through a factory the default wiring does not use, so severity is low, but it is
 the same defect class the M6 commit claims to have fixed, on an untested path.
@@ -4968,8 +4968,8 @@ produced no rejected calls at all.
 `runtime.py:416-426` catches `InvalidArgumentsError` and calls `_reject` with
 `arguments={}` — a literal empty dict, whatever the proposal held. That empty dict
 is what `record_proposed` persists (`repositories.py:620-624`), and
-`_tool_call_record` (`runner.py:1201-1219`) reads it back into the results file.
-`arguments_valid` is then *derived* from it at `runner.py:1216` by re-validating
+`_tool_call_record` (`runner.py:1220-1240`) reads it back into the results file.
+`arguments_valid` is then *derived* from it at `runner.py:1235` by re-validating
 `{}`, which fails for all nine schemas because every one has at least one required
 field. So on a rejected row `arguments_valid: false` is **tautologically true and
 carries no information about the model**.
@@ -8435,10 +8435,102 @@ database, and `OPSPILOT_DATABASE_URL` is not a name the settings layer reads
 would have used the developer's own database. It sets the right name now, and
 the two helpers that claimed a consumer they did not have are gone.
 
+## A gate that cannot refuse, and a citation that points at the wrong function
+
+**Date:** 2026-10-21, late. The last two audits — `tool-permissions.md` and
+`milestones.md` — came back with 17 drifts between them, and the first of them
+was a gate that is described as refusing something it cannot refuse.
+
+### Gate 4 is credited with a rule it cannot fire
+
+`docs/tool-permissions.md` §3's gate-4 comment listed "exactly four" rules:
+the denylist, the idempotency replay short-circuit, the refund ceiling, and
+the refund-exceeds-transaction rule.
+
+**The fourth cannot fire.** `_refund_exceeds_transaction` needs the charged
+amount, and `RefundArgs` deliberately does not declare it — a model that could
+supply the number could also *suppress* the rule by claiming a larger charge.
+`domain/policies.py` says so itself, and a unit test pins it. The check is
+enforced, at the **billing server**, under a different code
+(`amount_exceeds_transaction`).
+
+So this was not a hole but a misattribution — and the kind that could make a
+future maintainer delete the server's check on the strength of §3. The comment
+now says gate 4 has **three** live rules and names where the fourth lives. (The
+"exactly four" wording was mine, earlier in this round: a rule that cannot fire
+is not one of the rules, and writing the count down made the claim checkable.)
+
+The same audit found §3's **gate 1** described as a gate that cannot refuse —
+"invalid arguments never reach here; if they do, this is a programming error and
+raises" — while the code records a malformed proposal as a **rejected
+`ToolCall`**. The document contradicted its own §3.2 and §4, which both say
+gate 1 *does* refuse. It does now, in the pseudocode.
+
+And two rows of §5's adversary table pointed at files that do not assert what
+the row claims: the "reach `COMPLETED` while a gate was skipped" row is pinned
+by `test_prompt_injection.py::test_the_run_never_reaches_completed_while_parked`,
+not by the file the row named; and the "make retrieved instructions change
+gate 3's permission" row names a file whose own comment says the control under
+test is gate **5**. The rows say what their adversaries actually assert now.
+
+### A ticked acceptance criterion that was not met
+
+`docs/milestones.md` ticked: *"`tests/security/` has an adversarial test per row
+of `tool-permissions.md §5`'s right-hand column"*, with the parenthetical "six
+rows, six adversaries in `test_approval_bypass.py`, whose docstring maps each
+row to its test name".
+
+The column has **seven** rows. The currency row's adversary is deliberately
+**not** in `tests/security/` — a currency never reaches the approver, it is
+refused at gate 1 — so the criterion is met for six of seven. And
+`test_approval_bypass.py`'s docstring claimed to implement that column
+"verbatim" while listing a different six: two items the column does not have,
+and three it does.
+
+The criterion says six of seven and names the currency row's real home. The
+docstring says what it actually implements. (A ticked box is a claim about the
+tree, and a reader auditing the adversarial ledger from it would have drawn a
+wrong conclusion about the coverage.)
+
+### Seventeen more, and a guard for the class
+
+The rest were line numbers that had moved — `repositories.py:395-420` cited for
+`SqlRunStore.set_status`, which is `TicketStore.count`'s docstring;
+`tracing/recorder.py:179` cited for a method defined at 180; `runner.py:1201-1219`
+cited for a function defined at 1220 — plus two counts that had moved (the i18n
+catalogues are 337 and 333 string leaves, not 338 and 334, because a phantom
+key was removed this round) and one that was never right (18 of the 31 `Settings`
+fields ship a value, not 16).
+
+**The class has bitten this repository three times** — commit `e906f8d` is
+"docs: five drifted figures and eight line citations that pointed elsewhere",
+and this audit found eight more. Every one was fixed by hand, and a manual fix
+to a defect that recurs is a repair rather than a fix.
+
+`tests/unit/test_doc_line_citations_point_at_the_code.py` now checks the two
+citation shapes that carry a claim about specific code:
+
+1. **A named symbol beside a citation** — the symbol must be defined in the
+   cited file, and the cited lines must be **inside** its block.
+2. **A quotation beside a citation** — the quoted text must appear in the
+   cited lines.
+
+It found **five** real drifts immediately — the four above plus a `db.py:150`
+that pointed at a closing parenthesis rather than the `CLAIMABLE - {RECEIVED,
+EXECUTING}` expression one line up. Mutation-verified: moving one citation to
+a line that does not mention the symbol turns it red, with the line's content
+in the message.
+
+The guard covers 19 of the 144 `path:line` citations in the documents; the
+other 125 are **bare** — a path and a number with nothing beside them — and
+there is nothing mechanical to check them against, so they are counted and
+printed rather than checked. The coverage is visible rather than implied, which
+is the difference between a guard and a claim.
+
 ### What the tree looks like after it
 
 `ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210
-files. `pytest` — **1081 passed, 21 skipped** (1102 collected); the 21 skips are
+files. `pytest` — **1086 passed, 21 skipped** (1107 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
 sixteen of the first are now executed by CI's `verify` job, each named by node

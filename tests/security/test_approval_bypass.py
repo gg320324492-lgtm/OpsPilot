@@ -6,7 +6,17 @@ drive the real gate (``agents.runtime._gate_and_execute``), the real policy
 engine (``domain.policies``) and the real SQLite repositories, with only the
 tool *transport* replaced by a recording spy. The registry is the real one.
 
-The ledger this file implements, verbatim from that table's right-hand column:
+The ledger this file implements. It is **six** of that table's seven
+right-hand rows, not the column verbatim: two of the items below ("reuse an
+approval for a different call", "execute twice on one idempotency key") are not
+rows of the column, and three rows of the column have no adversary here -- the
+injection row (``test_prompt_injection.py``), the currency row (refused at
+gate 1, so it never reaches an approver, and tested in
+``tests/unit/test_permissions.py``), and the "the run reaches ``COMPLETED`` while
+a gate was skipped" row (``test_prompt_injection.py`` again). The table itself
+says where each row's adversary lives; this file is the home of six of them,
+and the docstring it used to carry claimed a one-for-one mapping that did not
+hold.
 
 1. Invent a tool name that passes gate 2 -- ``test_model_cannot_invent_a_tool_name``.
 2. Supply arguments that skip validation -- ``test_missing_required_argument_is_rejected``

@@ -97,9 +97,13 @@ except through this function.
 ```python
 async def _gate_and_execute(call: ToolCall, run: AgentRun) -> ToolCall:
     # GATE 1 — schema validation
-    #   The arguments were already parsed into a Pydantic model when the
-    #   proposal was accepted. Invalid arguments never reach here; if they do,
-    #   this is a programming error and raises.
+    #   The arguments are parsed into the tool's Pydantic model *here*, and
+    #   arguments that do not parse are a **result**, not a crash: the call is
+    #   recorded as a rejected ToolCall, with the reason the schema gave, and
+    #   is never dispatched. (This block used to say the arguments "were
+    #   already parsed" when the proposal was accepted and that invalid
+    #   arguments "never reach here" -- but the proposal carries a plain dict
+    #   and this call is the only place it is parsed.)
     spec = validate_tool_call(call)
 
     # GATE 2 — registry lookup
@@ -112,10 +116,17 @@ async def _gate_and_execute(call: ToolCall, run: AgentRun) -> ToolCall:
     permission = spec.permission          # static, from code
 
     # GATE 4 — policy engine
-    #   Deterministic business rules, and exactly four of them: the denylist
-    #   (a removal of capability, checked first), the idempotency replay
-    #   short-circuit, the refund ceiling, and the refund-exceeds-transaction
-    #   rule.
+    #   Deterministic business rules, and exactly **three** of them can refuse
+    #   here: the denylist (a removal of capability, checked first), the
+    #   idempotency replay short-circuit, and the refund ceiling.
+    #
+    #   "Cannot refund more than the transaction was charged for" is a fourth
+    #   rule, and it is **not** one of the three: it needs the charged amount,
+    #   which is a row only the billing server can read, and `RefundArgs`
+    #   deliberately does not declare it -- a model that could supply the
+    #   number could also suppress the rule by claiming a larger charge. So the
+    #   check lives at the server, as its `amount_exceeds_transaction`, and the
+    #   rule here is inapplicable.
     #
     #   There is NO state precondition here. "Cannot refund an already-refunded
     #   transaction" is refused by the MCP server and only by the MCP server
@@ -283,10 +294,10 @@ one place:
 | Invent a tool name that passes gate 2 | `tests/security/test_registry_authority.py` |
 | Supply arguments that skip gate 1 validation | `tests/security/test_approval_bypass.py` |
 | Cause a `HIGH_RISK_WRITE` to execute without an approval row | `tests/security/test_approval_bypass.py`, `test_approval_rows.py` |
-| Make retrieved instructions change gate 3's permission | `tests/security/test_prompt_injection.py` |
+| Make retrieved instructions cause a high-risk dispatch | `tests/security/test_prompt_injection.py` |
 | Make the approver's decision automatic | `tests/security/test_approval_bypass.py` |
 | Make that currency the one the refund moves in | `tests/unit/test_permissions.py`, `tests/integration/test_refund_risk_explanation.py` — **not** in `tests/security/` |
-| Reach `COMPLETED` while a required gate was skipped | `tests/security/test_approval_bypass.py` |
+| Reach `COMPLETED` while a required gate was skipped | `tests/security/test_prompt_injection.py` |
 
 The currency row is the one that moved: `tests/security/` contains no currency
 adversary at all, because the currency never reaches the approver — it is
@@ -294,8 +305,9 @@ refused at gate 1, before any of this. The refusal is tested where it happens.
 
 ## 6. The CI gate
 
-`tests/security/test_invariants.py` runs these as queries against the assembled
-test database after the full integration suite:
+`tests/security/test_invariants.py` runs these as queries against an
+**assembled** database — one the file builds per test, causing the scenarios
+that could violate an invariant before asserting that it survived:
 
 ```python
 def test_no_unapproved_high_risk_execution(db):
