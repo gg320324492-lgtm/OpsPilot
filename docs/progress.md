@@ -8589,18 +8589,65 @@ references, 3 read as prose.
 
 ### What the tree looks like after it
 
-`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210
-files. `pytest` — **1090 passed, 21 skipped** (1111 collected); the 21 skips are
+`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 233
+files. `pytest` — **1162 passed, 21 skipped** (1183 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
-sixteen of the first are now executed by CI's `verify` job, each named by node
-id and asserted `PASSED`, so a skip there cannot read as coverage. On the web
-side, `tsc --noEmit` and `eslint` clean, `npm run check:types` reports that the
-generated client types are current with the live OpenAPI schema — which is the
-check that would have caught `decided_by` being removed from the request schema
-and `note` being added to the two response schemas without the dashboard's
-client being regenerated — and `npm run e2e` is **76 passed, 0 skipped** with
-Docker running: the same number CI's `web-e2e` job reported, plus the nine
-specs added since, and the twenty-two Compose-backed specs that had never
-executed on this machine.
+sixteen of the first are executed by CI's `verify` job: seven of them named by
+node id and asserted `PASSED`, the other nine by their file's exit code plus an
+assertion that nothing in it skipped, so a skip there cannot read as coverage.
+On the web side, `tsc --noEmit` and `eslint` clean, `npm run check:types`
+reports that the generated client types are current with the live OpenAPI
+schema — which is the check that would have caught `decided_by` being removed
+from the request schema and `note` being added to the two response schemas
+without the dashboard's client being regenerated — and `npm run e2e` is **85
+passed, 0 skipped** with Docker running.
 
+
+### The tree this entry describes has never been through CI
+
+**Date:** 2026-10-22. The line above says what the tree looks like after the
+work; this entry says what has *not* happened to it, which is the other half
+of the same sentence.
+
+The last CI run on this repository is `39473344611`, and its head commit is
+`ba23531` — the same commit `origin/main` is on. Everything above this entry
+(the audit-driven fixes, the guards they added, the documents they corrected)
+lives in commits **on top of** that one, and has therefore never been executed
+by GitHub Actions. The README's figures table quotes run `39439825308` at
+commit `f410911`, which is further back still.
+
+**What that means for the claims in this document.** "CI green on every push"
+is true of the pushes that were pushed, and the tree described above is not one
+of them. The numbers in the block above are local runs, and the CI assertions
+they rely on — the node-id `PASSED` checks, the six packaged-artefact checks,
+the four asset checks — have never executed on GitHub since they were written.
+The honest way to read this entry is: **the work is verified locally, and the
+first CI run on it has not happened yet.**
+
+Three things follow, and all three are worth saying plainly:
+
+- **Nothing here is exempt from CI's own gates.** The suite runs the same
+  `pytest`, the same `ruff`, the same `mypy`, and the same guard files the
+  workflow runs; what has not happened is GitHub running them, not the gates
+  being absent.
+- **The audit that found this** read the workflow and the log, and the two
+  disagreed in the way that matters: a `desktop-menu` step claimed to check
+  that the Electron binary's shared libraries were all present, and under
+  `pipefail` its `&&` branch was unreachable -- so the step printed "every
+  shared library the Electron binary opens is present" and exited 0 **in exactly
+  the case where one was missing**. The step reads `grep`'s verdict now, and
+  the `eval-smoke` step's error message is reachable again (a command
+  substitution that fails aborts the assignment that holds it under `bash -e`,
+  so the step was still red and the diagnosis was lost).
+- **The figures in this block were recomputed against this tree**, not carried
+  over: the earlier ones said 1090 passed over 210 mypy files and 76 browser
+  specs, and the tree says otherwise.
+
+Two claims that were repeated in two documents have been corrected to the
+truth, because a number that can be checked should be: the sixteen
+`postgres`-marked tests are all executed by the `verify` job, but **seven** of
+them are named by node id and asserted `PASSED`; the other nine are held by
+their file's exit code and an assertion that nothing in the file skipped. The
+stronger claim -- "each named by node id and asserted `PASSED`" -- was in the
+README and here, and it was wrong by a factor of two.

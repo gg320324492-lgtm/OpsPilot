@@ -541,8 +541,18 @@ jobs:
       - name: Run 8 representative cases on the fake provider
         run: |
           set -o pipefail
+          # The harness's exit code is the verdict, and it has to be *read*
+          # rather than acted on by the shell: GitHub runs a `run:` step under
+          # `bash -e`, and a command substitution that fails aborts the
+          # assignment that holds it -- so `output=$(...)` alone would end the
+          # step right there, and the `status` and the message below it would
+          # never run. The step would still be red, and the diagnosis would be
+          # lost. `set +e` around the one command is what makes the message
+          # reachable.
+          set +e
           output=$(python -m opspilot.evals run --provider fake --limit 8 2>&1)
           status=$?
+          set -e
           echo "$output"
           if [ "$status" -ne 0 ]; then
             echo "::error::the smoke run exited $status (a non-zero exit means the unsafe-execution gate tripped, or the run could not execute)"
@@ -788,14 +798,26 @@ jobs:
         # `ldd` on the binary lists every shared library it opens. A missing
         # one shows up here as "not found" — which is a clearer failure than
         # the test skipping because Electron could not start, and it names the
-        # library to install. The `|| true` is deliberate: `ldd` exits non-zero
-        # when *anything* is missing, and the message is in its output, not in
-        # its exit code.
+        # library to install.
+        #
+        # **The verdict is `grep`'s, not the pipeline's.** This used to be
+        # `ldd | tee | grep "not found" && { ...; exit 1; } || echo "every
+        # shared library ... is present"`, and under `pipefail` that is
+        # inverted: `ldd` exits non-zero exactly when a library is missing, so
+        # the pipeline's status was non-zero in the *failure* case, the `&&`
+        # branch never ran, and the step printed "every shared library the
+        # Electron binary opens is present" and exited 0 — the one job
+        # responsible for the binary's completeness reporting the opposite of
+        # the truth about it. The exit code of `ldd` says "something is
+        # missing"; the text says *what*, so the text is what is read.
         run: |
-          set -o pipefail
-          ldd node_modules/electron/dist/electron | tee /tmp/ldd.txt | grep "not found" \
-            && { echo "::error::the Electron binary is missing shared libraries. Add them to the apt list in this job:"; grep "not found" /tmp/ldd.txt; exit 1; } \
-            || echo "every shared library the Electron binary opens is present"
+          ldd node_modules/electron/dist/electron > /tmp/ldd.txt 2>&1 || true
+          if grep -q "not found" /tmp/ldd.txt; then
+            echo "::error::the Electron binary is missing shared libraries. Add them to the apt list in this job:"
+            grep "not found" /tmp/ldd.txt
+            exit 1
+          fi
+          echo "every shared library the Electron binary opens is present"
       - name: Menu tests in a real Electron
         # `npm run test:menu` builds `dist/` first, because the spec loads the
         # *compiled* `dist/menu.js` — the thing that ships — rather than
@@ -1529,7 +1551,23 @@ jobs:
         # api/worker, next build, node .next/standalone/server.js) and tears it
         # down after, so no step here manages Docker. A failure leaves the
         # Playwright trace/screenshot under web/test-results/ for the upload.
-        run: npm run e2e
+        #
+        # **The count of what passed is asserted here**, and this is the only
+        # job in the file that needed it said out loud: `web/e2e/stack.ts`
+        # skips cleanly when `docker info` fails, and a job in which every
+        # spec skipped is green -- a green run that proved nothing, which is
+        # the failure ADR-0004 is about. The other jobs assert their own
+        # equivalents (the menu job's two tests, the packaged job's six
+        # checks, the asset job's four artefacts), and `docker-build` --
+        # another job on another runner -- says nothing about *this*
+        # runner's Docker.
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee /tmp/e2e.txt
+          if ! grep -qE "[0-9]+ passed" /tmp/e2e.txt; then
+            echo "::error::no browser test passed. A run in which every spec skipped proves nothing -- check whether Docker is reachable on this runner."
+            exit 1
+          fi
       - name: Upload the Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -75,11 +75,12 @@ semantics are what is simulated."*
 > `test_mcp_stdio_transport.py` tests that enumerate OS processes: they are
 > `skipif(sys.platform != "win32")`, so the Linux runner skips them where
 > Windows actually runs them. Local's 21 skips are 16 `postgres`-marked tests
-> that CI resolves against a real pgvector container — every one of the sixteen,
-> named by node id and asserted `PASSED`, so a skip there cannot read as
-> coverage — 3 platform-independent placeholders that skip on both platforms,
-> and 2 eval-fixture skips for committed result files written before the
-> breakdown was recorded.
+> that CI resolves against a real pgvector container — seven of the sixteen
+> named by node id and asserted `PASSED`, the other nine by their file's exit
+> code plus an assertion that nothing in it skipped, so a skip there cannot
+> read as coverage — 3 platform-independent placeholders that skip on both
+> platforms, and 2 eval-fixture skips for committed result files written before
+> the breakdown was recorded.
 >
 > The browser walkthrough runs on a machine with Docker: **85 passed, 0
 > skipped** (`npm run e2e`, 2026-10-21) — the CI run's 67 plus nine specs
