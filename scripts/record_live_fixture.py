@@ -45,8 +45,11 @@ Run on 2026-10-15 against ``MiniMax-M3.1-Flash-Preview``, this recorded six real
 calls and the run reached ``completed`` **without proposing a refund.** The model
 classified the ticket correctly (``duplicate_charge``, 0.99), then called
 ``crm.get_customer`` with ``{"email": ...}`` -- but the contract's parameter is
-``customer_email``, so the call was rejected with ``validation_error``. It tried
-again, was rejected again, and correctly escalated to a human via
+``customer_email``, so the call was refused at **gate 1**, with the recorded
+``rejection_reason`` ``gate_1_schema_validation``. (The contract's
+``validation_error`` is a *result* code a server sends; the tool never ran, so
+there was no result. The gate name is what the ledger records.) It tried
+again, was refused again, and correctly escalated to a human via
 ``issues.create`` rather than proposing a refund it could not verify.
 
 So a live recording of *this* ticket does not reproduce the golden path the

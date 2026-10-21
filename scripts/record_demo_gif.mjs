@@ -23,17 +23,28 @@
 // Run:
 //     node scripts/record_demo_gif.mjs
 //
-// Requires: ttyd and ffmpeg on PATH, and `npm i playwright` available to this
-// script (resolved from node_modules or the global cache).
+// Requires: ttyd and ffmpeg on PATH, and the dashboard's own dependencies
+// installed (`npm ci` in web/ -- Playwright comes with them).
 
-import { chromium } from "playwright";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import os from "node:os";
 
 const REPO = path.resolve(import.meta.dirname, "..");
+
+// **Playwright is resolved from `web/`, and it has to be.** It is the
+// dashboard's dev dependency, so it lives in `web/node_modules/` -- and this
+// script lives in `scripts/`, which has no `node_modules` of its own and no
+// root `package.json` to inherit one from. A bare `import { chromium } from
+// "playwright"` therefore resolved to nothing and the script died at module
+// load, so the README's "reproduce the GIF" command -- the one a reviewer is
+// told to run -- regenerated nothing. The require is anchored at
+// `web/package.json` so Node resolves the package where it actually is.
+const require = createRequire(path.join(REPO, "web", "package.json"));
+const { chromium } = require("playwright");
 const OUT_GIF = path.join(REPO, "docs", "assets", "golden-path.gif");
 const WORK = path.join(os.tmpdir(), "opspilot-gif");
 const FRAMES = path.join(WORK, "frames");
@@ -75,10 +86,15 @@ try {
     await sleep(200);
   }
 
-  const exe = process.env.PLAYWRIGHT_CHROMIUM
-    || "C:/Users/admin/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe";
+  // `PLAYWRIGHT_CHROMIUM` points at a browser when the one Playwright would
+  // pick is not the one to use. There is deliberately **no fallback path**:
+  // this used to name one user's home directory and a browser build that is
+  // not the installed one, so the literal was dead on the machine that wrote it
+  // and would have been wrong on every other. Playwright resolves its own
+  // browser when this is unset.
+  const exe = process.env.PLAYWRIGHT_CHROMIUM;
   const browser = await chromium.launch(
-    existsSync(exe) ? { executablePath: exe, args: ["--no-sandbox"] } : { args: ["--no-sandbox"] },
+    exe && existsSync(exe) ? { executablePath: exe, args: ["--no-sandbox"] } : { args: ["--no-sandbox"] },
   );
   const page = await browser.newPage({ viewport: { width: 1400, height: 1050 } });
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "load" });

@@ -376,7 +376,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `customer_email`. Rejected twice, it escalated to a human via
       `issues.create` instead of proposing a refund — so the recording scripts a
       *different* run from the one the committed fixture holds, and cannot
-      replace it (eight test modules assert the park-and-refund sequence). The
+      replace it (six test modules assert the park-and-refund sequence). The
       recording is kept at `docs/evidence/live-run-2026-10-15.json` as a live
       instance of the 0.471 argument-validity defect `docs/evals.md` measures;
       `docs/progress.md` records what it shows. The same script makes the

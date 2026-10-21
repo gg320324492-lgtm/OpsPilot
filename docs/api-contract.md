@@ -373,6 +373,30 @@ state; `failure_reason` is `null` on a run that completed and carries the
 machine-stable token on one that failed (§3 of
 `docs/agent-state-machine.md`).
 
+### 3.2 `POST /api/runs`
+
+Enqueue a new run for a ticket that already exists. The body is one required
+field, and it is required for the same reason every other body is: a request
+that could name its own subject would let a caller write the document the
+system reasons about.
+
+```jsonc
+// request
+{ "ticket_id": "0f3a…" }
+
+// 201
+{ "id": "9b04…", "status": "received", "created_at": "2026-10-05T11:02:00Z" }
+```
+
+The body model forbids unknown fields, so a client that sends anything else is
+told so rather than having it quietly ignored.
+
+**It always creates a new run.** Re-running an investigation is a legitimate
+action, so this does not deduplicate against an existing run for the same
+ticket (§9).
+
+Raises `404 ticket_not_found` when the ticket does not exist.
+
 ## 4. `GET /api/runs/{run_id}/trace`
 
 The timeline, without tool arguments or model payloads — the cheap endpoint the
@@ -479,6 +503,7 @@ run id indistinguishable from a run that had just been created.
       "created_at": "2026-10-05T10:42:09Z",
       "decided_at": null,
       "decided_by": null,
+      "note": null,
       "context": {
         "company": "ACME",
         "ticket_subject": "Charged twice for invoice INV-2026-384"
@@ -495,8 +520,10 @@ the approver can decide without opening a second tab, and it is assembled from
 result the run has already executed, the ticket's subject from the ticket
 itself — so assembling it triggers **no tool calls** and cannot change what the
 run has done. A run that never fetched a customer still parks a valid approval,
-and that approval's `context` is `null` rather than an error or a set of empty
-strings.
+and that approval's `context` carries a `null` `company` rather than an error or
+a set of empty strings. The **whole** object is `null` only when the ticket has
+no subject either — and `subject` is required on a ticket, so in practice the
+object is present with a `company` that may or may not be known.
 
 The context is stored in a column of its own, not inside `arguments_snapshot`.
 The snapshot is one thing — what the human approved and what will be executed —
@@ -535,8 +562,15 @@ operator would be naming a person who did not act.
 // 200
 { "id": "b7e2…", "status": "approved",
   "decided_at": "2026-10-05T10:44:32Z", "decided_by": "operator",
+  "note": "Confirmed in billing console.",
   "run": { "id": "7c1b…", "status": "executing" } }
 ```
+
+**The `note` comes back.** It is the operator's own remark, it is accepted on
+the decision, and it is persisted with it — so the decision response echoes
+it, and so does every later read of that approval (`GET /api/approvals/{id}`,
+and `GET /api/approvals?status=approved`). A remark that was accepted and
+then invisible would be a remark the operator believed they had left.
 
 **The identity is the server's to assign.** `decided_by` in the response is
 resolved from the bearer token and from nothing else. **The request body has no
@@ -615,15 +649,21 @@ table as reachable, not just the routes it can see.
 
 **Two more codes exist as fallbacks.** `_code_for_status` maps a bare
 `HTTPException`'s status onto a code, and its last two branches are
-`validation_error` (for a 422 nobody raises) and `error` (for any status not
+`validation_error` (for a 400 nobody raises) and `error` (for any status not
 in the table). Neither is reachable today — the only bare `HTTPException` the
 API raises is the 401 — but a client must not crash on them.
 
-**There is no `not_ready` code.** An earlier revision of this table listed one
-for the 503, and nothing in `src/` has ever constructed it: `/ready` reports an
-unready database with a `status`/`checks` body (§7), and it is the only route
-that answers 503 at all. A client must therefore read `/ready`'s body rather
-than branch on a code it will never see.
+(The 400 is deliberate and the 422 is not: `validation_error` is this table's
+400, and a bare `HTTPException(422)` would map to `error`, because the code
+that means "your body did not validate" is `schema_invalid` and the API raises
+that itself rather than letting a bare `HTTPException` reach the fallback.)
+
+**No client ever sees a `not_ready` code.** An earlier revision of this table
+listed one for the 503. The code still sits in `src/opspilot/api/errors.py`'s
+code-to-status table — which is a table of codes the API *could* send — but
+nothing sends it: `/ready` reports an unready database with a `status`/`checks`
+body (§7), and it is the only route that answers 503 at all. A client must
+therefore read `/ready`'s body rather than branch on a code it will never see.
 
 **`approval_expired` is not `approval_already_decided`.** An approval that
 somebody else already decided says "already decided", and names the actor and

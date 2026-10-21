@@ -388,6 +388,10 @@ def _summary(approval: ApprovalRequest) -> ApprovalSummary:
         created_at=approval.created_at,
         decided_at=approval.decided_at,
         decided_by=approval.decided_by,
+        # The operator's own remark on the decision. It is stored, and the
+        # decision response carries it -- but the inbox did not, so a remark
+        # an operator wrote was invisible on the page they wrote it from.
+        note=approval.note,
         context=_context_for(approval),
     )
 

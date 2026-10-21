@@ -731,7 +731,7 @@ export function workerReport(): string {
  * it prints once, from `_run`, immediately before handing control to
  * `poll_forever` (`worker/__main__.py`):
  *
- *     opspilot-worker[<id>]: booted; marked N interrupted run(s) failed; polling every 1.0s
+ *     opspilot-worker[<id>]: booted; marked N interrupted run(s) failed; polling every 1.0s; approvals expire after 3600s
  *
  * That line is the worker's own claim to be polling, printed by the code that
  * is about to poll. Waiting for it turns an invisible precondition into a
@@ -1163,6 +1163,7 @@ export async function recreateWorker(extra: Record<string, string> = {}): Promis
  * "the claim happened and the harness misread it".
  */
 const CLAIM_MARKER = "@@opspilot-claim@@";
+const EXPIRE_MARKER = "@@opspilot-expire@@";
 
 /** One claimed run, as `SqlRunStore.claim_next` returned it. */
 export type ClaimedRun = {
@@ -1256,6 +1257,52 @@ export function claimOldestRunThroughTheRepository(options: {
     );
   }
   return parsed;
+}
+
+/**
+ * Expire the pending approvals, the way the worker's TTL sweep does.
+ *
+ * The sweep is `SqlApprovalStore.expire_pending` -- the same conditional
+ * `UPDATE` the worker runs, so this stages the state a timed-out approval
+ * really is in rather than a hand-written imitation of it. The count comes
+ * back so a test can fail on "nothing was pending to expire" instead of
+ * quietly asserting about a state that never happened.
+ *
+ * The API's own refusal of a decision on an expired approval is pinned in
+ * Python (`tests/integration/test_approval_expiry.py`); what this exists for is
+ * the *dashboard's* rendering of the 409 it produces.
+ */
+export function expireApprovalsThroughTheRepository(): number {
+  const program = [
+    "import asyncio, json",
+    "from datetime import UTC, datetime",
+    "from opspilot.adapters.persistence import db",
+    "from opspilot.adapters.persistence.repositories import SqlApprovalStore",
+    "from opspilot.settings import get_settings",
+    "async def main():",
+    "    factory = db.session_factory(get_settings())",
+    "    expired = await SqlApprovalStore(factory).expire_pending(before=datetime.now(UTC))",
+    `    print(${JSON.stringify(EXPIRE_MARKER)} + json.dumps(expired))`,
+    "asyncio.run(main())",
+  ].join("\n");
+
+  const out = execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", program], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    env: stackEnv(),
+  });
+  const line = out
+    .split("\n")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.startsWith(EXPIRE_MARKER))
+    .pop();
+  if (line === undefined) {
+    throw new Error(
+      "the expire program printed no result line, so whether anything expired is unknown.\n" +
+        `It was given:\n${program}\n\nand printed:\n${out}`,
+    );
+  }
+  return JSON.parse(line.slice(EXPIRE_MARKER.length)) as number;
 }
 
 /**

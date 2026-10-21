@@ -38,7 +38,20 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok", version=_VERSION)
 
 
-@router.get("/ready", response_model=ReadyResponse)
+@router.get(
+    "/ready",
+    response_model=ReadyResponse,
+    # Declared, not documented: the contract's §6 says this route answers 503,
+    # and the generated document is part of the contract. The 503 body is the
+    # readiness shape and NOT the error envelope -- a probe reads the checks
+    # and acts on them, so the envelope would be the wrong shape here.
+    responses={
+        503: {
+            "description": "Not ready (the failing checks are named)",
+            "model": ReadyResponse,
+        }
+    },
+)
 async def ready(request: Request) -> JSONResponse:
     """Readiness: check the database and that migrations are at head.
 

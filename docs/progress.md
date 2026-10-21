@@ -8297,10 +8297,112 @@ seconds and **no download is attempted** (`path.txt` is not recreated), and the
 compiled `dist/security-web-contents.js` contains no `require("electron")` at
 all.
 
+## Three more audits, and a contract that named a code the API never sends
+
+**Date:** 2026-10-21, later still. Three audits came back: the API contract
+against the API, the dashboard's browser specs against the dashboard, and the
+helper scripts against everything the repository says about them. Between them:
+27 drifts, and four of them were a document promising something the code does
+not do.
+
+### The OpenAPI document named a code the API never sends
+
+`docs/api-contract.md`'s preamble says the generated OpenAPI document "is
+treated as part of the contract, not as documentation that drifts". The
+document's description for a **422** named `validation_error`. The API sends
+`schema_invalid` for every 422 it raises — the one 422 path in the codebase is
+FastAPI's request-body validation.
+
+A client generated from the document would have typed a branch on a code the API
+never sends, and would have had no typed branch on the one it does. The module
+that builds the document states the rule it broke: *"The descriptions name the
+*code* a client branches on, never the message."*
+
+The 422 now names `schema_invalid`, a **500** is declared (the contract's §6
+lists one for every endpoint and the document declared none — an undeclared
+500 is not a client that handles it, it is a client whose type says the failure
+cannot happen), and `/ready` declares its **503** (whose body is the readiness
+shape and deliberately *not* the error envelope).
+
+**The guard is the one that could not have existed before.**
+`tests/unit/test_openapi_error_descriptions_name_the_codes_the_api_sends.py`
+cross-checks the generated document against the contract's §6 table — the
+*written* contract, not a copy of it in the test, so a third answer cannot
+drift. Every code a description names must be one the table maps to that same
+status. Mutation-verified: putting `validation_error` back on the 422 turns it
+red with the mismatch named.
+
+### The operator's remark was stored and invisible
+
+`ApprovalSummary` declares a `note` field and the store persists the operator's
+own remark — but the summary projection never read it, so `GET /api/approvals`
+and `GET /api/approvals/{id}` answered `note: null` for an approval whose
+remark was sitting in the database. A remark an operator wrote was invisible on
+the page they wrote it from.
+
+It is projected now, and the contract's examples carry it. (The decision
+response always did — the dashboard's card shows the note after deciding.)
+
+### The duplicate `external_id` is a 409, and the spec said it was a 500
+
+`web/e2e/failure-states.spec.ts` asserted, in the same paragraph, that the API
+answers `500 internal_error` for a duplicate `external_id` and that the operator
+therefore sees "a generic message for a completely foreseeable operator
+mistake". Both halves stopped being true when the API learned to catch the
+violation and answer `409 ticket_exists` — and the *form's own comment*
+repeated the same stale claim, so a reader of the form would have reached the
+same wrong conclusion.
+
+Both are corrected. The spec's exclusion list also used to present itself as the
+file's complete list of gaps, and the dashboard has since gained a **third**
+operator-facing failure state — the **expired** approval, on the money path,
+with its own copy that nothing pinned. It is pinned now: a browser case stages
+the expiry with the worker's own TTL sweep (`SqlApprovalStore.expire_pending`,
+the same conditional `UPDATE` the worker runs) and asserts that the panel says
+*"This approval expired — this click granted nothing."* and **not** "Already
+decided" — because "already decided" would put a person in a sentence that is
+false, when nobody was there at all.
+
+### A test that could never fire, and a recipe that could not run
+
+`web/e2e/i18n.spec.ts` had a second half that watched the **browser's**
+requests for port 8000 and compared the set it saw in each locale. But the
+dashboard's reads are made by the Next.js process, not by the browser — the
+browser only calls the dashboard's own `/api/...` Route Handlers, on the
+dashboard's port. So the set was always empty and the assertion compared `[]`
+with `[]`. It would have passed with `?locale=zh-CN` on every API URL, which
+is the exact failure its own comment said it was there to catch.
+
+What is observable is the API's *answer*, and the answer is on the page: a
+refused call is an error panel, not an inbox. The assertion now says **no
+load-failure panel in either locale** — which is stronger than comparing URL
+sets, because it asserts the API *accepted* the calls.
+
+**And the README's headline "reproduce the GIF" command could not run.** It
+says `node scripts/record_demo_gif.mjs`, and the script does
+`import { chromium } from "playwright"` — from `scripts/`, which has no
+`node_modules` of its own and no root `package.json` to inherit one from. The
+only Playwright is in `web/node_modules/`, which Node's resolution never
+reaches from `scripts/`. So the recipe a reviewer is told to follow died at
+module load and regenerated nothing, while `docs/risks.md` told them the
+artefact was "regenerable".
+
+The script now resolves Playwright from `web/` explicitly, and the hard-coded
+`C:/Users/admin/.../chromium-1234/chrome.exe` is gone — one user's home
+directory, naming a browser build that is not even the installed one.
+
+`scripts/openapi_schema.py` had the same kind of slip: it set
+`OPSPILOT_DATABASE_URL` to redirect the settings away from a developer's
+database, and `OPSPILOT_DATABASE_URL` is not a name the settings layer reads
+— the field's alias is `DATABASE_URL`. The redirection never happened, so the
+"belt-and-braces" the docstring relied on was absent, and a future eager engine
+would have used the developer's own database. It sets the right name now, and
+the two helpers that claimed a consumer they did not have are gone.
+
 ### What the tree looks like after it
 
 `ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210
-files. `pytest` — **1078 passed, 21 skipped** (1099 collected); the 21 skips are
+files. `pytest` — **1081 passed, 21 skipped** (1102 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
 sixteen of the first are now executed by CI's `verify` job, each named by node

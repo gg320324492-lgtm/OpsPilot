@@ -16,10 +16,11 @@ that drifts.
 
 Why this script lives at the repository root
 --------------------------------------------
-The artwork is repository-level art: `docs/assets/icon-source.png`. The three
-artefacts it becomes live in three different trees -- the shell's
-`desktop/assets/`, the dashboard's `web/src/app/`, and the README's
-`docs/assets/`. A generator that sits under one of the three and produces the
+The artwork is repository-level art: `docs/assets/icon-source.png`. It
+becomes **three artefacts in two trees** -- the shell's icon in
+`desktop/assets/`, and the dashboard's favicon and apple-touch icon in
+`web/src/app/`. The README's wordmark comes from the *other* source image,
+`docs/assets/logo-source.png`. A generator that sits under one of the three and produces the
 other two is in the wrong place: it reads as though the artwork belonged to
 the shell, and the moment the dashboard needs an asset of its own the
 generator has to move again -- this time for a second reason. `scripts/` is

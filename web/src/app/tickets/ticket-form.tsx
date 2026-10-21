@@ -241,11 +241,16 @@ function Field({
  * `code` and the API's `message` stay verbatim in front of it, for the reason
  * `decision-error.ts` gives.
  *
- * Note that `routers/tickets.py::create_ticket` does not currently raise
- * `409 ticket_exists`; it answers a 500 `internal_error` for a duplicate
- * `external_id`. `failure-states.spec.ts` records that as a finding rather than
- * pinning it. This branch is what renders *if* the API ever does raise it, and
- * it is the same branch either way.
+ * `routers/tickets.py::create_ticket` catches the store's named duplicate
+ * condition and answers `409 ticket_exists`, so this branch is what renders
+ * for a duplicate `external_id` today -- the API side is pinned by
+ * `tests/integration/test_ticket_external_id_dedupe.py`, and the browser
+ * walkthrough does not stage one.
+ *
+ * (This comment used to say the API "does not currently raise" the 409 and
+ * answers a 500 `internal_error` instead, and called this branch a
+ * hypothetical. It stopped being true when the API learned to catch the
+ * violation, and the claim was repeated in `failure-states.spec.ts`.)
  */
 function describeFailure(
   payload: unknown,

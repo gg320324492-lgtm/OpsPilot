@@ -307,6 +307,27 @@ async def test_the_operator_note_is_persisted_with_the_decision(
     assert stored.note == "Confirmed in billing console."
     assert stored.decided_by == "operator"
 
+    # ...and the **read** of it carries it too. The decision response always
+    # did; the summary projection did not, so `GET /api/approvals/{id}` answered
+    # `note: null` for an approval whose remark was sitting in the database. A
+    # remark an operator wrote was invisible on the page they wrote it from.
+    #
+    # (The *inbox* at its default filter lists `pending` approvals, which have
+    # no note yet -- the remark is written at decision time. The decided
+    # approval is read through the single-approval route and through
+    # `?status=approved`.)
+    single = client.get(f"/api/approvals/{approval.id}", headers=_AUTH)
+    assert single.status_code == 200
+    assert single.json()["note"] == "Confirmed in billing console."
+
+    decided = client.get("/api/approvals?status=approved", headers=_AUTH)
+    assert decided.status_code == 200
+    items = decided.json()["items"]
+    assert any(
+        item["id"] == str(approval.id) and item["note"] == "Confirmed in billing console."
+        for item in items
+    ), f"the decided list did not carry the note: {items}"
+
 
 def test_approvals_require_a_token(client: TestClient) -> None:
     """The approvals surface is behind the bearer token like everything else."""

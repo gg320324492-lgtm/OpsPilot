@@ -69,7 +69,14 @@ def build_schema() -> dict[str, Any]:
         # os.path.join -- which would emit backslashes on Windows and produce a
         # SQLite URL that is not a URL.
         db_path = Path(tempfile.gettempdir()) / "opspilot-openapi-schema.db"
-        os.environ["OPSPILOT_DATABASE_URL"] = f"sqlite+pysqlite:///{db_path.as_posix()}"
+        # ``DATABASE_URL`` and not ``OPSPILOT_DATABASE_URL``: the settings
+        # field's alias is ``DATABASE_URL`` and the model has no env prefix,
+        # so that is the only name it binds. (``OPSPILOT_DATABASE_URL`` is
+        # a real name in this repository, but it belongs to the *tests* and
+        # to CI, which read ``os.environ`` directly. This script was setting
+        # it, so the redirection it documented never happened and the
+        # settings resolved the developer's own database instead.)
+        os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path.as_posix()}"
 
         # Settings are cached process-wide; the redirect above has to be visible
         # to whatever `get_settings()` already memoised.
@@ -86,33 +93,6 @@ def build_schema() -> dict[str, Any]:
         os.environ.clear()
         os.environ.update(previous)
         _clear_settings_cache()
-
-
-def write_schema(destination: Path) -> Path:
-    """Write the OpenAPI document to ``destination``, creating parent dirs.
-
-    Args:
-        destination: The file to write. Written with sorted keys and no
-            incidental whitespace so the output is stable across runs and
-            diffs cleanly when it changes.
-
-    Returns:
-        The path written, for the caller to report or pipe onward.
-    """
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(build_schema(), indent=2, sort_keys=True) + "\n"
-    destination.write_text(payload, encoding="utf-8")
-    return destination
-
-
-def canonical_schema() -> str:
-    """Return the schema as a canonical string, for hashing and comparison.
-
-    Sorted keys and no incidental whitespace, so two schema objects that differ
-    only in dict ordering produce the same string. Used by the drift guard to
-    decide whether the committed types are still current.
-    """
-    return json.dumps(build_schema(), sort_keys=True, separators=(",", ":"))
 
 
 def _ensure_src_on_path() -> None:

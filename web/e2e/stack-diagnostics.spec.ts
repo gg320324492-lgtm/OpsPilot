@@ -94,9 +94,16 @@ const ABSENT: WorkerContainerState = {
   restarts: 0,
 };
 
-/** The worker's one boot line, verbatim from `worker/__main__.py`'s `_run`. */
+/**
+ * The worker's one boot line, verbatim from `worker/__main__.py`'s `_run`.
+ *
+ * "Verbatim" is a claim that has to be kept: the line gained a third clause
+ * when the approval TTL arrived ("approvals expire after 3600s"), and a
+ * fixture that still carried the old two-clause line would have stopped
+ * matching what the worker prints.
+ */
 const BOOT_LINE =
-  "opspilot-worker[worker-compose]: booted; marked 0 interrupted run(s) failed; polling every 1.0s";
+  "opspilot-worker[worker-compose]: booted; marked 0 interrupted run(s) failed; polling every 1.0s; approvals expire after 3600s";
 
 /**
  * The log of a worker that boots, prints the boot line, and is then killed --
@@ -231,7 +238,7 @@ test.describe("the worker's own account of itself, read against Docker's", () =>
     // prints with a multi-worker setup.
     const verdict = assessWorker(
       "worker-1  | 2026-10-13T04:14:40.011Z " +
-        "opspilot-worker[host-a-2c1f]: booted; marked 1 interrupted run(s) failed; polling every 1.0s",
+        "opspilot-worker[host-a-2c1f]: booted; marked 1 interrupted run(s) failed; polling every 1.0s; approvals expire after 3600s",
       HEALTHY,
     );
     expect(verdict).toEqual({ polling: true });

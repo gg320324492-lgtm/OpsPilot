@@ -30,7 +30,13 @@ What it does, and what is real
 
 Recording it:
 
-    vhs docs/demo/golden-path.tape
+    node scripts/record_demo_gif.mjs
+
+(The tape at ``docs/demo/golden-path.tape`` is the *intent*, and it is
+committed -- but ``vhs`` cannot record on this machine, for two reasons
+verified and written out in the tape's own header. The committed GIF was
+captured the way vhs captures: real screenshots of the real terminal, encoded
+with the system ffmpeg. Nothing in it is drawn by hand.)
 
 Run it by hand (it prints the same output):
 

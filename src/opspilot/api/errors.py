@@ -60,7 +60,20 @@ ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     401: _envelope("Missing or invalid bearer token (``unauthorized``)"),
     404: _envelope("No such resource (entity-specific code)"),
     409: _envelope("Conflicting state (``*_already_decided`` and friends)"),
-    422: _envelope("Schema validation failed (``validation_error``)"),
+    # The code a 422 actually carries is ``schema_invalid``, not
+    # ``validation_error``: the one 422 path in the codebase is FastAPI's
+    # request-body validation, and the handler answers with that code. This
+    # description names the code a client branches on, and it used to name the
+    # wrong one -- which is worse than naming none, because a generated client
+    # would type a branch on a code the API never sends.
+    422: _envelope("Schema validation failed (``schema_invalid``)"),
+    # The contract's §6 lists a 500 for every endpoint, and the document the
+    # code generates did not declare one. An undeclared 500 is not a client
+    # that handles it; it is a client whose type says the failure cannot
+    # happen.
+    500: _envelope(
+        "Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``)"
+    ),
 }
 
 # The stable machine identifier -> HTTP status mapping from contract §6. The

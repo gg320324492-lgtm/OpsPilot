@@ -1194,8 +1194,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1263,8 +1272,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1336,8 +1354,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1409,8 +1436,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1476,8 +1512,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1543,8 +1588,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1614,8 +1668,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1685,8 +1748,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1754,8 +1826,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1823,8 +1904,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1892,8 +1982,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1962,8 +2061,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2033,8 +2141,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2102,8 +2219,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Schema validation failed (``validation_error``) */
+            /** @description Schema validation failed (``schema_invalid``) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by the ``trace_id``) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2144,6 +2270,15 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyResponse"];
+                };
+            };
+            /** @description Not ready (the failing checks are named) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

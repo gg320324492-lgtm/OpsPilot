@@ -408,24 +408,32 @@ test("switching locale changes nothing the API or an operator's link speaks", as
   expect(englishHrefs).toContain("/runs?status=failed");
 
   // **The API requests the server makes.** Every read the dashboard performs is
-  // a server-side fetch to a path the contract fixes. If a locale ever leaked
-  // into a URL, this is where it would show up -- and it is asserted as a set of
-  // *paths* because a locale would arrive as a query parameter or a header, and
-  // neither appears.
-  const apiPathsFor = async (locale: "en" | "zh-CN"): Promise<string[]> => {
+  // a server-side fetch to a path the contract fixes, and the API answers 400
+  // for a query it does not accept. So a locale that leaked into a URL would
+  // not be invisible: the call would be refused and the page would show the
+  // error panel instead of the inbox.
+  //
+  // **This half used to be theatre.** It watched the *browser's* requests for
+  // port 8000 and compared the set it saw in each locale. But the dashboard's
+  // reads are made by the Next.js process, not by the browser -- the browser
+  // only calls the dashboard's own `/api/...` Route Handlers, on the
+  // dashboard's port -- so the set was always empty and the assertion compared
+  // `[]` with `[]`. It would have passed with `?locale=zh-CN` on every API
+  // URL, which is the exact failure the comment said it was there to catch.
+  //
+  // What is observable is the API's *answer*, and the answer is on the page: a
+  // refused call is an error panel, not an inbox. That is the assertion now,
+  // and it is stronger than comparing URL sets -- it asserts the API *accepted*
+  // the calls, in both locales.
+  const loadFailuresFor = async (locale: "en" | "zh-CN"): Promise<number> => {
     await setLocaleCookie(page.context(), locale);
-    const seen: string[] = [];
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      if (url.port === "8000") seen.push(`${url.pathname}${url.search}`);
-    });
     await page.goto("/approvals");
     await expect(page.getByRole("heading", { name: /^(Approvals|审批)$/ })).toBeVisible();
-    page.off("request", () => {});
-    return [...new Set(seen)].sort();
+    return page.getByText(/Could not load approvals|无法加载审批/).count();
   };
 
-  expect(await apiPathsFor("zh-CN")).toEqual(await apiPathsFor("en"));
+  expect(await loadFailuresFor("zh-CN")).toBe(0);
+  expect(await loadFailuresFor("en")).toBe(0);
 });
 
 test("contract field names and operator data read the same in every locale", async ({
