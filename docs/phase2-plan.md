@@ -312,7 +312,11 @@ request was. **It stopped being true at `651bcef`.** What exists now:
 - **A message catalogue.** `web/src/i18n/dictionaries/en.json` (347 string
   leaves, counted 2026-10-21) and `web/src/i18n/dictionaries/zh-CN.json` (343).
   The counts are a snapshot -- the catalogues grow with the screens -- so a
-  reader who wants the live numbers counts the leaves. The four-leaf difference is
+  reader who wants the live numbers counts the leaves, and counts them the
+  same way: **the plural forms are flattened**, so a group of `{one, other}`
+  is two leaves rather than one. Flattened is the only counting that shows
+  the difference; unflattened, the two catalogues have the same number of
+  leaves. The four-leaf difference is
   exactly the `.one` plural forms Chinese does not have:
   `dashboard.replay.one`, `dashboard.indexed.one`, `run.failedCalls.one` and
   `knowledge.reindex.someIndexed.one`.
@@ -439,7 +443,7 @@ the directory grows with every evaluation), so it has never been run and no resu
 | **D2** | Installed on a clean machine and walked, **by someone who did not build it** | **outstanding, and only a person can close it** | `docs/installer-verification.md` is the script. The installer was built by the author, so running it here is self-certification and does not meet the criterion |
 | **D3** | The **packaged** app is checked against A1–A3 the same way the dev stack is | **met for the artefact, partial for a running instance** | `desktop/e2e/packaged-posture.spec.ts` inspects what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env`/token, and the security policy inside `app.asar`. It does **not** launch `OpsPilot.exe`: doing so spawns Docker and writes a token into `%APPDATA%`, which is the manual step `docs/installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit |
 | **E** | A stranger can clone, follow the README, and reproduce the golden path | **partial** | README positioning, the simulated-billing statement, the case study, the GIF (359,981 bytes) and **ten** screenshots are committed. **No GitHub Release**: `git tag` returns nothing and `gh release list` is empty, and the tag is held back on purpose — see D2 |
-| **F** | A locale the operator chooses, English by default | **met** for the first catalogue | `web/src/i18n/` with `en` (337 string leaves) and `zh-CN` (333); the four-leaf difference is exactly the `.one` plural forms Chinese does not have (`dashboard.replay.one`, `dashboard.indexed.one`, `run.failedCalls.one`, `knowledge.reindex.someIndexed.one`). The two spec files are in `web/e2e/`, not beside the catalogue: `web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`. The native menu bar is localized too — `desktop/src/menu-policy.ts`'s `zh-CN` `MENU_COPY`, and `desktop/src/menu.ts` reading the same `opspilot_locale` cookie out of the session's cookie store, asserted by `desktop/e2e/menu.spec.ts` and `desktop/e2e/menu-electron.spec.ts`. Adding further languages is a product decision this document does not make, per §P2-F |
+| **F** | A locale the operator chooses, English by default | **met** for the first catalogue | `web/src/i18n/` with `en` (347 string leaves) and `zh-CN` (343), counted 2026-10-21 with the plural forms **flattened** -- the only counting that shows the difference, since unflattened the two catalogues have the same number of leaves; the four-leaf difference is exactly the `.one` plural forms Chinese does not have (`dashboard.replay.one`, `dashboard.indexed.one`, `run.failedCalls.one`, `knowledge.reindex.someIndexed.one`). The two spec files are in `web/e2e/`, not beside the catalogue: `web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`. The native menu bar is localized too — `desktop/src/menu-policy.ts`'s `zh-CN` `MENU_COPY`, and `desktop/src/menu.ts` reading the same `opspilot_locale` cookie out of the session's cookie store, asserted by `desktop/e2e/menu.spec.ts` and `desktop/e2e/menu-electron.spec.ts`. Adding further languages is a product decision this document does not make, per §P2-F |
 
 **Five rows are not clean "met" (C1, B4, C4, D2/D3, E), and they are not the same
 kind of gap.** D3's remaining half and D2 both need a person to run the installer,
