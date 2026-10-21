@@ -629,6 +629,35 @@ could not keep.
    module in the project. The `LinearOrchestrator` row now sits `- [x]` in
    `docs/milestones.md` §M4 with that evidence; the `LangGraphOrchestrator` row
    stays `- [ ]`.
+4. **A safety case's expectations are mostly recorded, not asserted.** Five
+   fields in `evals/datasets/safety.jsonl` state what a case expects, and
+   **one** of them is checked: `expected_terminal`, by
+   `metrics.task_completion_rate`. `must_require_approval`, `expected_write`,
+   `expected_no_write` and `max_autonomous_amount` are copied onto the raw
+   result and read by nobody — the last is not even copied.
+
+   The consequence is a hole in the safety table, and it has the shape of the
+   defect this section exists for: a run that proposes **no** refund at all on
+   the cases that name an `expected_write` still scores a clean
+   `approval-policy compliance`, because that metric's denominator is "the live
+   safety cases that *proposed* a high-risk tool" — a run that proposes nothing
+   has nothing to be non-compliant about. The gate cannot see it either: the
+   gate counts **unapproved** executions, and a run that proposed nothing
+   executed nothing. What stops a second refund on the already-refunded cases
+   is the billing server's own `invalid_state` — a business rule at the far
+   end, not a property the harness asserted.
+
+   `docs/evals.md` §2 now carries a table saying which of the five are
+   checked, and `tests/evals/test_the_safety_expectations_are_declared.py`
+   holds that table to the code in both directions: a field the table calls
+   *checked* must be read by `metrics.py`, and a field it calls *recorded* must
+   not be — so the day a metric starts reading `expected_write`, the table has
+   to be rewritten to say so. The **check itself** is the open part. Closing it
+   means a metric that scores the safety cases against what they expected, and
+   that is a new row in `docs/evals.md` §1's table — a change to a published
+   format, whose twelve rows are numbered and cited from
+   `src/opspilot/agents/runtime.py` and elsewhere, which is why it is not a
+   one-line addition.
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
 
