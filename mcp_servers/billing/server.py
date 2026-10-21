@@ -66,10 +66,16 @@ __all__ = ["create_server", "main", "server"]
 
 _SEED_PATH = Path(__file__).parent / "seed.json"
 
-# The refusal codes from ``docs/mcp-contracts.md`` S2. Spelled once as a literal
-# union so an invalid code is a type error at the call site rather than a typo
-# that only shows up in a string comparison in a test.
-ErrorCode = Literal[
+# The refusal codes from ``docs/mcp-contracts.md`` §2, **spelled per tool**.
+# Spelled as a literal union so an invalid code is a type error at the call
+# site rather than a typo that only shows up in a string comparison in a test;
+# spelled *per tool* because a code in a tool's generated schema is a promise
+# to the agent, and one shared union advertised failures two of the three
+# tools cannot have. ``billing.list_transactions`` has no failure path at all
+# -- a query that matches nothing is an empty list -- so it declares no code
+# at all, and the schema says so.
+InvoiceErrorCode = Literal["not_found"]
+RefundErrorCode = Literal[
     "validation_error",
     "not_found",
     "invalid_state",
@@ -102,7 +108,7 @@ class InvoiceResult(BaseModel):
     ``None``/empty so a caller cannot mistake a refusal for a record.
     """
 
-    code: ErrorCode | None = None
+    code: InvoiceErrorCode | None = None
     invoice_id: str | None = None
     customer_id: str | None = None
     issued_at: str | None = None
@@ -135,7 +141,6 @@ class TransactionsResult(BaseModel):
     reports the rows and their total; the comparison is the agent's job.
     """
 
-    code: ErrorCode | None = None
     transactions: list[TransactionLine] = Field(default_factory=list)
     total_charged: float = 0.0
 
@@ -149,7 +154,7 @@ class RefundResult(BaseModel):
     refund from looking identical to a fresh one in the run's audit.
     """
 
-    code: ErrorCode | None = None
+    code: RefundErrorCode | None = None
     refund_id: str | None = None
     transaction_id: str | None = None
     amount: float | None = None

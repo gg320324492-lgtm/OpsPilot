@@ -58,6 +58,35 @@ from mcp.server.mcpserver import MCPServer
 
 from opspilot.adapters.tools.mcp_gateway import MCPToolGateway, build_in_process_servers
 
+from tests._mcp_codes import EXPECTED_CODES
+
+
+def _enum_of(schema: object) -> list[str]:
+    """The enum values a JSON-schema property allows.
+
+    Pydantic renders a ``Literal[...] | None`` property as an ``anyOf`` of the
+    enum and a null type, so both shapes are read.
+    """
+    if not isinstance(schema, dict):
+        return []
+    candidates: list[object] = [schema]
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        candidates.extend(any_of)
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        values = candidate.get("enum")
+        if isinstance(values, list):
+            return [str(value) for value in values]
+        # Pydantic renders a *single*-value Literal as ``const`` and a
+        # multi-value one as ``enum``.
+        const = candidate.get("const")
+        if const is not None:
+            return [str(const)]
+    return []
+
+
 #: The servers the runtime dispatches to, and the tool that demonstrates a
 #: refusal for each. One per server on purpose: the defect this file is about
 #: was one server's convention diverging from the other two's, so the coverage
@@ -81,24 +110,58 @@ def gateway(tmp_path: Path) -> Iterator[MCPToolGateway]:
     yield MCPToolGateway(servers=build_in_process_servers(tmp_path))
 
 
-async def test_every_tool_declares_a_top_level_code(servers: dict[str, MCPServer]) -> None:
-    """Every server's output schema carries a top-level ``code``.
+async def test_every_tool_declares_exactly_the_codes_it_can_return(
+    servers: dict[str, MCPServer],
+) -> None:
+    """A tool's schema says exactly which failures it can have.
 
-    The gateway reads the code from the top level, so a tool whose schema does
-    not declare one there cannot report a refusal the gateway will see.
+    Two directions, and both matter:
+
+    * **A tool that can fail declares a top-level ``code``.** The gateway reads
+      the code from the top level of the payload
+      (``src/opspilot/adapters/tools/mcp_gateway.py``), so a tool whose schema
+      does not declare one there cannot report a refusal the gateway will see.
+    * **A tool declares no code it cannot produce.** A code in a tool's
+      generated schema is a promise to the agent about a failure it will never
+      see, and the shared per-server literal made exactly that promise: the
+      ``billing`` union of four codes was on all three tools, two of which can
+      produce one of them between them.
+
+    A tool with **no** failure path -- ``billing.list_transactions`` and
+    ``issues.search``, where a query that matches nothing is an empty result --
+    declares no ``code`` at all, and this says so rather than leaving it to be
+    inferred.
     """
-    missing: list[str] = []
+    wrong: list[str] = []
     for server_name, server in servers.items():
         for tool in await server.list_tools():
-            schema = tool.output_schema or {}
-            properties = schema.get("properties", {})
+            expected = EXPECTED_CODES.get(tool.name)
+            if expected is None:
+                wrong.append(f"{server_name}/{tool.name}: not in the expected table")
+                continue
+            properties = (tool.output_schema or {}).get("properties", {})
             if "code" not in properties:
-                missing.append(f"{server_name}/{tool.name}")
-    assert not missing, (
-        f"these tools declare no top-level `code` in their output schema: {missing}. "
-        "The gateway reads the refusal code from the top level of the payload "
-        "(src/opspilot/adapters/tools/mcp_gateway.py), so a tool that does not "
-        "declare one there cannot report a failure the runtime records."
+                if expected:
+                    wrong.append(
+                        f"{server_name}/{tool.name}: can return {sorted(expected)} but "
+                        "declares no top-level `code`"
+                    )
+                continue
+            if not expected:
+                wrong.append(
+                    f"{server_name}/{tool.name}: declares a `code` but cannot fail"
+                )
+                continue
+            declared = set(_enum_of(properties["code"]))
+            if declared != set(expected):
+                wrong.append(
+                    f"{server_name}/{tool.name}: declares {sorted(declared)}, "
+                    f"can return {sorted(expected)}"
+                )
+    assert not wrong, (
+        "these tools' schemas do not match the failures they can actually "
+        f"produce:\n  " + "\n  ".join(wrong) + "\n\nA code in a tool's schema is "
+        "a promise to the agent about a failure it will never see."
     )
 
 

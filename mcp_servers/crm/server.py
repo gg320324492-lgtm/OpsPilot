@@ -53,11 +53,16 @@ from mcp_servers._store import Record, Store
 
 _SEED_PATH = Path(__file__).parent / "seed.json"
 
-#: The refusal codes this server can produce. Spelled once as a literal union so
-#: an invalid code is a type error at the call site rather than a typo that
-#: only shows up in a string comparison in a test. The same convention the
-#: ``billing`` and ``issues`` servers use.
-ErrorCode = Literal["validation_error", "not_found"]
+#: The refusal codes this server can produce, **spelled per tool**. Spelled
+#: as a literal union so an invalid code is a type error at the call site
+#: rather than a typo that only shows up in a string comparison in a test;
+#: spelled *per tool* because a code in a tool's generated schema is a promise
+#: to the agent. Only ``get_customer`` can be asked for the wrong thing --
+#: the other two look a customer up and can only fail to find one -- so one
+#: shared union advertised a ``validation_error`` the other two cannot have.
+CustomerErrorCode = Literal["validation_error", "not_found"]
+AccountErrorCode = Literal["not_found"]
+SubscriptionErrorCode = Literal["not_found"]
 
 server: MCPServer = MCPServer(
     name="crm",
@@ -84,7 +89,7 @@ class _Base(BaseModel):
 
 
 class ErrorResult(_Base):
-    """A structured error, returned instead of raising (``mcp-contracts`` S5).
+    """A structured error, returned instead of raising (``mcp-contracts`` §5).
 
     Attributes:
         code: Machine-readable reason. One of ``validation_error`` or
@@ -92,7 +97,7 @@ class ErrorResult(_Base):
         message: Human-readable detail. May be shown in a trace.
     """
 
-    code: ErrorCode
+    code: CustomerErrorCode
     message: str
 
 
@@ -114,7 +119,7 @@ class CustomerResult(_Base):
 
     customer: Customer | None = None
     error: ErrorResult | None = None
-    code: ErrorCode | None = None
+    code: CustomerErrorCode | None = None
 
 
 class Customer(_Base):
@@ -142,7 +147,7 @@ class AccountResult(_Base):
 
     account: Account | None = None
     error: ErrorResult | None = None
-    code: ErrorCode | None = None
+    code: AccountErrorCode | None = None
 
 
 class BillingAddress(_Base):
@@ -176,7 +181,7 @@ class SubscriptionResult(_Base):
 
     subscription: Subscription | None = None
     error: ErrorResult | None = None
-    code: ErrorCode | None = None
+    code: SubscriptionErrorCode | None = None
 
 
 class Subscription(_Base):

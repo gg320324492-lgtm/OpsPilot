@@ -59,9 +59,14 @@ class IssueLine(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """Result of ``issues.search``."""
+    """Result of ``issues.search``.
 
-    code: ErrorCode | None = None
+    **It declares no ``code``**, because it has no failure path: a query that
+    matches nothing is an empty result, and a malformed query is refused by
+    the argument schema before the tool runs. A code in the generated schema is
+    a promise to the agent, and this tool has nothing to promise.
+    """
+
     issues: list[IssueLine] = Field(default_factory=list)
     total: int = 0
 

@@ -114,7 +114,8 @@ def test_create_with_blank_title_is_validation_error(store: Store) -> None:
 def test_search_finds_what_was_created(store: Store) -> None:
     created = _call(store, "issues.create", {"title": "Duplicate billing ACME"})
     found = _call(store, "issues.search", {"query": "duplicate billing ACME"})
-    assert found["code"] is None
+    # The search tool declares no ``code``: it has no failure path.
+    assert "code" not in found
     assert found["total"] == 1
     assert found["issues"][0]["key"] == created["key"]
 

@@ -166,7 +166,6 @@ An invoice that does not exist → `not_found`, at the top level.
 ```jsonc
 { "invoice_id": "INV-2026-384" }
 → {
-    "code": null,
     "transactions": [
       { "transaction_id": "TX-88218", "invoice_id": "INV-2026-384",
         "amount": 129.00, "currency": "USD", "status": "charged",
@@ -304,8 +303,7 @@ change if the guarantee is ever made.
 
 ```jsonc
 { "query": "duplicate billing ACME" }
-→ { "code": null,
-    "issues": [ { "key": "OPS-1001", "title": "…", "description": "…",
+→ { "issues": [ { "key": "OPS-1001", "title": "…", "description": "…",
                   "status": "open", "priority": "medium",
                   "labels": ["billing"], "created_at": "…" } ],
     "total": 1 }
@@ -393,6 +391,17 @@ These hold for all three servers:
    Note that `rejection_reason` is **not** where a tool's code lands:
    `rejection_reason` names the *gate* that refused a call, and a tool that
    ran and failed writes its code to `ToolCall.error`.
+
+   **Each tool declares only the codes it can actually produce.** A code in a
+   tool's generated schema is a promise to the agent about a failure it will
+   never see, so the enum is the tool's own and not its server's: `crm.get_account`
+   and `crm.get_subscription` look a customer up and can only fail to find
+   one, and they say `not_found` and nothing else. A tool with **no** failure
+   path declares no `code` at all — `billing.list_transactions` (a query that
+   matches nothing is an empty list) and `issues.search` — so their schemas
+   carry no code to misread. `tests/integration/test_mcp_refusal_codes_reach_the_gateway.py`
+   holds every tool's schema to a hand-transcribed table of the codes it can
+   return, in both directions.
 3. **Reads are pure.** `get_*` and `list_*` never write, including never writing
    a "last accessed" timestamp.
 4. **Every mutation takes an idempotency key or is naturally idempotent.**

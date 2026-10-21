@@ -99,7 +99,8 @@ def test_get_invoice_is_pure(store: Store) -> None:
 
 def test_list_transactions_returns_both_charged_rows(store: Store) -> None:
     out = _call(store, "billing.list_transactions", {"invoice_id": "INV-2026-384"})
-    assert out["code"] is None
+    # No ``code`` at all: the tool has no failure path, so it advertises none.
+    assert "code" not in out
     ids = sorted(t["transaction_id"] for t in out["transactions"])
     assert ids == ["TX-88218", "TX-88219"]
     assert all(t["amount"] == 129.00 for t in out["transactions"])
