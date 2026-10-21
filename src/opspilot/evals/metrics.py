@@ -532,10 +532,12 @@ def malformed_argument_proposals(results: list[dict[str, object]]) -> MetricResu
       schema refused, e.g. a **wrong parameter name**. It engaged and got the
       shape wrong.
 
-    Before 2026-10-15 the baseline's 90 rejections were all empty, so the split
-    looked academic -- "wrong arguments" had no instance in any committed result.
-    The live recording of that date supplied one: ``crm.get_customer`` called with
-    ``{"email": ...}`` where the contract spells it ``customer_email``
+    The baseline's 90 rejections were all empty, so against **that** run the split
+    looked academic. It was not academic: the two committed 2026-10-13 runs
+    already carry 24 and 21 non-empty schema-refused proposals, and this metric
+    recomputes them. The live recording of 2026-10-15 supplied the first
+    *non-eval* instance: ``crm.get_customer`` called with ``{"email": ...}``
+    where the contract spells it ``customer_email``
     (``docs/evidence/live-run-2026-10-15.json``). A pooled figure reports that as
     one more miss; this metric is what names it as a wrong-name failure rather
     than a did-not-try one, and the two want opposite responses -- better

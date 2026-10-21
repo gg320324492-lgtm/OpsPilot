@@ -58,11 +58,10 @@
       "pending": "Pending",
       "approved": "Approved",
       "rejected": "Rejected",
-      "expired": "Expired",
-      "awaiting_approval": "Awaiting approval"
+      "expired": "Expired"
     },
     "toolCall": {
-      "pending": "Pending",
+      "proposed": "Proposed",
       "executed": "Executed",
       "rejected": "Rejected",
       "failed": "Failed",

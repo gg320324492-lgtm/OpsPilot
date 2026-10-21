@@ -58,11 +58,10 @@
       "pending": "待审批",
       "approved": "已批准",
       "rejected": "已拒绝",
-      "expired": "已过期",
-      "awaiting_approval": "等待审批"
+      "expired": "已过期"
     },
     "toolCall": {
-      "pending": "待处理",
+      "proposed": "已提出",
       "executed": "已执行",
       "rejected": "已拒绝",
       "failed": "已失败",

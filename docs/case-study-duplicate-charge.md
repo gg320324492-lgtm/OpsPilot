@@ -81,11 +81,11 @@ The five retrieved chunks, in rank order, as the Sources panel shows them:
 
 | # | Document | Chunk heading | Score |
 |---|---|---|---|
-| 1 | `duplicate-charge-sop.md` | `duplicate-charge-sop.md#this-procedure-applies` | 0.3355 |
+| 1 | `duplicate-charge-sop.md` | `duplicate-charge-sop.md#when-this-procedure-applies` | 0.3355 |
 | 2 | `duplicate-charge-sop.md` | `duplicate-charge-sop.md#detection` | 0.2895 |
 | 3 | `payment-methods.md` | `payment-methods.md#card-failures` | 0.2818 |
 | 4 | `enterprise-billing.md` | `enterprise-billing.md#billing-cycle` | 0.2676 |
-| 5 | `refund-policy.md` | `refund-policy.md#eligible-reasons` | 0.2408 |
+| 5 | `refund-policy.md` | `refund-policy.md#ineligible-reasons` | 0.2408 |
 
 Both documents §M6 requires the golden path to cite are present — `refund-policy.md`
 and `duplicate-charge-sop.md` — and the run **cited** them: the dashboard's Sources
@@ -182,12 +182,23 @@ queue; the worker performs it. That distinction is why a worker restart between
 approval and execution does not lose or duplicate anything — the decision is a
 row in PostgreSQL, not a value in a process's memory.
 
-> **What this approval row is not.** `decided_by` is free text and is *not
-> authenticated*. One bearer token (`OPSPILOT_OPERATOR_TOKEN`) creates tickets,
-> approves refunds and rejects them. There is no separation of duties and no
-> approval sphere. The same operator who submitted the ticket approved the refund
-> here. A real deployment needs roles and an authenticated actor
+> **What this approval row is not.** `decided_by` **cannot be forged** — the
+> server assigns it from the bearer token, and the request body has no
+> `decided_by` at all, so a client that tries to name itself is refused rather
+> than believed (`ApprovalDecisionRequest` is `extra="forbid"`). What Phase 1
+> does not have is any way to tell *which* operator: one bearer token
+> (`OPSPILOT_OPERATOR_TOKEN`) creates tickets, approves refunds and rejects
+> them, so the value is the single literal `"operator"`. There is no separation
+> of duties and no approval sphere; the same operator who submitted the ticket
+> approved the refund here. A real deployment needs roles, and an identity the
+> token resolves to a person rather than to a role
 > ([limitations.md](limitations.md) §1).
+>
+> (This paragraph used to say that `decided_by` "is free text and is *not
+> authenticated*", and cited `limitations.md` §1 for it. §1 says the opposite:
+> "The client cannot forge it". The claim was wrong, and it was wrong in the
+> direction that makes the system look less careful than it is — which is a
+> reason to fix it, not a reason to leave it.)
 
 ## 6. Execution — once
 
@@ -282,8 +293,9 @@ important caveat belongs here too:
 
 > **`tool selection` does not reproduce.** The 3/15 above was re-measured twice
 > on unmodified code against the same endpoint and scored **3/15 and 2/15**, with
-> an identical tool set for only 8 of the 15 cases. Every case that failed in
-> both failed *differently* the second time. Two runs are committed —
+> an identical tool set for only 8 of the 15 cases, and **6 of the 12 that
+> failed in both proposed the identical set again** (three of those proposed
+> nothing at all in either run). Two runs are committed —
 > [`2026-10-13T18-24-25.json`](../evals/results/2026-10-13T18-24-25.json) and
 > [`2026-10-13T18-40-10.json`](../evals/results/2026-10-13T18-40-10.json) — and
 > the case-by-case comparison is in

@@ -15,15 +15,25 @@ silently widen what is reachable. The project ends up as "a LangGraph app" and
 Phase 2's changes are constrained by the library's model rather than the domain's.
 
 **Mitigation.** `domain/runs.py` owns `RunStatus`, `ALLOWED_TRANSITIONS` and the
-enforcement; it imports nothing but `enum` and Pydantic. LangGraph sits behind
-`ports/orchestrator.py` in `adapters/orchestration/langgraph_adapter.py`, and the
-adapter is built in M4 — *after* the runtime works on a linear adapter. The unit
-test for legal and illegal transitions never imports LangGraph.
+enforcement; it imports only the standard library and Pydantic. LangGraph sits
+behind `ports/orchestrator.py` in `adapters/orchestration/langgraph_adapter.py` —
+an adapter M4 deliberately left unwritten, so that the runtime works on a linear
+adapter first (`docs/limitations.md` §8 records it as a declared capability
+nothing implements, and `docs/milestones.md` §M4 leaves its row unticked). The
+unit test for legal and illegal transitions never imports LangGraph.
 
-**Residual.** The adapter still translates domain states into graph nodes, so a
-future contributor could add logic there. Guarded by a test asserting the
-adapter does not import from `domain.policies` or `domain.permissions` — the
-adapter may schedule work, it may not decide whether work is allowed.
+**Residual.** The adapter, when it is written, will translate domain states
+into graph nodes, so a future contributor could add logic there. **Nothing
+machine-checks that yet**, and this paragraph used to say otherwise: it claimed
+"a test asserting the adapter does not import from `domain.policies` or
+`domain.permissions`". No such test exists, and `domain/permissions.py` is not
+a module — the permission table lives in `domain/tools.py`. The only layering
+guard in the tree is `tests/unit/test_layering.py`, which asserts that
+`domain/`, `ports/` and `agents/` import no third-party root and no adapter;
+it never inspects the orchestration adapter, which is excluded from coverage
+and imported by no test. The residual is therefore **real and unguarded**: the
+adapter may schedule work, and nothing yet says it may not decide whether work
+is allowed.
 
 ---
 
@@ -178,9 +188,11 @@ committed data with no seeding step to remember and none to forget.
 the seeding step. It never was one -- it was a stub whose `main()` raised
 `NotImplementedError`, and it has been removed; the servers have always
 seeded themselves.) The deterministic path
-(`--provider fake` with hand-written fixture responses) reproduces the *same
-timeline* with no API key at all and is what the GIF is generated from — so the
-artifact a reviewer sees is regenerable. The live-model path is documented and
+(`MODEL_PROVIDER=fake` with hand-written fixture responses, driven by
+`scripts/demo_golden_path.py`) reproduces the *same timeline* with no API key at
+all and is what the GIF is generated from — so the artifact a reviewer sees is
+regenerable. (`--provider fake` is the *evals* CLI's flag; the GIF is not an
+eval run.) The live-model path is documented and
 optional.
 
 **Residual.** The live run's exact wording will differ (model non-determinism).
@@ -200,10 +212,15 @@ approval".
 
 **Resolution.** Keep `SAFE_WRITE` for Phase 1, because the definition of risk
 here is *irreversibility of a financial or customer-facing effect*, and an
-internal tracker issue is neither. But record the tension: `risk_explanation` for
-`issues.create` explicitly says "creates a visible internal issue". If Phase 2
-adds issue escalation to on-call, that becomes a `HIGH_RISK_WRITE` and the
-three-level model gets its first real second data point.
+internal tracker issue is neither. The tension is real, and it is recorded
+here rather than in the explanation the approver reads: `explain_risk` gives
+every `SAFE_WRITE` tool the same sentence — "This writes to an external system.
+It is reversible but always audited." — and says nothing specific about an
+internal issue. (This paragraph used to claim that the `risk_explanation` for
+`issues.create` "explicitly says 'creates a visible internal issue'". No code
+writes that phrase; it appeared only here.) If Phase 2 adds issue escalation to
+on-call, that becomes a `HIGH_RISK_WRITE` and the three-level model gets its
+first real second data point.
 
 ### C2 — "Refund executed once" vs. "worker may crash mid-execution"
 
@@ -217,13 +234,22 @@ stored refunds for the key, not a store constraint — is the authority, and the
 run's idempotency key is deterministic from `(run_id, transaction_id)`. So a
 resumed retry — whenever Phase 2 adds it — hits the server, gets `replayed: true`
 and the existing `refund_id`, and the trace is corrected rather than duplicated.
-In Phase 1, the interrupted run is simply
-failed and a human re-runs it; the second run produces a *different* `run_id` and
-therefore a *different* idempotency key, so the MCP server's `invalid_state`
-check on the already-refunded transaction is what prevents the double refund.
-This is a real seam: the safety property holds, but through the transaction-state
-check rather than through the key. Documented, and the integration test
-`test_rerun_after_interrupt_does_not_double_refund` covers it.
+In Phase 1 an interrupted run is **preserved and resumed**, not failed: the
+boot sweep spares `EXECUTING` precisely so that a run whose approval a human
+already granted is not thrown away, and a restarted worker resumes it
+(`workers/loop.py::_resolve_resume` → `agents/runtime.py::_resume`). The
+refunded call is re-driven under the *same* tool-call id, so the idempotency key
+is the same one and the server answers `replayed: true` with the original
+`refund_id`.
+
+A *human*-triggered second run is the other case, and it is the one this risk
+is about: it produces a different `run_id` and therefore a different key, so
+what prevents the double refund there is the MCP server's `invalid_state` check
+on the already-refunded transaction. That is a real seam: the safety property
+holds, but through the transaction-state check rather than through the key.
+Documented, and the integration test
+`tests/agent/test_readme_scenarios.py::test_scenario_4_rerun_after_interruption_does_not_double_refund`
+covers it.
 
 ### C3 — "Two real providers" vs. "the schedule"
 
@@ -245,7 +271,10 @@ good: whether it is faithful to the trace, appropriately apologetic, free of
 invented policy claims. The specification forbids LLM-as-a-judge in Phase 1.
 
 **Resolution.** Accept the gap and declare it. The reply's *faithfulness* is
-partially checkable structurally — the reply's `citations` field must be a subset
-of the run's retrieved citations, which is a deterministic check and is metric
-4's sibling. What is not checkable is tone. `limitations.md` says so, and the
-README does not claim reply quality is measured.
+partially checkable structurally — the model's `cited_document_slugs` would have
+to be a subset of the run's retrieved citations, which is a deterministic check
+and would be metric 4's sibling. **It is not measured today**: no metric in
+`src/opspilot/evals/metrics.py` compares them, and the golden-path test
+deliberately does not assert the model's list against the retrieved one. What
+is not checkable is tone. `limitations.md` says so, and the README does not
+claim reply quality is measured.

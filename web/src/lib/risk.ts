@@ -50,14 +50,40 @@
  *
  * ## The rule itself
  *
- * `high_risk_write` if either source says so. `safe_write` if either says that
- * and neither says `high_risk_write`. Otherwise `read`.
+ * In order: the tool call's `permission` if it is one of the three levels
+ * (source "tool call"); otherwise the transcribed table's entry for the tool
+ * name (source "tool name"); otherwise nothing (source "unknown", and the
+ * card says "unknown" rather than claiming the tool is a read).
  *
- * The asymmetry is deliberate: the *higher* of two answers wins. If the
- * fallback table and the authoritative field disagree, the operator must see the
- * riskier reading, because the cost of understating a high-risk write is a
- * refund a human did not really approve, and the cost of overstating is a
- * sentence that reads as cautious.
+ * **When the two sources disagree, the field wins — and it is not a close
+ * call.** This paragraph used to say the opposite: that "the *higher* of two
+ * answers wins", on the argument that understating a high-risk write is a
+ * refund a human did not really approve. The code never did that, and the
+ * argument turns out to be against the field for a reason the earlier
+ * paragraph missed.
+ *
+ * The approver must see **the permission the call was gated under**, and that
+ * is exactly what the tool call row carries: the runtime snapshots the
+ * registry's permission into the row at the moment the gate read it
+ * (`agents/runtime.py`). The table, by contrast, is the registry *as it is
+ * today*. If the two disagree, the row is the permission the call actually
+ * passed, and the table is the permission the tool has since been given — and
+ * the human is approving a call that was gated under the row's value, not under
+ * today's.
+ *
+ * There is a second reason the old rule could not have been implemented as
+ * written: the card states where the level came from, and the provenance
+ * vocabulary has exactly three entries — "tool call", "tool name", "unknown".
+ * A level taken from "the higher of two" has no honest provenance sentence:
+ * the card would have to say "tool call" while the number was partly the
+ * table's, which is the dashboard inventing evidence — the one thing the
+ * provenance line exists to prevent.
+ *
+ * The table is still worth disagreeing about, and the disagreement is caught
+ * where it can be: `tests/unit/test_frontend_copies_match_the_backend.py`
+ * holds the transcription to `TOOL_REGISTRY` and fails if the two disagree.
+ * A stale *table* is therefore a red test, not a silently wrong card; a stale
+ * *row* is the case this rule handles by trusting the row.
  */
 
 import type { TFunction } from "@/i18n/format";

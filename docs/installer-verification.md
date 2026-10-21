@@ -304,10 +304,11 @@ showing a live log, and then the dashboard itself replaces it:
 | 1–15 min (first launch only) | Compose and pip output, scrolling |
 | | "Backend ready on http://127.0.0.1:8000." |
 | a few seconds later | "Dashboard ready on http://127.0.0.1:3210." |
-| | the dashboard renders: a left-hand nav (Tickets, Runs, Knowledge, Approvals) and an empty ticket list |
+| | the dashboard renders: a nav bar **across the top** (Dashboard, Tickets, Runs, Approvals, Knowledge) and a *Recent runs* panel reading "No runs yet" |
 
 **The first launch is slow and that is correct.** Docker Desktop has to build
-the API and worker images from source; there is no prebuilt image to download.
+the API, worker **and migration** images from source (three `build:` blocks in
+`docker-compose.yml`, and no shared `image:`); there is no prebuilt image to download.
 Every launch after that reuses them and is fast. **Do not quit during the first
 launch** — a half-built image is rebuilt next time, not corrupted, but you will
 wait again.
@@ -352,7 +353,7 @@ This is the project's core claim, end to end, through the installed app.
 
 ### 3.1 Index the knowledge base
 
-Click **Knowledge** in the left nav. Click **Reindex knowledge**. Within a
+Click **Knowledge** in the nav bar. Click **Reindex knowledge**. Within a
 minute a result panel reports **17 seen** and **17 indexed** (98 chunks
 written). No failure alert appears.
 

@@ -58,6 +58,26 @@ const DASHBOARD_PATTERN = new RegExp(`^${DASHBOARD_URL.replace(/[.]/g, "\\.")}/`
  */
 const DOCKER_FREE_PATH = process.platform === "win32" ? "C:\\Windows\\System32" : "/nonexistent";
 
+/**
+ * An operator token the test owns, so the shell's *token* step always passes.
+ *
+ * The shell resolves the operator token **before** it probes for Docker
+ * (`src/main.ts`: `attachOperatorToken` then `startApplication`), and a token
+ * it cannot resolve is a hard stop that never reaches the Docker probe. So a
+ * machine with no `OPSPILOT_OPERATOR_TOKEN` in its environment, no `.env` and
+ * no `web/.env.local` would show "No operator token is configured" where this
+ * spec asserts "Docker is not installed" — and the spec would fail for a
+ * reason it is not about.
+ *
+ * Supplying a disposable token removes the dependency on the machine's
+ * configuration entirely, which is the ADR-0004 discipline the web specs
+ * apply to Docker: the test sets up the state it is about, rather than
+ * inheriting whatever the machine happens to have. The value is a throwaway
+ * 64-hex string in the shape the app generates; nothing authenticates with it,
+ * and the stack this spec starts is given the same one.
+ */
+const DISPOSABLE_TOKEN = "0".repeat(64);
+
 /** Launch, and skip cleanly with a reason when this machine has no display. */
 async function launchOrSkip(launchEnv?: Record<string, string>): Promise<ElectronApplication | null> {
   if (!existsSync(path.join(DESKTOP_DIR, "dist", "main.js"))) {
@@ -66,11 +86,23 @@ async function launchOrSkip(launchEnv?: Record<string, string>): Promise<Electro
         `first (${DESKTOP_DIR}).`,
     );
   }
+  // Every launch gets the disposable token, whatever else it overrides. The
+  // token is resolved before Docker is probed, so a launch without one stops
+  // at the token and never reaches the state these tests are about.
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    ),
+    OPSPILOT_OPERATOR_TOKEN: DISPOSABLE_TOKEN,
+    ...(launchEnv ?? {}),
+  };
   try {
     return await electron.launch({
       args: [DESKTOP_DIR],
       cwd: DESKTOP_DIR,
-      ...(launchEnv === undefined ? {} : { env: launchEnv }),
+      env,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -128,8 +160,6 @@ test("opens the dashboard, keeps the renderer untrusted, and stops what it start
     await page.waitForTimeout(2_000);
     expect(page.url()).toMatch(DASHBOARD_PATTERN);
 
-    // ---- the renderer process really is sandboxed ----------------------------
-    await assertRendererIsSandboxed(app);
   } finally {
     // `close()` quits the app, which fires `before-quit` and therefore runs the
     // teardown. The assertions after this block are what make that a claim.
@@ -160,6 +190,41 @@ test("opens the dashboard, keeps the renderer untrusted, and stops what it start
 });
 
 /**
+ * The renderer process really is sandboxed.
+ *
+ * A separate test from the one above, on purpose. The check reads Electron's
+ * command line for the renderer, which is a Windows-only fact (the launcher
+ * reads the flag from a command that exists on that machine), and it used to
+ * live inside the first test with a `test.skip` inside a helper — which made
+ * Playwright report **the whole test** as skipped on every platform without
+ * the check. The assertions that *had* run (the dashboard loaded, the renderer
+ * reached no Node, the navigation was refused) reported as skipped too, and a
+ * skipped assertion is not evidence.
+ *
+ * Its own test means a platform without the check skips *this* test and the
+ * other one reports as passed.
+ *
+ * The launch here has no `docker` on its PATH, so the app starts no stack: the
+ * window that appears is the bootstrap page, and the renderer exists whether or
+ * not the stack came up. That keeps the second launch cheap — no Compose, no
+ * image builds — and the command line it reads is the same either way.
+ */
+test("the renderer process really is sandboxed", async () => {
+  test.skip(process.platform !== "win32", "the renderer command-line check is implemented for Windows only");
+  const app = await launchOrSkip({ PATH: DOCKER_FREE_PATH });
+  test.skip(app === null, "no display");
+  if (app === null) {
+    return;
+  }
+
+  try {
+    await assertRendererIsSandboxed(app);
+  } finally {
+    await app.close();
+  }
+});
+
+/**
  * D1's other half: a machine with no Docker gets a named error, not a blank
  * window and not a spinner that never resolves.
  *
@@ -175,11 +240,9 @@ test("opens the dashboard, keeps the renderer untrusted, and stops what it start
  * problem or two.
  */
 test("names what is missing when Docker is not installed", async () => {
-  // `process.env` values can be `undefined`, which Electron's launcher rejects.
-  const inherited = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-  );
-  const withoutDocker: Record<string, string> = { ...inherited, PATH: DOCKER_FREE_PATH };
+  // `process.env` values can be `undefined`, which Electron's launcher rejects;
+  // `launchOrSkip` filters them. Here only the PATH is overridden.
+  const withoutDocker: Record<string, string> = { PATH: DOCKER_FREE_PATH };
   const app = await launchOrSkip(withoutDocker);
   test.skip(app === null, "no display");
   if (app === null) {
@@ -225,10 +288,6 @@ async function firstDashboardWindow(app: ElectronApplication): Promise<Page> {
  * skipped with the reason rather than quietly passing.
  */
 async function assertRendererIsSandboxed(app: ElectronApplication): Promise<void> {
-  if (process.platform !== "win32") {
-    test.skip(true, "the renderer command-line check is implemented for Windows only");
-    return;
-  }
   const pid = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId());
   expect(pid).toBeGreaterThan(0);
 

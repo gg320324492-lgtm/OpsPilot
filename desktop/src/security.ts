@@ -1,7 +1,7 @@
 /**
  * The Electron calls that install `src/security-policy.ts`.
  *
- * Six functions and no policy. Everything a reviewer needs to know about what
+ * Five functions and no policy. Everything a reviewer needs to know about what
  * this app does to a page it did not write — which origins it will navigate to,
  * which files it will serve, what the renderer may ask for — is in the policy
  * module, which imports nothing from Electron and is asserted by

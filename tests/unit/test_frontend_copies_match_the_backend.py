@@ -54,6 +54,7 @@ mistaken for one.
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import re
 
@@ -246,3 +247,57 @@ def test_the_dashboard_knows_every_code_the_api_can_send() -> None:
 
     dead = sorted(frontend - backend)
     assert not dead, f"the dashboard branches on codes the API never sends: {dead}"
+
+
+def test_the_dashboard_has_a_label_for_every_status_the_backend_sends() -> None:
+    """The catalogues' status labels cover the backend's enums exactly.
+
+    The dashboard localises the *labels* for four contract enums — the run
+    status, the approval status, the tool-call status and the permission — and
+    it renders them through ``web/src/i18n/enums.ts``. A status with no label
+    does not break the page: ``labelFor`` catches the missing key and falls
+    back to ``humanise(value)``, which is the honest degradation the module
+    docstring promises.
+
+    **The degradation is the problem.** ``humanise("proposed")`` is "Proposed",
+    which is right in English and *wrong on a Chinese page* — the operator gets
+    one English word where the rest of the screen is Chinese, on the one screen
+    they are deciding on. The fallback exists for a deployment running a newer
+    API than this dashboard, not for a status this dashboard has simply
+    forgotten.
+
+    This is asserted in **both** directions, and the second half is the more
+    interesting one. A label the backend never sends is a claim about the API
+    that is false — and it is how the hole was hidden: the catalogue had
+    ``status.toolCall.pending``, a status the backend does not have, where the
+    backend's ``proposed`` was missing. The extra key made the group *look*
+    complete to a reader counting keys, and the missing one made every proposed
+    tool call render as "Proposed" in English on a Chinese page.
+    """
+    from opspilot.domain.approvals import ApprovalStatus
+    from opspilot.domain.runs import RunStatus
+    from opspilot.domain.tools import Permission, ToolCallStatus
+
+    backend_by_group: dict[str, set[str]] = {
+        "run": {status.value for status in RunStatus},
+        "approval": {status.value for status in ApprovalStatus},
+        "toolCall": {status.value for status in ToolCallStatus},
+        "permission": {permission.value for permission in Permission},
+    }
+
+    for locale in ("en", "zh-CN"):
+        catalogue = json.loads(
+            (REPO_ROOT / "web" / "src" / "i18n" / "dictionaries" / f"{locale}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        labels = catalogue.get("status", {})
+        for group, backend_values in backend_by_group.items():
+            labelled = set(labels.get(group, {}))
+            assert labelled == backend_values, (
+                f"the {locale} catalogue's `status.{group}` labels are "
+                f"{sorted(labelled)}, and the backend's {group} values are "
+                f"{sorted(backend_values)}. A status with no label renders as "
+                "the English word on a translated page; a label for a status "
+                "the backend never sends is a false claim about the API."
+            )

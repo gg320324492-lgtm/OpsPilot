@@ -62,14 +62,25 @@ Every tool in all three servers declares a Pydantic return model.
 A parameter with no default is marked `required` in the generated JSON Schema:
 
 ```
-issue_refund: params=['amount', 'idempotency_key', 'transaction_id']
+issue_refund: params=['amount', 'idempotency_key', 'reason', 'transaction_id']
               required=['transaction_id', 'amount', 'idempotency_key']
 ```
 
 So `billing.issue_refund`'s mandatory `idempotency_key` is enforced **at the
 protocol layer** — a caller omitting it is rejected before any of our code runs.
-That is one of the five gates in `docs/tool-permissions.md` §3 satisfied by the
-transport rather than by a hand-written check, which is the better place for it.
+
+**What this project does with that is not what this note used to say.** The
+transport's required parameter is *satisfied*, on the agent path, by a key the
+policy engine **derives** from the run and the transaction and the EXECUTE step
+attaches to the dispatch (`docs/tool-permissions.md` §4) — so the server's
+requirement is met before the transport is ever asked. The transport's check is
+**not** one of the five gates: the five are the agent runtime's (schema,
+registry, permission, policy, approval), and the transport sits outside them, at
+the MCP server boundary. And the check that matters at gate 1 is a hand-written
+one: `RefundArgs` deliberately does **not** declare `idempotency_key`, so a
+proposal that carries one is refused there under `extra="forbid"`, while the
+registry's `requires_idempotency_key` is what makes that refusal happen at
+all.
 
 ## 5. A raising tool becomes an opaque transport error
 
