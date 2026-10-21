@@ -292,9 +292,14 @@ class ApprovalStore(Protocol):
     async def get_for_run(self, run_id: UUID) -> ApprovalRequest | None:
         """Fetch the run's most recent approval, or ``None``.
 
-        The worker uses this on the rejection path: a run flipped to
-        ``RESPONDING`` because a human declined has a rejected approval, and the
-        reply that follows must escalate rather than pretend a refund happened.
+        **The worker does not use this.** The rejection path asks for the
+        approval of the *tool call* -- :meth:`get_for_tool_call` -- because that
+        is the row the decision was made on, and a run can hold two approvals:
+        ``EXECUTING`` survives a restart, so a resumed run parks again on a new
+        tool call. Asking by run would answer "the most recent one", which is
+        the wrong one whenever there is more than one.
+
+        The eval harness uses it, to read a run's decision back as a whole.
         """
         ...
 

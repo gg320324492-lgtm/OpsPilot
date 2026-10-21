@@ -136,6 +136,24 @@ async def test_the_real_run_store_answers_the_list_probe(factory: sessionmaker[S
     )
 
 
+async def test_the_real_run_store_answers_the_list_for_ticket_probe(
+    factory: sessionmaker[Session],
+) -> None:
+    """``SqlRunStore.list_for_ticket`` exists, so a ticket's runs are not empty.
+
+    The ticket detail endpoint probes for this method the same way it probes
+    for ``list`` -- and the probe found nothing on the SQL store, so
+    ``GET /api/tickets/{id}`` returned ``"runs": []`` for every ticket in
+    every deployment. The in-memory double *did* answer, which is how the
+    test asserting the runs came back was green.
+    """
+    runs = repositories.SqlRunStore(factory)
+    assert hasattr(runs, "list_for_ticket"), (
+        "SqlRunStore has no list_for_ticket; the ticket detail endpoint's "
+        "getattr probe returns None and every ticket reports no runs"
+    )
+
+
 async def test_the_real_approval_store_answers_the_list_probe(
     factory: sessionmaker[Session],
 ) -> None:

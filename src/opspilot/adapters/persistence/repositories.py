@@ -471,6 +471,28 @@ class SqlRunStore(_SessionBound):
             row = session.get(models.AgentRun, run_id)
             return _to_agent_run(row) if row is not None else None
 
+    async def list_for_ticket(self, ticket_id: UUID) -> list[AgentRun]:
+        """Every run that belongs to ``ticket_id``, oldest first.
+
+        The ticket detail endpoint answers "which runs does this ticket have",
+        and the answer was **an empty list in production**: the route probes for
+        this method with ``getattr`` -- so a store that does not offer it still
+        serves the endpoint -- and the SQL store did not answer. Only the
+        in-memory double did, which is how the test asserting the runs came
+        back was green against a database that could not produce them.
+
+        ``agent_runs.ticket_id`` is indexed, so this is a lookup rather than a
+        scan, and the order is total (``created_at`` then ``id``) so a ticket
+        with two runs reads the same way twice.
+        """
+        with self._scope() as session:
+            rows = session.execute(
+                select(models.AgentRun)
+                .where(models.AgentRun.ticket_id == ticket_id)
+                .order_by(models.AgentRun.created_at, models.AgentRun.id)
+            ).scalars()
+            return [_to_agent_run(row) for row in rows]
+
     async def get_pending_approval(self, run_id: UUID) -> PendingApprovalRow | None:
         """The run's pending approval, or ``None`` (run detail's approver card).
 

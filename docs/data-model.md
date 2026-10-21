@@ -184,7 +184,7 @@ file claimed otherwise.
 |---|---|---|
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs, indexed | |
-| `step_id` | UUID FK → agent_steps NULL | |
+| `step_id` | UUID FK → agent_steps NULL | **Always NULL.** A tool call is proposed *inside* a step, but the step's row is written when the stage ends, so the runtime does not have its id at the moment the call is recorded. The column is the seam for that link and nothing writes to it yet. |
 | `tool_name` | VARCHAR NOT NULL | |
 | `arguments` | JSONB NOT NULL | **Immutable once an `ApprovalRequest` references this call.** |
 | `permission` | VARCHAR NOT NULL | Snapshotted at call time from the registry |
