@@ -3,7 +3,7 @@
 Written from the defect, not from ``agents/runtime.py``. ``ModelUsage``
 documents itself as "written as a ``model_called`` event"
 (``ports/model_provider.py``) and ``docs/data-model.md`` §2 lists the event type,
-but no code wrote one. ``docs/evals.md`` §1 takes metrics 10-12 from exactly
+but no code wrote one. ``docs/evals.md`` §1 takes metrics 11-12 from exactly
 these events, so ``evals/runner.py`` read none and honestly reported ``0``
 tokens and ``$0.0000`` cost over real runs -- a measurement-shaped zero, which is
 worse than an absent row because it looks like a number.

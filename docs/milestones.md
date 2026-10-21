@@ -331,7 +331,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       and the package's own `domain/` layer — no adapter, ORM or HTTP import.
       (All three are in
       `domain/runs.py` — `RunStatus:41`, `ALLOWED_TRANSITIONS:62`,
-      `AgentRun.transition_to():192` — and the module reaches no adapter, ORM or
+      `AgentRun.transition_to():187` — and the module reaches no adapter, ORM or
       port, which `tests/unit/test_layering.py` pins. The criterion previously
       read "importing only `enum` and Pydantic", which was false and has been
       reworded to the property it was protecting: the file imports

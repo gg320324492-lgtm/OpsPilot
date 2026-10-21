@@ -1255,12 +1255,15 @@ def _arguments_revalidate(tool_name: str, arguments: dict[str, object]) -> bool:
 
 
 def _model_calls(audit_rows: list[Any], step_rows: list[Any]) -> list[dict[str, object]]:
-    """The per-model-call usage records for metrics 10-12.
+    """The per-model-call usage records for metrics 11-12.
 
-    §1 says metrics 10-12 come from the ``model_called`` audit events, and the
+    §1 says metrics 11-12 come from the ``model_called`` audit events, and the
     runtime now writes them: one per model call, carrying ``provider``,
     ``model``, ``latency_ms``, and -- for the structured calls --
-    ``input_tokens``/``output_tokens``/``estimated_cost_usd``.
+    ``input_tokens``/``output_tokens``/``estimated_cost_usd``. The
+    ``latency_ms`` here is a raw field on the record, not metric 10: metric 10
+    is wall-clock per *run* and is read from the case's own ``latency_ms``
+    (``metrics.latency_p50_p95``).
 
     ``choose_tool`` is the exception and is marked rather than guessed at. It
     returns a bare proposal dict from the ``ModelProvider`` port with no usage

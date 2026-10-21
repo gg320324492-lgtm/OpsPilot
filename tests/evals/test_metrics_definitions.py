@@ -845,7 +845,8 @@ def test_abstention_accuracy_over_zero_cases_is_unknown() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10-12. Latency, tokens, cost -- computed from model_called audit events
+# 11-12. Tokens and cost -- computed from model_called audit events. Metric 10
+# is not here: it is wall-clock per run, read from the case's own latency_ms.
 # ---------------------------------------------------------------------------
 
 

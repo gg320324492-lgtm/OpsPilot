@@ -818,8 +818,8 @@ def latency_p50_p95(results: list[dict[str, object]]) -> list[MetricResult]:
     Returned as two results because §4's output prints both on one line ("p50
     4.2s p95 11.8s"). The per-run number is ``latency_ms`` on the case; the
     per-model-call latency is on each ``model_calls`` entry and is not a separate
-    metric in Phase 1 (the table's "per run, and per model call" phrase describes
-    what the raw record carries). Over zero cases both are ``0.0`` with ``cases==0``.
+    metric in Phase 1 (the table says so: it is a raw field on the record, not a
+    metric). Over zero cases both are ``0.0`` with ``cases==0``.
     """
     latencies = [value for r in results if (value := _as_float(r.get("latency_ms"))) is not None]
     if not latencies:

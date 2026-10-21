@@ -18,6 +18,26 @@ The invariant this module exists to uphold (``docs/architecture.md`` §1):
     there exists an ApprovalRequest for that same tool call with status
     approved.  Count of violations = 0.
 
+**One branch is the exception, and it is a replay rather than an effect.**
+Gate 4's idempotent-replay branch returns before gate 5, so the row it writes
+is ``executed`` with no approval row beside it -- and the invariant above does
+not hold for that row. It is not a hole in the control: the branch reports a
+side effect that already happened for this key, so there is nothing new for a
+human to approve.
+
+On the production path it is not the branch that is taken. The worker injects
+``executed_lookup_for(tool_call_store)``, which asks for the ``executed`` rows
+holding the key -- the same rows the store's ``find_executed_call_id`` asks --
+so a replay always finds the row that holds the key, and the runtime then
+records the duplicate as ``rejected`` instead. Nothing executed, so nothing
+needed approving. The other branch is reachable only by injecting an
+``executed_lookup`` that reports a prior execution no row backs, and
+``run_step``/``run_loop`` expose that parameter publicly; so the invariant
+holds on every production path and not on every reachable one.
+``tests/security/test_approval_bypass.py`` drives the other branch, and
+``tests/security/test_invariants.py`` is where "count of violations = 0" is
+measured.
+
 Why ``_gate_and_execute`` is one long linear function rather than a set of
 helpers: a numbered sequence of gates can be verified by reading it top to
 bottom, and moving a gate into a helper is how a gate silently acquires a caller
@@ -87,20 +107,25 @@ def _settings_min_score() -> float:
     return get_settings().retrieval_min_score
 
 
-# The abstention threshold defaults to ``RETRIEVAL_MIN_SCORE``'s value. The
+# The abstention threshold is **resolved when it is used**, not held here. The
 # runtime takes it as a parameter rather than holding configuration (the
 # ``agents`` layer holds none, exactly as it takes ``max_steps``); a caller wires
-# it from settings. Below this top score the evidence is too weak to plan from
-# and the run escalates via ``PLANNING -> RESPONDING`` rather than answering from
-# a weak match (``docs/architecture.md`` §9, ``docs/agent-state-machine.md`` §3).
+# it from settings, and a caller that does not is answered by
+# ``_settings_min_score()`` below. Below this top score the evidence is too weak
+# to plan from and the run escalates via ``PLANNING -> RESPONDING`` rather than
+# answering from a weak match (``docs/architecture.md`` §9,
+# ``docs/agent-state-machine.md`` §3).
 #
-# It used to be a literal ``0.35`` here, duplicating ``settings.py``, and that was
-# a defect: the number lived in three places -- here, ``worker/loop.py`` and
-# ``settings.py`` -- so lowering it in one left the others stale, and a caller
-# relying on the default abstained on a threshold the deployment had already
-# moved. The value is now read from settings, the same reason
-# ``domain/policies.py`` reads ``refund_ceiling`` there. One knob, one place.
-_DEFAULT_RETRIEVAL_MIN_SCORE: Final[float] = _settings_min_score()
+# There used to be a module-level ``_DEFAULT_RETRIEVAL_MIN_SCORE`` here, and it
+# was a defect twice over. It duplicated ``settings.py``: the number lived in
+# three places -- here, ``worker/loop.py`` and ``settings.py`` -- so lowering it
+# in one left the others stale, and a caller relying on the default abstained on
+# a threshold the deployment had already moved. And it froze the value at
+# *import*, which is the thing the ``max_steps`` comment above explicitly
+# refuses: a number read once when the module loads cannot follow a setting an
+# operator moves afterwards. The value is now read from settings at the point of
+# use, the same reason ``domain/policies.py`` reads ``refund_ceiling`` there.
+# One knob, one place, read when it is needed.
 
 # Audit event types written by this module. Named constants so a test asserts on
 # a symbol rather than a string literal a typo could quietly change.
@@ -122,7 +147,7 @@ AUDIT_RUN_FAILED: Final[str] = "run_failed"
 # Written once per real model call -- classification, each planning round and the
 # response -- carrying the provider's ``ModelUsage``. The event type is the one
 # ``docs/data-model.md`` §2 already lists and ``docs/evals.md`` §1 names as the
-# source of metrics 10-12; the runtime simply never wrote it, so three of the
+# source of metrics 11-12; the runtime simply never wrote it, so two of the
 # twelve metrics could only ever print zero. See ``_record_model_call``.
 AUDIT_MODEL_CALLED: Final[str] = "model_called"
 # Written when the top retrieved score is below the abstention threshold and the
@@ -227,9 +252,13 @@ async def _record_model_call(
 ) -> None:
     """Write the ``model_called`` audit event for one real model call.
 
-    ``docs/evals.md`` §1 takes metrics 10 (latency per model call), 11 (tokens)
-    and 12 (cost) from these events, and ``evals/runner.py`` reads exactly the
-    payload keys written here. The runtime had the numbers in hand -- every
+    ``docs/evals.md`` §1 takes metrics 11 (tokens) and 12 (cost) from these
+    events, and ``evals/runner.py`` reads exactly the payload keys written
+    here. Metric 10 is not one of them: it is wall-clock per *run*, read from
+    the harness's own per-case timer (``evals/metrics.py``
+    ``latency_p50_p95``), and the ``latency_ms`` written here is a raw field on
+    the per-model-call record (``results[].model_calls[].latency_ms``), not a
+    metric. The runtime had the numbers in hand -- every
     ``generate_structured`` returns a ``ModelUsage`` -- and dropped three of the
     six fields, so the eval table reported ``0 tokens`` and ``$0.0000`` over real
     runs: a measurement-shaped zero, which is worse than an absent row.
@@ -504,11 +533,24 @@ async def _gate_and_execute(
     # ------------------------------------------------------------------
     # GATE 4 -- POLICY ENGINE
     # ------------------------------------------------------------------
-    # Deterministic business rules: denylist, amount ceiling, refund-exceeds-
-    # transaction fast fail, and the idempotency short-circuit. The idempotency
-    # lookup is a database read the runtime performs and hands to the *pure*
-    # policy function, so the decision stays a pure function of its inputs
-    # (``docs/tool-permissions.md`` §4).
+    # Deterministic business rules: the denylist, the refund ceiling, and the
+    # idempotency short-circuit -- exactly three, and exactly the three
+    # ``docs/tool-permissions.md`` §4 lists.
+    #
+    # "Cannot refund more than the transaction was charged for" is NOT one of
+    # them. The rule exists in ``domain/policies.py``
+    # (``_refund_exceeds_transaction``), but it is inapplicable to a validated
+    # proposal: it needs the charged amount, and ``RefundArgs``
+    # (``domain/tools.py``) deliberately does not declare ``transaction_amount``
+    # -- a model that could supply the number could also suppress the rule by
+    # claiming a larger charge. So on this path the rule cannot fire; the check
+    # that does fire is the billing server's own ``amount_exceeds_transaction``
+    # against the transaction row. This comment used to call it a fast fail
+    # here, which described a rejection the runtime cannot perform.
+    #
+    # The idempotency lookup is a database read the runtime performs and hands
+    # to the *pure* policy function, so the decision stays a pure function of
+    # its inputs (``docs/tool-permissions.md`` §4).
     executed: tuple[bool, dict[str, object] | None] | None = None
     if idempotency_key is not None:
         lookup = executed_lookup or _no_executed_lookup
@@ -906,8 +948,8 @@ def _company_from_calls(ctx: RunContext) -> str | None:
     return None
 
 
-def _failed_write_names(ctx: RunContext) -> list[str]:
-    """Names of the *effect-bearing* tools in this run that failed.
+def _is_effect_bearing(tool_name: str) -> bool:
+    """Whether a registered tool performs a side effect at all.
 
     The read/write split is the whole content of the decision in
     ``docs/agent-state-machine.md`` §3.1, so it is made once, here, from the
@@ -925,16 +967,11 @@ def _failed_write_names(ctx: RunContext) -> list[str]:
     list means a second ``SAFE_WRITE`` or ``HIGH_RISK_WRITE`` tool gets the rule
     for free, and a tool that is reclassified cannot silently flip behaviour: the
     registry is the single source of truth (``docs/tool-permissions.md`` §2).
+
+    This is the rule the run applies; ``run_step`` is where it is applied to a
+    finished call, and ``_response_prompt`` is where the reply it produces is
+    composed.
     """
-    return [
-        rec.tool_name
-        for rec in ctx.executed_tool_calls
-        if rec.status == ToolCallStatus.FAILED.value and _is_effect_bearing(rec.tool_name)
-    ]
-
-
-def _is_effect_bearing(tool_name: str) -> bool:
-    """Whether a registered tool performs a side effect at all."""
     spec = TOOL_REGISTRY.get(tool_name)
     if spec is None:
         # An unregistered name can never have executed, so a ``failed`` row
@@ -988,7 +1025,7 @@ async def run_step(
     # without_tool`` rejection path sets it the same way, and the response step
     # records whichever value is current when the reply is composed.
     #
-    # Only writes, never reads: see ``_failed_write_names``. A refused
+    # Only writes, never reads: see ``_is_effect_bearing``. A refused
     # ``billing.get_invoice`` is an answer, and escalating on it would make the
     # system unable to tell a customer "that invoice does not exist" in the tone
     # it reserves for "we could not do what you asked".
@@ -1023,7 +1060,7 @@ async def run_loop(
     ``-> RETRIEVING`` (the retrieval callable, or a recorded no-hit step)
     ``-> PLANNING`` (``choose_tool`` -> ``ProposedAction``, looped with EXECUTING)
     ``-> EXECUTING`` (``run_step`` -- the five gates, unchanged)
-    ``-> RESPONDING`` (``generate_text`` -> ``AgentResponse``)
+    ``-> RESPONDING`` (``generate_structured(AgentResponse)``)
     ``-> COMPLETED``.
 
     Three entry modes share this function, distinguished by the run's situation:
@@ -1152,7 +1189,15 @@ async def _advance_chain(
 
     Every transition is persisted through the store (which writes its
     ``state_change`` step), never set in memory alone. Walking rather than
-    jumping is what makes ``PLANNING -> EXECUTING`` the sole edge into a tool.
+    jumping is what makes ``PLANNING -> EXECUTING`` the only edge by which the
+    *planning chain* enters a tool.
+
+    It is not the only edge into a tool in the transition table. The approval
+    resume path re-enters the gates along ``WAITING_APPROVAL -> EXECUTING``
+    (``docs/agent-state-machine.md`` §2 draws the edge, and the approval store
+    writes it when a human approves), and that edge is taken by ``_transition``
+    rather than by this function: the run is already parked, so the chain walk
+    -- which starts at ``CLASSIFYING`` -- does not apply to it.
     """
     chain = [
         RunStatus.CLASSIFYING,
@@ -1790,6 +1835,13 @@ def _citation_records(hits: list[SearchHit]) -> list[CitationRecord]:
 
     ``chunk`` is ``"{document_slug}#{anchor}"`` and ``rank`` is the hit's own
     1-based rank, both exactly as ``docs/api-contract.md`` §3 shows them.
+
+    ``ordinal`` travels with the record because the label cannot carry it. The
+    anchor is a heading slug, and one heading longer than the per-chunk token
+    ceiling is split into several chunks that share that anchor -- so the
+    anchor alone does not name the chunk that was retrieved, and a citation
+    resolved from it could point at a sibling while carrying the retrieved
+    chunk's score and rank. The store prefers the ordinal when it is given.
     """
     return [
         CitationRecord(
@@ -1797,6 +1849,7 @@ def _citation_records(hits: list[SearchHit]) -> list[CitationRecord]:
             chunk=f"{hit.document_slug}#{hit.anchor}",
             score=hit.score,
             rank=hit.rank,
+            ordinal=hit.ordinal,
         )
         for hit in hits
     ]
@@ -1835,13 +1888,15 @@ async def _plan(
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
     # A planning round *is* a model call, so it writes a ``model_called`` event
-    # too -- §1's metric 10 counts latency "per model call", and the latency here
-    # is a real measurement the call site took (``choose_tool`` reports none,
-    # see above). Tokens and cost are *not* observable: ``choose_tool`` returns a
-    # bare ``dict`` with no usage record, so this event carries ``None`` for all
-    # three and ``tokens_available=False``. The provider and model names come from
-    # the run row, which is what the worker recorded when it created the run --
-    # the only place they are known at this call site.
+    # too -- and the event's ``latency_ms`` is a real measurement the call site
+    # took (``choose_tool`` reports none, see above). It is a raw field on the
+    # per-model-call record, not a metric: §1's metric 10 is wall-clock per
+    # *run*, read from the harness's own per-case timer. Tokens and cost are
+    # *not* observable: ``choose_tool`` returns a bare ``dict`` with no usage
+    # record, so this event carries ``None`` for all three and
+    # ``tokens_available=False``. The provider and model names come from the run
+    # row, which is what the worker recorded when it created the run -- the
+    # only place they are known at this call site.
     await _record_model_call(
         recorder,
         provider=ctx.run.model_provider,
@@ -1908,7 +1963,8 @@ def _response_prompt(ctx: RunContext) -> str:
     **did not happen**, so it must not be described to a customer as something
     that did. That is not the same as "the run failed": a refused *read* is a
     legitimate answer the agent reasons about, so only a failed *write* escalates
-    the reply (``_failed_write_names``, and §3.1 of the state-machine document).
+    the reply (``_is_effect_bearing``, applied in ``run_step``, and §3.1 of the
+    state-machine document).
     """
     lines = [_ticket_text(ctx)]
     if ctx.executed_tool_calls:
