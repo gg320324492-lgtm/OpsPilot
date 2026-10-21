@@ -7789,6 +7789,21 @@ took transitions the table forbids: [('executing', 'planning'), ('executing',
 edge. A guard that is red for the wrong reason is not a discrimination, which
 is why both were run.
 
+**The sweep made a third writer, and the guard that exists for that had not
+noticed.** `docs/api-contract.md` §3 says a `state_change` step carries
+``{from_status, to_status, at}``, "fixed by the writers" — and there were two
+writers when that sentence was written (the store and the recorder), so
+`tests/integration/test_state_change_shape.py` compared those two. The sweep
+writes a third, and a guard that compares two writers would have passed if the
+third's shape were different. It compares all three now, and it took some
+arranging: the sweep fails *every* run left in a mid-flight state, so it
+reaches the runs the other two writers use as well, and the payload count
+would not be one per writer. The sweep therefore runs first, and the runs the
+other two use are created after it.
+
+Mutation-verified: dropping the `at` key from the sweep's step turns it red
+with the writer named.
+
 **One park was deliberately left unchecked, and the reason is a product
 decision.** Routing the park through `transition_to` would refuse a run that
 has already reached `COMPLETED` — and refusing it *raises*, which escapes the
