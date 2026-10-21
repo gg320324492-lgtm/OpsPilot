@@ -32,6 +32,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { readJsonSafely } from "@/lib/api/client";
 import { createScopedT } from "@/i18n/format";
 
 import type en from "@/i18n/dictionaries/en.json";
@@ -58,11 +59,15 @@ export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: str
     setResult(null);
     try {
       const response = await fetch("/api/knowledge/reindex", { method: "POST" });
-      const payload = (await response.json()) as unknown;
       if (!response.ok) {
+        // The body is read defensively: a handler that died before it could
+        // answer sends HTML, and parsing that as JSON would throw and be
+        // reported as "the dashboard cannot reach itself".
+        const payload = await readJsonSafely(response);
         setFailure(describeFailure(payload, response.status, t));
         return;
       }
+      const payload = (await response.json()) as unknown;
       setResult(asResult(payload));
 
       // The refresh is what makes the new counts appear in the table above,

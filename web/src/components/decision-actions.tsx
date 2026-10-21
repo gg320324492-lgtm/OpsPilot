@@ -61,6 +61,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DecisionPanel } from "@/components/decision-panel";
+import { readJsonSafely } from "@/lib/api/client";
 import { formatTimestamp } from "@/lib/format";
 import { createScopedT } from "@/i18n/format";
 import { approvalStatusLabel, runStatusLabel } from "@/i18n/enums";
@@ -127,13 +128,19 @@ export function DecisionActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const payload = (await response.json()) as unknown;
       if (!response.ok) {
         // The 409 reaches here with the Route Handler's own status and the
         // API's own `code`; nothing in this component rewrites either.
+        //
+        // The body is read **defensively**: a handler that died before it
+        // could answer sends HTML, and parsing that as JSON would throw and
+        // be reported as "the dashboard cannot reach itself" -- with the real
+        // status code lost.
+        const payload = await readJsonSafely(response);
         setFailure(parseDecisionFailure(payload, response.status, t));
         return;
       }
+      const payload = (await response.json()) as unknown;
       setDecided(asDecided(payload));
 
       // The refresh is what removes the card from the pending inbox. Without it

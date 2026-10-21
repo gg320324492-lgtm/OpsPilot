@@ -19,8 +19,12 @@ import { foreignOriginRefusal } from "@/lib/request-origin";
  * dangerous" but "no request from outside this page's origin reaches a handler
  * that holds the token", and that rule is one module
  * (`@/lib/request-origin`) shared by all three rather than a judgement made
- * separately per route. It also notes the shape of this one: `POST` used to
- * take no arguments at all, because there was nothing to read. There is now.
+ * separately per route. It also notes the shape of this one: `POST` takes **no
+ * arguments at all**, because there is nothing to read -- and that is load-
+ * bearing rather than incidental. A request with no body is a CORS *simple*
+ * request, which a browser sends cross-site without a preflight; the origin
+ * check is the only thing standing between a page on another site and a
+ * token-bearing write that re-embedds the whole corpus.
  *
  * The 200 is `{documents_seen, documents_indexed, chunks_written}` and is passed
  * through untouched. **Nothing here interprets `documents_indexed == 0` as a

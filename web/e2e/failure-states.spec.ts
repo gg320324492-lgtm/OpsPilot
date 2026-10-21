@@ -283,7 +283,13 @@ test("a second click on a decided approval is rendered as the guard working, not
   // would take away believing the dashboard had lost the decision.
   await expect(panel).not.toContainText("The API refused this decision with 409");
   await expect(panel).not.toContainText("The decision did not go through");
-  await expect(panel).not.toContainText("Something went wrong");
+  // The API *answered* -- with a 409 -- so the panel must not say the
+  // dashboard could not reach it. That sentence is the transport failure's,
+  // and an operator reading it would go looking at Next.js instead of at the
+  // decision. (The wording this used to assert, "Something went wrong", is
+  // not in either catalogue: the assertion could not fail, which made it a
+  // promise about a sentence the product does not contain.)
+  await expect(panel).not.toContainText("could not reach");
 });
 
 // ---------------------------------------------------------------------------

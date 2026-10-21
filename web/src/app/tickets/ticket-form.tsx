@@ -26,6 +26,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { readJsonSafely } from "@/lib/api/client";
 import { createScopedT } from "@/i18n/format";
 
 import type en from "@/i18n/dictionaries/en.json";
@@ -73,11 +74,15 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
           ...(externalId.trim() ? { external_id: externalId.trim() } : {}),
         }),
       });
-      const payload = (await response.json()) as unknown;
       if (!response.ok) {
+        // The body is read defensively: a handler that died before it could
+        // answer sends HTML, and parsing that as JSON would throw and be
+        // reported as "the dashboard cannot reach itself".
+        const payload = await readJsonSafely(response);
         setFailure(describeFailure(payload, response.status, t));
         return;
       }
+      const payload = (await response.json()) as unknown;
       const created = payload as { ticket: { id: string }; run: { id: string; status: string } };
       setSubmitted({
         ticketId: created.ticket.id,

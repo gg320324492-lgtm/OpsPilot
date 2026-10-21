@@ -213,6 +213,25 @@ function getOperatorToken(): string | null {
 }
 
 /**
+ * The operator token is not configured in the dashboard's environment.
+ *
+ * A distinct type rather than a bare `Error`, because the two failures a
+ * deployment can have -- "the token was never set" and "the token is the wrong
+ * one" -- want different instructions, and a caller that cannot tell them
+ * apart will tell the operator the wrong one.
+ */
+export class MissingOperatorTokenError extends Error {
+  constructor() {
+    super(
+      "OPSPILOT_OPERATOR_TOKEN is not set in the dashboard's environment. " +
+        "The dashboard reads it on the server and never sends it to the browser; " +
+        "set it in web/.env.local (gitignored) or the process environment.",
+    );
+    this.name = "MissingOperatorTokenError";
+  }
+}
+
+/**
  * Ask whether the API will accept our credentials, before showing any data.
  *
  * The dashboard calls this once on load so that a missing or wrong token shows a
@@ -273,6 +292,16 @@ export async function checkApiReachability(): Promise<{
         message: `The API answered ${cause.status} (${cause.code}).`,
       };
     }
+    if (cause instanceof MissingOperatorTokenError) {
+      // A known fault with its own instruction. Folding it into "an
+      // unexpected error" would send the operator looking for a problem that
+      // is not there -- the API was never asked.
+      return {
+        reachable: true,
+        authenticated: false,
+        message: cause.message,
+      };
+    }
     return {
       reachable: true,
       authenticated: false,
@@ -310,11 +339,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const token = getOperatorToken();
   if (!token) {
-    throw new Error(
-      "OPSPILOT_OPERATOR_TOKEN is not set in the dashboard's environment. " +
-        "The dashboard reads it on the server and never sends it to the browser; " +
-        "set it in web/.env.local (gitignored) or the process environment.",
-    );
+    throw new MissingOperatorTokenError();
   }
 
   const headers = new Headers(init.headers);
@@ -368,11 +393,18 @@ async function readBody(response: Response): Promise<unknown> {
 // becomes a TypeScript error at every call site rather than an `undefined` at
 // runtime.
 //
-// Contract §1 lists sixteen endpoints; these are the thirteen the dashboard
-// actually uses. The three it does not bind are `GET /api/runs/{run_id}/audit`,
-// `GET /health` and `GET /ready`: the audit ledger has no screen in the UI,
-// and the two health endpoints are reached by `checkApiReachability` above --
-// which fetches `/health` directly -- rather than through this table.
+// Contract §1 lists sixteen endpoints; this table binds **thirteen** of them.
+// The three it does not bind are `GET /api/runs/{run_id}/audit`, `GET /health`
+// and `GET /ready`: the audit ledger has no screen in the UI, and the two
+// health endpoints are reached by `checkApiReachability` above -- which fetches
+// `/health` directly -- rather than through this table.
+//
+// **Thirteen bound is not thirteen used.** Two of the bindings have no caller
+// anywhere in `web/src/`: `createRun` (`POST /api/runs`) and `getApproval`
+// (`GET /api/approvals/{id}`). They are kept because the contract has the
+// endpoints and a dashboard that grows will want them -- but a reader who
+// assumes a binding is live will be wrong about these two, so they are named
+// here rather than left to be discovered.
 
 export const api = {
   /** `POST /api/tickets` -- the only write that starts work (contract §2). */
@@ -486,6 +518,27 @@ export const api = {
       { method: "POST", body: JSON.stringify({}) },
     ),
 } as const;
+
+/**
+ * Read a response's body as JSON, or `null` when it is not JSON.
+ *
+ * A Route Handler that died before it could answer sends HTML, or nothing at
+ * all, and `response.json()` on that **throws**. The throw used to be caught
+ * by the component's transport handler, which reported "the dashboard cannot
+ * reach its own endpoint" and threw the real status code away -- so a 500
+ * from the API was shown to the operator as a connectivity problem with
+ * Next.js.
+ *
+ * Reading the body defensively keeps the status, and the fallback message
+ * says the body was unreadable, which is what happened.
+ */
+export async function readJsonSafely(response: Response): Promise<unknown> {
+  try {
+    return (await response.json()) as unknown;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Build a query string from defined values only.

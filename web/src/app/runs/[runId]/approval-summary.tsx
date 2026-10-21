@@ -62,12 +62,20 @@ export async function ApprovalSummaryCard({
     copy,
   } = await getCopy("common", "decision", "status", "explanation", "risk", "approvalSummary");
   const risk = deriveRisk(toolCall?.permission, toolCall?.tool_name ?? null);
-  // The gate arguments, from the approval itself. The tool call's own
-  // `arguments` are the same call's arguments, and are preferred when they are
-  // on screen -- but they are not required for the arguments to be shown, and
-  // a card that showed nothing because one lookup came back empty would be the
-  // same defect this component exists to fix.
-  const arguments_ = toolCall ? toolCall.arguments : approval.arguments_snapshot;
+  // The gate arguments, from the approval itself, and **always** from there.
+  //
+  // The snapshot is the *immutable* record of what was gated -- the API has a
+  // dedicated `approval_arguments_changed` code for a call whose arguments no
+  // longer match the approval -- and the Approvals inbox renders the same
+  // field from the same place. Preferring the tool call's own copy would make
+  // the two screens disagree about one approval, and the screen that matters
+  // is the one the human is signing off on.
+  //
+  // A card that showed nothing because one lookup came back empty would be the
+  // same defect this component exists to fix, and taking the arguments from
+  // the tool call made that possible for no gain: the tool *name* still needs
+  // the tool-call row, and the arguments never did.
+  const arguments_ = approval.arguments_snapshot;
 
   return (
     <Panel
