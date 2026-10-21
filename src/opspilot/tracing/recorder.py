@@ -134,9 +134,20 @@ class TraceRecorder:
     ) -> UUID:
         """Append an ``AgentStep``, allocating the next ``sequence`` atomically.
 
-        The sequence is allocated inside the same transaction as the insert --
-        the run's highest sequence, read under a ``FOR UPDATE`` row lock, plus
-        one -- so the timeline the dashboard renders cannot silently reorder.
+        The sequence is allocated inside the same transaction as the insert,
+        through :func:`db.next_step_sequence` -- the run's highest sequence,
+        read under a ``FOR UPDATE`` row lock, plus one -- so the timeline the
+        dashboard renders cannot silently reorder.
+
+        **That allocator is shared, and it used to be copied.** This method
+        had its own: a ``SELECT MAX(sequence)`` aggregate, with no lock and no
+        way to have one -- PostgreSQL refuses ``FOR UPDATE`` on an aggregate
+        query, which is why the shared allocator reads the highest row with
+        ``ORDER BY ... LIMIT 1`` instead. The copy was not merely unlocked: it
+        was a third implementation of one number, and the two others
+        (``SqlRunStore.set_status`` and the interrupted-run sweep) already
+        agreed with each other. A copy is a place for the copies to drift, and
+        this one had.
 
         ``STORE_FULL_PROMPTS=false`` replaces the full-text values in both
         payloads with :data:`_WITHHELD` and writes the row otherwise unchanged:
@@ -147,8 +158,6 @@ class TraceRecorder:
         count, and one that reports no latency is a step that would report a
         latency of ``0``.
         """
-        from sqlalchemy import func, select
-
         from opspilot.adapters.persistence import db, models
 
         if not _store_full_prompts():
@@ -158,14 +167,9 @@ class TraceRecorder:
         factory = self._session_factory()
         try:
             with db.session_scope(factory) as session:
-                highest = session.execute(
-                    select(func.max(models.AgentStep.sequence)).where(
-                        models.AgentStep.run_id == self._run_id
-                    )
-                ).scalar()
                 step = models.AgentStep(
                     run_id=self._run_id,
-                    sequence=int(highest or 0) + 1,
+                    sequence=db.next_step_sequence(session, self._run_id),
                     step_type=step_type,
                     input=input_payload,
                     output=output_payload,
@@ -180,9 +184,22 @@ class TraceRecorder:
     async def record_state_change(self, *, from_status: str, to_status: str) -> None:
         """Append the ``state_change`` step that must accompany every transition.
 
-        Written in the same transaction as the ``agent_runs.status`` update by
-        ``RunStore.set_status``; this method exists for callers that moved the
-        status some other way and still owe the trace its step.
+        **This is not the writer that goes with a status change.** The one
+        that is -- ``SqlRunStore.set_status``, which every live transition
+        goes through -- writes the status and the step in **one transaction**,
+        so a reader can never see the status moved without its step. This
+        method opens its own transaction, because it does not have the store's
+        session and cannot join it.
+
+        It exists for a caller that moved the status some other way and still
+        owes the trace its step -- and **no production path does that**: the
+        recorder's method has no caller in ``src/``. The store's writer is the
+        one that runs, and it is the one that is transactional. What this
+        method still owes is the *shape*: the payload below is the same three
+        keys the store writes, so a step written here does not look different
+        from a step written there, and
+        ``tests/integration/test_state_change_shape.py`` is what keeps the
+        writers agreeing.
 
         **The payload has three keys, and it used to have two.**
         ``SqlRunStore.set_status`` -- the writer every live transition goes

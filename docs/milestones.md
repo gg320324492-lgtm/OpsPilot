@@ -601,7 +601,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       which is the path every transition takes — it writes the step in the same
       transaction as the `agent_runs.status` update, so the step and the status
       cannot disagree. An earlier version of this note blamed
-      `TraceRecorder.record_state_change` (`tracing/recorder.py:180`) for
+      `TraceRecorder.record_state_change` (`tracing/recorder.py:184`) for
       omitting the argument. That is true of the source but false of the runs:
       the method has **no call sites in `src/`** — its only caller anywhere is
       `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would

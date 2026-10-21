@@ -50,17 +50,20 @@ Python.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import pathlib
 import tempfile
 import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -87,7 +90,7 @@ def factory() -> Iterator[sessionmaker[Session]]:
     engine.dispose()
 
 
-def _compiled(run_id: UUID, dialect: object) -> str:
+def _compiled(run_id: UUID, dialect: Dialect) -> str:
     """The SQL the allocator's statement renders to, for ``dialect``."""
     statement = db.next_step_sequence_statement(run_id)
     return str(statement.compile(dialect=dialect))
@@ -100,7 +103,10 @@ def test_the_sequence_statement_is_locked_on_postgres() -> None:
     statement is a plain read, and the document is describing a lock the
     production path never takes.
     """
-    sql = _compiled(UUID(int=1), postgresql.dialect())
+    sql = _compiled(
+        UUID(int=1),
+        cast("Dialect", postgresql.dialect()),  # type: ignore[no-untyped-call]
+    )
 
     assert "FOR UPDATE" in sql, (
         f"the step-sequence statement does not take a row lock on Postgres: {sql!r}. "
@@ -169,7 +175,16 @@ def test_two_writers_allocating_for_one_run_never_persist_a_duplicate(
         allocated: list[int] = []
         refused: list[Exception] = []
 
-        def writer() -> None:
+        # The loop's variables are bound as defaults rather than captured: a
+        # closure over them would read whatever the *next* iteration left
+        # behind, and the two threads are started after this one has finished
+        # only by accident of the join below.
+        def writer(
+            barrier: threading.Barrier = barrier,
+            run_id: UUID = run_id,
+            allocated: list[int] = allocated,
+            refused: list[Exception] = refused,
+        ) -> None:
             try:
                 with db.session_scope(factory) as session:
                     barrier.wait(timeout=10)
@@ -177,7 +192,7 @@ def test_two_writers_allocating_for_one_run_never_persist_a_duplicate(
                     session.add(_step(run_id, sequence))
                     session.flush()
                 allocated.append(sequence)
-            except Exception as exc:  # noqa: BLE001 -- recorded, asserted below
+            except Exception as exc:
                 refused.append(exc)
 
         threads = [threading.Thread(target=writer) for _ in range(2)]
@@ -244,3 +259,44 @@ def _make_run(factory: sessionmaker[Session]) -> UUID:
         return run.id
 
     return asyncio.run(_make())
+
+
+def test_the_recorder_allocates_through_the_shared_allocator() -> None:
+    """``tracing/recorder.py`` must not carry its own copy of the allocator.
+
+    It had one: a ``SELECT MAX(sequence)`` aggregate, with no lock -- and an
+    aggregate cannot carry one, because PostgreSQL refuses ``FOR UPDATE`` on
+    an aggregate query. So the copy was not merely unlocked, it was
+    *unlockable*, while the two allocations that did take a lock were the
+    ones the documents named.
+
+    A third implementation of one number, next to two that already agreed
+    with each other, is exactly what this file exists to catch: the copies
+    are what drift.
+    """
+    source = (
+        pathlib.Path(__file__).resolve().parents[2] / "src" / "opspilot" / "tracing" / "recorder.py"
+    ).read_text(encoding="utf-8")
+
+    # The **code**, not the prose: the docstring beside it explains what the
+    # copy used to be, and a guard that read the prose would find the old
+    # aggregate in the sentence that describes removing it.
+    tree = ast.parse(source, filename="recorder.py")
+    calls: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Name):
+            calls.add(function.id)
+        elif isinstance(function, ast.Attribute):
+            calls.add(function.attr)
+
+    assert "next_step_sequence" in calls, (
+        "tracing/recorder.py does not allocate its step sequence through "
+        "db.next_step_sequence, so it carries its own copy of the allocator"
+    )
+    assert "max" not in calls, (
+        "tracing/recorder.py still computes its own maximum sequence, which "
+        "is the unlocked copy the shared allocator replaced"
+    )
