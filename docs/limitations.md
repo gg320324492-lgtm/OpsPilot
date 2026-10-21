@@ -55,11 +55,26 @@ A malformed client could run up a bill.
 
 ## 2. Reliability
 
-**Interrupted runs are not resumed.** A worker restart marks any run in a
-mid-flight state as `FAILED(interrupted)`. Its work is lost. Runs in
-`WAITING_APPROVAL` survive, because they are parked in the database rather than
-held in the process. Automatic resume needs a step journal and needs every tool
-call to be safely replayable, which is Phase 2 work.
+**Most interrupted runs are not resumed — but a run interrupted *after* a human
+approved is.** A worker restart marks a run in `CLASSIFYING`, `RETRIEVING`,
+`PLANNING` or `RESPONDING` as `FAILED(interrupted)`, and its work is lost.
+Runs in `WAITING_APPROVAL` survive, because they are parked in the database
+rather than held in the process. Runs in `EXECUTING` are spared as well, and
+that is the interesting one: a run is `EXECUTING` either because the pump is
+driving it right now or because a human approved and the worker died before
+finishing, and a single-column status cannot tell those apart — so the sweep
+spares both and a restarted worker **resumes** the second kind, re-driving the
+approved call under the same tool-call id and the same idempotency key.
+
+(This paragraph used to say "a worker restart marks any run in a mid-flight
+state as `FAILED(interrupted)`", with no carve-out for `EXECUTING`. The
+carve-out is the whole reason an approved refund is not thrown away by a
+worker crash, and `docs/agent-state-machine.md` §3 and
+`docs/adr/0005-db-backed-worker-no-broker.md` both record it.)
+
+Resuming the *other* mid-flight states — picking a run up where it stopped —
+needs a step journal and needs every tool call to be safely replayable, which
+is Phase 2 work.
 
 **No retries, no fallback model, no timeouts with backoff.** A model call that
 fails fails the run. An MCP server that is down fails the run. There is a single
