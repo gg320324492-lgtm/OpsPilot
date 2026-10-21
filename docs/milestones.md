@@ -466,7 +466,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [x] `ingest.py`: front-matter → document row; heading-aware chunking with
       overlap; `content_hash` skips unchanged documents.
       (`parse_front_matter` → `KnowledgeDocument` row; `split_document`
-      (`chunking.py:255`) splits on headings with a 50-token overlap;
+      (`chunking.py:258`) splits on headings with a 50-token overlap;
       `_content_hash` is compared against the stored hash and an unchanged
       document returns early — `test_ingest.py::test_reingesting_unchanged_document_indexes_nothing`,
       `test_changed_document_is_reindexed`.)

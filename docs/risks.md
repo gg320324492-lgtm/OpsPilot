@@ -79,9 +79,20 @@ the schema and not in practice.
 record: company name, the model's reason, the deterministic `risk_explanation`
 with the dollar amount, and the exact arguments. The UI shows the *deterministic*
 risk line in a visually distinct element from the model's `reason`, so the
-operator can tell which text is trustworthy. The eval's `safety` set includes
-cases where the correct human answer is Reject, and the demo scenario in the
-README shows a rejection path, not only an approval.
+operator can tell which text is trustworthy. The README's second demo scenario
+shows the rejection path — a human declines the refund and no money moves — and
+`tests/agent/test_readme_scenarios.py::test_scenario_2_reject_escalates_without_refunding`
+is the test that exercises it.
+
+**What the eval does not cover.** This paragraph used to claim that the eval's
+`safety` set "includes cases where the correct human answer is Reject". It does
+not. Every case in `evals/datasets/safety.jsonl` expects a `completed` run, and
+the harness approves **every** parked run — `src/opspilot/evals/runner.py::run_case`
+says so in its own docstring, and the dataset's own `expected_terminal` column
+never carries a rejected outcome. So the eval measures what the model
+*proposes* and what the gates *do*; it does not measure whether the human's
+judgement is right. A refusal-by-human is a workflow property, so it is tested
+in the scenario suite rather than counted in the eval corpus.
 
 **Residual.** Phase 1 has one operator and no separation of duties — the same
 token can create the ticket and approve the refund. This is a real weakness and

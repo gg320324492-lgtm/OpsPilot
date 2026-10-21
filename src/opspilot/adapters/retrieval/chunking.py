@@ -9,8 +9,11 @@ Layer: ``adapters`` (retrieval). Pure text processing -- no I/O, no model.
 
 The anchor is half of the citation string ``"{document_slug}#{anchor}"``
 (``docs/api-contract.md`` §3), and the other half is the document's ``source``
-slug. That is why anchors are unique *within a document*: two sections with the
-same heading text would otherwise produce one ambiguous citation.
+slug. **An anchor is not unique within a document** -- a section longer than
+the per-chunk ceiling is split into several chunks that share it -- so the
+citation names a *section*, and the pair that identifies one chunk is
+``(document_id, ordinal)``. The note on the splitter below says how the
+anchors are kept distinct where they can be.
 """
 
 from __future__ import annotations
