@@ -176,6 +176,40 @@ test.describe("catalogue completeness", () => {
         "would read as a plural group. Rename the message.",
     ).toEqual([]);
   });
+
+  test("no section is a group that also carries a plural form", () => {
+    // The half of the rule the walk above cannot reach.
+    //
+    // `groups()` skips a section that has a string `other` child, because the
+    // same `isPlural` rule `format.ts` uses calls it a plural -- so the test
+    // above can only ever fail on `one`. This one asks the question the
+    // other way: a section that has BOTH an `other` string and a nested
+    // object is a **group** that the runtime will read as a plural, and the
+    // nested messages under it will never resolve.
+    const offenders: string[] = [];
+    for (const locale of LOCALES) {
+      const tree = (locale === "en" ? en : zhCN) as unknown as Node;
+      for (const [section, value] of Object.entries(tree)) {
+        if (typeof value === "string") {
+          continue;
+        }
+        const children = value as Record<string, unknown>;
+        if (typeof children["other"] !== "string") {
+          continue;
+        }
+        const nested = Object.entries(children).filter(([, child]) => typeof child !== "string");
+        if (nested.length > 0) {
+          offenders.push(`${locale}:${section} (${nested.map(([key]) => key).join(", ")})`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "These sections have an `other` string AND a nested message. format.ts " +
+        "reads the `other` as a plural marker, so the nested messages under it " +
+        "would never resolve. Move the plural forms into their own section.",
+    ).toEqual([]);
+  });
 });
 
 test.describe("the Chinese catalogue is actually Chinese", () => {

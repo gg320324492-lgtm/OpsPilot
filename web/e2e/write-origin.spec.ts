@@ -497,6 +497,8 @@ type RouteHandler = {
   readonly method: string;
   /** Whether its body calls `foreignOriginRefusal`. */
   readonly checksOrigin: boolean;
+  /** Whether the refusal is the value a `return` hands back. */
+  readonly returnsRefusal: boolean;
   /** Whether it calls the API before it calls the policy. */
   readonly spendsTokenFirst: boolean;
 };
@@ -540,30 +542,149 @@ function routeFilesIn(dir: string): string[] {
  * The parse is the TypeScript compiler's, so "is this call inside this
  * handler" is answered by the syntax tree rather than by counting braces.
  */
-function readRouteFile(relative: string): RouteFile {
-  const full = path.join(API_DIR, ...relative.split("/"));
-  const source = ts.createSourceFile(
-    full,
-    readFileSync(full, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+/**
+ * The HTTP method a top-level statement exports as a route handler, or `null`.
+ *
+ * Next.js matches a route by the **exported name**, so a handler is anything
+ * the module exports under `GET`/`POST`/... -- and there are two ways to write
+ * one:
+ *
+ * ```ts
+ * export async function POST(request: Request) { ... }
+ * export const POST = async (request: Request) => { ... }
+ * ```
+ *
+ * The first is what the Next.js documentation shows and what this tree uses
+ * today. The second is not documented, and a probe against the installed
+ * Next.js found that it is **not served**: the request came back 404. So it is
+ * not a live route today.
+ *
+ * It is still found here, and the reason is the guard's own failure mode. A
+ * guard that cannot *see* a handler says the file has no mutating handler --
+ * which is a false all-clear, and the one thing this guard must not be. The
+ * failure message in the file-list test tells a developer to add a new route
+ * to `EXPECTED_ROUTE_FILES`; a handler the enumeration cannot see would then
+ * pass the list test and be invisible to the per-handler one.
+ *
+ * So both spellings are found. The finding does not claim the second is
+ * supported; it claims the guard sees what is in the file.
+ */
+function handlerMethod(statement: ts.Statement): string | null {
+  if (ts.isFunctionDeclaration(statement)) {
+    return statement.name?.text ?? null;
+  }
+  if (ts.isVariableStatement(statement)) {
+    const exported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!exported) {
+      return null;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) {
+        continue;
+      }
+      const initializer = declaration.initializer;
+      if (initializer === undefined) {
+        continue;
+      }
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+        return declaration.name.text;
+      }
+    }
+  }
+  return null;
+}
 
+/**
+ * The body of a handler, whether it was written as a declaration or as an
+ * arrow function bound to a const.
+ */
+function handlerBody(statement: ts.Statement): ts.Node | undefined {
+  if (ts.isFunctionDeclaration(statement)) {
+    return statement.body;
+  }
+  if (ts.isVariableStatement(statement)) {
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer;
+      if (initializer === undefined) {
+        continue;
+      }
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+        return initializer.body;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Whether the refusal a call produced is actually *used*.
+ *
+ * The policy's contract is that the caller acts on the refusal -- the object
+ * it builds, which is what the handler answers with. A handler that *called*
+ * `foreignOriginRefusal` and dropped the result on the floor would look
+ * identical to one that used it, and the first is the one the cross-site
+ * request forgery aims at.
+ *
+ * "Used" covers the two ways the tree writes it: the call is the value a
+ * ``return`` hands back, or the result is bound to a name that the handler
+ * reads afterwards (``const refusal = foreignOriginRefusal(request); if
+ * (refusal !== null) { ... }``). Binding it and never reading it is the case
+ * that must not count.
+ */
+function refusalIsUsed(node: ts.CallExpression, body: ts.Node | undefined): boolean {
+  let parent: ts.Node | undefined = node.parent;
+  if (parent !== undefined && ts.isAwaitExpression(parent)) {
+    parent = parent.parent;
+  }
+  if (parent !== undefined && ts.isReturnStatement(parent)) {
+    return true;
+  }
+  if (parent === undefined || !ts.isVariableDeclaration(parent)) {
+    return false;
+  }
+  const name = parent.name;
+  if (!ts.isIdentifier(name)) {
+    return false;
+  }
+  if (body === undefined) {
+    return false;
+  }
+  let reads = 0;
+  const count = (child: ts.Node): void => {
+    if (ts.isIdentifier(child) && child.text === name.text) {
+      reads += 1;
+    }
+    ts.forEachChild(child, count);
+  };
+  ts.forEachChild(body, count);
+  // One for the binding itself, so a second occurrence is a real use.
+  return reads > 1;
+}
+
+/**
+ * Read one route file's source and report what it exports.
+ *
+ * Split from {@link readRouteFile} so a test can exercise the enumeration on
+ * an inline source string -- a route file written in the spelling this
+ * enumeration used to miss is exactly what such a test has to be able to
+ * show.
+ */
+function readRouteSource(source: ts.SourceFile, relative: string): RouteFile {
   const handlers: RouteHandler[] = [];
   for (const statement of source.statements) {
-    if (!ts.isFunctionDeclaration(statement) || statement.name === undefined) {
+    const method = handlerMethod(statement);
+    if (method === null || !ROUTE_METHODS.has(method)) {
       continue;
     }
-    const method = statement.name.text;
-    if (!ROUTE_METHODS.has(method)) {
-      continue;
-    }
-    const exported =
-      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
-      false;
-    if (!exported) {
-      continue;
+    if (ts.isFunctionDeclaration(statement)) {
+      const exported =
+        statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
+        false;
+      if (!exported) {
+        continue;
+      }
     }
 
     // The position of the first call to the policy, and of the first call to
@@ -571,28 +692,33 @@ function readRouteFile(relative: string): RouteFile {
     // a handler that spends no token.
     let originCallAt = Number.POSITIVE_INFINITY;
     let apiCallAt = Number.POSITIVE_INFINITY;
+    let returnsRefusal = false;
+    const body = handlerBody(statement);
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression;
         if (ts.isIdentifier(callee) && callee.text === "foreignOriginRefusal") {
           originCallAt = Math.min(originCallAt, node.getStart(source));
+          returnsRefusal = returnsRefusal || refusalIsUsed(node, body);
         } else if (
-          ts.isPropertyAccessExpression(callee) &&
-          ts.isIdentifier(callee.expression) &&
-          callee.expression.text === "api"
+          (ts.isPropertyAccessExpression(callee) &&
+            ts.isIdentifier(callee.expression) &&
+            callee.expression.text === "api") ||
+          (ts.isIdentifier(callee) && callee.text === "apiFetch")
         ) {
           apiCallAt = Math.min(apiCallAt, node.getStart(source));
         }
       }
       ts.forEachChild(node, visit);
     };
-    if (statement.body !== undefined) {
-      ts.forEachChild(statement.body, visit);
+    if (body !== undefined) {
+      ts.forEachChild(body, visit);
     }
 
     handlers.push({
       method,
       checksOrigin: originCallAt !== Number.POSITIVE_INFINITY,
+      returnsRefusal,
       spendsTokenFirst: apiCallAt < originCallAt,
     });
   }
@@ -620,6 +746,24 @@ function readRouteFile(relative: string): RouteFile {
   }
 
   return { path: relative, handlers, importsPolicy };
+}
+
+/**
+ * Read one route file and report what it exports.
+ *
+ * The file is parsed here and handed to {@link readRouteSource}, so the
+ * enumeration itself can be tested on an inline source string.
+ */
+function readRouteFile(relative: string): RouteFile {
+  const full = path.join(API_DIR, ...relative.split("/"));
+  const source = ts.createSourceFile(
+    full,
+    readFileSync(full, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  return readRouteSource(source, relative);
 }
 
 test.describe("every mutating route handler is found, not listed", () => {
@@ -667,6 +811,90 @@ test.describe("every mutating route handler is found, not listed", () => {
           `handler supplies both.`,
       ).toBe(true);
     }
+  });
+
+  test("every mutating handler returns the refusal rather than calling it", () => {
+    const routes = routeFilesIn(API_DIR).map(readRouteFile);
+    for (const route of routes) {
+      for (const handler of route.handlers) {
+        if (!MUTATING_METHODS.has(handler.method) || !handler.checksOrigin) {
+          continue;
+        }
+        expect(
+          handler.returnsRefusal,
+          `${route.path} calls foreignOriginRefusal but does not return it. ` +
+            `Calling it and dropping the result on the floor looks the same to ` +
+            `this guard as returning it, and it is not the same thing: the ` +
+            `object the policy builds is what the handler answers with, and a ` +
+            `handler that discards it answers with the request it was trying ` +
+            `to refuse.`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("every route file yields at least one handler this guard can see", () => {
+    const routes = routeFilesIn(API_DIR).map(readRouteFile);
+    const blind = routes.filter((route) => route.handlers.length === 0);
+    expect(
+      blind.map((route) => route.path),
+      "these route files export no handler the enumeration can see: " +
+        "a file whose handlers are invisible is a file this guard would " +
+        "report as having no mutating handler, which is a false all-clear. " +
+        "The enumeration reads both `export async function POST` and " +
+        "`export const POST = async () => {}`; if a route file uses a third " +
+        "spelling, the enumeration has to learn it.",
+    ).toEqual([]);
+  });
+
+  test("the enumeration sees a handler written as a const", () => {
+    // The spelling the enumeration used to miss. Next.js does not serve it
+    // today -- a probe against the installed version answered 404 -- so this
+    // is not a claim that it is supported. It is a claim that the guard
+    // *sees* a handler when it finds one, because a file whose handlers are
+    // invisible is a file the guard would clear.
+    const source = ts.createSourceFile(
+      "probe.ts",
+      [
+        "import { foreignOriginRefusal } from '@/lib/api/request-origin';",
+        "export const POST = async (request: Request): Promise<Response> => {",
+        "  const refusal = foreignOriginRefusal(request);",
+        "  if (refusal !== null) {",
+        "    return refusal;",
+        "  }",
+        "  return new Response(null, { status: 204 });",
+        "};",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const route = readRouteSource(source, "probe.ts");
+
+    expect(route.handlers.map((handler) => handler.method)).toEqual(["POST"]);
+    expect(route.handlers[0].checksOrigin).toBe(true);
+  });
+
+  test("a refusal that is called but not returned does not count as a check", () => {
+    const source = ts.createSourceFile(
+      "probe.ts",
+      [
+        "import { foreignOriginRefusal } from '@/lib/api/request-origin';",
+        "export async function POST(request: Request): Promise<Response> {",
+        "  foreignOriginRefusal(request);",
+        "  return new Response(null, { status: 204 });",
+        "};",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const route = readRouteSource(source, "probe.ts");
+
+    expect(route.handlers[0].checksOrigin).toBe(true);
+    expect(route.handlers[0].returnsRefusal).toBe(false);
   });
 
   test("every mutating handler checks the origin before it spends the token", () => {
