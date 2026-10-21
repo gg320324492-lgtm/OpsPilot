@@ -187,14 +187,18 @@ async def test_an_external_tool_is_dispatched_by_the_mcp_half(tmp_path: pathlib.
     )
 
 
-async def test_an_unregistered_name_still_gets_unknown_tool() -> None:
-    """A name the registry does not know reaches the MCP half's refusal.
+async def test_an_unregistered_name_reaches_the_mcp_half() -> None:
+    """A name the registry does not know falls through to the MCP half.
 
     The composite routes on ``TOOL_REGISTRY[name].server`` and has no opinion
-    about names that are absent, so it must fall through rather than raise -- and
-    the refusal must stay the one the MCP gateway has always given. Gate 2
-    rejects these names before dispatch in practice; this pins the behaviour for
-    anything that reaches the gateway anyway.
+    about names that are absent, so it must fall through rather than raise --
+    and the **half** is what answers. Here the half is a recording double, so
+    the answer is the double's own; that the real half refuses such a name
+    with ``unknown_tool`` is pinned against the real server in
+    ``tests/integration/test_mcp_refusal_codes_reach_the_gateway.py``.
+
+    Gate 2 rejects these names before dispatch in practice; this pins the
+    behaviour for anything that reaches the gateway anyway.
     """
     knowledge = _RecordingGateway()
     mcp = _RecordingGateway()

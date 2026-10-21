@@ -84,9 +84,12 @@ def _module_constants(path: pathlib.Path) -> dict[str, str]:
                 constants[node.target.id] = node.value.value
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
             target = node.targets[0]
-            if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
-                if isinstance(node.value.value, str):
-                    constants[target.id] = node.value.value
+            if (
+                isinstance(target, ast.Name)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                constants[target.id] = node.value.value
     return constants
 
 
@@ -112,27 +115,33 @@ def _tokens_in(path: pathlib.Path) -> set[str]:
             for keyword in node.keywords:
                 if keyword.arg != _REASON_KEYWORD:
                     continue
-                value = keyword.value
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    found.add(value.value)
-                elif isinstance(value, ast.Name) and value.id in constants:
-                    found.add(constants[value.id])
+                argument = keyword.value
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    found.add(argument.value)
+                elif isinstance(argument, ast.Name) and argument.id in constants:
+                    found.add(constants[argument.id])
         elif isinstance(node, ast.Assign | ast.AnnAssign):
             targets: list[ast.expr] = (
                 list(node.targets) if isinstance(node, ast.Assign) else [node.target]
             )
             # ``_SDK_STATUS_REASONS = (("APIConnectionError", MODEL_UNAVAILABLE), ...)``
-            if len(targets) == 1 and isinstance(targets[0], ast.Name):
-                if targets[0].id == _SDK_REASON_TABLE:
-                    for child in ast.walk(node.value):
-                        if isinstance(child, ast.Name) and child.id in constants:
-                            found.add(constants[child.id])
+            is_reason_table = (
+                len(targets) == 1
+                and isinstance(targets[0], ast.Name)
+                and targets[0].id == _SDK_REASON_TABLE
+            )
+            if is_reason_table and node.value is not None:
+                for child in ast.walk(node.value):
+                    if isinstance(child, ast.Name) and child.id in constants:
+                        found.add(constants[child.id])
             # ``row.failure_reason = "interrupted"``
             for target in targets:
                 attribute = getattr(target, "attr", None)
-                if attribute != "failure_reason":
-                    continue
-                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                if (
+                    attribute == "failure_reason"
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)
+                ):
                     found.add(node.value.value)
     return found
 

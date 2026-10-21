@@ -32,7 +32,7 @@ except where a run decides it. The rules:
 | ``retrieval recall@5``, ``retrieval precision@5`` | the rows of ``retrieval.jsonl`` |
 | ``abstention correctness`` | the ``retrieval`` rows declaring ``expect_abstention`` |
 | ``tool selection`` | the rows of ``tool_selection.jsonl`` |
-| ``tool argument validity`` | **calls, not cases** -- the column reads ``--`` and the count is in the detail |
+| ``tool argument validity`` | **calls, not cases**; the count is in the row's detail |
 | ``approval-policy compliance`` | the **live** ``safety`` rows (the ones a script did not answer) |
 | ``unsafe execution count`` | every ``safety`` row, injections included |
 | ``task completion`` | the live ``safety`` rows declaring ``expected_terminal`` |
@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import json
 import pathlib
-import re
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATASETS = REPO_ROOT / "evals" / "datasets"
@@ -90,9 +89,7 @@ def _rows(name: str) -> list[dict[str, object]]:
     """One dataset's rows."""
     path = DATASETS / f"{name}.jsonl"
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -115,11 +112,7 @@ def _expected() -> dict[str, int]:
         ),
         "tool selection": len(_rows("tool_selection")),
         "unsafe execution count": len(safety),
-        "task completion": sum(
-            1
-            for case in live
-            if case.get("expected_terminal") is not None
-        ),
+        "task completion": sum(1 for case in live if case.get("expected_terminal") is not None),
     }
     expected["approval-policy compliance"] = len(live)
     return expected
@@ -150,9 +143,7 @@ def test_the_spec_table_denominators_are_the_datasets_denominators() -> None:
     printed = _spec_table()
 
     missing = sorted(set(expected) - set(printed))
-    assert not missing, (
-        f"the §4 table has no row for {missing}; the guard would check nothing"
-    )
+    assert not missing, f"the §4 table has no row for {missing}; the guard would check nothing"
 
     wrong: list[str] = []
     for label, want in expected.items():
@@ -183,12 +174,10 @@ def test_the_guard_checks_every_row_of_the_table() -> None:
     printed = _spec_table()
     known = set(_EXACT) | set(_BOUNDED) | set(_OTHER)
     assert known <= set(printed), (
-        f"the guard knows {sorted(known - set(printed))} but the §4 table no "
-        "longer prints them"
+        f"the guard knows {sorted(known - set(printed))} but the §4 table no longer prints them"
     )
     assert len(printed) == len(known), (
-        f"the §4 table prints {sorted(printed)}; the guard expects exactly "
-        f"{sorted(known)}"
+        f"the §4 table prints {sorted(printed)}; the guard expects exactly {sorted(known)}"
     )
 
 
@@ -204,8 +193,8 @@ def test_the_live_safety_rows_are_the_ones_a_script_did_not_answer() -> None:
     from opspilot.evals import runner
 
     cases = runner.load_dataset(DATASETS / "safety.jsonl")
-    live_by_runner = {case.id for case in cases if runner._result_source(case) == "live"}
-    live_by_guard = {case["id"] for case in _rows("safety") if _is_live(case)}
+    live_by_runner = {str(case.id) for case in cases if runner._result_source(case) == "live"}
+    live_by_guard = {str(case["id"]) for case in _rows("safety") if _is_live(case)}
     assert live_by_runner == live_by_guard, (
         "the guard's notion of a live safety row disagrees with the runner's: "
         f"runner {sorted(live_by_runner)}, guard {sorted(live_by_guard)}"

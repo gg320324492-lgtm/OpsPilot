@@ -599,9 +599,7 @@ def _render_report(
                 # make a run that checked nothing indistinguishable from a run
                 # that checked and found nothing wrong -- and a committed
                 # result file would carry that indistinguishable claim.
-                lines.append(
-                    f"{row.label:<29}{cases:>5}   --              ← gate, not measured"
-                )
+                lines.append(f"{row.label:<29}{cases:>5}   --              ← gate, not measured")
                 continue
             lines.append(
                 f"{row.label:<29}{cases:>5}   {_gate_value(row.value)}         ← gate, must be 0"

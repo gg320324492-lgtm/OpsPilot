@@ -1,8 +1,16 @@
 """Application settings for OpsPilot.
 
 Responsibility: the single, typed source of runtime configuration. Every
-variable named in ``.env.example`` is read here and nowhere else, so a
-misconfigured deployment fails loudly at startup rather than at first use.
+variable named in ``.env.example`` is read here and nowhere else.
+
+**"Fails loudly at startup" is true of some settings and not of all**, and the
+difference is worth naming. The ones that decide whether the process can serve
+at all -- the operator token, the provider SDK, the embedding model -- are
+checked in the boot path, and a deployment missing one of them refuses to
+start. The ones that shape *behaviour* -- the MCP server commands, the tool
+denylist, the refund ceiling, the retrieval threshold, whether full prompts are
+stored -- are read at the point of use, so a deployment that sets one of those
+wrong starts cleanly and misbehaves later.
 
 Layer: leaf / cross-cutting. This module is imported by every layer (``api``,
 ``worker``, ``adapters``, ``agents``) but imports nothing above it -- it depends

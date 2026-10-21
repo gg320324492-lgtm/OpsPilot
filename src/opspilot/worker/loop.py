@@ -634,9 +634,7 @@ async def drain_once(
     )
 
     min_score = (
-        retrieval_min_score
-        if retrieval_min_score is not None
-        else _settings_retrieval_min_score()
+        retrieval_min_score if retrieval_min_score is not None else _settings_retrieval_min_score()
     )
 
     # The lease renewer: a background task, so the drive below is not charged for

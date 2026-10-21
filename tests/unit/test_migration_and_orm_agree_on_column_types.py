@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+from typing import Any
 
 import pytest
 from sqlalchemy import MetaData, Table
@@ -79,8 +80,16 @@ class _CapturingOperations:
         self.metadata = MetaData()
         self.tables: dict[str, Table] = {}
 
-    def create_table(self, name: str, *columns: object, **_: object) -> None:
-        self.tables[name] = Table(name, self.metadata, *columns)  # type: ignore[arg-type]
+    def create_table(
+        self,
+        name: str,
+        *columns: Any,  # noqa: ANN401 -- the migration's own column objects
+        **_: Any,  # noqa: ANN401 -- the migration's own keyword arguments
+    ) -> None:
+        # ``Any`` rather than ``object``: the migration calls ``sa.Column(...)``
+        # and ``sa.Table(...)`` with whatever the revision declares, and this
+        # recorder only has to keep the shape, not check it.
+        self.tables[name] = Table(name, self.metadata, *columns)
 
     def add_column(self, table_name: str, column: object, **_: object) -> None:
         self.tables[table_name].append_column(column)  # type: ignore[arg-type]
@@ -93,7 +102,13 @@ class _CapturingOperations:
         return sqlite.dialect()
 
     def __getattr__(self, _name: str) -> object:
-        return lambda *args, **kwargs: None
+        # A callable that accepts anything and does nothing: the dialect is
+        # only ever asked to render SQL, and this stands in for the parts of a
+        # real dialect that would need a connection.
+        def _ignore(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        return _ignore
 
 
 def _migrated_schema() -> dict[str, Table]:
@@ -106,7 +121,7 @@ def _migrated_schema() -> dict[str, Table]:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         module.op = operations  # type: ignore[attr-defined]
-        module.upgrade()  # type: ignore[attr-defined]
+        module.upgrade()
     return operations.tables
 
 
@@ -165,8 +180,7 @@ def test_every_column_has_the_same_type_on_both_sides() -> None:
         f"migration={_rendered(migrated[name].columns[column.name].type)}"
         for name, table in Base.metadata.tables.items()
         for column in table.columns
-        if _rendered(column.type)
-        != _rendered(migrated[name].columns[column.name].type)
+        if _rendered(column.type) != _rendered(migrated[name].columns[column.name].type)
     ]
 
     assert not mismatched, (
@@ -189,9 +203,7 @@ def test_every_column_has_the_same_nullability_on_both_sides() -> None:
         if column.nullable != migrated[name].columns[column.name].nullable
     ]
 
-    assert not mismatched, (
-        f"the ORM and the migration chain disagree on nullability: {mismatched}."
-    )
+    assert not mismatched, f"the ORM and the migration chain disagree on nullability: {mismatched}."
 
 
 @pytest.mark.parametrize("column_name", ["external_id"])

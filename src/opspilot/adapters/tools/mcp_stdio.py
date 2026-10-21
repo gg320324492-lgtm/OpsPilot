@@ -253,12 +253,26 @@ def server_working_directory() -> Path:
     """The directory a spawned server must run in.
 
     ``python -m mcp_servers.crm.server`` resolves ``mcp_servers`` as a package
-    relative to the current working directory, and that package is not importable
-    from anywhere else -- the install maps ``crm``/``billing``/``issues`` as
-    top-level packages, and the servers themselves import ``mcp_servers._store``
-    by that name. So the child needs the directory that holds ``mcp_servers/``,
-    which is the source root in a checkout (``/app`` in the image, which is where
-    the Dockerfile puts it and which is the image's ``WORKDIR``).
+    relative to the current working directory, and the install maps it as a
+    **top-level package** -- ``package-dir = {"" = "src", "mcp_servers" =
+    "mcp_servers"}`` -- so the three servers are ``mcp_servers.crm`` and its
+    siblings, and each of them imports ``mcp_servers._store`` by that name.
+    (An earlier revision of this paragraph said the install mapped
+    ``crm``/``billing``/``issues`` as top-level packages; that was the
+    packaging of an earlier layout, and the current one keeps the
+    ``mcp_servers`` prefix.)
+
+    So the child needs the directory that holds ``mcp_servers/``, which is the
+    source root in a checkout (``/app`` in the image, which is where the
+    Dockerfile puts it and which is the image's ``WORKDIR``).
+
+    **This assumes the editable install the image uses.** The path is derived
+    from ``opspilot``'s own location, and a *non*-editable install puts
+    ``opspilot`` under ``site-packages``, so ``parents[2]`` is the wrong
+    directory and the child fails with a ``ModuleNotFoundError`` that reads
+    like a broken install. The image installs editable on purpose -- the
+    Dockerfile says so -- and a wheel install of this package is not a
+    supported deployment for the stdio transport.
 
     Derived from ``opspilot``'s own location rather than from
     ``os.getcwd()``: a console script may be started from anywhere, and a server

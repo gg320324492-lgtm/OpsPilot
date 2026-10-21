@@ -13,7 +13,7 @@ Enforcement point: `src/opspilot/agents/runtime.py`, `_gate_and_execute()`.
 ## 1. The three levels
 
 ```python
-class Permission(str, Enum):
+class Permission(StrEnum):
     READ             = "read"
     SAFE_WRITE       = "safe_write"
     HIGH_RISK_WRITE  = "high_risk_write"

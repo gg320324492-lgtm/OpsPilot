@@ -102,9 +102,12 @@ def _names_a_ledger_table(node: ast.AST) -> bool:
             return True
         if isinstance(child, ast.Attribute) and child.attr == "AuditEvent":
             return True
-        if isinstance(child, ast.Constant) and isinstance(child.value, str):
-            if TABLE in child.value:
-                return True
+        if (
+            isinstance(child, ast.Constant)
+            and isinstance(child.value, str)
+            and TABLE in child.value
+        ):
+            return True
     return False
 
 
@@ -135,8 +138,7 @@ def test_no_source_file_updates_or_deletes_an_audit_event() -> None:
                 )
 
     assert not offenders, (
-        "the audit ledger must be append-only, but these statements mutate it: "
-        f"{offenders}."
+        f"the audit ledger must be append-only, but these statements mutate it: {offenders}."
     )
 
 
@@ -183,7 +185,14 @@ async def test_appending_and_reading_the_ledger_issues_no_mutation(
     statements: list[str] = []
 
     @sa_event.listens_for(factory.kw["bind"], "before_cursor_execute")
-    def _record(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
         statements.append(statement)
 
     recorder = TraceRecorder(run_id=run_id, session_factory=factory)
@@ -198,9 +207,7 @@ async def test_appending_and_reading_the_ledger_issues_no_mutation(
         for statement in statements
         if TABLE in statement and statement.strip().lower().startswith(("update", "delete"))
     ]
-    assert not mutations, (
-        f"the ledger was mutated while appending and reading: {mutations!r}"
-    )
+    assert not mutations, f"the ledger was mutated while appending and reading: {mutations!r}"
 
     # And the two events are still exactly what was written. The ledger is
     # ordered by ``(created_at, id)`` and two events written in the same
@@ -268,8 +275,7 @@ def test_audit_is_append_only() -> None:
         names = sorted(
             name
             for name, member in vars(owner).items()
-            if not name.startswith("_") and callable(member)
-            and "audit" in name.lower()
+            if not name.startswith("_") and callable(member) and "audit" in name.lower()
         )
         audit_methods[owner.__name__] = names
 
@@ -283,8 +289,7 @@ def test_audit_is_append_only() -> None:
     )
     for name, methods in audit_methods.items():
         assert methods == ["list_audit_events"] or methods == ["record_audit"] or not methods, (
-            f"{name} exposes {methods}; no class may expose a second way to "
-            "touch the audit ledger."
+            f"{name} exposes {methods}; no class may expose a second way to touch the audit ledger."
         )
 
 

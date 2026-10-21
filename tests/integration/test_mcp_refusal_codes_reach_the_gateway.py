@@ -57,7 +57,6 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 
 from opspilot.adapters.tools.mcp_gateway import MCPToolGateway, build_in_process_servers
-
 from tests._mcp_codes import EXPECTED_CODES
 
 
@@ -148,9 +147,7 @@ async def test_every_tool_declares_exactly_the_codes_it_can_return(
                     )
                 continue
             if not expected:
-                wrong.append(
-                    f"{server_name}/{tool.name}: declares a `code` but cannot fail"
-                )
+                wrong.append(f"{server_name}/{tool.name}: declares a `code` but cannot fail")
                 continue
             declared = set(_enum_of(properties["code"]))
             if declared != set(expected):
@@ -160,7 +157,7 @@ async def test_every_tool_declares_exactly_the_codes_it_can_return(
                 )
     assert not wrong, (
         "these tools' schemas do not match the failures they can actually "
-        f"produce:\n  " + "\n  ".join(wrong) + "\n\nA code in a tool's schema is "
+        "produce:\n  " + "\n  ".join(wrong) + "\n\nA code in a tool's schema is "
         "a promise to the agent about a failure it will never see."
     )
 

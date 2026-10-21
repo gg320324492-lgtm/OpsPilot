@@ -321,9 +321,14 @@ deliberately does not integrate.
 
 | Server | Tools | Seed |
 |---|---|---|
-| `crm-mcp` | `get_customer`, `get_account`, `get_subscription` | 10 companies (ACME, Globex, Initech, Umbrella, Stark Industries, Wayne Enterprises, …) |
-| `billing-mcp` | `get_invoice`, `list_transactions`, `issue_refund` | 20–30 invoices covering: normal, duplicate-charged, already-refunded, partially-paid, overdue, subscription-mismatch |
-| `issues-mcp` | `search`, `create` | empty, returns `OPS-1042` style keys |
+| `crm` | `crm.get_customer`, `crm.get_account`, `crm.get_subscription` | 10 companies (ACME, Globex, Initech, Umbrella, Stark Industries, Wayne Enterprises, …) |
+| `billing` | `billing.get_invoice`, `billing.list_transactions`, `billing.issue_refund` | 20–30 invoices covering: normal, duplicate-charged, already-refunded, partially-paid, overdue, subscription-mismatch |
+| `issues` | `issues.search`, `issues.create` | empty, returns `OPS-1001` style keys |
+
+The names are the ones the servers register, prefix and all: the registry is
+keyed on ``crm.get_customer``, and a proposal of the bare ``get_customer``
+would not resolve. The prefixes were missing from this table for a while, which
+is the naming the M2 servers used before the contract settled.
 
 `billing.issue_refund` **mutates its own store** and is idempotent on
 `idempotency_key`: the same key twice returns the same `refund_id` and does not
@@ -408,7 +413,8 @@ so the test suite and a fresh clone work with no API key. It is a bag of
 stopword-free, lightly-stemmed words weighted sublinearly by frequency and
 hashed into a fixed-width vector — dependency-free, deterministic across
 processes, and a genuine retriever on this corpus rather than a placeholder (it
-reaches Recall@5 = 14/15 on `retrieval.jsonl`). It is not semantic and has no
+reaches Recall@5 = 14/20 on `retrieval.jsonl` -- twenty cases, of which five
+are the unanswerable ones and score zero by abstaining). It is not semantic and has no
 synonymy; `docs/limitations.md` §3 says so in the README's terms. A real
 embedding provider is selected by config, and the threshold moves with it
 because the two are not on the same scale. The vector store port makes both
@@ -428,13 +434,21 @@ the API and the database, but have no screen in the UI.
 |---|---|
 | Model call | provider, model, latency_ms, input_tokens, output_tokens, estimated_cost_usd |
 | Tool call | tool_name, arguments, permission, latency_ms, status, result, error, idempotency_key |
-| Retrieval | query, top_k, returned document ids, scores |
+| Retrieval | count, the document slugs of the hits |
 | Audit | event_type, actor, payload, timestamp |
 
-API keys are never logged. Prompt bodies are stored in Phase 1 (dev-mode
-default) because a trace you cannot read is not a trace; field-level redaction is
-explicitly deferred to Phase 3 and is listed in the limitations section of the
-README rather than quietly ignored.
+The retrieval step records **two** things, and the rest of a retrieval is in
+the ``citations`` table beside it: the chunk each hit came from, its score and
+its rank. The step says how much was found and where; the citations say which
+chunk, and at what score.
+
+API keys are never logged. **No prompt body is stored in Phase 1 at all** --
+the trace records the model's *response*, not the question it was asked.
+`STORE_FULL_PROMPTS=false` (the default) withholds the response's text too, and
+what remains is the step, its type, its latency and every non-text field: a
+step whose text is withheld is still a step a reader can count. Field-level
+redaction of what *is* stored is explicitly deferred to Phase 3 and is listed in
+the limitations section of the README rather than quietly ignored.
 
 ## 11. Scope control
 

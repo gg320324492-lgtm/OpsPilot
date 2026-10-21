@@ -37,9 +37,15 @@ not registered at all falls through to the MCP half, which refuses it with
 ``unknown_tool`` -- the same answer it gave before this existed.
 
 Both halves are asked for their tool lists and the answers are *unioned*, not
-replaced. Neither half is told it owns the registry: that is what makes the
-union a real cross-check (a tool listed by neither half would be visible here)
-rather than a second registry with extra steps.
+replaced. Neither half is told it owns the registry, which keeps the union from
+being a second registry with extra steps.
+
+**The union is a shape, not a check.** Both halves answer with the static
+registry today, so the union *is* the registry, and a half that could not serve
+a tool right now would still list it. The wording this paragraph used to carry
+-- "a tool listed by neither half would be visible here" -- described a
+cross-check the code does not perform. What the union does guarantee is that a
+caller sees one list, in one order, with no duplicates.
 """
 
 from __future__ import annotations
@@ -85,9 +91,14 @@ class CompositeToolGateway:
 
         The result is still *derived* from the halves rather than returned from
         ``TOOL_REGISTRY`` directly: the registry says what a tool *is*, and
-        neither gateway is claiming authority over it, but this is a list of the
-        tools that can be executed and a half that stopped serving one is a fact
-        a caller of this method would want to see.
+        neither gateway is claiming authority over it.
+
+        **It is not a liveness check, and it cannot become one without
+        changing what the halves report.** Both halves answer with the static
+        registry, so a half that could not serve a tool right now would still
+        list it, and a caller cannot tell from this list which tools are
+        actually reachable. Answering that question needs the halves to report
+        what they can *execute*, which is a different method.
         """
         union: dict[str, ToolSpec] = {}
         for tools in (await self._internal.list_tools(), await self._mcp.list_tools()):

@@ -220,9 +220,10 @@ long procedures split awkwardly. Nothing in Phase 1 detects a bad split.
 `local` embedder is a **lexical** scorer, not a semantic one: a bag of
 stopword-free, lightly-stemmed words, weighted sublinearly by frequency and
 hashed into a fixed-width vector. It is a real retriever on this corpus —
-measured over `evals/datasets/retrieval.jsonl` it reaches **Recall@5 = 14/15**
-and **Recall@10 = 15/15**, and its scores separate answerable from unanswerable
-questions — which is what lets a fresh clone and the CI suite run the golden
+measured over `evals/datasets/retrieval.jsonl` it reaches **Recall@5 = 14/20**
+and **Recall@10 = 15/20** -- twenty cases, of which five are the unanswerable
+ones and score zero by abstaining -- and its scores separate answerable from
+unanswerable questions — which is what lets a fresh clone and the CI suite run the golden
 path with no API key. What it is not is semantic: **there is no synonymy**. A
 question whose answer is worded entirely differently from the question will not
 match it, and the stopword list and the two suffix rules are hand-written rather
@@ -355,8 +356,9 @@ is a real gap and is the reason M7 is scheduled after the workflow it displays.
 **One locale ships as a translation; there is no locale negotiation.** Corrected
 2026-10-14: this bullet previously read "No i18n infrastructure. The dashboard is
 English-only," which stopped being true at `651bcef`. What exists now: an
-English source catalogue, a `zh-CN` catalogue of **330 strings** across 18
-namespaces (`web/src/i18n/dictionaries/zh-CN.json`), an `httpOnly SameSite=Lax`
+English source catalogue, a `zh-CN` catalogue of **343 strings** across 18
+namespaces (`web/src/i18n/dictionaries/zh-CN.json`; counted 2026-10-21, and the
+catalogues grow with the screens), an `httpOnly SameSite=Lax`
 cookie read server-side, and a switcher in the nav. English remains what a fresh
 clone renders, with no configuration — which is `DEFAULT_LOCALE = "en"` in
 `web/src/i18n/config.ts`, not a DoD item, and an earlier revision of this
@@ -375,11 +377,10 @@ made. Covered by 22 `web-e2e` cases across
 **The favicon's 256-pixel frame costs about 75 KB on the first visit, and the
 browser pays it whether it wants that frame or not.** An `.ico` is fetched
 whole: a browser does not request the one frame it is going to use, it
-downloads the file and picks a frame out of it. So the 256 frame's 75,186
-bytes of PNG arrive whether the browser wanted that size or not, and they
-are 75,186 of `web/src/app/favicon.ico`'s 92,226 bytes — the same favicon
-measured 17,508 bytes before the 256 frame was added, and 5.3 times as
-large. The cost is about 75 KB of extra transfer on the first visit to the
+downloads the file and picks a frame out of it. So the 256 frame's PNG
+arrives whether the browser wanted that size or not, and it is most of
+`web/src/app/favicon.ico`'s 92,226 bytes — the same favicon measured 17,508
+bytes before the 256 frame was added, and 5.3 times as large. The cost is about 75 KB of extra transfer on the first visit to the
 domain, after which it comes out of the cache like any other asset. The
 trade is deliberate: the 256 is the frame a reader that takes a single
 picture out of an `.ico` is handed, and it is what makes the page announce

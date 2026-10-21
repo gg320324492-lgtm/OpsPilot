@@ -184,8 +184,12 @@ def build_stdio_servers_from_settings(settings: object) -> dict[str, StdioServer
         A map the gateway can use in place of :func:`build_in_process_servers`.
 
     Raises:
-        MCPServerSpawnError: If any command is empty or unbalanced, naming the
-            setting that is wrong.
+        MCPServerSpawnError: If any command is **unbalanced** -- an
+            unterminated quote -- naming the setting that is wrong. An *empty*
+            command cannot arrive from the settings: a blank value falls back
+            to the default command for that server, so what a blank setting
+            would have caused is a missing default rather than a refusal to
+            start.
     """
     # ``build_stdio_servers`` is imported here rather than at module scope, but
     # the deferral no longer buys what it used to: this module already imports

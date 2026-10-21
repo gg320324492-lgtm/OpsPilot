@@ -1988,7 +1988,7 @@ which, and record it.**
   is not tested at all.
 
 **3. A second "absence of an answer" token escapes the gate.** The gateway can
-return `server_unavailable` (`mcp_gateway.py:380`) as well as
+return `server_unavailable` (`mcp_gateway.py:384`) as well as
 `mcp_unavailable` (`:233`); the runtime special-cases only the second. Reached
 through a factory the default wiring does not use, so severity is low, but it is
 the same defect class the M6 commit claims to have fixed, on an untested path.

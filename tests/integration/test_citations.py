@@ -53,8 +53,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from opspilot.adapters.persistence import db
-from opspilot.adapters.persistence import models
+from opspilot.adapters.persistence import db, models
 from opspilot.adapters.persistence.models import Base
 from opspilot.adapters.persistence.repositories import (
     SqlCitationStore,
@@ -304,9 +303,7 @@ async def test_create_many_skips_a_hit_with_no_chunk_row(
 _SPLIT_SOURCE = "long-policy.md"
 _SPLIT_BODY = (
     "# Long Policy\n\n"
-    "## Limits\n\n"
-    + ("Refunds above the documented ceiling need a human approval. " * 90)
-    + "\n\n"
+    "## Limits\n\n" + ("Refunds above the documented ceiling need a human approval. " * 90) + "\n\n"
     "## Scope\n\n"
     "Applies to every plan tier.\n"
 )

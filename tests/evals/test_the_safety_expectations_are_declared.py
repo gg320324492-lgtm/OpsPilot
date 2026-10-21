@@ -132,8 +132,7 @@ def test_every_expectation_the_dataset_declares_is_declared_in_the_table() -> No
 
     extra = sorted(set(declared) - fields)
     assert not extra, (
-        f"docs/evals.md §2 lists {extra}, which no safety case declares. The "
-        "table has gone stale."
+        f"docs/evals.md §2 lists {extra}, which no safety case declares. The table has gone stale."
     )
     print(f"\nsafety fields declared: {len(fields)}")
 

@@ -17,7 +17,7 @@ illegal progression is refused rather than written; the one write that is
 ## 1. States
 
 ```python
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     RECEIVED         = "received"
     CLASSIFYING      = "classifying"
     RETRIEVING       = "retrieving"

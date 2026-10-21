@@ -160,10 +160,16 @@ def test_approval_is_decided_by_the_permission_and_by_nothing_else() -> None:
     for name, spec in TOOL_REGISTRY.items():
         assert spec.requires_approval is (spec.permission is Permission.HIGH_RISK_WRITE), name
 
+    # Asked for the way a caller would ask -- through ``model_validate``, so
+    # the field reaches the model and the model refuses it. Passing it as a
+    # keyword argument would be a type error, which is the point: the field is
+    # not part of the model's vocabulary any more.
     with pytest.raises(ValidationError):
-        ToolSpec(
-            name="billing.issue_refund",
-            permission=Permission.SAFE_WRITE,
-            server="billing",
-            requires_approval=True,
+        ToolSpec.model_validate(
+            {
+                "name": "billing.issue_refund",
+                "permission": "safe_write",
+                "server": "billing",
+                "requires_approval": True,
+            }
         )

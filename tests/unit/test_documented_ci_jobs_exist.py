@@ -12,7 +12,7 @@ It has already drifted once in the other direction. The `verify` job's
 description listed three things it did — migrations, the vector differential,
 the worker concurrency — and it now runs a fourth, the **migration-schema**
 tests, which are the file whose own docstring tells the story of `0001`: a
-migration that was green on SQLite for the whole of M0–M9 and had never
+migration that was green on SQLite for the whole of M0-M9 and had never
 applied to a real PostgreSQL. A reader auditing the job from the ledger would
 not have known the job covers it.
 
@@ -190,8 +190,6 @@ def _one_edit_apart(left: str, right: str) -> bool:
         return False
     matcher = difflib.SequenceMatcher(a=left, b=right)
     edits = sum(
-        max(i2 - i1, j2 - j1)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes()
-        if tag != "equal"
+        max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal"
     )
     return edits <= 1
