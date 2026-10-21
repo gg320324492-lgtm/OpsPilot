@@ -8356,12 +8356,33 @@ same wrong conclusion.
 Both are corrected. The spec's exclusion list also used to present itself as the
 file's complete list of gaps, and the dashboard has since gained a **third**
 operator-facing failure state — the **expired** approval, on the money path,
-with its own copy that nothing pinned. It is pinned now: a browser case stages
-the expiry with the worker's own TTL sweep (`SqlApprovalStore.expire_pending`,
-the same conditional `UPDATE` the worker runs) and asserts that the panel says
-*"This approval expired — this click granted nothing."* and **not** "Already
-decided" — because "already decided" would put a person in a sentence that is
-false, when nobody was there at all.
+with its own copy that nothing pinned. It is pinned now, in a file of its own
+(`web/e2e/expired-approval.spec.ts`): a browser case stages the expiry with
+the worker's own TTL sweep — the same conditional `UPDATE` the worker runs,
+with the run's filter added so it cannot touch another run's approval — and
+asserts that the panel says *"This approval expired — this click granted
+nothing."* and **not** "Already decided", because "already decided" would put a
+person in a sentence that is false when nobody was there at all.
+
+**Two things the browser work taught, both worth writing down.**
+
+*The fake model provider drives exactly one golden run per scenario.* In
+scenario mode it answers the recorded calls **in order**, with a cursor per
+method — so a second ticket submitted against the same scenario finds the
+cursor past the end and the run never gets anywhere
+(`UnmatchedFixtureError: no recorded generate_structured response matched
+scenario 'duplicate_charge'`). The case therefore cannot have a run of its own
+inside a file that already has one, and it lives in its own file with its own
+stack. That is a constraint of the harness, and it was learned the hard way.
+
+*One failing test takes the next one down with it.* Playwright restarts the
+worker after a failing test, `beforeAll` runs again against a brand-new stack,
+and the state the later test was reading is gone. The first version of the
+expired case failed for a reason that had nothing to do with what it was about
+(it waited for a park that another case had already consumed), and the case
+*after* it then failed too, on an empty list. A test that reaches for a state
+another test has consumed is a test that fails for a reason of its own, and one
+that fails that way costs its neighbours as well.
 
 ### A test that could never fire, and a recipe that could not run
 
