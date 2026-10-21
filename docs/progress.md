@@ -8276,6 +8276,27 @@ was a `test.skip` inside a helper, made Playwright report **the whole test** as
 skipped on every platform without it — so the assertions that *had* run
 reported as skipped too. It is its own test now.
 
+**And the `lifecycle` job was downloading Electron.** The `desktop-check` job is
+named "Lifecycle tests (no Electron, no Docker, no browser)" and the project's
+own config says the `lifecycle` project is "Pure functions, fakes, no Electron
+and no Docker". But `security.spec.ts` imported the navigation guard from
+`src/security.ts`, and that module imports `electron` for its *values* — and
+`require("electron")` **downloads the Electron binary at import time** when it
+is not already installed (the package's own `index.js` does it, and throws if
+the download fails). So the cheapest job in CI was fetching ~100 MB of
+Electron during a test run, and the spec's own docstring — "The policy module is
+free of `require("electron")` for exactly this reason" — was true of the policy
+module and not of the module the spec also imported.
+
+The guard needs only Electron's `WebContents` **type**, and `import type` is
+erased at compile time. It now lives in `src/security-web-contents.ts`, which
+has no runtime dependency on Electron at all, and the spec imports it from
+there. Proved rather than argued: with the Electron binary's `path.txt` moved
+away — the state a CI runner is in — the whole `lifecycle` suite passes in 1.6
+seconds and **no download is attempted** (`path.txt` is not recreated), and the
+compiled `dist/security-web-contents.js` contains no `require("electron")` at
+all.
+
 ### What the tree looks like after it
 
 `ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210

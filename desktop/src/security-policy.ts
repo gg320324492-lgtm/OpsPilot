@@ -14,9 +14,13 @@
  * what `security.spec.ts` does, and it is the same reason
  * `stack.ts::assessWorker` is a pure function.
  *
- * The second is structural: `src/security.ts` is then only the five Electron
- * calls that install this policy, so the file a reviewer reads to answer "what
- * does this app do to a page it did not write?" is short and contains no policy.
+ * The second is structural: `src/security.ts` and `src/security-web-contents.ts`
+ * are then only the five Electron calls that install this policy, so the file a
+ * reviewer reads to answer "what does this app do to a page it did not write?"
+ * is short and contains no policy. The guard is in its own module because it
+ * needs only Electron's *types*, and a module whose `import type` is erased at
+ * compile time is reachable from a test runner with no Electron binary — which
+ * is what keeps the `lifecycle` CI job cheap.
  *
  * ## The guidance
  *

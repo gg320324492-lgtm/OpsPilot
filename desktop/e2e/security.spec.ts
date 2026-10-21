@@ -13,7 +13,11 @@
  * `src/security-policy.ts` the app builds its windows from. The policy module is
  * free of `require("electron")` for exactly this reason: these assertions run on
  * a CI runner with no display, and they would not if importing the module needed
- * a running Electron to mean anything.
+ * a running Electron to mean anything. The navigation guard is imported from
+ * `src/security-web-contents.ts` for the same reason — it is the module that
+ * used to drag Electron in, because `require("electron")` **downloads the
+ * binary** when it is not installed, and this project is built so that the
+ * cheap CI job needs no Electron at all.
  *
  * ## What each test is defending against
  *
@@ -45,7 +49,10 @@ import {
   originOf,
   SECURE_WEB_PREFERENCES,
 } from "../src/security-policy";
-import { restrictWebContents } from "../src/security";
+// The guard, from the module that has no runtime dependency on Electron: the
+// `lifecycle` project this spec belongs to must run on a CI runner with no
+// Electron binary, and `require("electron")` downloads one at import time.
+import { restrictWebContents } from "../src/security-web-contents";
 
 const DASHBOARD_ORIGIN = "http://127.0.0.1:3210";
 // Origins, not URLs: `isAllowedUrl` compares `protocol + "//" + host`, so
