@@ -18,15 +18,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import cast
+from datetime import UTC, datetime
 
-from sqlalchemy import Engine, event, select, update
+from sqlalchemy import Engine, event, select
 from sqlalchemy import create_engine as _sa_create_engine
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from opspilot.adapters.persistence.models import AgentRun
+from opspilot.adapters.persistence.models import AgentRun, AgentStep
 from opspilot.domain.runs import CLAIMABLE, RunStatus
 from opspilot.settings import Settings
 
@@ -151,15 +150,81 @@ def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
         )
     )
     with session_scope(factory) as session:
-        result = cast(
-            CursorResult[tuple[object, ...]],
+        # The rows are read and then written one at a time, rather than swept
+        # by a single bulk ``UPDATE``, because the sweep has to do what
+        # ``SqlRunStore.set_status`` does -- and that is three things, not one:
+        #
+        # 1. **release the lease.** ``set_status`` clears ``claimed_until`` and
+        #    ``claimed_by`` on a terminal transition. A bulk ``UPDATE`` that
+        #    touched only ``status`` left the dead worker's lease standing, so a
+        #    run that had just been failed still reported a holder: the API
+        #    projects the lease with no status check, and
+        #    ``docs/api-contract.md`` §3 promises that "a run that reaches a
+        #    terminal state therefore never reports a holder". That promise was
+        #    true of every other path into ``FAILED`` and false of this one --
+        #    and this one is the ordinary worker-crash path.
+        # 2. **set ``completed_at``**, because ``docs/agent-state-machine.md``
+        #    §4 says it is set on entry to ``COMPLETED`` or ``FAILED``.
+        # 3. **write the ``state_change`` step**, because the same section says
+        #    every transition writes one, in the same transaction as the status
+        #    change. A run that was swept has no such row, so its trace shows a
+        #    run that simply stopped.
+        #
+        # The rows are locked while they are read (``FOR UPDATE SKIP LOCKED`` on
+        # Postgres, a plain read on SQLite, which has no such clause), so two
+        # workers booting at once take disjoint rows rather than both sweeping
+        # the same one -- and the ``UNIQUE (run_id, sequence)`` constraint on
+        # ``agent_steps`` cannot be tripped by two writers allocating the same
+        # sequence number.
+        rows = list(
             session.execute(
-                update(AgentRun)
+                select(AgentRun)
                 .where(AgentRun.status.in_(interrupted_statuses))
-                .values(status=RunStatus.FAILED.value, failure_reason="interrupted")
-            ),
+                .with_for_update(skip_locked=True)
+            )
+            .scalars()
+            .all()
         )
-        return int(result.rowcount or 0)
+        now = datetime.now(UTC)
+        for row in rows:
+            from_status = row.status
+            row.status = RunStatus.FAILED.value
+            row.failure_reason = "interrupted"
+            row.completed_at = now
+            row.claimed_until = None
+            row.claimed_by = None
+            session.add(
+                AgentStep(
+                    run_id=row.id,
+                    sequence=_next_step_sequence(session, row.id),
+                    step_type="state_change",
+                    output={
+                        "from_status": from_status,
+                        "to_status": RunStatus.FAILED.value,
+                        "at": now.isoformat(),
+                    },
+                    started_at=now,
+                )
+            )
+        return len(rows)
+
+
+def _next_step_sequence(session: Session, run_id: object) -> int:
+    """Allocate the next step sequence for a run, monotonic within it.
+
+    The same rule ``SqlRunStore.set_status`` uses: ``MAX(sequence) + 1`` in the
+    same transaction as the insert, so two writers on one run cannot allocate
+    the same number. Duplicated rather than imported because the repository
+    layer's copy is a method on a store this module does not own, and the rule
+    is two lines.
+    """
+    highest = session.execute(
+        select(AgentStep.sequence)
+        .where(AgentStep.run_id == run_id)
+        .order_by(AgentStep.sequence.desc())
+        .limit(1)
+    ).scalar()
+    return (highest or 0) + 1
 
 
 def run_exists(factory: sessionmaker[Session], run_id: object) -> bool:

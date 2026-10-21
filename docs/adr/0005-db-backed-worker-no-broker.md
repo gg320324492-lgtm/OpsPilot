@@ -24,10 +24,18 @@ The run table is the queue. A worker polls it.
 ```sql
 SELECT * FROM agent_runs
 WHERE status IN ('received','classifying','retrieving','planning','executing','responding')
+  AND (claimed_until IS NULL OR claimed_until < now())
 ORDER BY created_at
 FOR UPDATE SKIP LOCKED
 LIMIT 1;
 ```
+
+The second clause is the **lease**, and it is the half that actually prevents
+two workers from driving the same run: the lock is released when the
+transaction commits, so a second worker whose poll does not overlap would
+otherwise receive the row. The block above used to carry only the status
+predicate, which is the query as it stood before the lease existed; the
+two-clause form is what the code runs (`docs/agent-state-machine.md` §5).
 
 The claim set is computed from the enum, not typed as string literals:
 

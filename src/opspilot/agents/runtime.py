@@ -480,9 +480,14 @@ async def _gate_and_execute(
         # Resume: reuse the row the human approved. Reusing the id -- rather than
         # inserting a fresh call and hoping the approval follows -- is the whole
         # reason gate 5 binds to ``tool_call_id`` (``docs/tool-permissions.md``
-        # §3.1). The arguments are re-parsed from the proposal and must match
-        # what was snapshotted at the approval, or ``SqlToolCallStore``'s
-        # argument-immutability guard raises ``ApprovalArgumentsChanged``.
+        # §3.1). The arguments come from the persisted row, so they are the
+        # arguments that were snapshotted at the approval by construction.
+        # (This comment used to claim that a mismatch would raise
+        # ``ApprovalArgumentsChanged`` from an argument-immutability guard.
+        # There is no such guard: the exception fires from a *status* guard on
+        # an already-executed row, and ``SqlToolCallStore.set_status`` has no
+        # ``arguments`` parameter at all -- the arguments are written once, at
+        # proposal time, and never updated.)
         call_id = tool_call_id
 
     idempotency_key: str | None = None

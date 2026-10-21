@@ -4,7 +4,8 @@ This document specifies how OpsPilot decides whether a tool may execute. It is
 the load-bearing document for the project's central claim: **the model cannot
 cause a side effect.**
 
-Implementation: `src/opspilot/domain/permissions.py`, `domain/tools.py`.
+Implementation: `src/opspilot/domain/tools.py` (the registry and the schemas),
+`src/opspilot/domain/policies.py` (the deterministic rules).
 Enforcement point: `src/opspilot/agents/runtime.py`, `_gate_and_execute()`.
 
 ---
@@ -111,17 +112,28 @@ async def _gate_and_execute(call: ToolCall, run: AgentRun) -> ToolCall:
     permission = spec.permission          # static, from code
 
     # GATE 4 — policy engine
-    #   Deterministic business rules: amount ceilings, idempotency pre-check,
-    #   state preconditions (e.g. "cannot refund an already-refunded
-    #   transaction" is enforced *here* as a fast fail and *again* at the MCP
-    #   server as the authoritative check).
+    #   Deterministic business rules, and exactly four of them: the denylist
+    #   (a removal of capability, checked first), the idempotency replay
+    #   short-circuit, the refund ceiling, and the refund-exceeds-transaction
+    #   rule.
+    #
+    #   There is NO state precondition here. "Cannot refund an already-refunded
+    #   transaction" is refused by the MCP server and only by the MCP server
+    #   (its `invalid_state`), so an already-refunded transaction does reach
+    #   the approver before it is refused. This comment used to say the rule
+    #   was "enforced *here* as a fast fail and *again* at the MCP server",
+    #   which described a two-layer defence the code does not have: the policy
+    #   engine is a pure function over the proposal's arguments and the run,
+    #   and the transaction's status is a row only the billing server can read.
+    #   Making the rule fire at gate 4 would mean a new read and a new trust
+    #   boundary, and the server's check is the authoritative one anyway.
     decision = evaluate_policy(spec, call, run)
     if decision.denied:
         return reject(call, reason=decision.reason)
 
     # GATE 5 — approval gate
     if permission is Permission.HIGH_RISK_WRITE:
-        if not has_approved_approval(call):        # <- a DB read
+        if not has_approved(call):                  # <- a DB read
             park_run_awaiting_approval(call, run)  # <- raises RunParked
         # control only reaches here on the resume pass, and only because a
         # row exists with status='approved' pointing at THIS tool_call.id
@@ -134,7 +146,7 @@ async def _gate_and_execute(call: ToolCall, run: AgentRun) -> ToolCall:
     return call
 ```
 
-### 3.1 Why `has_approved_approval` reads the database
+### 3.1 Why `has_approved` reads the database
 
 It would be cheaper to keep an in-memory flag on the run object. It is done as a
 database read on purpose, because the approval may have been granted by a
@@ -152,15 +164,37 @@ arguments the human was shown.
 
 The approval record snapshots the arguments as they will be executed. If the
 arguments could be mutated after approval, the human would be approving
-something other than what runs. So `ToolCall.arguments` is immutable once the
-`ApprovalRequest` is created — enforced by a test that attempts to alter them
-between approval and execution and requires `ApprovalArgumentsChanged`.
+something other than what runs. So `ToolCall.arguments` is written **once**,
+at proposal time, and never updated: `SqlToolCallStore.set_status` has no
+`arguments` parameter at all, so there is no write path that could change them
+after the fact. The resume pass rebuilds the proposal from the persisted row
+and re-enters the gates with the same arguments, so the executed call carries
+the arguments the human saw.
 
-Two strings reach the approver, and they are not the same kind of string. The
-`reason` is the model's own, and is untrusted. The `risk_explanation` is
-generated deterministically from the tool's static permission and its arguments,
-and is the one the human is meant to rely on. Everything below follows from
-that: **the explanation may not say anything the call would not do.**
+This paragraph used to claim a different mechanism: "enforced by a test that
+attempts to alter them between approval and execution and requires
+`ApprovalArgumentsChanged`". No such test exists, and the exception does not
+fire on an argument change — `ApprovalArgumentsChanged` is raised from a
+**status** guard, when a row that is already `EXECUTED` is re-statused
+(`SqlToolCallStore.set_status`). The property the document wanted is real;
+the mechanism it named was not the one that provides it.
+
+**Two** of the strings on the approver's card are the model's to write, and
+they are not the same kind of string. The `reason` is the model's own, and is
+untrusted. The `risk_explanation` is generated deterministically from the tool's
+static permission and its arguments, and is the one the human is meant to rely
+on. Everything below follows from that: **the explanation may not say anything
+the call would not do.**
+
+A third kind of string is on the same screen and does not fit the two-string
+taxonomy: the approval's `context`, whose `ticket_subject` is
+**customer-supplied text** — the ticket's own subject line, written by whoever
+submitted it. It is not model output and not a policy-engine fact, and it is
+rendered in the quieter of the card's two styles for that reason. A reader of
+the old paragraph would have concluded the approver sees exactly two strings,
+and would not have known that text a customer wrote is on the card at all.
+The operator's own `note` is a fourth, but it is written *back* rather than
+read, so it is not part of what the approver is deciding.
 
 **The explanation names the amount and the transaction, and no currency.** The
 currency a refund moves is the currency the transaction was charged in, and
@@ -241,7 +275,22 @@ Given this design, here is the honest ledger of model influence:
 | Refuse to propose anything, and escalate | Reach `COMPLETED` while a required gate was skipped |
 
 The right-hand column is what "the model proposes, deterministic code decides"
-means concretely. The tests in `tests/security/` each attempt one row of it.
+means concretely. It has **seven** rows, and the adversaries are not all in
+one place:
+
+| Row | Adversary |
+|---|---|
+| Invent a tool name that passes gate 2 | `tests/security/test_registry_authority.py` |
+| Supply arguments that skip gate 1 validation | `tests/security/test_approval_bypass.py` |
+| Cause a `HIGH_RISK_WRITE` to execute without an approval row | `tests/security/test_approval_bypass.py`, `test_approval_rows.py` |
+| Make retrieved instructions change gate 3's permission | `tests/security/test_prompt_injection.py` |
+| Make the approver's decision automatic | `tests/security/test_approval_bypass.py` |
+| Make that currency the one the refund moves in | `tests/unit/test_permissions.py`, `tests/integration/test_refund_risk_explanation.py` — **not** in `tests/security/` |
+| Reach `COMPLETED` while a required gate was skipped | `tests/security/test_approval_bypass.py` |
+
+The currency row is the one that moved: `tests/security/` contains no currency
+adversary at all, because the currency never reaches the approver — it is
+refused at gate 1, before any of this. The refusal is tested where it happens.
 
 ## 6. The CI gate
 
@@ -284,9 +333,28 @@ routes to a second side effect, and until now only two were asserted:
 | **The operator approving the same approval twice** | **added** — `test_failed_tool_call_visibility.py::test_approving_the_same_approval_twice_refunds_exactly_once` |
 
 The third was unasserted, and asserting it found something worth recording. The
-API's 409 comes from **two** independent checks: `_decide` re-reads the approval
-and refuses when `status is not PENDING`, *and* `SqlApprovalStore.decide` is a
-conditional update (`WHERE id = ? AND status = 'pending'`). Removing the
+API's 409 comes from **three** refusal paths, and they answer three
+different questions:
+
+| Code | Question it answers |
+|---|---|
+| `approval_already_decided` | "Somebody else decided this first." The handler re-reads the approval and refuses when the status is not `PENDING`; the store's conditional update (`WHERE id = ? AND status = 'pending'`) is the second, independent check of the same fact. |
+| `approval_expired` | "Nobody was here at all." An approval nobody decided within `APPROVAL_TTL_SECONDS` is swept to `expired` by the worker, and the decision on it is refused with this code rather than with the one above — because "already decided by an operator at ..." would be a statement about a person that is false. |
+| `run_not_awaiting_approval` | "The run is not waiting for this." The approval is fine; the run it belongs to has moved on. |
+
+The store raises `ApprovalExpired` as its own exception type, deliberately not
+a `LookupError` and not an `ApprovalAlreadyDecided`: the handler catches
+`LookupError` around `decide` to answer "somebody else got there first", and
+had the expired case inherited that base class it would have been swallowed by
+that branch and reported with a name that is false.
+
+**This section predates the TTL.** It describes a three-state lifecycle —
+PENDING, APPROVED, REJECTED — and there is a fourth now: `EXPIRED`, swept by
+the worker (`worker/loop.py::sweep_expired_approvals`) on the
+`APPROVAL_TTL_SECONDS` cutoff. The sweep does not move the run: an expired
+approval leaves its run in `waiting_approval`, because no decision was made and
+no money moved, so there is nothing to execute. `decided_at` and `decided_by`
+stay NULL, because they record who decided and nobody did. Removing the
 store's predicate leaves the API-level test **green** — the handler's pre-check
 masks it in any sequential test, and only two clicks arriving together reach
 the race the predicate exists for.

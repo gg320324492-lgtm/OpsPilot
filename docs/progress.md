@@ -8004,10 +8004,144 @@ not `DROP`, because the tables have to survive: the guard admits a database
 whose tables exist and hold zero rows, and its CI-shape test asserts that they
 do. **All sixteen now pass in one run, in one order.**
 
+## A terminal run that still reported a holder, and a gate that promised a fast fail it did not make
+
+**Date:** 2026-10-21, later still. The two remaining audits came back — the
+worker's documented behaviour, and `tool-permissions.md` + `milestones.md` —
+and between them they found two defects and about thirty drifts. The defects
+are worth the whole round.
+
+### A `FAILED` run still reported a lease holder
+
+`docs/api-contract.md` §3 states an invariant: *"`claimed_by` and
+`claimed_until` are `null` **together** … A run that reaches a terminal state
+therefore never reports a holder, even if a worker held it a moment earlier."*
+
+There are two ways a run becomes `FAILED`, and only one of them released the
+lease. `SqlRunStore.set_status` clears both lease columns on a terminal
+transition. The worker's **boot sweep** did not go through `set_status` — it
+issued its own bulk `UPDATE`, which set `status` and `failure_reason` and
+nothing else.
+
+So on the **ordinary worker-crash path** — worker A claims a run and dies
+mid-drive; worker B boots and sweeps it — the run became `failed` while still
+carrying A's lease. The API projects the lease with no status check, so the
+run-detail page showed `status=failed`, `claim_lease.state=held`, and a
+`claimed_by` naming a worker that no longer existed. The contract said a
+terminal run never reports a holder, and the dashboard renders that field
+precisely so an operator can tell a held run from a run nothing claimed.
+
+The sweep now does what `set_status` does. It reads and writes the rows one at
+a time rather than in one statement, because the thing it has to reproduce is
+not one write but **three**: the lease release, `completed_at` (which
+`docs/agent-state-machine.md` §4 says is set on entry to `COMPLETED` or
+`FAILED`), and the `state_change` step (which the same section says every
+transition writes — a swept run had none, so its trace showed a run that
+simply stopped). The rows are read under `FOR UPDATE SKIP LOCKED` on
+Postgres, so two workers booting at once take disjoint rows and the
+`UNIQUE (run_id, sequence)` constraint cannot be tripped by two writers
+allocating the same sequence number.
+
+**This is the second time in one session that a bulk `UPDATE` was the wrong
+tool.** `mark_interrupted_runs` bypassed `set_status` to be one cheap
+statement, and in doing so it skipped three things that statement does. A
+shortcut that duplicates a statement's *effect* has to duplicate all of it.
+
+`tests/integration/test_interrupted_run_sweep.py` pins the three properties
+and the states the sweep spares. Mutation-verified three ways, each naming its
+own property: dropping the lease release gives `assert 'worker-A' is None`,
+dropping `completed_at` gives `assert None is not None`, and dropping the
+step gives `expected exactly one transition into failed`.
+
+### Gate 4 promised a fast fail the policy engine does not make
+
+`docs/tool-permissions.md` §3's gate-4 comment said that "cannot refund an
+already-refunded transaction" is "enforced *here* as a fast fail and *again* at
+the MCP server as the authoritative check".
+
+`evaluate_policy` implements exactly four rules: the denylist, the idempotency
+replay short-circuit, the refund ceiling, and the refund-exceeds-transaction
+rule. There is **no state precondition**, and there cannot be one — the policy
+engine is a pure function over the proposal's arguments and the run, and the
+transaction's status is a row only the billing server can read.
+
+So the consequence is real: an already-refunded transaction is **not** refused
+before the approval gate. The run parks, a `risk_explanation` is generated for
+a refund that cannot happen, a human is asked to approve it, and only then
+does the dispatch come back `invalid_state`. The tree's own
+`docs/agent-state-machine.md` §3.1 records the refusal as server-side — the
+permissions document described a two-layer defence the code does not have.
+
+The comment now names the four rules that exist and says plainly that the
+server's `invalid_state` is the only already-refunded refusal. Building the
+missing layer would mean a new read and a new trust boundary for a rule whose
+outcome the server already enforces authoritatively.
+
+### The rest of the drifts
+
+**`docs/tool-permissions.md`**, five more: §3.2 said "two strings reach the
+approver", and there are now three kinds of content on that card — the
+model's `reason`, the deterministic `risk_explanation`, and the approval's
+`context`, whose `ticket_subject` is **customer-supplied text** and fits
+neither category; §3.2 claimed the argument snapshot is enforced "by a test
+that attempts to alter them between approval and execution", and no such test
+exists — the exception fires from a *status* guard, and the real mechanism is
+that `set_status` has no `arguments` parameter at all; §6.1 said the 409 comes
+from "two independent checks" and there are three refusal paths now, with
+`approval_expired` among them and the whole TTL lifecycle undocumented; §5's
+ledger has **seven** rows rather than six, and the currency row's adversary is
+not in `tests/security/` at all; and the header named
+`src/opspilot/domain/permissions.py`, a module that does not exist.
+
+**`docs/milestones.md`**, seventeen: M7 described a defect as "reported here
+rather than fixed" that the *same commit* had fixed — the client does read
+`API_INTERNAL_BASE_URL`, and `web/e2e/web-service.spec.ts` is the regression
+guard for it — and fifteen stale figures, refreshed against the tree:
+71 modules (not 73), 211 formatted files (not 209), 31 `Settings` fields (not
+29), 46 MCP tests (not 43), six page lengths, five `approval-card.tsx` line
+references, and seven `file:line` citations.
+
+**Elsewhere**: `docs/architecture.md` said `agents/runtime.py` owns
+`RunStatus` and `ALLOWED_TRANSITIONS` — the domain does, and ADR-0002 has said
+so since it was written — and its state diagram left out the re-plan edge the
+runtime takes four times; `docs/data-model.md` named a concurrency test that
+does not exist; `docs/limitations.md` quoted a `worker-compose` worker id that
+is no longer any default; ADR-0005's SQL block showed the bare claim without
+the lease clause that actually prevents the duplicate; and the worker's own
+module docstring listed `EXECUTING` among the states the boot sweep fails,
+which was the one place left in the repository that still said so.
+
+### And a guard for the drift class that has now bitten twice
+
+A documentation citation of the form `` `Symbol:line` `` is a claim about
+where something lives, and it was checked by hand — at the moment it was
+written, and never again. `docs/milestones.md` put `RunStatus` at line 30,
+`ALLOWED_TRANSITIONS` at line 51 and `AgentRun.transition_to()` at line 113,
+for as long as the
+file existed; the definitions are at 41, 62 and 192. The project has been
+bitten by this class before — commit `e906f8d` is "docs: five drifted figures
+and eight line citations that pointed elsewhere" — and that fix was manual
+too, which is a repair rather than a fix.
+
+`tests/unit/test_doc_symbol_citations_point_at_the_definition.py` resolves
+every such citation to its definition in the source tree and asserts the line
+matches. A symbol with **no** definition is a failure — that is a symbol that
+was renamed or deleted, and a citation of it is a claim about nothing — while
+a `host:port` citation (`localhost:8000`) and a `path:line` citation
+(`metrics.py:432`) are counted as unchecked rather than failed, and the count
+is printed so a green run is not read as full coverage. A second test
+asserts the guard still *sees* the two citations that rotted, so it cannot
+quietly become a no-op.
+
+Mutation-verified both ways: moving one line off the citation gives "points
+at RunStatus being defined at 41", and renaming the symbol in the source
+without updating the document gives "names RunStatus, which is not defined
+anywhere in the source".
+
 ### What the tree looks like after it
 
-`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 208
-files. `pytest` — **1071 passed, 21 skipped** (1092 collected); the 21 skips are
+`ruff check` and `ruff format --check` clean. Bare `mypy` clean over 210
+files. `pytest` — **1077 passed, 21 skipped** (1098 collected); the 21 skips are
 16 `postgres`-marked tests, 3 M0-skeleton placeholders and 2 eval-fixture skips
 for committed result files written before the breakdown was recorded — and all
 sixteen of the first are now executed by CI's `verify` job, each named by node

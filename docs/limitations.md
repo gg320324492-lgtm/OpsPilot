@@ -145,8 +145,8 @@ The two requirements are incompatible, so the number is at its floor.
 as the missing half.** `GET /api/runs/{id}` carries a `claim_lease` object
 (`docs/api-contract.md` §3): `unclaimed`, `held` or `expired`, carrying the
 holder's `WORKER_ID` and the deadline. The dashboard reads it, so the run-detail
-page now says *"A worker (worker-compose) claimed this run and has not written a
-step yet. The claim is held until … and is renewed while the worker keeps
+page now says *"A worker (worker-<hostname>-<pid>) claimed this run and has not
+written a step yet. The claim is held until … and is renewed while the worker keeps
 driving; if it is not renewed, the run becomes claimable again then."* in place
 of the sentence it used to print unconditionally — *"the worker has not claimed
 it yet"* — which was false for five minutes at a time. The state is computed

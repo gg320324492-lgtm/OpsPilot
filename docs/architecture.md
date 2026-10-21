@@ -150,7 +150,11 @@ LangGraph is used, but the dependency is inverted: the runtime owns the state
 machine and LangGraph is one possible executor for it.
 
 ```
-agents/runtime.py          ← owns RunStatus, ALLOWED_TRANSITIONS, the stages
+domain/runs.py             ← owns RunStatus, ALLOWED_TRANSITIONS, transition_to
+      │
+      │  the runtime asks the domain what is legal; it never decides
+      ▼
+agents/runtime.py          ← the stages, and the progression that walks them
       │
       │  depends on the port, not the library
       ▼
@@ -159,6 +163,13 @@ ports/orchestrator.py      ← Protocol: Orchestrator.step(run) -> StepResult
       ├── adapters/orchestration/langgraph_adapter.py   (stub, unwritten)
       └── adapters/orchestration/linear.py             (the executor in use)
 ```
+
+The table lives in `domain/`, not in `agents/` — ADR-0002 is about exactly
+that, and this diagram used to say the opposite (`agents/runtime.py ← owns
+RunStatus, ALLOWED_TRANSITIONS`). It now says where the code says they are:
+`domain/runs.py` holds the enum, the table and the one method that consults
+them, and the runtime's progression goes through that method, so an illegal
+edge is refused rather than written.
 
 Why this shape and not "the project *is* LangGraph nodes":
 
@@ -258,18 +269,30 @@ is in [`agent-state-machine.md`](agent-state-machine.md). The summary:
 
 ```
 RECEIVED → CLASSIFYING → RETRIEVING → PLANNING → EXECUTING
-                                                    │
-                                      ┌─────────────┴──────────────┐
-                                      ▼                            ▼
-                              WAITING_APPROVAL ────────────> EXECUTING
-                                      │                            │
-                                      └──────────> RESPONDING <────┘
-                                                        │
-                                                        ▼
-                                                   COMPLETED
+                              ↑            │          │  │
+                              └────────────┘          │  │
+                                                   │  │
+                                      ┌─────────────┴──┴─────────────┐
+                                      ▼                               ▼
+                              WAITING_APPROVAL ────────────> RESPONDING
+                                      │                               ▲
+                                      └──> EXECUTING ────────────────┘
+                                                          │
+                                                          ▼
+                                                      COMPLETED
 
 any non-terminal state ──────────────────────────> FAILED
 ```
+
+**The `EXECUTING → PLANNING` arrow is the re-plan edge, and it is the one
+this summary used to leave out.** The golden path calls several tools in
+sequence and each is a separate plan→gate→execute round, so the run returns to
+`PLANNING` to choose the next action and walks forward to `EXECUTING` again —
+four times on the recorded run. The table carries that edge
+(`docs/agent-state-machine.md` §2); this diagram did not, and a diagram that
+leaves out an edge the runtime takes is a summary of a machine that does not
+exist. `PLANNING → RESPONDING` is the other edge this diagram omitted: the
+route to an answer with no tool call.
 
 `COMPLETED → EXECUTING` is illegal and there is a test that says so.
 

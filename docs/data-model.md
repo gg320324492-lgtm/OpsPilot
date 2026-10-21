@@ -396,10 +396,19 @@ stated so they are not discovered later:
 | Partial indexes | supported | supported |
 | `gen_random_uuid()` | emulated in the model default | server default |
 
-The worker's concurrency test (`test_two_workers_do_not_claim_the_same_run`) is
-marked `@pytest.mark.postgres` and runs only in CI against the service container.
-It is skipped locally, which is a real gap in local coverage and is why that
-marker is reported in the test summary rather than silently skipped.
+The worker's concurrency tests live in
+`tests/integration/test_worker_claim_postgres.py`, and are marked
+`@pytest.mark.postgres`: they run only in CI against the service container,
+which is a real gap in local coverage and is why that marker is reported in the
+test summary rather than silently skipped. The `FOR UPDATE SKIP LOCKED` clause
+is the Postgres-only half; the **lease** half — that a run whose lease is held
+is withheld from a second claimant, and that thirty non-overlapping claim
+pairs never share a run — is covered locally on SQLite by
+`tests/integration/test_worker_claim_lease.py`.
+
+This paragraph used to name `test_two_workers_do_not_claim_the_same_run`, a
+test that does not exist; `docs/limitations.md` had already recorded that
+correction and this file had not been updated with it.
 
 ## 7. What is deliberately absent
 

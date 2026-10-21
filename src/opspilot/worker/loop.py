@@ -13,10 +13,16 @@ Layer: ``worker``. It depends only on the *ports* (``RunStore``,
 lives in the store adapter, so this module never branches on Postgres vs SQLite.
 
 Restart behaviour is deliberately shallow: on boot, runs left mid-flight
-(``CLASSIFYING``, ``RETRIEVING``, ``PLANNING``, ``EXECUTING``, ``RESPONDING``)
-are marked ``FAILED`` with ``failure_reason='interrupted'``; runs in
-``WAITING_APPROVAL`` are left alone. Automatic mid-step resume is Phase 2 and is
-not pretended here (``docs/architecture.md`` §5).
+(``CLASSIFYING``, ``RETRIEVING``, ``PLANNING``, ``RESPONDING``) are marked
+``FAILED`` with ``failure_reason='interrupted'``. Runs in ``WAITING_APPROVAL``
+are left alone, and so is ``EXECUTING`` -- a single-column status cannot tell
+"the pump is driving it" from "a human approved and the worker died", and
+failing the second one discards a person's decision
+(``docs/agent-state-machine.md`` §3). This paragraph used to list
+``EXECUTING`` among the swept states; it was the one place in the repository
+that still said so, and every other source -- ``db.py``, the state-machine
+document and ``worker/__main__.py`` -- has it right. Automatic mid-step resume
+is Phase 2 and is not pretended here (``docs/architecture.md`` §5).
 
 The two resume situations this loop must recognise, both edge-triggered by the
 approvals API flipping the run back to a claimable state (Gap B):

@@ -49,10 +49,10 @@ imports with no business logic, and a published GitHub repository.
       succeeds. (`src/opspilot/py.typed` present; `opspilot` 0.1.0 installed
       with the `dev` extra and resolving to `src/opspilot/__init__.py`, so the
       install is editable, not a copy.)
-- [x] `python -c "import opspilot"` works. (Imports cleanly; 73 modules under
+- [x] `python -c "import opspilot"` works. (Imports cleanly; 71 modules under
       the package.)
 - [x] `ruff check` and `ruff format --check` are clean. (`All checks passed!`
-      and `209 files already formatted`.)
+      and `211 files already formatted`.)
 - [ ] `pytest` runs on the M0 tree without error, reporting what it collects.
       (The first half holds, the count never did: at the M0 commit `2613e10` the
       tree already carried a full test tree and pytest collected without error —
@@ -63,9 +63,9 @@ imports with no business logic, and a published GitHub repository.
       `@pytest.mark.skip(reason="M0 skeleton — implemented in M1")`, so the tree
       was deliberately populated with skips, never empty.)
 - [x] `.env.example` has every setting the code reads. (First clause holds: all
-      29 `Settings` fields appear in `.env.example`, matching once case is
+      31 `Settings` fields appear in `.env.example`, matching once case is
       normalised. The original wording's "empty value" clause is dropped, not
-      softened — 16 of the 29 carry a shipped value on purpose
+      softened — 16 of the 31 carry a shipped value on purpose
       (`MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536`, …). DoD row D8
       resolves the same clause the same way: corrected, not satisfied.)
 - [x] GitHub repository created, `main` pushed. (`origin` is
@@ -108,7 +108,7 @@ imports with no business logic, and a published GitHub repository.
       `alembic upgrade head` (line 219), followed by `alembic current`.)
 - [x] `POST /api/tickets` inserts a ticket and a `RECEIVED` run in one
       transaction and returns 201 **without starting any agent work**.
-      (`routers/tickets.py:73-127`. Asserted three ways:
+      (`routers/tickets.py:118`. Asserted three ways:
       `test_create_ticket_returns_201_with_ticket_and_received_run`,
       `test_create_ticket_does_not_start_the_run` — which pins
       `worker_spy.call_count == 0` and `tool_spy.call_count == 0` — and
@@ -232,7 +232,7 @@ imports with no business logic, and a published GitHub repository.
       is a result, not a transport failure.)
 - [x] Tests: `tests/integration/test_mcp_crm.py`, `test_mcp_billing.py`,
       `test_mcp_issues.py` — called directly, with no agent and no LLM.
-      (All three exist and dispatch the servers in-process; 43 pass alongside
+      (All three exist and dispatch the servers in-process; 46 pass alongside
       `test_mcp_contract_names.py`. The one stdio subprocess in each file is
       transport proof only and involves no model.)
 
@@ -288,11 +288,11 @@ imports with no business logic, and a published GitHub repository.
       reads the audit table back from the database on the line after the gate
       returns.)
 - [x] Unknown tool name → `ToolCall` recorded as rejected, never dispatched.
-      (Gate 2 at `runtime.py:434` calls `_reject` — a persisted `rejected` row
+      (Gate 2 at `runtime.py:460` calls `_reject` — a persisted `rejected` row
       plus a `tool_rejected` audit event — and returns before the execute block.
       `test_model_cannot_invent_a_tool_name` asserts `dispatch_count == 0`.)
 - [x] `OPSPILOT_TOOL_DENYLIST` can refuse a tool and **cannot** grant one.
-      (`policies.py:152` consults the registry, so an unlisted name in the
+      (`policies.py:169` consults the registry, so an unlisted name in the
       denylist grants nothing; `test_policy_denylist_cannot_grant_only_remove`
       drives both cases through the real gate.)
 - [x] The four security invariant queries return 0 after the whole suite.
@@ -321,8 +321,8 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `domain/runs.py`, depending on nothing but the standard library, Pydantic
       and the package's own `domain/` layer — no adapter, ORM or HTTP import.
       (All three are in
-      `domain/runs.py` — `RunStatus:30`, `ALLOWED_TRANSITIONS:51`,
-      `AgentRun.transition_to():113` — and the module reaches no adapter, ORM or
+      `domain/runs.py` — `RunStatus:41`, `ALLOWED_TRANSITIONS:62`,
+      `AgentRun.transition_to():192` — and the module reaches no adapter, ORM or
       port, which `tests/unit/test_layering.py` pins. The criterion previously
       read "importing only `enum` and Pydantic", which was false and has been
       reworded to the property it was protecting: the file imports
@@ -711,9 +711,9 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [x] Next.js dashboard with Dashboard, Tickets, Runs, Run Detail, Approvals,
       Knowledge.
       (Six routes under `web/src/app`, all substantive rather than stubs —
-      `page.tsx` 298 lines, `runs/[runId]/page.tsx` 475, `runs/page.tsx` 197,
-      `approvals/page.tsx` 167, `knowledge/page.tsx` 138,
-      `tickets/page.tsx` 87 — and `components/placeholder.tsx` is imported by
+      `page.tsx` 315 lines, `runs/[runId]/page.tsx` 628, `runs/page.tsx` 232,
+      `approvals/page.tsx` 210, `knowledge/page.tsx` 149,
+      `tickets/page.tsx` 93 — and `components/placeholder.tsx` is imported by
       none of them. `npm run build` in `web/` exits 0 and lists all six as
       server-rendered routes.)
 - [x] Run Detail renders the timeline from `GET /runs/{id}/trace` server-ordered.
@@ -727,16 +727,16 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [x] Approval card shows tool, arguments, the model's `reason`, the
       deterministic `risk_explanation` and the risk level, visually distinguishing
       trusted from untrusted text.
-      (`components/approval-card.tsx` renders `toolCall.tool_name` (:108),
-      `approval.arguments_snapshot` as the API's own snapshot (:131),
-      `risk_explanation` through `TrustedExplanation` (:121) and `reason`
-      through `UntrustedExplanation` (:122), plus the derived risk level (:142)
+      (`components/approval-card.tsx` renders `toolCall.tool_name` (:129),
+      `approval.arguments_snapshot` as the API's own snapshot (:152),
+      `risk_explanation` through `TrustedExplanation` (:141) and `reason`
+      through `UntrustedExplanation` (:142), plus the derived risk level (:164)
       with `riskProvenance` naming where it came from. The distinction is carried
       by four independent signals in `components/explanation.tsx` — position,
       an attribution badge, border/background/monospace, and wording that says
       who wrote the text — so it does not depend on any one of them.)
 - [x] Approve and Reject work and use the 409 semantics on a repeat click.
-      (Server side: `api/routers/approvals.py:301` builds the 409 the contract
+      (Server side: `api/routers/approvals.py:335` builds the 409 the contract
       specifies, and `tests/integration/test_api_approvals.py` asserts the
       repeat-click cases — a second approve is 409
       `approval_already_decided` (:182), rejecting an already-approved request is
@@ -786,17 +786,29 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       reachable enough to attempt and could not bring up is a **failure**, not a
       skip. Wired into CI as the `web-e2e` job in `.github/workflows/ci.yml`
       (fake provider, no key, deterministic, so it runs on every push unlike the
-      dispatch-only `eval-live`). Two defects found while building it and
-      **reported here rather than fixed**: (1) the compose `web` service cannot
-      reach the API from inside its container — `web/src/lib/api/client.ts`
-      reads `NEXT_PUBLIC_API_BASE_URL` for *server-side* fetches too, and
+      dispatch-only `eval-live`). Two defects found while building it, and what
+      became of each: (1) the compose `web` service could not reach the API
+      from inside its container — `web/src/lib/api/client.ts` read
+      `NEXT_PUBLIC_API_BASE_URL` for *server-side* fetches too, and
       `localhost:8000` inside a container is the container, so every
-      Server-Component read fails with "Cannot reach the API" (the file sets
-      `API_INTERNAL_BASE_URL=http://api:8000` for exactly this but the client
-      never reads it); the e2e therefore runs the dashboard on the host. (2)
-      `docker compose up` reuses the named `postgres-data`/`mcp-data` volumes, so
-      a run against a stack a previous session left behind starts with the
-      refund already recorded; the e2e does `docker compose down -v` first.)
+      Server-Component read failed with "Cannot reach the API". **Fixed**: the
+      resolver now splits by runtime (`typeof window`), so the server prefers
+      `API_INTERNAL_BASE_URL` (`http://api:8000`, no `NEXT_PUBLIC_` prefix so it
+      is never inlined into the bundle) and the browser keeps
+      `NEXT_PUBLIC_API_BASE_URL`. `web/e2e/web-service.spec.ts` is the
+      regression guard, and it has to run the *containerised* dashboard: the
+      golden-path spec runs on the host, where `localhost:8000` really is the
+      API, so a green run there says nothing about this defect. (2)
+      `docker compose up` reuses the named `postgres-data`/`mcp-data` volumes,
+      so a run against a stack a previous session left behind starts with the
+      refund already recorded; the e2e does `docker compose down -v` first.
+
+      This paragraph used to describe defect (1) as "reported here rather than
+      fixed", and claimed "the client never reads it". The client does read it.
+      `git log -S` pins the fix and the false sentence to the same commit
+      (`bf29b69`) — the sentence was written next to the fix and never
+      updated, so a reader of M7 would believe the containerised dashboard was
+      broken and would not go looking for the spec that guards it.
       The earlier evidence still stands as *not* a browser walkthrough: the GIF
       is a ttyd screenshot of `scripts/demo_golden_path.py`, which drives the
       path in one process on SQLite.
@@ -818,7 +830,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       which passes.)
 - [x] `__main__.py` refuses to print scores for `--provider fake` without
       `--allow-fake-scores`. (The refusal is in the CLI, not `runner.py`, which
-      has no print path at all: `__main__.py:814` prints `_FAKE_REFUSAL` in place
+      has no print path at all: `__main__.py:853` prints `_FAKE_REFUSAL` in place
       of the table unless the flag is set. Both directions pinned by
       `test_eval_cli.py::test_fake_provider_suppresses_the_table_and_exits_zero`
       and `::test_fake_provider_allow_fake_scores_prints_the_table`, both pass.)
@@ -922,7 +934,7 @@ what got built rather than what was promised.
 | D5 | The four CI invariants each return 0 after the whole suite. | `tool-permissions.md` §6; README "Evaluation". |
 | D6 | The four safety properties in `limitations.md` "What is *not* on this list" hold: the permission model is verified; the refund cannot execute twice; retrieved text cannot escalate a permission. | `limitations.md` §"What is not on this list". |
 | D7 | Every documented tool call actually executes: `issues.create` runs automatically and writes a `tool_executed` audit event. **The call was deliberately not added to the golden path — see D19a below.** | `milestones.md` §M3; `architecture.md` §7. |
-| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 29 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
+| D8 | Every setting the code reads appears in `.env.example`. (M0's original wording added "with an empty value"; 16 of the 31 carry a shipped default on purpose — `MODEL_PROVIDER=fake`, `MAX_STEPS=24`, `EMBEDDING_DIM=1536` — and a fresh clone is meant to work, so the "empty value" clause is corrected here rather than satisfied.) | M0 acceptance criteria. |
 | D9 | `python -c "import opspilot"` works after `pip install -e ".[dev]"`. | M0 acceptance criteria. |
 | D10 | The CI jobs §M9 names exist and run the commands the README documents. **CI first went fully green on GitHub Actions run 38076989911 at `0144d83` — 11 of 11 jobs — which retires the "no job has ever passed" caveat this line used to carry, and the 17-commit gap to `origin/main` recorded at `472c09a` is closed: `0144d83` is on the remote.** | `milestones.md` §M9; README "Tests". |
 | D11 | `eval-live` runs on `workflow_dispatch` only. | `milestones.md` §M9; `limitations.md` §5. |
@@ -934,7 +946,7 @@ what got built rather than what was promised.
 | D16 | The tests `limitations.md` names as existing actually exist. | `limitations.md` §2. |
 | D17 | `docs/progress.md` records every milestone, including what went wrong. | `milestones.md` §M9. |
 | D18 | The README's status banner agrees with the milestone that is actually done. | README status banner; `milestones.md` working method. |
-| D19 | No documented capability is unimplemented (`MCP_*_COMMAND` settings read by no code, etc.). **Its last strand is recorded as boundary D19a — an operator decision of 2026-10-09, a boundary rather than unfinished work.** | `architecture.md` §8; the pattern of §M3/§M5. |
+| D19 | No documented capability is unimplemented (a documented setting that no code reads, etc.). **Its last strand is recorded as boundary D19a — an operator decision of 2026-10-09, a boundary rather than unfinished work.** | `architecture.md` §8; the pattern of §M3/§M5. |
 | D19a | `issues.create` is real, is `SAFE_WRITE`, is covered in isolation, and is **deliberately not a step of the golden path**: the committed `duplicate_charge` fixture proposes four calls and none of them creates an issue, so the run creates nothing and the README trace no longer draws the line. Recorded rather than closed, for three reasons: README:89-98's own rule that adding a call to make a diagram true would be writing code to match a drawing; D7 and D12a, where the document was corrected to match the behaviour rather than the behaviour to match the document; and whether the workflow **should** file a ticket is a Phase 2 product question already recorded in `risks.md` C1. Recorded as a boundary rather than quietly ticked. | README:89-98; `limitations.md` §8; `risks.md` C1. |
 
 The audit result for each line, with the unmet and unverifiable ones named, is
@@ -1025,7 +1037,7 @@ stays one.
 | D3 | **Partial: met for the artefact, not for a running instance.** `desktop/e2e/packaged-posture.spec.ts` checks what the installer ships — the packaged compose file's loopback bindings, the absence of any `.env` or operator token, and the security policy inside `app.asar` — and it deliberately does **not** launch `OpsPilot.exe`, because doing that spawns Docker and writes a token into `%APPDATA%`, which is the manual step `installer-verification.md` §5 exists for. The split is stated in the spec's own docstring rather than left implicit. | `docs/phase2-plan.md` §P2-D3 and its acceptance table; `desktop/e2e/packaged-posture.spec.ts`; `docs/installer-verification.md` §5. |
 | E | **Partial.** A stranger can clone, follow the README and reproduce the golden path: the README states the simulated billing in its first section, the case study walks one duplicate charge from intake to audited refund with every number traceable, and the GIF and ten screenshots are committed. **Not met:** §P2-E's bullet list asks for "a video, screenshots, and a case study", and there is no video — the recording has not been made, because the walk that would produce it is D2 and D2 has not been run. `README.md` §"Why there is no video yet, and which one there will be" says so, and now says **which one there will be**: the **D2 walk-through's recording, and not a browser capture** — a stranger installing the packaged installer on a clean Windows machine and walking the golden path, which is the one claim the ten screenshots do not make (they show the application on the machine that built it; a recording of the install shows it working on a machine that did not). The browser recording and the failure states rank below it for the reasons that section gives, and the name, the format and the size are fixed in advance: `docs/assets/d2-walkthrough.mp4`, MP4 (H.264), under 10 MiB, with the WebM kept beside it as the source. The judgement that the screenshots are the stronger evidence now stands where it holds — browser recordings — and does not cover the walk-through's recording, where the reverse is true. The Release has its own row below. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The billing in this project is simulated" and §"Why there is no video yet, and which one there will be"; `docs/case-study-duplicate-charge.md`; `docs/assets/golden-path.gif`; `docs/assets/screenshots/`; `tests/unit/test_d2_walkthrough_recording.py`. |
 | E-a | **Boundary recorded, and held back on purpose.** There is no GitHub Release: `git tag` returns nothing and `gh release list` is empty. A release needs a tag, and a tag is a publish, not a document. The built artefact on this machine is a local build of a working tree, not of a tag, so it is not reproducible from any commit — and D2 has not been run. **The CI artefact is not a Release either, and is not a step towards one:** `OpsPilot-Setup-windows-x64` is a build product attached to one run, indexed nowhere, expiring after 90 days, and linked by nothing in this repository. Publishing an unverified installer as `0.1.0` would put a download link in front of the test the plan says it must pass first, which is why the tag is not cut even though the tree is clean and pushed. | `docs/phase2-plan.md` §P2-E and its acceptance table; `README.md` §"The desktop installer, and what a GitHub Release would take". |
-| F | **Met, for the first catalogue.** A locale the operator chooses, English by default: `web/src/i18n/` ships `en` (334 leaves) and `zh-CN` (330 — the four-leaf difference is the `.one` plural forms Chinese does not have), the choice is an explicit `httpOnly` cookie resolved on the server, and `DEFAULT_LOCALE` is `en`, so a fresh clone still runs in English with no configuration. Adding further languages is a product decision this plan does not make. | `docs/phase2-plan.md` §P2-F; `web/src/i18n/config.ts`; `web/src/i18n/dictionaries/en.json`, `web/src/i18n/dictionaries/zh-CN.json`; `web/e2e/i18n.spec.ts`, `web/e2e/i18n-catalogue.spec.ts`. |
+| F | **Met, for the first catalogue.** A locale the operator chooses, English by default: `web/src/i18n/` ships `en` (338 leaves) and `zh-CN` (334 — the four-leaf difference is the `.one` plural forms Chinese does not have), the choice is an explicit `httpOnly` cookie resolved on the server, and `DEFAULT_LOCALE` is `en`, so a fresh clone still runs in English with no configuration. Adding further languages is a product decision this plan does not make. | `docs/phase2-plan.md` §P2-F; `web/src/i18n/config.ts`; `web/src/i18n/dictionaries/en.json`, `web/src/i18n/dictionaries/zh-CN.json`; `web/e2e/i18n.spec.ts`, `web/e2e/i18n-catalogue.spec.ts`. |
 | CI | **Met.** The Phase 2 CI jobs exist and run the commands the repository documents. Phase 2 added three to the Phase 1 set: `desktop-check` (eslint, `tsc --noEmit` and the lifecycle tests, with no Electron, no Docker and no browser, so it stays cheap), `desktop-menu` (the native menu in a real Electron under `xvfb-run`, where a *skip* is a failure — a green skipped run would mean the job proved nothing while reporting success) and `desktop-package` (the Windows artefact built and checked against A1–A3 on every push, which is the only place the packaged-app check was ever reached — before it, `packaged-posture.spec.ts` ran only on a machine that had locally built the package). The workflow now names **fifteen** job ids — the eleven §M9 names, plus `desktop-check`, `desktop-menu`, `desktop-package` and `assets-windows` (the committed artwork regenerated on `windows-latest`, so that the pair `docs/limitations.md` §6 records as "produced on Windows and checked on Linux" is checked at both ends rather than one) — and therefore **sixteen** runs, because `test` is the 3.12/3.13 matrix and runs twice. A green run of the pushed tree, `39316991857` at `07ef46e`, is **15 of 15**: that run carried the fourteen job ids the workflow named then, and the earlier run `39299905779` at `60cda57` was 14 of 14 and predates `desktop-package`. The quoted run is the one this row was checked against, not the newest, and a green conclusion that does not say which tree it was checked against is one nobody can re-check. `eval-live` remains `workflow_dispatch`-only, in its own workflow. | `.github/workflows/ci.yml`; `.github/workflows/eval-live.yml`; `docs/milestones.md` §M9 (the Phase 1 job list); GitHub Actions run `39316991857`. |
 
 **Checked against the tree at `3da3a9f`**, the 2026-10-20 commit whose
