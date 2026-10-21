@@ -376,6 +376,25 @@ def sleep(seconds: float) -> Awaitable[None]:
     return asyncio.sleep(seconds)
 
 
+async def _sleep_until(seconds: float, stop: asyncio.Event | None) -> None:
+    """Sleep for ``seconds``, but wake at once when ``stop`` is set.
+
+    The plain ``sleep`` cannot do this: it is a fixed awaitable, so a stop
+    that arrives during it is not noticed until it expires -- which is a whole
+    poll interval of the worker ignoring a shutdown request. Wrapping the
+    event's wait in a timeout gives the same delay when nothing happens and
+    an immediate return when the signal does.
+    """
+    if stop is None:
+        await sleep(seconds)
+        return
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=seconds)
+    except TimeoutError:
+        # Nothing set the event within the interval: the ordinary delay.
+        return
+
+
 def mark_interrupted_on_boot(session_factory: object) -> int:
     """Fail mid-flight runs from a previous process; return how many were marked.
 
@@ -787,6 +806,7 @@ async def poll_forever(
     lease_seconds: float | None = None,
     approval_ttl_seconds: float | None = None,
     sweep_interval: float = 60.0,
+    stop: asyncio.Event | None = None,
 ) -> None:
     """Loop: claim, drive, sleep. Never returns under normal operation.
 
@@ -802,6 +822,21 @@ async def poll_forever(
     questions -- the TTL is a policy, the interval is a cost. A one-second
     interval would expire the same rows a minute earlier and spend a query per
     second doing it.
+
+    ``stop`` is the graceful-shutdown signal, and the loop honours it at its
+    **poll boundaries**: it is checked before a claim is taken, and again
+    after the drive it just ran has finished. A run already claimed is
+    therefore driven to its own terminal or parked status before the loop
+    returns, rather than being cancelled mid-step -- which is the difference
+    between a shutdown that loses nothing and one that leaves a run stranded
+    in a claim-and-work state for the next boot's sweep to mark
+    ``FAILED('interrupted')``.
+
+    It is an ``asyncio.Event`` rather than a ``bool`` because the loop has to
+    learn about the stop while it is *awaiting* something -- the sleep between
+    polls, mostly -- and a flag read once per iteration would leave it asleep
+    for a whole interval after the signal arrived. ``None`` means "no stop
+    signal", which is what a test that drives the loop directly wants.
     """
     ttl = approval_ttl_seconds
     if ttl is None:
@@ -811,6 +846,8 @@ async def poll_forever(
 
     last_sweep = 0.0
     while True:
+        if stop is not None and stop.is_set():
+            return
         now = monotonic()
         if now - last_sweep >= sweep_interval:
             last_sweep = now
@@ -830,8 +867,13 @@ async def poll_forever(
             retrieval_min_score=retrieval_min_score,
             lease_seconds=lease_seconds,
         )
+        if stop is not None and stop.is_set():
+            # The stop arrived *during* the drive above. The drive has
+            # finished, so the run's status is durable; returning now is the
+            # poll boundary the signal asked for.
+            return
         if not processed:
-            await sleep(poll_interval)
+            await _sleep_until(poll_interval, stop)
 
 
 __all__: list[str] = [

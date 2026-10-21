@@ -24,7 +24,8 @@ loop. Everything that makes it a *service* lives here:
 - the concrete adapter graph is assembled from settings, once;
 - interrupted runs are swept on boot (``mark_interrupted_on_boot``);
 - ``SIGINT``/``SIGTERM`` stop the loop at the next poll boundary rather than
-  killing the process mid-step.
+  killing the process mid-step: the run in flight is driven to its own
+  terminal or parked status first, and the process waits for that.
 
 **A worker that cannot call its model does not boot (D16).** Everything a
 deployment needs from ``build_worker`` is checked *before* the loop starts, so a
@@ -38,12 +39,16 @@ run it had already broken as ``FAILED('interrupted')`` -- so a missing SDK
 reported itself as an interruption and the boot message said "booted". Refusing
 to start costs no run and names the extra to install.
 
-Shutdown is deliberately *not* a second sweep. A signal arrives between two
-``drain_once`` calls at the latest, so the run in flight either finished (its
-status is already durable) or is left in a claim-and-work status -- and the next
-boot's sweep is what marks it ``FAILED('interrupted')``. Doing it here as well
-would risk failing the one status that is deliberately exempt: ``EXECUTING``.
-See :func:`_install_signal_handlers` and ``docs/architecture.md`` §5.
+Shutdown is deliberately *not* a second sweep. A signal sets an event the poll
+loop checks at its boundaries, so the run in flight is **driven to its own
+terminal or parked status** before the loop returns -- its status is durable
+when the process exits, and nothing is left for a sweep to find. Doing a sweep
+here as well would risk failing the one status that is deliberately exempt:
+``EXECUTING``. The one case that does leave a run in a claim-and-work status is
+a drive that outlasts the shutdown grace period, which is cancelled rather
+than waited for; the next boot's sweep is what marks that one
+``FAILED('interrupted')``. See :func:`_install_signal_handlers` and
+``docs/architecture.md`` §5.
 
 **``LOG_LEVEL`` is applied here, first thing in ``main()``.** The setting was
 defined and validated and read by nothing, so a deployment that changed it changed
@@ -91,6 +96,22 @@ if TYPE_CHECKING:
 # The signals a supervisor sends to ask for a clean stop: Ctrl-C, and the
 # ``SIGTERM`` every container runtime and init system uses.
 _HANDLED_SIGNALS: Final[tuple[signal.Signals, ...]] = (signal.SIGINT, signal.SIGTERM)
+
+#: How long a shutdown waits for the run in flight to reach its own terminal
+#: or parked status before it is cancelled anyway.
+#:
+#: The wait is what makes the stop a *poll boundary* rather than a mid-step
+#: kill, and it has to be bounded: a drive that hangs -- a model call with no
+#: timeout, a tool that never answers -- must not hold the process open
+#: forever. Sixty seconds covers a normal drive, and a supervisor that wants
+#: a shorter one has its own grace period (``docker compose stop``,
+#: Kubernetes' ``terminationGracePeriodSeconds``) and will ``SIGKILL`` first.
+#:
+#: Past this bound the run is cancelled, and a cancelled run is left in a
+#: claim-and-work status -- which the next boot's sweep marks
+#: ``FAILED('interrupted')``. The refund's idempotency key is the money's
+#: backstop either way; this bound is about how long the *process* waits.
+_SHUTDOWN_GRACE_SECONDS: Final[float] = 60.0
 
 # The model each provider falls back to when ``MODEL_NAME`` is blank. Kept here
 # rather than in each adapter so the blank-means-default rule has one definition,
@@ -602,9 +623,11 @@ def _install_signal_handlers(stop: asyncio.Event) -> dict[signal.Signals, object
     - **A signal is a request, not a crash.** With a handler installed ``SIGINT``
       no longer raises ``KeyboardInterrupt``, so Ctrl-C stops the worker with
       exit code 0 instead of a traceback.
-    - **The stop is a poll boundary, never a mid-step kill.** The flag is read
-      once per iteration, so a run already claimed is driven to its own terminal
-      or parked status first.
+    - **The stop is a poll boundary, never a mid-step kill.** The event is
+      checked before a claim is taken and again once the drive in flight has
+      finished, so a run already claimed is driven to its own terminal or
+      parked status first -- and the process waits for that to happen, rather
+      than cancelling the loop out from under it.
 
     The previous handlers are returned so :func:`main` can put them back -- which
     matters when ``main()`` is called in-process (a test), where leaving ours
@@ -643,14 +666,17 @@ async def _run(worker: _Worker) -> None:
     worker died before finishing, and failing it would discard that decision
     (``docs/architecture.md`` §5).
 
-    Shutdown does **not** sweep. ``_install_signal_handlers`` sets a flag that
-    ends the loop at the next iteration, so a run in flight is driven to its own
+    Shutdown does **not** sweep. ``_install_signal_handlers`` sets an event the
+    poll loop checks at its boundaries, so a run in flight is driven to its own
     terminal or parked status and its status is already durable when the process
-    exits. A run interrupted *between* two gate decisions is left in a
-    claim-and-work status, which is exactly what the next boot's sweep is for --
-    and trying to be clever here is how a shutdown would fail an ``EXECUTING``
-    run whose refund a human already approved. Mid-step resume remains Phase 2;
-    what is guaranteed here is only that nothing is *lost*.
+    exits. The process **waits** for that -- up to
+    ``_SHUTDOWN_GRACE_SECONDS`` -- because cancelling the loop is what would
+    kill the run mid-step. A drive that outlasts the grace period is cancelled
+    and is left in a claim-and-work status, which is exactly what the next
+    boot's sweep is for -- and trying to be clever here is how a shutdown would
+    fail an ``EXECUTING`` run whose refund a human already approved. Mid-step
+    resume remains Phase 2; what is guaranteed here is only that nothing is
+    *lost*.
 
     An exception out of ``poll_forever`` is re-raised rather than swallowed, so a
     worker whose loop broke dies loudly with a non-zero exit instead of exiting 0
@@ -688,17 +714,33 @@ async def _run(worker: _Worker) -> None:
             # the value the *process* was configured with, so a deployment
             # that changed the TTL in one place sees it everywhere.
             approval_ttl_seconds=ttl,
+            # The loop honours the stop at its poll boundaries, so a run
+            # already claimed is driven to its own terminal or parked status
+            # before the loop returns.
+            stop=stop,
         )
     )
     stopping = asyncio.ensure_future(stop.wait())
     try:
-        done, pending = await asyncio.wait({poll, stopping}, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        if poll in done and not poll.cancelled():
+        done, _pending = await asyncio.wait({poll, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        if poll in done:
             # The loop ended on its own, which it only does by raising.
-            poll.result()
+            stopping.cancel()
+            await asyncio.gather(stopping, return_exceptions=True)
+            if not poll.cancelled():
+                poll.result()
+            return
+        # The stop event fired and the loop is still running. It checks the
+        # event at its poll boundaries, so it finishes the run it is driving
+        # and then returns; **cancelling it here would kill that run
+        # mid-step**, which is the opposite of what the stop means. So the
+        # shutdown waits -- bounded, because a drive that hangs must not
+        # hold the process open.
+        try:
+            await asyncio.wait_for(asyncio.shield(poll), timeout=_SHUTDOWN_GRACE_SECONDS)
+        except TimeoutError:
+            poll.cancel()
+            await asyncio.gather(poll, return_exceptions=True)
     finally:
         _restore_signal_handlers(previous)
         # Terminates any stdio MCP servers this worker spawned, and is a no-op
