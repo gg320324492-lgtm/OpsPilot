@@ -1318,7 +1318,9 @@ async def run_dataset(
     which the smoke job uses to keep them off a small ``/tmp``.
 
     Raises:
-        EvalRunUnmeasurable: If not one case produced a result.
+        EvalRunUnmeasurable: If **no** case produced a measurable result --
+            every case failed, or none of them got far enough to observe
+            anything. A *partial* failure is a result and is returned as one.
 
             A *partial* failure is a result and is returned as one -- a model
             that errors on one ticket in twenty is a measured fact about the
