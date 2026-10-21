@@ -88,6 +88,13 @@ let stack: StackHandle | null = null;
 let runId: string | null = null;
 
 test.beforeAll(async ({ browser }) => {
+  // The stack start includes a Docker **build**, and a build after a source
+  // change is minutes of work that happens inside this hook. Playwright's
+  // default hook budget is the test timeout (5 minutes), which the build can
+  // exceed -- and when it does, the hook is killed and the run reports a
+  // teardown artefact ("browserContext.close: ENOENT") instead of the thing
+  // that actually happened. The budget below is the build's.
+  test.setTimeout(900_000);
   stack = await startStackOrSkip("i18n");
   if (stack.skip) {
     return;
