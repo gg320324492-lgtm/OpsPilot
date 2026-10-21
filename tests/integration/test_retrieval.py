@@ -17,25 +17,36 @@ This drives the *real* stack: the committed corpus is ingested through
 with the deterministic local embedder, and queried through
 ``opspilot.adapters.retrieval.search.retrieve``.
 
-An honest limitation, asserted rather than hidden
--------------------------------------------------
+What the local embedder is good for, asserted rather than hidden
+------------------------------------------------------------
 
-``EMBEDDING_PROVIDER=local`` is the default "so the test suite and a fresh clone
-work with no API key" (``docs/architecture.md`` §9), and ``embeddings.py`` states
-its retrieval quality "is poor and it exists as plumbing, not as a good
-embedder". Concretely, its cosine scores for this corpus sit in a narrow band
-(~0.04-0.09) that the ``RETRIEVAL_MIN_SCORE=0.35`` default never admits, and the
-band overlaps between answerable and unanswerable questions -- so at the default
-threshold *every* query abstains. The assertions below therefore:
+``EMBEDDING_PROVIDER=local`` is the default "so the test suite and a fresh
+clone work with no API key" (``docs/architecture.md`` §9), and ``embeddings.py``
+says plainly what it is: a good lexical matcher for a corpus whose documents
+answer using the words the question uses, and a poor one for an answer that
+uses words the question never uses.
 
-* assert **Recall@K at K=10** for the ranking claim, which is threshold-free and
-  real; and
-* assert the **abstention flag** at the configured threshold, which is the
-  documented escalation condition.
+The concrete shape, measured against this corpus: an answerable question's top
+hit scores between **0.2500** and **0.4727**, an unanswerable one's between
+**0.0907** and **0.1844**, and the two bands **do not overlap**. The
+``RETRIEVAL_MIN_SCORE`` default of **0.22** sits in the gap between them,
+which is the whole reason a threshold works here at all. The assertions below
+therefore ask for both halves of the property: the **ranking**, by *recall*, and
+the **abstention flag** at the configured threshold, which is the documented
+escalation condition.
 
-The README's retrieval numbers come from a real provider, not this embedder
-(``docs/evals.md``); that is why the ranking assertion is by *recall*, not by a
-score threshold the local embedder cannot meet.
+(The previous version of this paragraph said the scores sat in a ~0.04-0.09 band
+that the ``0.35`` default never admitted, that the bands overlapped, and that
+every query abstained at the default threshold. None of that was true: the
+default is 0.22, and ``test_retrieval_threshold.py`` -- the other file, next to
+this one, over the same corpus -- asserts that the two bands do not overlap. Two
+files describing one corpus in opposite terms is the failure this paragraph was
+part of.)
+
+And the README's retrieval numbers **do** come from this embedder: the
+committed results file records ``config.embedding_provider = "local"``
+(``evals/results/2026-10-11T15-39-42.json``), and ``docs/limitations.md`` §3
+says so in the README's terms.
 
 Every case's ``expected_documents`` and ``expect_abstention`` come from
 ``evals/datasets/retrieval.jsonl`` -- the dataset is read, never transcribed.

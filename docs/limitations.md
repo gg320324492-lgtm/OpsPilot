@@ -659,6 +659,49 @@ could not keep.
    format, whose twelve rows are numbered and cited from
    `src/opspilot/agents/runtime.py` and elsewhere, which is why it is not a
    one-line addition.
+5. **The retrieved corpus describes controls this system does not have.** The
+   `knowledge/` documents are a company's policy library, and the agent
+   retrieves them and reasons from them, so what they say reaches an approver
+   through the agent's own explanation. Three of them describe mechanisms that
+   do not exist here:
+   - **`knowledge/refund-authority-matrix.md`** grades approval authority by
+     amount — a $600 refund needs two signatures, over $10,000 needs the CFO.
+     The system has **no** amount grading: gate 5 asks one question, whether
+     the permission is `HIGH_RISK_WRITE` (`agents/runtime.py`), and
+     `ApprovalRequest` has no role or band field. Two signatures are not
+     merely unimplemented but *structurally impossible*: `approvals.tool_call_id`
+     is unique, so one tool call has one approval row. Phase 1 also has one
+     operator, so there is no second signature to give.
+   - **`knowledge/refund-policy.md`** says a refund above $100 needs human
+     approval. The system's only money gate is `OPSPILOT_REFUND_CEILING`, and
+     its semantics are the **opposite**: a refund over the ceiling is
+     **refused** at gate 4, before the approval gate is ever reached. So an
+     operator who read the corpus and set the ceiling to 100 to "implement the
+     $100 rule" would turn a $129 duplicate-charge refund into a refusal no
+     approver ever sees — where the corpus says that refund needs a human and
+     without exception.
+   - **`knowledge/data-retention.md`** states retention periods, a legal hold
+     and backup propagation. There is no retention job, no purge and no backup
+     component anywhere in `src/`; the agent's execution trace lives in
+     `agent_steps` and nothing ever cleans it.
+
+   The corpus is a *demonstration* library, not a description of this system,
+   and it says so now: `knowledge/README.md` carries a section saying which
+   rule the system actually enforces (one persisted human approval for any
+   `HIGH_RISK_WRITE`) and which are company policy the system does not
+   implement. An agent that reads the authority matrix should present it as
+   policy, not as behaviour the system will enforce.
+6. **The corpus's anti-false-positive material has never been triggered.** The
+   documents describe three kinds of duplicate charge that are *not* duplicates
+   — a pro-rated seat change, an ACH pending plus a card fallback, a
+   chargeback — and the point of them is that a system matching "two charges
+   on one invoice" without reading will misjudge. The seeded database has **one
+   invoice with more than one transaction**, and it is a real duplicate
+   (INV-2026-384, two charges of $129.00 two seconds apart, both `charged`).
+   None of the three false positives has a sample, so the corpus's defence
+   against misjudging is untested by any data this system can see, and a
+   deployment with exactly one duplicate shape is the shape a naive matcher
+   would get right.
 **Fixed, and no longer in this list** (kept as a record so the list's history is
 legible):
 

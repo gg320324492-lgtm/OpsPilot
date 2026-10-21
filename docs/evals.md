@@ -17,7 +17,7 @@ model to grade a model.
 | # | Metric | Definition | Dataset |
 |---|---|---|---|
 | 1 | Classification accuracy | `predicted_category == expected_category` / n | `classification.jsonl` |
-| 2 | Retrieval Recall@K | fraction of cases where ≥1 expected document is in the top-K | `retrieval.jsonl` |
+| 2 | Retrieval Recall@K | fraction of cases where ≥1 expected document is in the top-K, over **all** the dataset's cases — the five `expect_abstention` ones included, and they score zero by abstaining | `retrieval.jsonl` |
 | 3 | Retrieval precision@K | expected documents retrieved / K, averaged | `retrieval.jsonl` |
 | 4 | Tool selection accuracy | set equality of proposed tool names vs expected | `tool_selection.jsonl` |
 | 5 | Tool argument validity | fraction of **attempted** calls passing schema validation, pooled across every dataset that records a call | all that propose a call |
