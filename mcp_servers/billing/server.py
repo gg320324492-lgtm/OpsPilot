@@ -246,13 +246,19 @@ def _issue_refund(
     Order of checks matters and is the contract's:
 
     1. Missing/blank key or non-positive amount -> ``validation_error``.
-    2. Unknown transaction -> ``not_found``.
-    3. Existing refund for this key -> return it with ``replayed: true`` (before
-       the state check, because a replay of a *successful* refund must return the
-       original, and re-checking status would wrongly report ``invalid_state`` on
-       the transaction the first call just moved to ``refunded``).
+    2. Existing refund for this key -> return it with ``replayed: true``.
+    3. Unknown transaction -> ``not_found``.
     4. Transaction status not ``charged`` -> ``invalid_state``.
     5. Amount greater than the transaction amount -> ``amount_exceeds_transaction``.
+
+    **The replay check is second, before the transaction is even looked up**,
+    and that order is the contract's. A replay of a *successful* refund must
+    return the original, and the first call has already moved the transaction
+    to ``refunded`` -- so re-checking the status would report ``invalid_state``
+    on a transaction the caller is only asking to confirm. Looking the
+    transaction up first would report ``not_found`` on a key whose refund
+    exists. The key is the caller's claim that this is the same effect, and a
+    claim that has already been honoured is answered with what was done.
 
     On success the transaction is moved to ``refunded``, a refund row is
     appended, the ``next_refund_id`` counter increments, and one ``save()``

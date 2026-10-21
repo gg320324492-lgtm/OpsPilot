@@ -309,7 +309,9 @@ change if the guarantee is ever made.
     "total": 1 }
 ```
 
-`total` is the number of matches, not the number of rows returned. The seeded
+`total` is the number of matches. The tool has no pagination, so it is also
+the number of rows returned -- the distinction matters for a tool that had a
+limit, and this one does not. The seeded
 store holds **no issues at all** — the `issues` server's `seed.json` ships an
 empty list — so a fresh database answers `{"issues": [], "total": 0}` and the
 first issue created is `OPS-1001` (see below). The example above shows a row
@@ -415,10 +417,17 @@ These hold for all three servers:
 
 ## 6. Contract testing
 
+**One property holds by construction rather than by assertion**: every
+declared tool returns a response matching its declared output schema. The SDK
+generates each tool's output schema *from* the Pydantic model the tool
+returns, and serialises the return value through that same model -- so a
+response that the model accepted cannot disagree with the schema it published.
+A test that re-checked it would be checking the SDK against itself, and
+`jsonschema` is not a dependency of this package.
+
 Each server is tested without the agent and without an LLM, in
 `tests/integration/test_mcp_*.py`:
 
-- Every declared tool returns a response matching its declared output schema.
 - `billing.issue_refund` with a bad transaction id returns `not_found`, and the
   transaction is unchanged afterwards (asserted by re-reading it).
 - `billing.issue_refund` twice with one key → one refund row, `replayed` is

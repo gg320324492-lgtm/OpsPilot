@@ -476,6 +476,12 @@ def test_refund_unknown_transaction_is_not_found(store: Store) -> None:
     assert out["code"] == "not_found"
     assert store.data["refunds"] == []
     assert store.data["next_refund_id"] == 10091
+    # The transaction is unchanged -- re-read it rather than trusting that a
+    # refusal took the early return. No transaction was created, and the
+    # duplicate charge is still `charged` rather than moved to `refunded`.
+    rows = {t["transaction_id"]: t for t in store.data["transactions"]}
+    assert "TX-00000" not in rows
+    assert rows["TX-88219"]["status"] == "charged"
 
 
 def test_refund_non_positive_amount_is_validation_error(store: Store) -> None:

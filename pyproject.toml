@@ -311,8 +311,10 @@ ignore = [
 # Tests and the eval harness print by design: their output is the product.
 "tests/**" = ["T20", "S101", "ARG001", "TRY003"]
 "evals/**" = ["T20", "S101", "ARG001"]
-# MCP servers are standalone processes; their entry points print.
-"mcp_servers/**/__main__.py" = ["T20"]
+# MCP servers are standalone processes; their entry points print. There is no
+# `mcp_servers/**/__main__.py` -- the three servers are started as
+# `python -m mcp_servers.<name>.server`, so `server.py` is where the printing
+# entry point is.
 "mcp_servers/**/server.py" = ["T20"]
 # Seed and CLI entry points.
 #
