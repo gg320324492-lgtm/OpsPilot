@@ -19,8 +19,9 @@ transactions on the same invoice:
 
 1. Same invoice identifier.
 2. Same amount, to the cent.
-3. Both transactions in `charged` status (not `voided`, `declined` or
-   `refunded`).
+3. Both transactions in `charged` status (a `refunded` transaction does not
+   qualify, and a declined or voided authorisation never became a transaction
+   at all).
 4. Both processed within **72 hours** of each other.
 
 The 72-hour window matters. Two charges on one invoice six months apart are not a

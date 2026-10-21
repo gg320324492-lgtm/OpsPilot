@@ -45,6 +45,10 @@ small and even when the customer is insistent. It resolves the ticket and create
 a reconciliation problem, and it teaches the customer that insisting produces a
 refund.
 
+This document takes precedence: where a retrieved
+[refund-policy.md](refund-policy.md) partial-refund section could be read to
+cover degraded service, it does not.
+
 ## Credit Application
 
 Credits are applied to the next invoice automatically once approved. A credit

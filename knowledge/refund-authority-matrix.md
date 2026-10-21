@@ -17,6 +17,12 @@ tags: [billing, refunds, authority, approvals]
 | $2,500.01 – $10,000 | Finance director, with written justification |
 | above $10,000 | CFO |
 
+**This matrix is company policy; the system grades every refund alike.**
+The only approval gate is `HIGH_RISK_WRITE`, and the amount is not consulted:
+the gate cannot tell a $600 refund from a $10,000 one. What *is* enforced is
+**one approval authorising one call** — `approvals.tool_call_id` is unique, so
+the cumulative sign-off below cannot exist here, and one approver decides.
+
 The bands are cumulative: a $600 refund needs Billing Operations **and** Finance
 manager sign-off, because each band's holder is accountable for the amounts in
 their band and above.

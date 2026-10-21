@@ -46,14 +46,14 @@ The SLA does not apply to:
 - Failures caused by customer configuration or third-party integrations.
 - Scheduled maintenance announced at least 72 hours in advance.
 - Force majeure.
-- Accounts on the Standard plan, which has no response commitment.
+- Accounts on the `starter` plan, which has no response commitment.
 - Accounts in suspension. A suspended account's tickets are deprioritised, and
   suspension itself is not a service incident.
 
 ## Support Hours
 
-Standard and Business plans receive support during business hours in their
-region. Enterprise plans receive 24x7 support for P1 incidents with a named
+`starter` and `growth` plans receive support during business hours in their
+region. `enterprise` plans receive 24x7 support for P1 incidents with a named
 contact.
 
 ## Relationship To Billing Incidents

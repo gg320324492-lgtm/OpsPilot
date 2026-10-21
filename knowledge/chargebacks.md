@@ -20,10 +20,16 @@ result in a double return once the network rules against us.
 
 ## When A Chargeback Appears
 
-A chargeback appears in the transaction list with status `chargeback` or
-`reversed`, alongside the original charge. It is **not** a duplicate of the
-original charge for detection purposes: the duplicate criteria require both
-transactions to be in `charged` status.
+A chargeback does not appear in this system's transaction list: the only
+transaction statuses here are `charged` and `refunded`, and a chargeback is
+neither. It is tracked by Finance Operations against the invoice, alongside the
+original charge. It is **not** a duplicate of the original charge for detection
+purposes — the duplicate criteria require both transactions to be in `charged`
+status, and a chargeback is not a second transaction here.
+
+The statuses `chargeback` and `reversed` are what a fuller billing system would
+record for this situation, and they are the words Support staff use for it. They
+do not exist in this system.
 
 A customer who reports "I was charged and also see a reversal" has usually filed
 a chargeback. The correct response is to explain the process and route to Finance

@@ -10,8 +10,18 @@ tags: [billing, collections, suspension]
 ## Trigger
 
 An account enters the dunning sequence when an invoice remains unpaid past its
-due date. Standard plans are due on receipt; Enterprise accounts are due net 30
-per [enterprise-billing.md](enterprise-billing.md).
+due date. Payment terms are set per account and are one of `net15`, `net30` or
+`net45`, counted from the invoice's issue date. `enterprise` contracts are net
+30 unless the contract specifies otherwise, per
+[enterprise-billing.md](enterprise-billing.md).
+
+
+This system's customer and subscription records carry exactly two statuses:
+`active` and `past_due`. An account on a dunning sequence is `past_due` here,
+and that is the only step of the sequence the system represents. The later
+stages — suspension, termination — are the states a fuller billing system would
+carry, and they are described in this document because the dunning sequence is
+the policy Support works to. They do not exist here.
 
 ## Dunning Sequence
 
@@ -19,10 +29,10 @@ per [enterprise-billing.md](enterprise-billing.md).
 |---|---|
 | 1 | Automated reminder email |
 | 7 | Second reminder, billing contact copied |
-| 14 | Account flagged `delinquent`; admin console shows a warning banner |
+| 14 | Account status set to `past_due`; admin console shows a warning banner |
 | 21 | Third reminder; service degradation notice |
 | 30 | **Suspension**: write access disabled, data retained |
-| 60 | Data export offered; account marked `pending_termination` |
+| 60 | Data export offered; termination scheduled for the end of the paid term |
 | 90 | Termination, subject to the retention commitments in the contract |
 
 Suspension disables write access and the API for new work. It does not delete
@@ -68,3 +78,4 @@ The third exception is the one that interacts most often with support tickets: a
 customer disputing a charge is frequently also overdue on it, and the correct
 first step is to determine whether the dispute is a billing error before any
 collections action proceeds.
+

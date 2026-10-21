@@ -20,7 +20,7 @@ Enterprise accounts are invoiced **monthly in advance**, on the first day of the
 billing period. The invoice covers the coming period, not the past one. An
 invoice dated 2026-10-01 covers 2026-10-01 through 2026-10-31.
 
-This differs from the standard plan, which invoices in arrears. The difference
+This differs from the `starter` plan, which invoices in arrears. The difference
 matters when reasoning about a charge that appears before a service period has
 elapsed: on Enterprise, that is normal and not an error.
 
@@ -30,10 +30,10 @@ Enterprise duplicate charges may be refunded **in full**, including any
 associated processing fees, once the duplicate has been verified under
 [duplicate-charge-sop.md](duplicate-charge-sop.md).
 
-The fee treatment is the Enterprise-specific part. On standard plans, processing
-fees are retained on a refund because the processor does not return them. On
-Enterprise, fees are absorbed by us and the customer receives the full charge
-back.
+The fee treatment is the Enterprise-specific part. On `starter` and `growth`
+plans, processing fees are retained on a refund because the processor does not
+return them. On Enterprise, fees are absorbed by us and the customer receives
+the full charge back.
 
 **The approval requirement is not waived.** Refunds above $100 still require
 human approval. Enterprise status affects the *amount* that may be refunded, not

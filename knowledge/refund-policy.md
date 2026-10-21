@@ -28,6 +28,8 @@ route by which a billing error becomes an unrecoverable loss. A refund that
 should not have been issued is money that has left the business and cannot be
 recalled.
 
+The $100 line is policy; the system grades all refunds alike.
+
 ## Eligible Reasons
 
 A refund may be issued when one of the following holds and is documented:
@@ -45,8 +47,8 @@ is handled through retention offers, not refunds.
 
 - Charges older than **180 days**. Older charges are handled as a credit against
   a future invoice, if at all.
-- Charges on a terminated account with an unpaid balance. The refund is offset
-  against the balance first.
+- Charges on a terminated account with an unpaid balance: escalate, do not
+  refund — see the account-suspension policy.
 - Voluntary overages the customer authorised in the admin console. These are
   invoiced as used.
 
@@ -64,13 +66,16 @@ approval requirement for amounts above $100 still applies.
 
 ## Partial Refunds
 
-A partial refund may be issued when a service was degraded for a documented
-period. The refund amount is calculated as:
+A partial refund may be issued where the bill itself is wrong. The refund
+amount is calculated as:
 
     (days affected / days in billing period) x period charge
 
 rounded to the nearest cent and capped at the period charge. Partial refunds are
 recorded against the invoice, not against the individual transaction.
+
+A degraded service correctly billed is a credit, not a refund — see the
+service-credit policy.
 
 ## Currency and Method
 
@@ -81,6 +86,9 @@ refund window (typically 120 days).
 
 ## Records
 
-Every refund must have a documented reason and be associated with the invoice it
-corrects. Refunds issued without a recorded reason are treated as a policy
+Every refund should have a documented reason and be associated with the invoice
+it corrects. Refunds issued without a recorded reason are treated as a policy
 violation during audit, even when the amount is within discretionary limits.
+
+An expectation, not a gate: the field may be empty, and no rule refuses
+a refund for want of a reason.

@@ -6,7 +6,6 @@ tags: [compliance, data, retention]
 ---
 
 # Data Retention Schedule
-
 ## Retention Periods
 
 | Data class | Retention | Basis |
@@ -55,3 +54,6 @@ than 1,000 records, the count is recorded in the compliance log.
 Legal hold suspends all deletion for the affected dataset. Where a dataset is
 under legal hold, the retention schedule does not apply until the hold is lifted,
 and the hold takes precedence over a customer deletion request.
+
+This schedule is **company policy**, and **this system does not enforce it**: there is no purge job, no backup component and no legal-hold mechanism. An agent execution trace really does land in the database, in the `agent_steps` table, and nothing ever cleans it up — the one-year period below is a commitment the system neither implements nor contradicts.
+

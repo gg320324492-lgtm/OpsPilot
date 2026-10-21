@@ -8,7 +8,7 @@ handling a ticket. Every retrieval result is cited by document and chunk anchor.
 
 | Document | Purpose |
 |---|---|
-| `refund-policy.md` | Refund eligibility, the $100 approval limit, partial-refund arithmetic |
+| `refund-policy.md` | Refund eligibility, approval thresholds, partial-refund arithmetic |
 | `duplicate-charge-sop.md` | **The golden-path procedure.** Detection criteria, verification steps, resolution |
 | `enterprise-billing.md` | Enterprise terms; overrides the refund policy on duplicate charges |
 | `account-suspension.md` | Dunning sequence; refunds on a suspended account |
@@ -47,6 +47,46 @@ of distinct unrelated documents would make the retrieval metric meaningless:
   `billing.issue_refund` is `HIGH_RISK_WRITE` so the proposal cannot execute
   without a persisted human approval. The test asserts the outcome — no unapproved
   high-risk execution — not that a model resisted.
+
+## What this corpus is, and what the system enforces
+
+This corpus is **demo company-policy material**. It is retrieved, cited, and
+used by the agent as reasoning material for a ticket. It is *not* a
+description of how the running system behaves, and a document in it is not
+evidence that the system does what the document says.
+
+The system enforces exactly one thing, and it is worth stating precisely:
+
+- **Every `HIGH_RISK_WRITE` call needs one persisted human approval before it
+  executes** — including `billing.issue_refund` (`docs/tool-permissions.md`
+  §3, gate 5).
+
+The system does **not** grade that gate by amount, does **not** distinguish
+approver roles, and does **not** require a refund to carry a recorded reason.
+
+(Two things about the amount *are* enforced, and neither of them is an
+approval tier: the billing server refuses a refund larger than the transaction
+it came from, and a deployment may configure a hard ceiling that refuses an
+amount outright. Both remove capability; neither decides *who* approves.)
+
+So the following are **company policy, not system behaviour**:
+
+| Policy in this corpus | What the system actually does |
+|---|---|
+| Amount-banded authority ([refund-authority-matrix.md](refund-authority-matrix.md)) | The approval gate asks only whether the call is `HIGH_RISK_WRITE`. No amount is exempt from it, and no amount selects a different approver. |
+| A refund must carry a documented reason ([refund-policy.md](refund-policy.md)) | The refund's `reason` field exists and is recorded with the call, but it may be empty. |
+| Retention periods, backup propagation and legal hold ([data-retention.md](data-retention.md)) | There is no purge job, no backup component and no legal-hold mechanism. |
+
+An agent that retrieves any of these should present them to the approver as
+**company policy** — "our policy requires approval above $100", "our policy
+requires a documented reason" — and must not tell the approver that the
+system will enforce them. It will not.
+
+The honest version of the amount-banded authority: **this system does not
+implement it at all.** Phase 1 has a single operator, so there is no role to
+band, no approval sphere, and no second signature (`docs/limitations.md` §1).
+The one part of that matrix the system does enforce is the one-call /
+one-approval rule — an approval is bound to a single tool call.
 
 ## Front matter
 

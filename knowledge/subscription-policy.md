@@ -11,14 +11,20 @@ tags: [billing, subscriptions, plans]
 
 | Plan | Billing | Minimum term | Support tier |
 |---|---|---|---|
-| Standard | Monthly in arrears | none | Standard |
-| Business | Monthly in advance | 3 months | Priority |
-| Enterprise | Monthly in advance | 12 months | Named contact |
+| `starter` | Monthly in arrears | none | Basic |
+| `growth` | Monthly in advance | 3 months | Priority |
+| `enterprise` | Monthly in advance | 12 months | Named contact |
+
+The three plan names above are the ones a subscription record carries —
+`starter`, `growth`, `enterprise`. There is no other plan, and a plan named
+"Standard" or "Business" is a name from an older version of this policy, not a
+plan a customer can be on.
 
 The direction of billing — in advance or in arrears — is the single most
 frequently misread difference between plans, and it is the source of most
-"we were charged before we used the service" reports. On Business and Enterprise,
-being invoiced on the first day of the period is correct behaviour, not an error.
+"we were charged before we used the service" reports. On `growth` and
+`enterprise`, being invoiced on the first day of the period is correct
+behaviour, not an error.
 
 ## Upgrades
 
@@ -48,7 +54,7 @@ refund.
 | Within 14 days of first purchase, no usage | Full refund |
 | Within 14 days, with usage | Refund less usage at the standard rate |
 | After 14 days | No refund; service continues to the end of the paid period |
-| Mid-term on an Enterprise contract | Early-termination fee per contract; no refund |
+| Mid-term on an `enterprise` contract | Early-termination fee per contract; no refund |
 
 Cancellation does not stop an invoice already issued. The final invoice covers
 the period during which the account was active.
@@ -65,6 +71,6 @@ there is nothing to return.
 
 ## Seat Count Changes
 
-Handled per plan: Standard and Business adjust at the next period boundary;
-Enterprise adjusts pro-rata in both directions, per
+Handled per plan: `starter` and `growth` adjust at the next period boundary;
+`enterprise` adjusts pro-rata in both directions, per
 [enterprise-billing.md](enterprise-billing.md).
