@@ -255,7 +255,7 @@ def test_every_section_reference_resolves() -> None:
                 prose += 1
                 continue
             checked += 1
-            if key not in known:
+            if not _section_resolves(key, known):
                 unresolved.append(f"{document.name}: §{key}")
     assert not unresolved, (
         "these section references name a section that does not exist:\n  "

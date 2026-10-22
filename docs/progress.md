@@ -864,7 +864,7 @@ because no test *can*: the code path is unreachable for any input.
 ### Scope (original attempt — reverted)
 
 One focused slice: make `knowledge.search` — already declared in
-`TOOL_REGISTRY` (`domain/tools.py:84`) as `permission=READ, server="internal"` —
+`TOOL_REGISTRY` (`domain/tools.py:93`) as `permission=READ, server="internal"` —
 a real, callable tool reachable through the tool gateway. Previously no server
 implemented it and no gateway could dispatch it.
 
@@ -1991,7 +1991,7 @@ which, and record it.**
   is not tested at all.
 
 **3. A second "absence of an answer" token escapes the gate.** The gateway can
-return `server_unavailable` (`mcp_gateway.py:384`) as well as
+return `server_unavailable` (`mcp_gateway.py:392`) as well as
 `mcp_unavailable` (`:233`); the runtime special-cases only the second. Reached
 through a factory the default wiring does not use, so severity is low, but it is
 the same defect class the M6 commit claims to have fixed, on an untested path.
@@ -3046,9 +3046,9 @@ Found while preparing the Compose work, before writing it.
 
 **They are stdio servers, and the gateway never spawns them.** Evidence:
 
-- `mcp_servers/crm/server.py:290` — `server.run(transport="stdio")`, and the
+- `mcp_servers/crm/server.py:359` — `server.run(transport="stdio")`, and the
   same for billing and issues.
-- `adapters/tools/mcp_gateway.py:167` — `MCPToolGateway.__init__` defaults its
+- `adapters/tools/mcp_gateway.py:326` — `MCPToolGateway.__init__` defaults its
   `server_factory` to `build_in_process_servers()`, which returns three
   `MCPServer` objects used **in the calling process**. No subprocess, no port.
 - `grep -rn "mcp_crm_command\|mcp_billing_command\|mcp_issues_command" src/ tests/`
@@ -8654,3 +8654,90 @@ them are named by node id and asserted `PASSED`; the other nine are held by
 their file's exit code and an assertion that nothing in the file skipped. The
 stronger claim -- "each named by node id and asserted `PASSED`" -- was in the
 README and here, and it was wrong by a factor of two.
+
+---
+
+## Seven audits, one of them found a promise nobody kept
+
+**Date:** 2026-10-22, later still. Seven sub-agents swept the tree for
+*reverse drift* — a document, a docstring, a test name or a comment claiming
+something the code does not do — and every one of them died part-way through
+with an HTTP 400 from the provider. Their partial work was finished by hand,
+verified line by line, and the parts that were wrong were corrected before
+landing. One of them had cited a test file that did not exist.
+
+The finding that mattered most was in the **risk register**. `docs/risks.md`
+R3 argued that the eval demonstrates the approval gate can be *refused*:
+
+> The eval's `safety` set includes cases where the correct human answer is
+> Reject.
+
+It does not. Every row of `evals/datasets/safety.jsonl` expects a `completed`
+run — there is no refused terminal anywhere in the corpus — and the harness
+approves **every** parked run, which `src/opspilot/evals/runner.py::run_case`
+says in its own docstring: *"The approval is unconditional, and that is a
+deliberate limitation of the harness, not of the system."* So the eval
+measures what the model *proposes* and what the gates *do*; it cannot measure
+whether the human's judgement is right, because the human in the harness always
+says yes.
+
+That claim was false **in the direction that flatters the system**: it was
+being used as evidence for a property the corpus does not have. The README's
+scenario 2 does exercise a rejection, and that half was always true.
+
+### What the other six found
+
+| Where | The claim | The truth |
+|---|---|---|
+| `adapters/tools/composite_gateway.py` | the internal gateway "is asked first", the MCP half second | the registry's `server` picks exactly one half; there is no fallback |
+| `adapters/tools/mcp_gateway.py` | `AttributeError` and friends "are left to propagate" | every `Exception` subclass reaches the wide catch, and the comment said why it was wide |
+| `adapters/tools/mcp_gateway.py` | the same mistake gets one code | it gets `validation_error` in process and `tool_error` over stdio |
+| `adapters/tools/mcp_stdio.py` | a queued call "is failed rather than abandoned" | the queue is FIFO, so the sentinel lands *behind* the call and the call is answered |
+| `adapters/tools/knowledge_tool.py` | a `functools.partial` of `retrieve` satisfies the retriever shape | `retrieve` takes `top_k` keyword-only, so a partial cannot be called that way at all |
+| `tracing/recorder.py` | the recorder writes the state-change step | the run store does, in the same transaction as the status update |
+| `agents/prompts.py` | this is the prompt a run sends | the runtime carries its own; this is the *default* the provider adapters fall back to |
+| `agents/runtime.py` | — | the two prompt copies had nothing holding them together |
+| `api/app.py` | the health routes are token-free because they are registered first | they are token-free because the health router declares no auth dependency |
+| `api/routers/runs.py` | the output keys are asserted by `test_run_detail_against_the_real_store.py` | that file asserts the *store*; the file that asserts the keys is `test_trace_labels_are_read_from_real_steps.py` |
+| `domain/approvals.py` | the approval and the run's transition are one transaction | two writes, two transactions; a crash between them leaves a pending approval behind a run still in `EXECUTING` — the safe direction |
+| `domain/tools.py` | `requires_idempotency_key` is schema-enforced at gate 1 | gate 1 does the opposite: a proposal that *carries* a key is refused |
+| `domain/policies.py` | the engine checks state preconditions | it does not; "already refunded" is the MCP server's `invalid_state`, and only the server's |
+| `domain/errors.py` | `UnknownTool` is a 422 | no route raises it; gate 2 records the name and the run carries on |
+| `migrations/env.py` | the online path "does not force a single connection" | it opens one and hands it to Alembic |
+| `migrations/versions/0001` | "the test suite asserts this predicate matches `CLAIMABLE`" | nothing compared the migration's literal with the domain's |
+| `tests/unit/test_schemas.py` | a refund without an idempotency key "fails validation" | it *validates*; the stub was skipped from M4 to M7 and its name said the opposite |
+| `docs/architecture.md` | the deployment is `apps/api`, `apps/worker`, `apps/web` | there is no `apps/` directory |
+| `docs/api-contract.md` | `unknown_tool` is a 422; `not_ready` is a 503; `mcp_unavailable` is a refusal code | none of the three is what the contract said |
+| `docs/mcp-contracts.md` | cited as a section id the document does not have, from four places in the source | section 2; the documents had been cleaned and the source had not |
+
+### The guards
+
+Seven new guard files, each of which was **mutation-verified** — the property
+broken on purpose, the guard confirmed red *for the right reason*, the property
+restored:
+
+| Guard | What it holds |
+|---|---|
+| `tests/evals/test_the_docs_about_the_eval_corpus_agree_with_it.py` | the documents' claims about the eval corpus match the corpus |
+| `tests/unit/test_the_docs_cited_test_names_exist.py` | a cited `test_*` name resolves, or its paragraph marks it as retired |
+| `tests/unit/test_the_readme_walkthrough_figures_match_the_specs.py` | the README's browser-walkthrough counts are the tree's |
+| `tests/unit/test_gateway_claims_match_the_code.py` | the tool adapters' own promises |
+| `tests/unit/test_source_docstrings_cite_a_test_that_exercises_them.py` | a docstring's evidence citation names a file that exercises the symbol |
+| `tests/unit/test_the_runtime_and_the_prompt_module_agree.py` | the two prompt assemblies do not drift apart |
+| `tests/unit/test_migration_claims_match_the_domain.py` | the migration's claim predicate is the domain's `CLAIMABLE` |
+| `tests/unit/test_the_dashboard_routes_are_not_placeholders.py` | the six dashboard routes reach the API and nothing imports the placeholder |
+
+Two existing guards were extended rather than added to: the cross-reference
+guard now reads the **source trees** as well as the documents (that broken
+reference survived in four source files after the documents had been cleaned),
+and it accepts a section *range* -- sections 3 to 4 -- when both endpoints
+resolve.
+
+### What the numbers are now
+
+The figures in the README and in the block above were recomputed against this
+tree rather than carried over. The counts that were wrong before this round —
+"twenty-two Compose-backed specs" (the tree has twenty-three), "the CI run's
+67 plus nine specs added since" (it is eighteen, and the table under it said
+so while the prose said nine) — are now checked by a guard rather than by a
+reader paying attention.

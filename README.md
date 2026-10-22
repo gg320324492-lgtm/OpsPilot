@@ -226,7 +226,9 @@ That is tested by calling the MCP server directly, bypassing the agent.
 ![The golden path end to end on the deterministic provider: the API certifies /ready against the database, the duplicate-charge ticket is submitted and parks at WAITING_APPROVAL, a human approves, and the worker executes the refund exactly once](docs/assets/golden-path.gif)
 
 *A real run, recorded from `scripts/demo_golden_path.py` on `MODEL_PROVIDER=fake`
-— a scripted replay with no API key, so it produces the same trace every time.
+— a scripted replay with no API key, so the model's *answers* are the same every
+time. The trace rows are not byte-identical: each run mints its own ticket and
+run ids and stamps its rows with the time.
 It shows `/ready` certifying against the database, the ticket being submitted,
 the run parking at `WAITING_APPROVAL`, the approval, and the worker executing
 the refund; the last line is the billing server's own answer, not the run's.*

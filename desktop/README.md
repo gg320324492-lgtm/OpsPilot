@@ -49,9 +49,11 @@ and surprising, and it buys nothing — the dashboard server is already spawned
 with Electron's own binary as the Node runtime via `ELECTRON_RUN_AS_NODE`, so
 there is no second copy of Node anywhere.
 
-**Two trees, two reasons.** `resources/app.asar` holds `dist/**` and nothing
-else — no `e2e/`, no `scripts/`, no `node_modules` — because a whitelist is a
-statement and a blacklist is a list of what someone remembered to exclude.
+**Two trees, two reasons.** `resources/app.asar` holds `dist/**/*` and
+`package.json` and nothing else — no `e2e/`, no `scripts/`, no `node_modules` —
+because a whitelist is a statement and a blacklist is a list of what someone
+remembered to exclude. (`package.json` is in the archive because Electron reads
+it to find the entry point -- its `main` is `dist/main.js`.)
 `resources/stack/` is real files on disk, because `docker compose` runs with it
 as its working directory and `node server.js` has to `require` inside it; an
 asar archive is a virtual filesystem the Node that runs the dashboard does not
