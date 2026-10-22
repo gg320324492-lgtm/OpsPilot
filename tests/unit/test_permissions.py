@@ -217,7 +217,7 @@ def test_validate_never_returns_a_spec_without_parsing() -> None:
 # file): a tool whose gate-1 schema and whose MCP server disagree on the argument
 # names can never be called. ``TransactionListArgs`` declared ``account_id`` and
 # a ``limit`` page size; ``mcp_servers/billing/server.py`` and
-# ``docs/mcp-contracts.md`` §S2 both declare ``invoice_id``. No argument set
+# ``docs/mcp-contracts.md`` §2 both declare ``invoice_id``. No argument set
 # satisfied both sides -- gate 1 accepted ``account_id`` and the server rejected
 # it (``validation_error``); the server accepted ``invoice_id`` and gate 1
 # rejected it (``extra="forbid"``). The golden path's duplicate-detection step

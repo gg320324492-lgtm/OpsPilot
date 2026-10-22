@@ -177,8 +177,8 @@ def test_the_cited_test_files_exist() -> None:
             line = text[: match.start()].count("\n") + 1
             where = path.relative_to(REPO_ROOT).as_posix()
             missing.append(f"{where}:{line}  {name}")
-    assert not missing, (
-        "these documents cite test files that do not exist:\n  " + "\n  ".join(missing)
+    assert not missing, "these documents cite test files that do not exist:\n  " + "\n  ".join(
+        missing
     )
 
 

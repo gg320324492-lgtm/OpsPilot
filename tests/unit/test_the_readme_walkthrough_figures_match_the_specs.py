@@ -140,7 +140,7 @@ def _claimed_compose_counts(text: str) -> list[tuple[str, int]]:
 def test_the_compose_backed_count_matches_the_tree() -> None:
     """The README's Compose-backed count is the tree's."""
     text = _readme_text()
-    total, full_stack, containerised = _counts()
+    _, full_stack, containerised = _counts()
 
     assert full_stack > 0, "no spec starts the full stack; the counting rule has stopped matching"
     assert containerised > 0, "no spec starts the containerised dashboard"
@@ -148,7 +148,11 @@ def test_the_compose_backed_count_matches_the_tree() -> None:
     claims = _claimed_compose_counts(text)
     assert claims, "the README no longer states how many Compose-backed specs there are"
 
-    wrong = [f"{phrase!r} says {count}, the tree has {full_stack + containerised}" for phrase, count in claims if count != full_stack + containerised]
+    wrong = [
+        f"{phrase!r} says {count}, the tree has {full_stack + containerised}"
+        for phrase, count in claims
+        if count != full_stack + containerised
+    ]
     assert not wrong, (
         "the README's Compose-backed spec count does not match the tree:\n  "
         + "\n  ".join(wrong)
@@ -194,7 +198,7 @@ def test_the_breakdown_matches_the_tree() -> None:
 
 
 def test_the_walkthrough_arithmetic_is_right() -> None:
-    """"the CI run's N plus M specs added since" adds up to the figure beside it."""
+    """ "the CI run's N plus M specs added since" adds up to the figure beside it."""
     text = _readme_text()
 
     run = re.search(r"the CI run's (\d+) plus (\S+) specs added since", text)

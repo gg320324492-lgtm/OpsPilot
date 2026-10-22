@@ -350,6 +350,13 @@ ignore = [
 # reader. T201 is the reason; the tool is invoked by hand from a terminal and
 # has no application whose log stream the output could be routed into.
 "scripts/make_assets.py" = ["T20"]
+# The gateway guard drives the real adapter over a double server, and the
+# double has to speak the protocol's own types -- `dict[str, Any]` in, a
+# `CallToolReturn` out -- because that is what the adapter dispatches on.
+# ANN401 is the protocol's, not the double's. ARG002 is the double's two
+# parameters: the server answers with whatever it was handed, whatever the
+# call was, and the names are the protocol's shape rather than carelessness.
+"tests/unit/test_gateway_claims_match_the_code.py" = ["ANN401", "ARG002"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation

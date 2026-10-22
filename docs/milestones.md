@@ -258,7 +258,7 @@ imports with no business logic, and a published GitHub repository.
       `test_tool_registry_equals_expected_literal`.)
 - [x] `ToolGateway` port; `MCPToolGateway` implements it; `StubGateway` for tests.
       (`ports/tool_gateway.py` declares the `runtime_checkable` Protocol;
-      `isinstance()` holds for `MCPToolGateway()` (`adapters/tools/mcp_gateway.py:298`)
+      `isinstance()` holds for `MCPToolGateway()` (`adapters/tools/mcp_gateway.py:310`)
       and `StubGateway()` (`adapters/tools/stub_gateway.py`).)
 - [x] The five gates are implemented in order with no bypass path:
       schema → registry → permission → policy → approval.
@@ -601,7 +601,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       which is the path every transition takes — it writes the step in the same
       transaction as the `agent_runs.status` update, so the step and the status
       cannot disagree. An earlier version of this note blamed
-      `TraceRecorder.record_state_change` (`tracing/recorder.py:184`) for
+      `TraceRecorder.record_state_change` (`tracing/recorder.py:197`) for
       omitting the argument. That is true of the source but false of the runs:
       the method has **no call sites in `src/`** — its only caller anywhere is
       `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would
@@ -721,11 +721,10 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
 - [x] Next.js dashboard with Dashboard, Tickets, Runs, Run Detail, Approvals,
       Knowledge.
       (Six routes under `web/src/app`, all substantive rather than stubs —
-      `page.tsx` 315 lines, `runs/[runId]/page.tsx` 628, `runs/page.tsx` 232,
-      `approvals/page.tsx` 210, `knowledge/page.tsx` 149,
-      `tickets/page.tsx` 93 — and `components/placeholder.tsx` is imported by
-      none of them. `npm run build` in `web/` exits 0 and lists all six as
-      server-rendered routes.)
+      each one imports `@/lib/data`, the layer that talks to the API client,
+      and `components/placeholder.tsx` is imported by nothing in the tree.
+      `npm run build` in `web/` exits 0 and lists all six as server-rendered
+      routes.)
 - [x] Run Detail renders the timeline from `GET /runs/{id}/trace` server-ordered.
       (The endpoint is mounted under the router's own prefix, so the real path
       is `GET /api/runs/{run_id}/trace` — `runs.py:54` sets `prefix="/api"` and

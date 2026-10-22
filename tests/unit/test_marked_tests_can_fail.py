@@ -119,8 +119,13 @@ KNOWN_M0_SKELETONS: dict[str, str] = {
     # "Placeholder: direct MCP idempotency test, no agent. Populated in M2."
     "tests/integration/test_refund_idempotency.py"
     "::test_same_idempotency_key_twice_produces_one_refund": "M2",
-    # "Placeholder: unit tests for the agent's Pydantic schemas. Populated in M4."
-    "tests/unit/test_schemas.py::test_issue_refund_without_idempotency_key_fails_validation": "M4",
+    # The M4 entry -- "tests/unit/test_schemas.py::test_issue_refund_without_
+    # idempotency_key_fails_validation" -- is gone, and it was right to go. The
+    # stub it named was skipped through M4, M5, M6 and M7, and its *name*
+    # stated the opposite of the behaviour: a refund without an
+    # ``idempotency_key`` validates, because the key is derived by the policy
+    # engine and added at dispatch, never supplied by the model. The file now
+    # holds two real tests for that, and neither is marked.
 }
 
 #: Bodies that cannot fail, as ``(shape, source)`` pairs parsed in memory. The sweep

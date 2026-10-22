@@ -70,6 +70,7 @@ import re
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATASETS = REPO_ROOT / "evals" / "datasets"
 
+
 #: The documents that talk about the eval corpus.
 def _documents() -> list[pathlib.Path]:
     return [
@@ -101,9 +102,7 @@ def _dataset_rows() -> list[dict[str, object]]:
 def _corpus_terminals() -> set[str]:
     """The terminal outcomes the corpus actually holds."""
     return {
-        str(row[_TERMINAL_KEY])
-        for row in _dataset_rows()
-        if row.get(_TERMINAL_KEY) is not None
+        str(row[_TERMINAL_KEY]) for row in _dataset_rows() if row.get(_TERMINAL_KEY) is not None
     }
 
 
@@ -114,7 +113,8 @@ def _corpus_terminals() -> set[str]:
 #: A noun that names the corpus. Deliberately does not include "case" -- the
 #: word is far too common to be evidence of anything.
 _CORPUS_NOUN = re.compile(
-    r"\b(eval|evals|evaluation|evaluations|safety set|benchmark|benchmarks|dataset|datasets|corpus)\b",
+    r"\b(eval|evals|evaluation|evaluations|safety set|benchmark|benchmarks"
+    r"|dataset|datasets|corpus)\b",
     re.IGNORECASE,
 )
 
@@ -145,7 +145,10 @@ _EXPECT = r"\b(expect\w*|expected|terminal|outcome|answer\w*|should|must)\b"
 _OUTCOME = r"\b(reject\w*|refus\w*|declin\w*|deni\w*|complet\w*|failed|failure)\b"
 
 #: An expectation and an outcome in one clause, in either order.
-_CLAIM = re.compile(f"(?:{_EXPECT}[^.;]{{0,90}}?{_OUTCOME})|(?:{_OUTCOME}[^.;]{{0,90}}?{_EXPECT})", re.IGNORECASE)
+_CLAIM = re.compile(
+    f"(?:{_EXPECT}[^.;]{{0,90}}?{_OUTCOME})|(?:{_OUTCOME}[^.;]{{0,90}}?{_EXPECT})",
+    re.IGNORECASE,
+)
 
 #: How a prose outcome maps onto the corpus's ``expected_terminal`` values.
 _CANONICAL: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -223,9 +226,11 @@ def test_the_corpus_holds_only_terminal_statuses_the_domain_defines() -> None:
     finished when it never did. And the subset is exactly ``{"completed"}``:
     there is no refused, failed or abandoned case anywhere in the corpus.
     """
-    from opspilot.domain.runs import ALLOWED_TRANSITIONS, RunStatus
+    from opspilot.domain.runs import ALLOWED_TRANSITIONS
 
-    terminal = {status.value for status, successors in ALLOWED_TRANSITIONS.items() if not successors}
+    terminal = {
+        status.value for status, successors in ALLOWED_TRANSITIONS.items() if not successors
+    }
     assert terminal == {"completed", "failed"}, (
         f"the domain's terminal statuses are {sorted(terminal)}, not completed/failed; "
         "this guard's outcome vocabulary needs the new one"
@@ -256,7 +261,8 @@ def test_the_documents_claim_only_outcomes_the_corpus_holds() -> None:
         if outcome in held:
             continue
         where = path.relative_to(REPO_ROOT).as_posix()
-        wrong.append(f"{where}: claims the corpus holds a '{outcome}' case -- {sentence.strip()[:160]}")
+        excerpt = " ".join(sentence.split())[:160]
+        wrong.append(f"{where}: claims the corpus holds a '{outcome}' case -- {excerpt}")
     assert not wrong, (
         "the documents claim outcomes the eval corpus does not hold "
         f"(the corpus holds {sorted(held)}):\n  "
@@ -281,8 +287,7 @@ def test_the_claim_detector_finds_a_claim_and_skips_a_denial() -> None:
         "and the demo scenario in the README shows a rejection path, not only an approval."
     )
     assert _claims_in(claim) == ["rejected"], (
-        "the detector no longer finds the claim it exists to catch: "
-        f"{_claims_in(claim)}"
+        f"the detector no longer finds the claim it exists to catch: {_claims_in(claim)}"
     )
 
     denial = (
@@ -290,7 +295,7 @@ def test_the_claim_detector_finds_a_claim_and_skips_a_denial() -> None:
         "the correct human answer is Reject."
     )
     assert _claims_in(denial) == [], (
-        "the detector treats a denial as a claim: " f"{_claims_in(denial)}"
+        f"the detector treats a denial as a claim: {_claims_in(denial)}"
     )
 
 

@@ -7,11 +7,18 @@ claim against. A cross-reference that points at nothing is a claim whose
 support cannot be found, and it is the cheapest kind of drift to fix and the
 easiest to miss.
 
-There is one such reference in the tree at the moment of writing:
-``docs/progress.md`` cites ``docs/mcp-contracts.md`` **§S2** three times, and
-that document has no §S2 — its second section is ``## 2. `billing` server``.
-The "S" is a leftover from a numbering the document no longer uses, and a
-reader following it finds nothing.
+There was one such reference in the tree at the moment of writing:
+``docs/progress.md`` cited ``docs/mcp-contracts.md`` **section S2** three
+times, and that document has no such section — its second section is
+``## 2. `billing` server``. The "S" was a leftover from a numbering the
+document no longer used, and a reader following it found nothing.
+
+**The same broken reference survived in the source.** A guard that reads only
+the documents cannot see a "section S2" written into a docstring in
+``src/opspilot/domain/tools.py`` or into a comment in ``tests/`` — and four
+copies of it did survive there, after the documents themselves had been
+cleaned. So the section rule is now checked against the **source trees** as
+well, and this file is scanned by it like any other.
 
 ## What this file asserts
 
@@ -20,7 +27,14 @@ reader following it finds nothing.
 2. **Every markdown link's anchor exists** in the file it points at, compared
    against the headings' slugs the way GitHub slugs them.
 3. **Every ``§`` reference that looks like a section id resolves** to a
-   section some document offers.
+   section some document offers -- in the documents **and in the source**.
+
+**The source is scanned too, and the range form is allowed.** A reference
+like ``§3-4`` names a *range* of sections rather than one key, and the
+repository uses it: ``docs/architecture.md §3-4`` is a real citation in
+``src/opspilot/ports/__init__.py``. The rule is that both endpoints resolve.
+A reference to a section id of ``S2`` names one key that does not exist
+anywhere, and that is the defect this file exists for.
 
 ## The rule about "looks like a section id"
 
@@ -75,6 +89,52 @@ def _documents() -> list[pathlib.Path]:
         REPO_ROOT / "desktop" / "README.md",
         REPO_ROOT / "web" / "README.md",
     ]
+
+
+def _source_files() -> list[pathlib.Path]:
+    """Every source file a section reference can live in.
+
+    The trees are named rather than globbed over the whole repository on
+    purpose: ``web/node_modules``, ``desktop/dist`` and ``desktop/stage`` are
+    not source, and scanning them would find the *copies* of the sources that
+    the build makes -- copies of a stale file, which is a different defect.
+    """
+    patterns = (
+        "src/**/*.py",
+        "tests/**/*.py",
+        "mcp_servers/**/*.py",
+        "scripts/*.py",
+        "scripts/*.mjs",
+        "web/src/**/*.ts",
+        "web/src/**/*.tsx",
+        "web/e2e/*.ts",
+        "web/scripts/*.mjs",
+        "desktop/src/**/*.ts",
+        "desktop/e2e/*.ts",
+        "desktop/scripts/*.mjs",
+    )
+    files: list[pathlib.Path] = []
+    for pattern in patterns:
+        files.extend(path for path in REPO_ROOT.glob(pattern) if path.is_file())
+    return sorted(set(files))
+
+
+#: A section *range*: ``3-4``, ``2.1-2.3``.
+_RANGE = re.compile(r"^(\d+(?:\.\d+)*)-(\d+(?:\.\d+)*)$")
+
+
+def _section_resolves(key: str, known: set[str]) -> bool:
+    """Whether a section reference names something a document offers.
+
+    A range resolves when *both* of its endpoints do; a single key resolves
+    when the key set has it.
+    """
+    if key in known:
+        return True
+    endpoints = _RANGE.match(key)
+    if endpoints is None:
+        return False
+    return endpoints.group(1) in known and endpoints.group(2) in known
 
 
 def _slug(title: str) -> str:
@@ -205,6 +265,44 @@ def test_every_section_reference_resolves() -> None:
     print(f"\nsection references checked: {checked}; read as prose: {prose}")
 
 
+def test_every_section_reference_in_the_source_resolves() -> None:
+    """A section reference in the source names a section that exists.
+
+    A docstring that cites a section id of ``S2`` in ``docs/mcp-contracts.md``
+    is making the same claim a document makes, and it is a claim a reader
+    follows to find out what the code is supposed to do. Four such references
+    survived in the source after the documents had been cleaned: one in
+    ``src/opspilot/domain/tools.py``, two in ``tests/evals/`` and one in
+    ``tests/unit/``.
+
+    The source is scanned with the same key set as the documents, so the two
+    halves of the tree are held to one rule.
+    """
+    known = _all_keys()
+    unresolved: list[str] = []
+    checked = 0
+    prose = 0
+    for path in _source_files():
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for match in _SECTION.finditer(line):
+                key = match.group(1).rstrip(".")
+                if not any(character.isdigit() for character in key) and "-" not in key:
+                    prose += 1
+                    continue
+                checked += 1
+                if not _section_resolves(key, known):
+                    unresolved.append(f"{relative}:{number}  §{key}")
+    assert not unresolved, (
+        "these source references name a section that does not exist:\n  "
+        + "\n  ".join(unresolved)
+        + "\n\nA reference that points at nothing is a claim whose support cannot "
+        "be found -- in a docstring it is a reader's only guide to what the "
+        "code is meant to do."
+    )
+    print(f"\nsource section references checked: {checked}; read as prose: {prose}")
+
+
 def test_the_guard_finds_the_references_it_is_meant_to_find() -> None:
     """The guard is not vacuously green.
 
@@ -229,4 +327,15 @@ def test_the_guard_finds_the_references_it_is_meant_to_find() -> None:
     assert links, "no markdown link was found; the pattern is broken"
     assert anchors, "no anchored link was found; the pattern is broken"
     assert sections, "no section reference was found; the pattern is broken"
-    print(f"\nlinks: {links}, anchored: {anchors}, section references: {sections}")
+
+    source_sections = 0
+    for path in _source_files():
+        source_sections += len(_SECTION.findall(path.read_text(encoding="utf-8")))
+    assert source_sections, (
+        "no section reference was found in the source; the source half of the "
+        "rule has stopped matching"
+    )
+    print(
+        f"\nlinks: {links}, anchored: {anchors}, section references: {sections}, "
+        f"source section references: {source_sections}"
+    )

@@ -36,9 +36,14 @@ no longer skipped.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketCategory, TicketClassification
+from opspilot.agents.schemas import (
+    AgentResponse,
+    ProposedAction,
+    TicketCategory,
+    TicketClassification,
+)
 from opspilot.domain.tools import InvalidArgumentsError, validate_tool_call
 
 #: A refund the model is allowed to propose: the three fields ``RefundArgs``
@@ -87,20 +92,24 @@ def test_a_refund_that_names_an_idempotency_key_is_refused() -> None:
     # The refusal names the offending field, so a trace can show what was wrong.
     fields = {str(error["loc"][-1]) for error in excinfo.value.error.errors()}
     assert "idempotency_key" in fields, (
-        f"the refusal named {sorted(fields)}, not the field the model wrongly "
-        "supplied"
+        f"the refusal named {sorted(fields)}, not the field the model wrongly supplied"
     )
 
 
 @pytest.mark.parametrize(
     ("model", "payload"),
     [
-        (TicketClassification, {"category": "duplicate_charge", "confidence": 0.9, "rationale": "x"}),
+        (
+            TicketClassification,
+            {"category": "duplicate_charge", "confidence": 0.9, "rationale": "x"},
+        ),
         (ProposedAction, {"tool_name": "billing.get_invoice", "arguments": {}}),
         (AgentResponse, {"body": "done"}),
     ],
 )
-def test_the_model_schemas_forbid_unknown_fields(model: type, payload: dict[str, object]) -> None:
+def test_the_model_schemas_forbid_unknown_fields(
+    model: type[BaseModel], payload: dict[str, object]
+) -> None:
     """Unknown fields are refused: the model may not smuggle anything extra in.
 
     The claim is ``agents/schemas.py``'s module docstring -- "unknown fields,
@@ -125,4 +134,4 @@ def test_a_bad_category_is_refused() -> None:
             rationale="x",
         )
 
-    assert TicketCategory.DUPLICATE_CHARGE == "duplicate_charge"
+    assert TicketCategory.DUPLICATE_CHARGE.value == "duplicate_charge"

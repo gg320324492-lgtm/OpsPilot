@@ -44,15 +44,18 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from mcp import ClientSession
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent
 
+from opspilot.adapters.retrieval.embeddings import Embedder
 from opspilot.adapters.retrieval.search import retrieve
 from opspilot.adapters.tools.mcp_gateway import MCPToolGateway
 from opspilot.adapters.tools.mcp_stdio import StdioServerProcess, _Call
+from opspilot.ports.vector_store import VectorStore
 
 _TOOL_NAME = "crm.get_customer"
 _ARGUMENTS = {"customer_id": "CUS-1001"}
@@ -233,9 +236,13 @@ def test_the_shared_search_takes_top_k_by_keyword() -> None:
         "adapter's docstring has to be revisited when that happens"
     )
 
-    partial = functools.partial(retrieve, embedder=None, store=None)
+    partial = functools.partial(
+        retrieve,
+        embedder=cast("Embedder", None),
+        store=cast("VectorStore", None),
+    )
     with pytest.raises(TypeError, match="positional argument"):
-        partial("a query", 5)
+        partial("a query", 5)  # type: ignore[call-arg, arg-type, unused-coroutine]
 
 
 # ---------------------------------------------------------------------------
@@ -274,12 +281,10 @@ async def test_a_call_queued_before_the_stop_sentinel_is_answered_not_failed() -
     handle = StdioServerProcess("crm", "python -m mcp_servers.crm.server")
     session = _FakeSession()
     # The owner task, with the pipe replaced by the double above.
-    handle._task = asyncio.create_task(handle._pump(session))
+    handle._task = asyncio.create_task(handle._pump(cast("ClientSession", session)))
 
     future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
-    await handle._queue.put(
-        _Call(name=_TOOL_NAME, arguments=dict(_ARGUMENTS), future=future)
-    )
+    await handle._queue.put(_Call(name=_TOOL_NAME, arguments=dict(_ARGUMENTS), future=future))
 
     await handle.aclose()
 

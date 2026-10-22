@@ -34,7 +34,7 @@ to leniency.
 gone.** Gate 1 (``domain.tools``) and the servers disagreed until M6c:
 ``TransactionListArgs`` declared ``billing.list_transactions(account_id=...)``
 while the billing server implements ``list_transactions(invoice_id=...)`` and
-``docs/mcp-contracts.md`` §S2 documents the ``invoice_id`` form. No argument set
+``docs/mcp-contracts.md`` §2 documents the ``invoice_id`` form. No argument set
 satisfied both, so the fixtures were written against the *server* and the
 disagreement was pinned in :data:`KNOWN_GATE1_DIVERGENCES` -- which is now empty,
 because ``TransactionListArgs`` matches the contract.
@@ -96,7 +96,7 @@ _RECORD_EVIDENCE: dict[str, tuple[str, ...]] = {
 }
 
 # Tools where gate 1 and the MCP server declare different arguments, mapped to
-# the server's fields. ``docs/mcp-contracts.md`` §S2 and the server agree on
+# the server's fields. ``docs/mcp-contracts.md`` §2 and the server agree on
 # ``invoice_id``; ``domain.tools.TransactionListArgs`` says ``account_id``. No
 # argument set satisfies both, so the fixtures target the server and this entry
 # keeps the disagreement visible instead of leaving the layer that is wrong
