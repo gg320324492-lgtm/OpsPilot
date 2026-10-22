@@ -1,8 +1,19 @@
 """``TraceRecorder``: writes ``AgentStep`` and ``AuditEvent`` rows.
 
-Responsibility: the single place that emits trace rows. Every model call, tool
-call, retrieval, state change and approval writes through here, so the set of
+Responsibility: the place that emits the trace rows for everything the *runtime*
+does -- every model call, tool call, retrieval and approval -- so the set of
 recorded events is one reviewable list rather than scattered call sites.
+
+**One row is not written here, and the omission is deliberate.** The
+``state_change`` step is written by the run store -- ``SqlRunStore.set_status``,
+in the *same transaction* as the status update it belongs to, so a reader can
+never see a status move without its step -- and by the interrupted-run sweep.
+:meth:`TraceRecorder.record_state_change` exists for a caller that moved a
+status some other way, and **no production path does that**: it has no caller
+in ``src/``. That method's own docstring says so, and this paragraph used to
+contradict it by listing "state change" among the things that write through
+here. ``tests/integration/test_state_change_shape.py`` is what keeps the
+writers agreeing on the shape.
 
 Layer: cross-cutting (``tracing``). Writes through the persistence adapter, which
 is the one thing this package is allowed to reach below the ports: the audit
@@ -25,8 +36,10 @@ by design (``STORE_FULL_PROMPTS``)". That was not true of the code it described:
 no prompt was ever written to any trace row. Every ``record_step`` payload in
 ``agents/runtime.py`` is structured metadata -- ``{provider, model}``,
 ``{category, confidence}``, ``{count, document_slugs}``, ``{tool_name, done}``,
-``{from_status, to_status}`` -- and the single verbatim model string in the whole
-trace is the ``body`` of the ``response`` step.
+``{escalated, chars, body}`` -- and the single verbatim model string in the whole
+trace is the ``body`` of the ``response`` step. The ``state_change`` payload is
+not in that list because the runtime does not write it: the run store does, and
+the shape it writes is ``{from_status, to_status, at}``.
 
 So the honest description is what the code did: the model *response* is stored
 in full, and the model *prompt* is not stored at all. :data:`_FULL_TEXT_KEYS` is
@@ -232,12 +245,18 @@ class TraceRecorder:
 
         **Not** subject to ``STORE_FULL_PROMPTS``, and that is a decision rather
         than an oversight. Every audit payload the runtime writes is structural:
-        ``{provider, model, latency_ms, input_tokens, ...}``,
-        ``{tool_call_id, tool_name, permission, gate, reason}``,
-        ``{from_status, to_status}``, ``{failure_reason}``. None of them carries
-        model prompt or response text -- ``reason`` and ``risk_explanation`` come
-        from ``domain/policies.py``, which is static code by construction
-        (``docs/tool-permissions.md`` §2.1), not from anything the model said.
+        ``{provider, model, latency_ms, input_tokens, ...}`` for a model call,
+        ``{tool_call_id, tool_name, gate, reason}`` for a gate refusal and
+        ``{tool_call_id, tool_name, permission, ok, latency_ms, error}`` for a
+        tool that ran, ``{tool_call_id, tool_name, risk_explanation, arguments}``
+        for an approval, ``{min_score}`` for an abstention and
+        ``{failure_reason}`` for a failed run. There is no
+        ``{from_status, to_status}`` audit payload -- a state change is a
+        *step*, and the run store writes it (see the module docstring). None of
+        these carries model prompt or response text -- ``reason`` and
+        ``risk_explanation`` come from ``domain/policies.py``, which is static
+        code by construction (``docs/tool-permissions.md`` §2.1), not from
+        anything the model said.
 
         The one free-text field here is ``approval_requested``'s ``arguments``,
         and withholding it would be actively harmful rather than private: that is

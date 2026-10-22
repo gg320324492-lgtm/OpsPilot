@@ -66,11 +66,19 @@ the code lost (``docs/mcp-sdk-notes.md`` §5), and the agent could then not tell
 ``invalid_state`` from a crash, which is exactly the distinction the
 "already refunded -> do not refund again" scenario depends on.
 
-The one exception is a *protocol-layer* rejection, such as a call omitting the
-schema-required ``idempotency_key``: the SDK raises ``ToolError`` before our code
-runs (gate 1 enforced by the transport). That is caught here and returned as a
-``validation_error`` result, so the caller still sees a result rather than a
-raise.
+The gateway's own codes -- ``unknown_tool``, ``server_unavailable``,
+``mcp_unavailable``, ``tool_error`` -- are the ones it *produces* rather than
+translates, and they are named here so a reader has the whole vocabulary.
+
+The one refusal the transport *raises* rather than returns is a *protocol-layer*
+rejection, such as a call omitting the schema-required ``idempotency_key``: the
+SDK raises ``ToolError`` before our code runs (gate 1 enforced by the
+transport). That is caught here and returned as a ``validation_error`` result, so
+the caller still sees a result rather than a raise. **That is the in-process
+path only.** Over stdio the same mistake is not a raise at all -- it comes back
+as an ordinary error result, under the code ``tool_error`` rather than
+``validation_error``. The two transports disagree about that one code, and
+:func:`_error_text` is where the difference is spelled out.
 """
 
 from __future__ import annotations
@@ -429,15 +437,26 @@ class MCPToolGateway:
             # the layer's contract is "errors are results", and a leaked
             # exception here would violate it.
             #
-            # It is *not* wide enough to hide a bug in this file. ``Exception``
-            # is every ordinary fault -- a transport error, a closed pipe, a
-            # malformed reply -- and not the programming errors a broad catch
-            # normally swallows: ``AttributeError``, ``TypeError``,
-            # ``NameError`` and ``KeyError`` here would mean a mistake in *this*
-            # module, and this file's own tests would have to be lying for one to
-            # reach a caller. Those are left to propagate rather than reported as
-            # a tool the user asked for having failed; a red test is a better
-            # outcome than a silently wrong tool result.
+            # **The catch is wide, and that is the price of the contract.** It
+            # cannot tell a transport fault from a programming error, so an
+            # ``AttributeError``, a ``TypeError``, a ``NameError`` or a
+            # ``KeyError`` raised inside *this* module lands here too, and is
+            # reported as a failed tool call rather than propagating. An earlier
+            # version of this comment claimed the opposite -- that those errors
+            # "are left to propagate rather than reported as a tool the user
+            # asked for having failed" -- and the code has never done that: every
+            # ``Exception`` subclass reaches this arm.
+            #
+            # Narrowing it to honour that claim would mean re-raising the
+            # programming errors, and it would break the contract this layer
+            # exists to keep: a *server* that raised a ``TypeError`` of its own
+            # would then escape ``call_tool`` into a runtime that has no
+            # handler for it, which is the "opaque transport error" the
+            # docstring above describes. So the wide catch stays, and the cost
+            # is honest and worth stating: a bug in this file is reported to the
+            # caller as ``mcp_unavailable`` and has to be found in the logs.
+            # ``tests/unit/test_gateway_claims_match_the_code.py`` pins the
+            # behaviour, so the claim and the code cannot drift apart again.
             return ToolResult(
                 tool_name=name,
                 ok=False,
@@ -571,13 +590,28 @@ def _error_text(result: CallToolResult) -> str:
     and :meth:`MCPToolGateway.call_tool` maps it to ``validation_error``. Over
     stdio the same rejection is a normal ``CallToolResult`` with ``is_error`` set
     and no ``structured_content``, because it happened in the child's transport
-    rather than in ours. Reporting the second as a bare ``tool_error`` would mean
-    the same mistake -- calling ``billing.issue_refund`` with no
-    ``idempotency_key`` -- got two different codes depending on a deployment's
-    transport, which is precisely the kind of drift this layer exists to prevent.
+    rather than in ours.
 
-    The message is carried through rather than discarded so the failure is still
-    diagnosable; it is what names the offending argument.
+    **The two codes are not the same, and the difference is a real and visible
+    one.** The same mistake -- calling ``billing.issue_refund`` with no
+    ``idempotency_key`` -- is recorded as ``validation_error`` by an in-process
+    deployment and as ``tool_error`` by a stdio one, because
+    :func:`_to_tool_result` falls back to ``tool_error`` for an error result
+    with no code of its own. An earlier version of this docstring said the
+    opposite: that reporting the second as a bare ``tool_error`` "would mean
+    the same mistake got two different codes depending on a deployment's
+    transport, which is precisely the kind of drift this layer exists to
+    prevent". The code has always done the thing that paragraph warned
+    against, and the paragraph is what is wrong.
+
+    Making the codes agree is a **product decision, not a refactor**: it would
+    change what ``docs/agent-state-machine.md`` records for a stdio
+    deployment, and ``tool_error`` is a token that document gives a meaning.
+    It is recorded here rather than decided here.
+
+    The message is carried through rather than discarded, and it is the one
+    place the two transports agree: it is what names the offending argument, so
+    the failure is diagnosable whichever transport produced it.
     """
     for block in result.content:
         text = getattr(block, "text", None)

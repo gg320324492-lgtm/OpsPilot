@@ -377,10 +377,18 @@ class StdioServerProcess:
         task group must be exited by the task that entered it. That is the same
         reason the owner task exists at all.
 
-        A call that was already queued is failed rather than abandoned: the
-        sentinel is a stop *order*, not a promise to answer what is behind it, so
-        anything still waiting is released with the "shut down" fault instead of
-        waiting on a queue that will never be read again.
+        A call that was **already queued** when the sentinel went in is not
+        abandoned: the queue is FIFO, so the sentinel is appended *behind* it
+        and the owner task dispatches that call first -- the caller gets the
+        server's real answer, not a fault. What the sentinel does stop is
+        everything queued *after* it: ``_drain_queue`` releases those with the
+        "shut down" fault, so a caller waiting on one of them ends in an error
+        rather than on a queue nobody will read again.
+
+        (An earlier version of this paragraph said the opposite -- that a
+        queued call "is failed rather than abandoned" -- and the FIFO order is
+        what makes that untrue: the queued call is ahead of the sentinel, so it
+        is answered, not failed.)
         """
         task = self._task
         if task is None or task.done():

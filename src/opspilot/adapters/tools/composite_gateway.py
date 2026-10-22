@@ -69,11 +69,18 @@ class CompositeToolGateway:
 
     Args:
         internal: The gateway for ``server="internal"`` tools -- in practice a
-            :class:`KnowledgeTool`. It is asked first, and it answers for nothing
-            but the tools it implements; every other name goes to ``mcp``.
+            :class:`KnowledgeTool`. It is asked **only** about the tools the
+            registry gives it: the composite reads ``TOOL_REGISTRY[name].server``
+            and dispatches to exactly one half, so an external tool is never
+            offered here, and neither is a name the registry does not know.
         mcp: The MCP gateway, for the tools whose ``server`` names one of the
             three external servers. It also receives unregistered names, so its
             ``unknown_tool`` refusal still happens where it always did.
+
+    There is no "ask the first half, and fall back to the second" here. The
+    registry decides which half owns a name, and only that half is asked --
+    which is what ``tests/integration/test_composite_gateway.py`` pins, by
+    recording what each half was asked.
     """
 
     def __init__(self, *, internal: ToolGateway, mcp: ToolGateway) -> None:

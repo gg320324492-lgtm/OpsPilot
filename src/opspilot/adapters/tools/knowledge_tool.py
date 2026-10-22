@@ -74,9 +74,18 @@ _NOT_CONFIGURED: Final[str] = "not_configured"
 _RETRIEVAL_FAILED: Final[str] = "retrieval_failed"
 
 # The retriever's shape: given a query and a bounded ``top_k``, return the shared
-# retrieval outcome. ``functools.partial`` of ``retrieval.search.retrieve`` with
-# its ``embedder`` and ``store`` bound satisfies this. Structural rather than
-# imported from anywhere, so binding the backend stays the deployment's job.
+# retrieval outcome. Structural rather than imported from anywhere, so binding
+# the backend stays the deployment's job.
+#
+# **A ``functools.partial`` of ``retrieval.search.retrieve`` does *not* satisfy
+# this**, and an earlier version of this comment said that it did.
+# ``retrieve`` takes ``embedder``, ``store``, ``top_k`` and ``min_score`` as
+# *keyword-only* arguments, so a partial with the first two bound still refuses
+# a second positional one: ``partial(query, top_k)`` raises ``TypeError:
+# retrieve() takes 1 positional argument but 2 positional arguments (and 2
+# keyword-only arguments) were given``, and every call through it would be
+# reported as ``retrieval_failed``. What satisfies the shape is a closure that
+# forwards ``top_k`` by keyword, which is what ``adapters/wiring.py`` builds.
 type Retriever = Callable[[str, int], Awaitable[RetrievalOutcome]]
 
 # The default ``top_k``. It matches ``KnowledgeSearchArgs``'s default (5) and its
@@ -90,12 +99,19 @@ class KnowledgeTool:
     """Dispatches ``knowledge.search`` in-process, without an MCP server.
 
     Args:
-        retriever: The shared search -- a ``functools.partial`` of
+        retriever: The shared search, taking ``(query, top_k)`` and returning a
+            ``RetrievalOutcome`` -- a closure over
             ``opspilot.adapters.retrieval.search.retrieve`` with its ``embedder``
-            and ``store`` bound, taking ``(query, top_k)`` and returning a
-            ``RetrievalOutcome``. When ``None`` the tool still exists and is
-            callable and every call returns a ``not_configured`` refusal: it does
-            not raise, and it does not pretend an empty index found nothing.
+            and ``store`` bound and ``top_k`` forwarded **by keyword** (a
+            ``functools.partial`` will not do: ``retrieve``'s arguments are
+            keyword-only, so a partial cannot be called with a positional
+            ``top_k`` at all). When ``None`` the tool still exists and is
+            callable, and a call for ``knowledge.search`` returns a
+            ``not_configured`` refusal: it does not raise, and it does not
+            pretend an empty index found nothing. The other two refusals are
+            unaffected by the missing backend -- a call for a different tool
+            name is still ``unknown_tool``, and a call with a blank query is
+            still ``validation_error``.
 
     It implements the ``ToolGateway`` port, so it is a drop-in for the run
     runtime's ``gateway`` argument; ``list_tools`` returns the static registry
