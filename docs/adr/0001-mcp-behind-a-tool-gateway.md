@@ -28,11 +28,16 @@ Define a port and hide MCP behind it.
 # src/opspilot/ports/tool_gateway.py
 class ToolGateway(Protocol):
     async def list_tools(self) -> list[ToolSpec]: ...
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult: ...
+    async def call_tool(self, name: str, arguments: dict[str, object]) -> ToolResult: ...
 ```
 
-`MCPToolGateway` is the Phase 1 adapter. `agents/` and `domain/` import the
-Protocol only; nothing above the adapter imports the MCP SDK.
+`MCPToolGateway` is the MCP half of the Phase 1 adapter. What is actually
+assembled is a `CompositeToolGateway` over two halves — the in-process
+`KnowledgeTool` for the registry's `internal` server, and `MCPToolGateway` for
+`crm.*`, `billing.*` and `issues.*` (see `docs/architecture.md` §8) — and
+`knowledge.search` therefore never crosses a process boundary. `agents/` and
+`domain/` import the Protocol only; nothing above the adapter imports the MCP
+SDK.
 
 ## Consequences
 

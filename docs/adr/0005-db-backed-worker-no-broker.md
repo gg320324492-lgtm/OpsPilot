@@ -56,14 +56,16 @@ it back inside the claim predicate, and the worker's next poll picks it up.
 **Good.** No second datastore. The queue's state is the run's state, so there is
 no possibility of "the job is in Redis but the run says completed" — a class of
 bug that costs real debugging time. `SKIP LOCKED` lets two claims that overlap in
-time take different rows without blocking. **Corrected:** this ADR said that made
-"scaling out is adding replicas" true. It does not, as implemented — the lock
-lasts only for the claim's own `SELECT`, and the claim does not change the run's
-status, so two workers whose polls do not overlap both receive the same run
-(measured: 30/30 concurrent pairs). The clause is tested
-(`tests/integration/test_worker_claim_postgres.py`) and is real; the end-to-end
-guarantee is not, and `docs/limitations.md` §2 records the boundary. Run one
-worker per database until a claim that holds its row is written. The whole
+time take different rows without blocking. **Corrected (before the lease):**
+this ADR said that made "scaling out is adding replicas" true, and it did not
+hold — the lock lasted only for the claim's own `SELECT`, and the claim did not
+change the run's status, so two workers whose polls did not overlap both
+received the same run (measured: 30/30 concurrent pairs). The clause is tested
+(`tests/integration/test_worker_claim_postgres.py`) and is real. The advice
+that followed from the defect — "run one worker per database until a claim that
+holds its row is written" — was **true then and is no longer a requirement**:
+the claim lease, below, holds the row, and `docs/limitations.md` §2 carries the
+measurement and the boundary that remains. The whole
 mechanism is one SQL statement that a reviewer can read in five seconds, and it
 works without any process running at all — a parked approval survives the worker
 being
@@ -104,9 +106,13 @@ accumulated onto this one.
 clause is not exercised locally (see ADR-0004). The worker's claim code is
 dialect-aware and the test that covers the clause is Postgres-only
 (`tests/integration/test_worker_claim_postgres.py`, run by the `verify` CI job).
-It asserts the clause's properties — overlapping claims take different rows —
-and not the end-to-end two-worker guarantee, which the implemented claim does not
-provide (see the correction above).
+It asserts the clause's properties — overlapping claims take different rows.
+The end-to-end two-worker promise is now carried by the **lease** rather than by
+the clause: a second worker whose poll does not overlap cannot receive a run
+whose lease is live. What the promise still does not cover is a lease that has
+*lapsed* — then the run is claimable again, and two workers can drive it. That
+boundary is stated and tested (`docs/limitations.md` §2 and §8), and it is the
+half the correction above was about before the lease existed.
 
 ## Alternatives rejected
 

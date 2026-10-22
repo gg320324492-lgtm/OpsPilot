@@ -146,11 +146,16 @@ version of a sentence that used to claim a test existed:
    developer can see what was not checked, rather than reading a clean run as
    full coverage — and in CI, where those tests do run, the `verify` job fails on
    a skip instead of accepting one.
-3. *A migration is valid in SQLite but not Postgres.* Migrations are not run
-   against SQLite at all — schema for tests is created via
-   `Base.metadata.create_all`. The `verify` CI job runs `alembic upgrade head`
-   against a real pgvector container on every push, so a broken migration cannot
-   merge.
+3. *A migration is valid in SQLite but not Postgres.* Most tests build their
+   schema via `Base.metadata.create_all` and never run a migration — but four
+   integration tests do migrate a real SQLite database with
+   `alembic upgrade head`, precisely so the migrated schema is what they
+   exercise: `tests/integration/test_api_readiness.py`,
+   `tests/integration/test_composite_gateway.py`,
+   `tests/integration/test_failed_tool_call_visibility.py` and
+   `tests/integration/test_worker_entry_point.py`. The `verify` CI job runs
+   `alembic upgrade head` against a real pgvector container on every push, so a
+   broken migration cannot merge.
 
 **Documentation consequence.** The README's "how to run tests" section says both
 things: SQLite by default, and which tests that skips.

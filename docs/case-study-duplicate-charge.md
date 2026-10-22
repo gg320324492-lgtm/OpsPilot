@@ -23,10 +23,15 @@ servers. All of it is code in this repository and it ran.
 **What is simulated, stated plainly:**
 
 - **The CRM, Billing and Issues systems are in-repo mocks.** They are real MCP
-  servers — the official Python SDK, real stdio framing, the real `ToolGateway`
-  contract, all nine tools specified in
+  servers — the official Python SDK, the real MCP protocol, the real
+  `ToolGateway` contract, all nine tools specified in
   [`docs/mcp-contracts.md`](mcp-contracts.md) — with deterministic seed data
-  standing in for Salesforce, Stripe and Jira. **There is no third-party billing
+  standing in for Salesforce, Stripe and Jira. This run came up through
+  `docker compose up`, which leaves `MCP_TRANSPORT` at its default,
+  `inprocess`: the servers are built inside the worker process, so the stdio
+  pipe itself is the one thing this run did not exercise (that is
+  `MCP_TRANSPORT=stdio`, and `docs/mcp-contracts.md` §7 covers it).
+  **There is no third-party billing
   system behind `billing.issue_refund`.** No card is charged, no money moves, and
   nothing here has touched a payment network.
 - **The model's proposal in this particular run came from the deterministic
@@ -101,7 +106,9 @@ demo.
 > frequency and hashed with a fixed-key `blake2b`. It has no synonymy. A question
 > worded differently from its answer will not match
 > ([limitations.md](limitations.md) §3). That is why the evaluation's retrieval
-> `recall@5` is 0.700 and not higher.
+> `recall@5` is 0.700 and not higher — 0.700 being the 2026-10-11 run's figure,
+> the one this repository's baseline quotes; the corpus has been revised since
+> that run, and the same local embedder measures 13/20 (0.650) over it today.
 
 ## 3. Investigation — three reads
 
@@ -336,8 +343,8 @@ cp .env.example .env          # add OPSPILOT_OPERATOR_TOKEN; no model key needed
 docker compose up
 ```
 
-Then, in the dashboard: **Knowledge → Reindex**, **Tickets → Fill with the
-README → Submit**, **Approvals → Approve**.
+Then, in the dashboard: **Knowledge → Reindex knowledge/**, **Tickets → Fill
+with the README's ticket → Submit**, **Approvals → Approve**.
 
 Or run the same walkthrough as a test, which asserts every step above including
 the billing server's final answer:
@@ -346,7 +353,7 @@ the billing server's final answer:
 cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
 ```
 
-Or run just the five end-to-end scenarios in Python:
+Or run just the six end-to-end scenarios in Python:
 
 ```bash
 pytest tests/agent/test_readme_scenarios.py

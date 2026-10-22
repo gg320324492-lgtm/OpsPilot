@@ -34,7 +34,9 @@ always embedded in a validated structure.
 
 ## 2. `POST /api/tickets`
 
-The only write that starts work.
+The only write that starts work from a *new ticket*. (`POST /api/runs` also
+enqueues a run — for an existing ticket — and approving an approval hands a
+parked run back to the worker; §9 has all three.)
 
 ```jsonc
 // request
@@ -227,8 +229,8 @@ The payload the dashboard's run-detail screen renders.
 
   "customer_reply": null,
 
-  // The subset of tool_calls with status "failed" -- empty above because the
-  // run has not executed anything yet. See the field note below.
+  // The subset of tool_calls with status "failed" -- empty above because none
+  // of them failed (the read above did execute). See the field note below.
   "failed_tool_calls": []
 }
 ```
@@ -468,10 +470,13 @@ run can write are `model_called`, `tool_executed`, `tool_failed`,
 
 - `tool_failed` carries `{tool_call_id, tool_name, permission, ok, latency_ms,
   error}`, where `error` is the code the tool server answered with
-  (`invalid_state`, `not_found`, `mcp_unavailable`). It is a **separate event
-  type** from `tool_executed`, not an `ok: false` payload inside it, because the
-  event type is what a ledger reader queries on and a name that asserts the
-  opposite of its own contents is worse than no record.
+  (`invalid_state`, `not_found`, `amount_exceeds_transaction`,
+  `validation_error`). It is a **separate event type** from `tool_executed`, not
+  an `ok: false` payload inside it, because the event type is what a ledger
+  reader queries on and a name that asserts the opposite of its own contents is
+  worse than no record. `mcp_unavailable` is **not** one of them: that is the
+  *absence* of an answer, the runtime fails the run instead, and the ledger
+  records it as a `run_failed` event.
 - `model_called` carries the provider, model, latency and token counts, and its
   token fields are `null` when the provider reports no usage — an unknown call
   contributes nothing rather than a fabricated zero.
@@ -627,11 +632,17 @@ One shape, everywhere:
 {
   "error": {
     "code": "approval_already_decided",
-    "message": "Approval b7e2… was already approved by operator at 2026-10-05T10:44:32Z.",
+    "message": "Approval b7e2… was already approved by operator at 2026-10-05T10:44:32+00:00.",
     "details": { "approval_id": "b7e2…", "status": "approved" }
   }
 }
 ```
+
+(The timestamp inside the `message` is the row's own `isoformat()`, so it
+carries `+00:00` on PostgreSQL and no offset at all on the SQLite path, where
+the column comes back naive. The `decided_at` *field* is a Pydantic `datetime`
+and serialises as `…Z`. The two renderings differ, and the `message` is prose
+— a client should branch on `code`, never parse it.)
 
 The HTTP status is carried by `code`:
 
@@ -642,22 +653,26 @@ The HTTP status is carried by `code`:
 | 404 | `ticket_not_found`, `run_not_found`, `approval_not_found` — the route's own "no such entity"; `not_found` — the framework's, for a path that does not exist |
 | 405 | `method_not_allowed` — a known path, the wrong method |
 | 409 | `approval_already_decided`, `approval_expired`, `run_not_awaiting_approval`, `run_already_completed`, `ticket_exists`, `illegal_transition`, `approval_arguments_changed`, `policy_denied` |
-| 422 | `schema_invalid` — the request body failed its schema (Pydantic); `unknown_tool` — the gate refused a tool that is not registered |
+| 422 | `schema_invalid` — the request body failed its schema (Pydantic); `unknown_tool` — a caller raised `UnknownTool` outright. **No HTTP path in Phase 1 raises it**: gate 2 *records* an unregistered name as a rejected tool call and the run carries on, so this code exists for a caller that rejects the proposal itself |
 | 500 | `internal_error` (message is generic; the detail is in the log, keyed by a `trace_id` returned in `details`) |
 | 503 | *(no code)* — `/ready` answers `{"status":"not_ready","checks":{…}}`, which is not this envelope (§7) |
 
 `code` is a stable machine identifier. Clients branch on it; they never parse
 `message`.
 
-**Three of the codes are raised by the API's exception handlers rather than by
+**Four of the codes are raised by the API's exception handlers rather than by
 a route**, and a reader looking only at the routers would not find them:
 `illegal_transition` (a run asked to move between two states the state machine
 forbids), `approval_arguments_changed` (the tool call's arguments changed under
 an approval that had already been shown to a human) and `policy_denied` (the
-policy engine refused a proposal) are all `409`. `unauthorized`, `not_found`
+policy engine refused a proposal) are all `409`, and `unknown_tool` is the
+`422` one — no route raises it, because gate 2 records an unregistered name
+rather than failing the call. `unauthorized`, `not_found`
 and `method_not_allowed` are the framework's own statuses, re-enveloped by the
-same handler. A client that branches on `code` must therefore treat the whole
-table as reachable, not just the routes it can see.
+same handler; `not_found` is also raised as a domain exception by the approvals
+router, so it is reachable from a route as well. A client that branches on
+`code` must therefore treat the whole table as reachable, not just the routes
+it can see.
 
 **Two more codes exist as fallbacks.** `_code_for_status` maps a bare
 `HTTPException`'s status onto a code, and its last two branches are
@@ -671,11 +686,12 @@ that means "your body did not validate" is `schema_invalid` and the API raises
 that itself rather than letting a bare `HTTPException` reach the fallback.)
 
 **No client ever sees a `not_ready` code.** An earlier revision of this table
-listed one for the 503. The code still sits in `src/opspilot/api/errors.py`'s
-code-to-status table — which is a table of codes the API *could* send — but
-nothing sends it: `/ready` reports an unready database with a `status`/`checks`
-body (§7), and it is the only route that answers 503 at all. A client must
-therefore read `/ready`'s body rather than branch on a code it will never see.
+listed one for the 503, and it has since been **removed** from
+`src/opspilot/api/errors.py`'s code-to-status table: `not_ready` was never an
+error `code` at all, only the `status` value in `/ready`'s body. `/ready`
+reports an unready database with a `status`/`checks` body (§7), and it is the
+only route that answers 503 at all. A client must therefore read `/ready`'s
+body rather than branch on a code it will never see.
 
 **`approval_expired` is not `approval_already_decided`.** An approval that
 somebody else already decided says "already decided", and names the actor and
@@ -771,8 +787,10 @@ browser. Anything else that can reach port 8000 (`curl`, a server, another
 container, a compromised process) is entirely unaffected by it, and a token sent
 from a non-allowed origin authenticates exactly as it does from an allowed one.
 The bearer token above remains the only thing that authorises a request. Do not
-read a correct CORS configuration as evidence that the API is protected; it
-means the dashboard works.
+read a correct CORS configuration as evidence that the API is protected; as
+shipped it does not even protect the dashboard, because the dashboard does not
+need it: every read it makes happens on the server, and every write it makes
+goes through a same-origin Next.js route handler.
 
 Two consequences worth stating plainly, because both are easy to get backwards:
 

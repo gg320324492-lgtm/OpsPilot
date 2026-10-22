@@ -35,12 +35,12 @@ influence:
                              ▼
         ┌────────────────────────────────────────────┐
         │ 2. REGISTRY LOOKUP                         │  The tool name must be a
-        │    ToolRegistry                            │  registered tool. The
+        │    TOOL_REGISTRY (domain/tools.py)         │  registered tool. The
         └────────────────────┬───────────────────────┘  model cannot invent one.
                              ▼
         ┌────────────────────────────────────────────┐
         │ 3. PERMISSION LOOKUP                       │  READ / SAFE_WRITE /
-        │    permissions.py                          │  HIGH_RISK_WRITE, from
+        │    domain/tools.py (the registry)          │  HIGH_RISK_WRITE, from
         └────────────────────┬───────────────────────┘  static code, not config.
                              ▼
         ┌────────────────────────────────────────────┐
@@ -71,6 +71,19 @@ The invariant, stated as the thing CI enforces:
 
 This holds regardless of what any prompt, retrieved document, or model output
 says. It is checked by a query, not by a unit test of a helper function.
+
+**One branch is the exception, and it is a replay rather than an effect.** Gate
+4's idempotent-replay branch returns before gate 5, so the row it writes is
+`executed` with no approval row beside it, and the invariant does not hold for
+that row. Nothing new executed: the branch reports a side effect that already
+happened for this idempotency key, so there is nothing new for a human to
+approve. On the production path the branch is not the one taken — the worker
+injects the executed-row lookup, so a replay finds the row that holds the key
+and the runtime records the duplicate as `rejected` instead — but
+`run_step`/`run_loop` expose the lookup publicly, so the invariant holds on
+every production path and not on every reachable one.
+`agents/runtime.py`'s module docstring says this, and
+`tests/security/test_approval_bypass.py` drives the other branch.
 
 ## 2. Retrieved text is data, not instruction
 
@@ -108,19 +121,22 @@ nothing above it.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ apps/api        FastAPI: HTTP surface, auth, serialization    │
-│ apps/worker     process loop: claim runs, drive the runtime   │
-│ apps/web        Next.js dashboard                             │
+│ api/            FastAPI: HTTP surface, auth, serialization    │
+│                 (`opspilot-api` → src/opspilot/api/__main__.py)│
+│ worker/         process loop: claim runs, drive the runtime   │
+│                 (`opspilot-worker` → src/opspilot/worker/__main__.py)
+│ web/            Next.js dashboard                             │
 └──────────────────────────┬────────────────────────────────────┘
                            ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ agents/         runtime, state machine, prompt assembly,      │
-│                 structured output schemas                     │
+│ agents/         runtime, prompt assembly, structured output   │
+│                 schemas, the run context                      │
 └──────────────────────────┬────────────────────────────────────┘
                            ▼
 ┌───────────────────────────────────────────────────────────────┐
 │ domain/         pure business logic. No I/O, no ORM, no HTTP. │
-│                 runs, tools, approvals, policies, permissions │
+│                 runs (the state machine), tools (the registry │
+│                 and the permissions), approvals, policies     │
 └──────────────────────────┬────────────────────────────────────┘
                            ▼
 ┌───────────────────────────────────────────────────────────────┐
@@ -215,26 +231,27 @@ Consequences of this choice, stated honestly:
 
 - **The queue is the run table.** No Redis, no Celery, no RabbitMQ, no Temporal.
   `FOR UPDATE SKIP LOCKED` lets two claims that overlap in time take different
-  rows without blocking — the only queueing primitive Phase 1 needs. *Corrected:*
-  it does **not** guarantee two workers on one database never drive the same run.
-  The claim releases its lock with its own `SELECT` and does not change the run's
-  status, so two workers whose polls do not overlap both receive the same
-  `RECEIVED` run (measured: 30/30 concurrent pairs). The clause is tested against
-  a real PostgreSQL (`tests/integration/test_worker_claim_postgres.py`); the
-  end-to-end guarantee is not, and `docs/limitations.md` §2 records it. Run one
-  worker per database until a claim that holds its row is written.
+  rows without blocking — the only queueing primitive Phase 1 needs. *Corrected
+  (before the lease):* it did **not** guarantee two workers on one database
+  never drive the same run. The claim released its lock with its own `SELECT`
+  and did not change the run's status, so two workers whose polls did not
+  overlap both received the same `RECEIVED` run (measured: 30/30 concurrent
+  pairs). The clause is tested against a real PostgreSQL
+  (`tests/integration/test_worker_claim_postgres.py`).
 
   A claim **lease** (`claimed_until`/`claimed_by`, `b9bbd5c`) now holds the row
-  for a worker that is driving it, which closes the duplicate above. Its own
-  boundary is the one an operator meets first: the lease does not change the
-  run's status and the boot sweep skips `RECEIVED`, so a run that was claimed
-  and then abandoned keeps its `received` status for up to one lease period,
-  measured at 300 s. What the operator sees is now bounded: `GET /api/runs/{id}`
-  carries the lease as `claim_lease` (`docs/api-contract.md` §3) and the run
-  page renders it, so a held run, an expired one and a run nothing claimed read
-  as three different things. `docs/limitations.md` §2 carries the measurement
-  and the half that is still unbounded — nothing announces that a lapsed lease
-  has been taken up again.
+  for a worker that is driving it, which closes the duplicate above: the
+  predicate withholds a row whose lease is live, so a second worker whose poll
+  does not overlap cannot receive the same run. Its own boundary is the one an
+  operator meets first: the lease does not change the run's status and the boot
+  sweep skips `RECEIVED`, so a run that was claimed and then abandoned keeps its
+  `received` status for up to one lease period, measured at 300 s. What the
+  operator sees is now bounded: `GET /api/runs/{id}` carries the lease as
+  `claim_lease` (`docs/api-contract.md` §3) and the run page renders it, so a
+  held run, an expired one and a run nothing claimed read as three different
+  things. `docs/limitations.md` §2 carries the measurement and the half that is
+  still unbounded — nothing announces that a lapsed lease has been taken up
+  again.
 - **`WAITING_APPROVAL` is not a busy-wait.** The worker parks the run and moves
   on. Approval is an *edge-triggered* event: `POST /approvals/{id}/approve`
   flips the run back to a claimable state, and the worker picks it up again.
@@ -289,11 +306,12 @@ any non-terminal state ───────────────────
 this summary used to leave out.** The golden path calls several tools in
 sequence and each is a separate plan→gate→execute round, so the run returns to
 `PLANNING` to choose the next action and walks forward to `EXECUTING` again —
-four times on the recorded run. The table carries that edge
-(`docs/agent-state-machine.md` §2); this diagram did not, and a diagram that
-leaves out an edge the runtime takes is a summary of a machine that does not
-exist. `PLANNING → RESPONDING` is the other edge this diagram omitted: the
-route to an answer with no tool call.
+three times on the recorded run, once after each of the three tools that
+complete (the fourth, the refund, parks instead of re-planning). The table
+carries that edge (`docs/agent-state-machine.md` §2); this diagram did not, and
+a diagram that leaves out an edge the runtime takes is a summary of a machine
+that does not exist. `PLANNING → RESPONDING` is the other edge this diagram
+omitted: the route to an answer with no tool call.
 
 `COMPLETED → EXECUTING` is illegal and there is a test that says so.
 
@@ -341,7 +359,7 @@ The transport is never visible to `domain/`. It sits behind:
 ```python
 class ToolGateway(Protocol):
     async def list_tools(self) -> list[ToolSpec]: ...
-    async def call_tool(self, name: str, arguments: dict) -> ToolResult: ...
+    async def call_tool(self, name: str, arguments: dict[str, object]) -> ToolResult: ...
 ```
 
 **The Phase 1 implementation is a composite, not a single gateway.**
@@ -413,7 +431,7 @@ so the test suite and a fresh clone work with no API key. It is a bag of
 stopword-free, lightly-stemmed words weighted sublinearly by frequency and
 hashed into a fixed-width vector — dependency-free, deterministic across
 processes, and a genuine retriever on this corpus rather than a placeholder (it
-reaches Recall@5 = 14/20 on `retrieval.jsonl` -- twenty cases, of which five
+reaches Recall@5 = 13/20 on `retrieval.jsonl` -- twenty cases, of which five
 are the unanswerable ones and score zero by abstaining). It is not semantic and has no
 synonymy; `docs/limitations.md` §3 says so in the README's terms. A real
 embedding provider is selected by config, and the threshold moves with it
@@ -444,11 +462,12 @@ chunk, and at what score.
 
 API keys are never logged. **No prompt body is stored in Phase 1 at all** --
 the trace records the model's *response*, not the question it was asked.
-`STORE_FULL_PROMPTS=false` (the default) withholds the response's text too, and
-what remains is the step, its type, its latency and every non-text field: a
-step whose text is withheld is still a step a reader can count. Field-level
-redaction of what *is* stored is explicitly deferred to Phase 3 and is listed in
-the limitations section of the README rather than quietly ignored.
+`STORE_FULL_PROMPTS` defaults to **true**, so the response's text is stored too;
+setting it to `false` withholds it, and what remains is the step, its type, its
+latency and every non-text field: a step whose text is withheld is still a step
+a reader can count. Field-level redaction of what *is* stored is explicitly
+deferred to Phase 3 and is listed in the limitations section of the README
+rather than quietly ignored.
 
 ## 11. Scope control
 
@@ -465,21 +484,25 @@ in Phase 1 is not "is it useful" but **"does the golden workflow require it"**.
 ```
 opspilot/
 ├── src/opspilot/
-│   ├── domain/           pure: runs, tools, approvals, policies, permissions
+│   ├── domain/           pure: runs, tools, approvals, policies, errors
 │   ├── ports/            Protocols: provider, gateway, stores
-│   ├── agents/           runtime, state, prompts, schemas
+│   ├── agents/           runtime, prompts, schemas, state
 │   ├── adapters/         models/, tools/, persistence/, retrieval/, orchestration/
 │   ├── api/              FastAPI routers, schemas, dependencies
+│   ├── worker/           the worker loop and its entry point
+│   ├── evals/            the eval runner, its metrics and its CLI
+│   ├── tracing/          the trace recorder
+│   ├── retrieval/        retrieval-facing types
+│   ├── observability.py
 │   └── settings.py
-├── apps/
-│   ├── api/main.py       ASGI entry point
-│   ├── worker/main.py    worker entry point
-│   └── web/              Next.js dashboard
+├── web/                  Next.js dashboard
 ├── mcp_servers/
 │   ├── crm/  billing/  issues/
 ├── knowledge/            15–30 Markdown policy documents
 ├── evals/
-│   ├── datasets/*.jsonl  runner.py  metrics.py
+│   ├── datasets/*.jsonl  the datasets and the recorded fixtures
+│   ├── results/          committed and local run outputs
+│   └── README.md
 ├── tests/
 │   ├── unit/ integration/ agent/ security/ evals/
 ├── migrations/           Alembic
@@ -511,7 +534,7 @@ Stated here so it is a design decision rather than a surprise at review time.
 | DB-polling worker; mid-step runs marked `interrupted` on restart (`EXECUTING` excepted, §5) | Correct and cheap. Auto-resume needs a step journal and idempotency design at a depth that would delay the golden path. | Phase 2 |
 | Top-k vector search, no reranker, no hybrid BM25 | Measurable on the eval set only after there is an eval set. | Phase 2 |
 | Basic prompt-injection defence (structural, not a red-team) | The structural defence is the load-bearing part; prompt hardening is optimisation. | Phase 2/3 |
-| Prompts stored unredacted | Needed to debug Phase 1 at all. | Phase 3 |
+| Model responses stored unredacted (the prompt is never stored at all) | Needed to debug Phase 1 at all. | Phase 3 |
 | No retries, no fallback model, no cost routing | Would mask failures Phase 1 wants to see clearly. | Phase 2 |
 | 50–80 eval cases, deterministic metrics only | Enough to catch regressions on the golden path; LLM-as-judge is deferred because a judge scoring its own family is not evidence. | Phase 2 |
 | No real third-party integrations | Stripe/Salesforce sandboxes are credentials-and-quota work, not architecture work. | Phase 2 |

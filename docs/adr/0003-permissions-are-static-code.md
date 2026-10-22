@@ -38,7 +38,7 @@ is a judgement that deserves a code review. A one-line YAML diff that reclassifi
 Permissions are Python literals in `src/opspilot/domain/tools.py`:
 
 ```python
-class Permission(str, Enum):
+class Permission(StrEnum):
     READ = "read"
     SAFE_WRITE = "safe_write"
     HIGH_RISK_WRITE = "high_risk_write"
@@ -70,7 +70,7 @@ EXPECTED_REGISTRY: dict[str, tuple[str, str, str, bool, bool]] = {
     "issues.create": ("issues.create", "safe_write", "issues", False, False),
 }
 
-def test_registry_matches_expected():
+def test_tool_registry_equals_expected_literal():
     assert actual == EXPECTED_REGISTRY
 ```
 

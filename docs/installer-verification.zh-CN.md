@@ -216,13 +216,23 @@ CI artifact 则有——**一次运行、一个 commit**。
 
 ### 如果 Docker Desktop 没装
 
-应用**不会**替你装 Docker，也**不会**装到一半能用。它会启动、开窗、然后明确告诉你问题：
+应用**不会**替你装 Docker，也**不会**装到一半能用。它会启动、开窗、然后明确告诉你问题。
+窗口**标题**是 `Docker is not installed`；下面还有两段说明文字：
 
 ```
-Docker is not installed — this app could not run `docker`. Install
-Docker Desktop from https://www.docker.com/products/docker-desktop/, then start
-this app again.
+The `docker` command was not found on PATH (ENOENT). OpsPilot runs its
+backend — PostgreSQL, the API and the worker — as Docker containers, so there
+is nothing this app can start without it.
 ```
+
+```
+Install Docker Desktop for Windows from
+https://www.docker.com/products/docker-desktop/, start it, and open this app
+again. (Linux: install Docker Engine and the Compose plugin; macOS: Docker
+Desktop as well.)
+```
+
+标题是机器标识，逐字比对；下面两段是说明文字，读懂意思即可，不必逐字核对。
 
 **怎么做：** 装好 Docker Desktop，启动它，等系统托盘里的鲸鱼图标**停止转动**，再开 OpsPilot。
 新机器上 Docker Desktop 自己第一次启动可能就要一分钟。
@@ -276,13 +286,13 @@ this app again.
 | 1–15 分钟（**仅首次**） | Compose 和 pip 的输出在滚动 |
 | | `Backend ready on http://127.0.0.1:8000.` |
 | 再几秒后 | `Dashboard ready on http://127.0.0.1:3210.` |
-| | 仪表盘渲染出来：左侧导航（Tickets、Runs、Knowledge、Approvals）+ 一个空的工单列表 |
+| | 仪表盘渲染出来：顶栏导航（Dashboard、Tickets、Runs、Approvals、Knowledge）+ 一个 *Recent runs* 面板，显示 "No runs yet" |
 
 > **注意端口：8000 是后端 API，3210 是仪表盘。** 不要弄混。
 > 地址里的 `127.0.0.1` 不是 `localhost`。
 
-**首次启动很慢，这是正常的。** Docker Desktop 要从源码构建 API 和 worker 镜像，
-没有预构建镜像可下载。**首次启动期间不要退出**——半成品镜像下次会重新构建，
+**首次启动很慢，这是正常的。** Docker Desktop 要从源码构建 API、worker 和 migration
+三个镜像，没有预构建镜像可下载。**首次启动期间不要退出**——半成品镜像下次会重新构建，
 不会损坏，但你得再等一遍。
 
 ### ❌ 失败：Docker 缺失
@@ -339,7 +349,7 @@ The backend already running does not accept this app's operator token
 
 ### 3.1 建索引
 
-点左侧 **Knowledge** → 点 **Reindex knowledge**。
+点顶栏 **Knowledge** → 点 **Reindex knowledge/**。
 
 **一分钟内**结果面板报告 **17 seen** 和 **17 indexed**（写入 **98 chunks**）。没有失败提示。
 
@@ -347,13 +357,15 @@ The backend already running does not accept this app's operator token
 
 ### 3.2 提交工单
 
-点 **Tickets** → 点 **Fill with the README**（它会自动填好字段）→ 点 **Submit ticket**。
+点 **Tickets** → 点 **Fill with the README's ticket**（它会自动填好字段）→ 点 **Submit ticket**。
 
 出现一个成功面板，给出新 run 的链接，形如 `/runs/<uuid>`。**记下这个 run id。**
 
 ### 3.3 看它在审批门停住
 
-**约 10 秒内** run 到达 **Awaiting approval**。点那个 run 链接。
+**约 10 秒内** run 到达 **Waiting approval**——那是 run 的状态徽章。（*Awaiting
+approval* 是审批摘要面板的标题和被挂起那次工具调用的状态，不是 run 的状态。）
+点那个 run 链接。
 
 页面显示一条 trace——**分类、检索、规划**——以及一张针对**高危写操作**的**审批卡片**：
 
@@ -389,10 +401,11 @@ curl -X POST http://127.0.0.1:3210/api/approvals/<approval-id>/approve ^
 
 **期望：** **HTTP 409**，且响应体里的 `code` 字段是 `approval_already_decided`。
 
-> 响应长这样（FastAPI 默认格式，**冒号和逗号后面有一个空格**）：
+> 响应长这样（**紧凑格式，冒号后没有空格**；`code` 在 `error` 对象里面，
+> 这一段响应来自仪表盘自己的 route handler，不是 FastAPI）：
 >
 > ```
-> {"code": "approval_already_decided", "message": "..."}
+> {"error":{"code":"approval_already_decided","message":"...","details":null}}
 > ```
 >
 > **只比对 `code` 的值就够了**，不要纠结空格的多少。
@@ -417,9 +430,9 @@ dashboard: 200
 
 > `NUL` 是 Windows 的空设备，保持写成 `NUL`（**不要**写成 `/dev/null`）。
 >
-> ⚠️ **注意这里是紧凑格式（冒号后无空格）**，和第 5 节的错误响应不同。
-> 两者不一样是有原因的：`/ready` 返回的是 Pydantic 模型，FastAPI 紧凑序列化；
-> 而错误走的是 `JSONResponse`，默认带空格。
+> ⚠️ **注意这里也是紧凑格式（冒号后无空格）**，和第 3.5 节的错误响应一样。
+> 两者没有区别：FastAPI 的 Pydantic 序列化和 `JSONResponse` 都用
+> `json.dumps(..., separators=(",", ":"))`，输出同样的紧凑形式。
 > **两处都按各自文档里写的形式比对即可**——重点是键名和值，空格不用纠结。
 
 **判据：** `200` **加上** `"migrations":"ok"` 意味着整条链路通了——
@@ -558,6 +571,8 @@ Leaving the backend running: this app did not start it.
 端口 **8000**（后端 API）· 端口 **3210**（仪表盘）· `127.0.0.1`（**绝不写 `localhost`**）
 `17 seen` / `17 indexed` / `98 chunks` · `129.00` · `TX-88219` · `HIGH_RISK_WRITE`
 `HTTP 409` · `HTTP 200` · `/runs/<uuid>` · `<approval-id>`
+`approval_already_decided` · `origin_missing` · `unauthorized`（走查会产生的三个错误
+`code`；它们是机器标识，任何语言下都不翻译）
 `opspilot_postgres-data` · `opspilot_mcp-data` · `name=opspilot-` · `--tail 100`
 `%LOCALAPPDATA%\Programs\OpsPilot` · `%APPDATA%\OpsPilot\opspilot.env` · `resources\stack`
 `OPSPILOT_OPERATOR_TOKEN` · `:?` · `NUL`
@@ -572,7 +587,7 @@ Leaving the backend running: this app did not start it.
 
 ## 这份文档**没有**声称的事
 
-安装包的首次启动**在你机器上从源码构建** API 和 worker 镜像。
+安装包的首次启动**在你机器上从源码构建** API、worker 和 migration 镜像。
 这是"不把镜像发布到 registry"的**刻意代价**，也是首次启动要几分钟的原因。
 之后都很快，而且**运行时不会从 OpsPilot 下载任何东西**。
 

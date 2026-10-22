@@ -1,7 +1,9 @@
 # MCP Server Contracts
 
 Three demo MCP servers. Each is a real MCP server (official Python SDK), each
-owns its own JSON file (`mcp_servers/_store.py`), each is deterministic. They
+owns its own JSON file (`mcp_servers/_store.py`), each is deterministic **in
+its reads** — the mutating tools stamp the current UTC time into `created_at`,
+so only the read paths and the seed data are reproducible byte for byte. They
 stand in for Salesforce, Stripe and Jira.
 
 Implementation: `mcp_servers/{crm,billing,issues}/server.py`.
@@ -20,14 +22,17 @@ dependency; the seed data and the domain semantics are what is simulated.
 **Why stdio and not HTTP/SSE:** a stdio MCP server is a child of the process that
 speaks to it, over a pipe. stdio needs no port allocation, no network config, and
 no auth between the worker and the servers, and it fails loudly (a broken pipe)
-rather than quietly (a 502). HTTP transport is a Phase 2 topic when a server
-needs to be shared across hosts.
+rather than quietly (a 502). HTTP transport is a later topic when a server
+needs to be shared across hosts (ADR-0001 anticipates REST-backed tools for
+systems that have no MCP server; Phase 2's work packages do not carry one).
 
 **Which one actually runs is `MCP_TRANSPORT`.** There are two transports, both
 real:
 
 - `MCP_TRANSPORT=inprocess` (**the default**) builds each server inside the
-  API/worker process and calls it directly. Tool registration, the generated JSON
+  worker process (and inside the eval runner's process) and calls it directly.
+  The API process never builds one: it does not dispatch tools at all. Tool
+  registration, the generated JSON
   Schema, the `structured_output` serialisation and the `CallToolResult` envelope
   are all exercised; only the pipe is skipped. This is what the whole test suite
   runs on.
@@ -251,11 +256,28 @@ Refusals, each a structured error result rather than an exception:
 
 | Condition | Error code |
 |---|---|
-| Missing `idempotency_key` | `validation_error` |
+| Blank or whitespace-only `idempotency_key` | `validation_error` |
 | Unknown `transaction_id` | `not_found` |
 | Transaction not in `charged` status (already refunded, voided, pending) | `invalid_state` |
 | `amount` > transaction amount | `amount_exceeds_transaction` |
 | `amount` <= 0 | `validation_error` |
+
+**A *missing* `idempotency_key` is not one of these rows.** The tool's body
+refuses a key that is present but blank; a key that is absent altogether never
+reaches the body — the SDK rejects the call against the tool's generated schema
+before it runs, and the *gateway* decides what that rejection looks like. It
+depends on the transport, and the two are not interchangeable: the in-process
+gateway maps the SDK's `ToolError` to `validation_error`, while a stdio
+deployment sees the same rejection as a plain error result with no code of its
+own and records it as `tool_error`. Making the two agree is a product decision
+the gateway's own docstring records rather than decides.
+
+**The order of the checks is part of the contract.** The server checks the
+blank key and `amount <= 0` first, then scans for a replay of the same key, and
+only then looks at the transaction. So a replay of a key whose transaction has
+since been refunded returns the **recorded refund** (with `replayed: true`), not
+`invalid_state`; and a call with `amount <= 0` is refused before the replay
+scan ever runs.
 
 **`replayed: true` is the flag the agent's trace exposes.** Without it, a
 replayed refund would look identical to a fresh one and the run's audit would
@@ -339,9 +361,10 @@ error, and there is no `not_found` path (see §5.2).
 
 A blank title → `validation_error`, at the top level.
 
-Keys are allocated as `OPS-{1000+n}` from a counter in the store, so the first
-created issue in a fresh database is always `OPS-1001` — a detail that makes
-assertions in tests readable and the demo reproducible.
+Keys are allocated as `OPS-{n}` from the store's `next_key` counter, which the
+seed starts at 1001, so the first created issue in a fresh database is always
+`OPS-1001` — a detail that makes assertions in tests readable and the demo
+reproducible.
 
 `SAFE_WRITE` means no approval, but the `tool_executed` audit event is written
 before the call returns. Creating an issue in an external tracker is externally
@@ -452,9 +475,11 @@ in the main `test` job rather than in `mcp-contract`.
 
 ## 7. Exercising the transport itself
 
-Everything in §6 runs **in-process**, which covers every contract above — the
-schemas, the structured errors, the idempotency behaviour — and skips only the
-pipe. `tests/integration/test_mcp_stdio_transport.py` covers the pipe (40 tests,
+Every contract §6 lists is asserted **in-process**, which covers every contract
+above — the schemas, the structured errors, the idempotency behaviour — and
+skips only the pipe. (The three per-server files each carry one stdio
+subprocess test of their own, `test_*_server_lists_tools_over_stdio`.) 
+`tests/integration/test_mcp_stdio_transport.py` covers the pipe (40 tests,
 split about evenly between the ones that spawn a real child process and the
 pure-parser assertions). The three that matter most:
 
@@ -498,6 +523,6 @@ can still influence the default-path tests — which is one more reason the stdi
 tests do not rely on it.)
 
 The default transport stays in-process for the rest of the suite, because
-flipping it would change what the other ~670 tests exercise, and a subprocess
+flipping it would change what the other ~1180 tests exercise, and a subprocess
 server owns its own on-disk store, so tests sharing one would leak state into
 each other.

@@ -44,8 +44,9 @@ name and not the number.
 a GitHub account.** If you do not, go straight to Option B: you cannot download
 the file yourself, and that is not a problem with your machine.
 
-**Option A — you have a GitHub account: download it from CI.** Every push
-builds the installer and attaches it to that run. The `desktop-package` job of
+**Option A — you have a GitHub account: download it from CI.** Every push to
+`main` — and every pull request against it — builds the installer and attaches
+it to that run. The `desktop-package` job of
 the **CI** workflow runs on `windows-latest`, builds the NSIS installer, and
 uploads it as a workflow artifact named **`OpsPilot-Setup-windows-x64`**.
 
@@ -204,11 +205,15 @@ procedure a pass.
 ### If Docker Desktop is not installed
 
 The app will not install Docker for you, and it will not half-work. It starts,
-opens a window, and tells you exactly what is wrong:
-
-> **Docker is not installed** — this app could not run `docker`.
-> Install Docker Desktop from <https://www.docker.com/products/docker-desktop/>,
-> then start this app again.
+opens a window, and tells you exactly what is wrong. The window's **title** is
+the string `Docker is not installed`; beneath it it shows the detail *The
+`docker` command was not found on PATH (ENOENT). OpsPilot runs its backend —
+PostgreSQL, the API and the worker — as Docker containers, so there is nothing
+this app can start without it.* and the remedy *Install Docker Desktop for
+Windows from https://www.docker.com/products/docker-desktop/, start it, and
+open this app again.* (the remedy adds a parenthetical about Linux and macOS).
+Those three strings are the whole message; they are prose, so match the title
+and read the rest rather than diffing it character for character.
 
 **What to do:** install Docker Desktop, start it, and wait for the whale icon
 in the system tray to stop animating before launching OpsPilot. The first launch
@@ -307,8 +312,10 @@ showing a live log, and then the dashboard itself replaces it:
 | | the dashboard renders: a nav bar **across the top** (Dashboard, Tickets, Runs, Approvals, Knowledge) and a *Recent runs* panel reading "No runs yet" |
 
 **The first launch is slow and that is correct.** Docker Desktop has to build
-the API, worker **and migration** images from source (three `build:` blocks in
-`docker-compose.yml`, and no shared `image:`); there is no prebuilt image to download.
+the API, worker **and migration** images from source (three of them are built —
+`migrate`, `api` and `worker` each have their own `build:` block in
+`docker-compose.yml`, and no shared `image:`; the file's fourth, `web`, is
+never built by the app); there is no prebuilt image to download.
 Every launch after that reuses them and is fast. **Do not quit during the first
 launch** — a half-built image is rebuilt next time, not corrupted, but you will
 wait again.
@@ -353,22 +360,24 @@ This is the project's core claim, end to end, through the installed app.
 
 ### 3.1 Index the knowledge base
 
-Click **Knowledge** in the nav bar. Click **Reindex knowledge**. Within a
+Click **Knowledge** in the nav bar. Click **Reindex knowledge/**. Within a
 minute a result panel reports **17 seen** and **17 indexed** (98 chunks
 written). No failure alert appears.
 
 ### 3.2 Submit a ticket
 
-Click **Tickets**. Click **Fill with the README** (it fills the fields for
-you), then **Submit ticket**.
+Click **Tickets**. Click **Fill with the README's ticket** (it fills the
+fields for you), then **Submit ticket**.
 
 A success panel appears naming a new run, with a link like `/runs/<uuid>`.
 Note the run id.
 
 ### 3.3 Watch it stop at the approval gate
 
-Within about 10 seconds the run reaches **Awaiting approval**. Click the run
-link.
+Within about 10 seconds the run reaches **Waiting approval** — that is the
+run's status badge. (The phrase *Awaiting approval* is the approval summary
+panel's title and the parked tool call's own status, not the run's.) Click the
+run link.
 
 The page shows a trace — classification, retrieval, planning — and an
 **approval card** for a high-risk write:
@@ -400,7 +409,10 @@ curl -X POST http://127.0.0.1:3210/api/approvals/<approval-id>/approve ^
   -d '{}'
 ```
 
-Expect **HTTP 409** and `"code": "approval_already_decided"`.
+Expect **HTTP 409** and a body carrying `"code":"approval_already_decided"` —
+the code sits inside the `error` object, and the body is compact (no space
+after the colon), because it comes from the dashboard's own route handler
+rather than from FastAPI.
 
 ---
 
@@ -537,6 +549,9 @@ port **8000** (the backend API) · port **3210** (the dashboard) · `127.0.0.1`
 `17 seen` / `17 indexed` / `98 chunks` · `129.00` · `TX-88219` ·
 `HIGH_RISK_WRITE`
 `HTTP 409` · `HTTP 200` · `/runs/<uuid>` · `<approval-id>`
+`approval_already_decided` · `origin_missing` · `unauthorized` (the error
+`code`s the walk-through produces; they are machine identifiers and are never
+translated)
 `opspilot_postgres-data` · `opspilot_mcp-data` · `name=opspilot-` · `--tail 100`
 `%LOCALAPPDATA%\Programs\OpsPilot` · `%APPDATA%\OpsPilot\opspilot.env` ·
 `resources\stack`
@@ -555,10 +570,11 @@ being logged in)
 
 ## What this document does not claim
 
-The installer's first launch builds the API and worker images **from source on
-your machine**. That is a deliberate consequence of not publishing images to a
-registry, and it is why the first launch takes minutes. Everything after it is
-fast, and nothing is downloaded from OpsPilot at run time.
+The installer's first launch builds the API, worker **and migration** images
+**from source on your machine**. That is a deliberate consequence of not
+publishing images to a registry, and it is why the first launch takes minutes.
+Everything after it is fast, and nothing is downloaded from OpsPilot at run
+time.
 
 ---
 
@@ -568,7 +584,7 @@ fast, and nothing is downloaded from OpsPilot at run time.
 |---|---|---|
 | 0 environment (Docker started) | ☐ pass ☐ fail | |
 | 0b obtain the installer | ☐ pass ☐ fail | source: ____ (CI run id / commit, or who gave you the file) |
-| 1 install | ☐ pass ☐ fail | icon: ☐ blue square (new)  ☐ black triangle with a white circle (**cached** → rebuild the cache) |
+| 1 install | ☐ pass ☐ fail | icon: ☐ blue square (new)  ☐ black disc with a white triangle (**cached** → rebuild the cache) |
 | 2 launch to the dashboard | ☐ pass ☐ fail | first launch took: ____ minutes |
 | 3.1 index 17/17/98 | ☐ pass ☐ fail | the actual numbers: ____ |
 | 3.2 submit the ticket | ☐ pass ☐ fail | run id: ____ |

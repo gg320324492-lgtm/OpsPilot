@@ -73,12 +73,15 @@ deterministic" and "This is caught by a contract test that walks the golden path
 on the real `LangGraphOrchestrator`" — describe executors that did not exist when
 this correction was written. `LangGraphOrchestrator.step` and
 `.build_graph` still raise `NotImplementedError`, so the second sentence remains
-false and the Decision section's "Both call `run.transition_to(...)`" is still
-written in the present tense over a body that calls nothing. What drove a run
-then was `agents/runtime.py::_pump`, which accepted the orchestrator argument and
-discarded it (`_ = orchestrator`); the golden-path harness, `worker/__main__.py`,
-`evals/runner.py` and `scripts/demo_golden_path.py` each carried a
-`LinearOrchestrator` without running it.
+false. The Decision section once carried a third sentence this correction
+quoted — "Both call `run.transition_to(...)`" — written in the present tense over
+a body that called nothing; that sentence has since been rewritten to "Neither
+decides what is legal: the transition table does, and the runtime's progression
+goes through it", so the quote no longer appears in the Decision section. What
+drove a run then was `agents/runtime.py::_pump`, which accepted the orchestrator
+argument and discarded it (`_ = orchestrator`); the golden-path harness,
+`worker/__main__.py`, `evals/runner.py` and `scripts/demo_golden_path.py` each
+carried a `LinearOrchestrator` without running it.
 
 **Correction 2 (the linear executor now drives).** `LinearOrchestrator` is
 implemented: the stage logic was extracted from `_pump` into one function per
@@ -102,7 +105,8 @@ nothing else *because of where the table is placed*, which is the property this
 ADR is actually about, and it holds whether or not an executor exists yet. The
 contract test named above is still the right mitigation for that risk and is
 still unbuilt; it is recorded as an acceptance criterion in `docs/milestones.md`
-§M4, where both orchestrator rows are still unchecked.
+§M4, where the `LangGraphOrchestrator` row is still unchecked (the
+`LinearOrchestrator` row beside it is ticked).
 
 **Sequencing consequence.** The runtime and the linear orchestrator are built in
 M4 before the LangGraph adapter. Building the adapter first would make the graph
@@ -122,8 +126,10 @@ received → classifying → retrieving → planning → executing
 → waiting_approval → executing → responding → completed
 ```
 
-`EXECUTING → PLANNING` is on that sequence **four times** — once per tool
-round, because each tool is a separate plan→gate→execute round. The table did
+`EXECUTING → PLANNING` is on that sequence **three times** — once after each of
+the three tool rounds that complete, because each tool is a separate
+plan→gate→execute round, and not after the fourth, because the refund parks
+instead of re-planning. The table did
 not carry that edge. It carried `EXECUTING → EXECUTING` instead, which the
 runtime never takes. So the table described a machine the code did not run, and
 the two guards that existed were blind to it: `tests/unit/test_run_state.py`
@@ -146,7 +152,12 @@ What changed:
 - the runtime's **progression** goes through `transition_to`
   (`agents/runtime.py::_transition`), so an illegal progression raises
   `IllegalTransition` instead of being written — which is what this ADR's
-  Decision section always said it did;
+  Decision section always said it did. There is a second writer of the status
+  column, `agents/runtime.py::_advance_chain`, and it is checked too: it
+  consults the table through `can_transition_to` and *skips* an edge the table
+  does not carry rather than raising. It is reached only when a caller passes
+  an explicit `proposals` list to `run_loop` — the scripted-proposal path the
+  gate tests use — so the production path is the one this bullet is about;
 - `tests/agent/test_every_transition_is_in_the_table.py` drives the golden path
   through the real worker and asserts that **every recorded transition is an
   edge the table allows**. That is the guard the other two could not be: it

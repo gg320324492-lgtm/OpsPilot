@@ -8,8 +8,8 @@ Implementation: `src/opspilot/domain/runs.py`.
 Enforcement: the transition table is data, and `AgentRun.transition_to()` is the
 one implementation of the rule — it raises `IllegalTransition` for an edge the
 table does not carry. There is no setter. The runtime's **progression** goes
-through it (`_transition`, which covers every edge the run walks), so an
-illegal progression is refused rather than written; the one write that is
+through it (`_transition`, which covers every edge the production run walks), so
+an illegal progression is refused rather than written; the one write that is
 *not* table-checked is named in §2.2, with the reason for it.
 
 ---
@@ -122,11 +122,14 @@ Read as a diagram, with the loops that matter:
 
 - **`EXECUTING → PLANNING` (the re-plan edge).** The golden path calls several
   tools in sequence (`crm.get_customer`, then `billing.get_invoice`, then
-  `billing.list_transactions`), and **each is a separate plan→gate→execute
-  round**: the run returns to `PLANNING` to choose the next action, and walks
-  forward to `EXECUTING` again for the tool. The golden path's recorded
-  transitions are the proof, and they carry this edge four times:
-  `… planning → executing → planning → executing → planning → executing …`.
+  `billing.list_transactions`, then `billing.issue_refund`), and **each is a
+  separate plan→gate→execute round**: the run returns to `PLANNING` to choose the
+  next action, and walks forward to `EXECUTING` again for the tool. The golden
+  path's recorded transitions are the proof, and they carry this edge **three**
+  times — once after each of the three tools that complete, and not after the
+  fourth, because the refund parks instead of re-planning:
+  `… planning → executing → planning → executing → planning → executing →
+  planning → executing → waiting_approval …`.
 
   This edge was **missing from the table** while the runtime had taken it all
   along, and nothing noticed, because no runtime transition was ever checked
@@ -175,7 +178,19 @@ every non-terminal state, and the table has no edge out of a terminal one, so
 the check is made before the row is written and a run that had already
 finished cannot be overwritten by an error that arrived afterwards.
 
-One write is not checked, and it is named here rather than left implicit.
+There is a **second** writer of the status column, and it is checked too, in a
+different way. `agents/runtime.py::_advance_chain` walks the chain
+`CLASSIFYING → RETRIEVING → PLANNING → EXECUTING → RESPONDING` to reach a
+stage, consulting the table through `can_transition_to` and **skipping** an
+edge the table does not carry rather than raising. It is reached only when a
+caller passes an explicit `proposals` list to `run_loop` — the scripted-proposal
+path the gate tests use; the production worker drives the run through
+`StageDriver` and `_transition`. No illegal edge is written by it either; the
+difference is that an illegal edge is a *silent skip* there and an *exception*
+here.
+
+One write is not checked at all, and it is named here rather than left
+implicit.
 
 - **The park (`EXECUTING → WAITING_APPROVAL`).** The table's only edge into
   the parked state, and the runtime does not consult the table before writing
