@@ -6,9 +6,14 @@ what changed.
 
 Layer: ``api`` (router).
 
-Note: ``knowledge.search`` is *also* a tool the agent calls through the tool
-gateway, because retrieval is something the model may request. This router is
-the operator-facing surface for ingestion, not the agent's retrieval path.
+Note: ``knowledge.search`` is *also* a registered tool, and the model may
+propose it -- but it is **not** dispatched through the MCP gateway. Its
+registry entry says ``server="internal"``, and the MCP gateway refuses such a
+name with ``server_unavailable`` by design (``docs/mcp-contracts.md`` §4); the
+composite gateway routes it to the in-process knowledge tool instead. The
+agent's *retrieval* is not that tool either: the runtime retrieves through the
+retrieval port, not through a proposal the model makes. This router is the
+operator-facing surface for ingestion, and nothing else.
 
 Idempotency (contract §9): re-hashing means an unchanged tree reports
 ``documents_indexed == 0`` on the second call, so a retried reindex is safe.

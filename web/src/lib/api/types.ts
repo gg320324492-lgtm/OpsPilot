@@ -82,8 +82,15 @@ export interface paths {
          *         approval_id: The approval to decide.
          *         approvals: The approval store port.
          *         runs: The run store port, used to read and move the parked run.
-         *         request: Optional body carrying ``decided_by`` and a ``note``.
-         *         operator: The authenticated operator id, the default ``decided_by``.
+         *         request: Optional body carrying the operator's own ``note``. The body
+         *             has **no** ``decided_by`` field: ``ApprovalDecisionRequest``
+         *             forbids unknown fields, so a client that names the operator is
+         *             refused with a 422 rather than having it quietly ignored
+         *             (contract §5).
+         *         operator: The authenticated operator id, and the value recorded as
+         *             ``decided_by``. It is the *only* source of that column -- there is
+         *             no body field that could override it, and no default to fall back
+         *             to.
          *
          *     Returns:
          *         The decided approval and the transitioned run.
@@ -906,7 +913,16 @@ export interface components {
         };
         /**
          * RunRef
-         * @description A run reference embedded in the ticket-create response (``{id, status}``).
+         * @description A run reference embedded in another payload.
+         *
+         *     Three fields -- ``id``, ``status`` and ``created_at`` -- and nothing else.
+         *     It is a *reference*, and it is embedded in three places: the ticket-create
+         *     response's ``run`` (contract §2), the ``runs`` list of a ticket (§2.2), and
+         *     the ``run`` an approval decision returns (§5).
+         *
+         *     It is not the summary of §3.1 (which carries the model provider and the
+         *     rest) and not the detail of §3 (which carries the steps, the tool calls and
+         *     the citations). A client that needs those follows the ``id``.
          */
         RunRef: {
             /**

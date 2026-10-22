@@ -1,6 +1,7 @@
 """FastAPI application factory.
 
-Responsibility: build the app -- mount routers, install the auth dependency,
+Responsibility: build the app -- mount the routers (each of which declares the
+operator-token dependency its routes need, except the two health probes),
 register the exception handlers, and wire concrete adapters to the ports. This
 is the composition root for the API process.
 
@@ -145,12 +146,20 @@ def create_app(
         readiness_check=readiness_check,
     )
 
-    # Health first, so its two token-exempt routes are registered before the
-    # guarded routers. Every guarded router shares ``ERROR_RESPONSES`` so the
-    # contract's "one error shape, everywhere" (``docs/api-contract.md`` §6) is
-    # something a generated client can read rather than only something the
-    # humans are bound by. The health routes are exempt: they are token-free by
-    # design and declare their own 503.
+    # The health router is mounted without the shared error envelope, and it
+    # declares no auth dependency of its own. Those two facts are what make
+    # ``/health`` and ``/ready`` token-free -- and neither of them is a property
+    # of the *order* the routers are registered in. (This comment used to read
+    # "Health first, so its two token-exempt routes are registered before the
+    # guarded routers", which said the order bought the exemption. It does not:
+    # the exemption comes from the health router not declaring
+    # ``Depends(require_operator)``, and every guarded router declares it on
+    # itself. Moving this include below the others would change no route's
+    # auth.) Every guarded router shares ``ERROR_RESPONSES`` so the contract's
+    # "one error shape, everywhere" (``docs/api-contract.md`` §6) is something a
+    # generated client can read rather than only something the humans are bound
+    # by. The health routes declare their own 503 instead: it carries the
+    # readiness shape, not the error envelope.
     app.include_router(health.router)
     app.include_router(tickets.router, responses=_router_responses())
     app.include_router(runs.router, responses=_router_responses())

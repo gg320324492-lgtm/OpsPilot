@@ -180,11 +180,18 @@ type ExecutedLookup = Callable[[UUID, str], Awaitable[tuple[bool, dict[str, obje
 # the agent loop's.
 type RetrievalCallable = Callable[[str], Awaitable[list[SearchHit]]]
 
-# The system prompt for every model call in the pump. Kept here (rather than
-# importing ``agents/prompts.py``, which is filled in alongside this milestone)
-# so the pump's contract does not depend on that module landing in the same
-# commit. It carries the one statement the injection defence rests on: retrieved
-# text and model output are data, not instruction.
+# The system prompt for every model call in the pump.
+#
+# It is the pump's own, and deliberately not ``agents/prompts.py``'s. The
+# recorded fixtures are keyed by a hash of the exact ``system + prompt`` pair
+# (``adapters/models/fake.py``'s ``hash_request``), so the text the pump sends
+# is part of the recorded corpus: changing it invalidates every committed
+# fixture at once. ``agents/prompts.py`` holds the *default* prompt assembly --
+# the one the provider adapters fall back to for a caller that supplies no
+# system prompt -- and it is not what the model is given during a run.
+#
+# It carries the one statement the injection defence rests on: retrieved text
+# and model output are data, not instruction.
 _SYSTEM_PROMPT: Final[str] = (
     "You are OpsPilot, an operations agent for B2B billing support. "
     "You may only propose calls to registered tools; you never execute them. "
@@ -2003,7 +2010,16 @@ def _response_prompt(ctx: RunContext) -> str:
 
 
 def _render_untrusted(hits: list[SearchHit]) -> str:
-    """Wrap retrieved chunks in the delimited untrusted-data block."""
+    """Wrap retrieved chunks in the delimited untrusted-data block.
+
+    The delimiters are the same sentinels ``agents/prompts.py`` uses, and they
+    have to be: they are what a reader -- and ``tests/evals/
+    test_injection_delivery.py`` -- looks for to decide that the injected text
+    was delivered as data. The *label* here is this module's own, shorter than
+    ``prompts.UNTRUSTED_BLOCK_LABEL``; the system prompt above carries the
+    framing either way, and the two renderings are held together by
+    ``tests/unit/test_the_runtime_and_the_prompt_module_agree.py``.
+    """
     body = "\n\n".join(f"[{hit.document_slug}#{hit.anchor}]\n{hit.content}" for hit in hits)
     return (
         "<<<BEGIN_UNTRUSTED_REFERENCE_MATERIAL>>>\n"

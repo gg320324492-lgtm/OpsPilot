@@ -124,8 +124,15 @@ async def approve(
         approval_id: The approval to decide.
         approvals: The approval store port.
         runs: The run store port, used to read and move the parked run.
-        request: Optional body carrying ``decided_by`` and a ``note``.
-        operator: The authenticated operator id, the default ``decided_by``.
+        request: Optional body carrying the operator's own ``note``. The body
+            has **no** ``decided_by`` field: ``ApprovalDecisionRequest``
+            forbids unknown fields, so a client that names the operator is
+            refused with a 422 rather than having it quietly ignored
+            (contract §5).
+        operator: The authenticated operator id, and the value recorded as
+            ``decided_by``. It is the *only* source of that column -- there is
+            no body field that could override it, and no default to fall back
+            to.
 
     Returns:
         The decided approval and the transitioned run.

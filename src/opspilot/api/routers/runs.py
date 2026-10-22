@@ -465,12 +465,17 @@ async def _load_pending_approval(store: object, run: AgentRun) -> PendingApprova
 async def _load_customer_reply(store: object, run: AgentRun) -> CustomerReply | None:
     """Load the customer reply, which is set only at ``COMPLETED``.
 
-    The store's row carries ``escalated`` alongside the body, and the model is
-    declared ``extra="allow"``, so the flag reaches the client rather than being
-    dropped at this boundary. It matters to a reader: "we could not complete
-    your request, a human is on it" and "here is your refund" are the same
-    sentence shape with completely different meanings, and the flag is the only
-    thing on screen that tells them apart.
+    The store's row carries ``escalated`` alongside the body, and ``escalated``
+    is a **declared** field on ``CustomerReply``, so the flag reaches the
+    client rather than being dropped at this boundary. (It is the declaration
+    that carries it, not the model's ``extra="allow"``: a declared field is
+    serialised whatever the extra-field policy is. ``extra="allow"`` is what
+    puts an index signature in the OpenAPI type, and it is what
+    ``api/schemas.py`` says it is for -- a field that exists only at runtime.
+    ``escalated`` is not one of those.) It matters to a reader: "we could not
+    complete your request, a human is on it" and "here is your refund" are the
+    same sentence shape with completely different meanings, and the flag is the
+    only thing on screen that tells them apart.
     """
     if run.status is not RunStatus.COMPLETED:
         return None
@@ -525,12 +530,14 @@ def _detail_for(step_type: str, output: object) -> str:
     """A short summary string for a step, derived from its output.
 
     Every key read here is asserted against a real recorded step by
-    ``tests/integration/test_run_detail_against_the_real_store.py``. Both of the
-    keys this used to read -- ``"to"`` for a state change, and a whole
-    ``tool_call`` branch -- were wrong: every writer emits ``to_status``, and no
-    code path in ``src/`` records a ``tool_call`` step at all. Dead branches are
-    worse than missing ones, because a missing branch fails loudly when the
-    event finally arrives and a dead one silently renders ``to None``.
+    ``tests/agent/test_trace_labels_are_read_from_real_steps.py``, which drives
+    the golden path, reads the ``AgentStep`` rows back and requires the detail
+    for each real step type to be non-empty. Both of the keys this used to read
+    -- ``"to"`` for a state change, and a whole ``tool_call`` branch -- were
+    wrong: every writer emits ``to_status``, and no code path in ``src/``
+    records a ``tool_call`` step at all. Dead branches are worse than missing
+    ones, because a missing branch fails loudly when the event finally arrives
+    and a dead one silently renders ``to None``.
     """
     if not isinstance(output, dict):
         return output if isinstance(output, str) else ""

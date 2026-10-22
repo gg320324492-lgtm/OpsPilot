@@ -25,15 +25,25 @@ from opspilot.ports.stores import ApprovalStore, RunStore, TicketIntake, TicketS
 class StoreNotBound(RuntimeError):
     """A store dependency was resolved with nothing bound on ``app.state``.
 
-    A wiring bug, not a client error: it means the app was built without calling
-    ``create_app``'s store injection. The message names the attribute so the
+    A wiring bug, not a client error.
+
+    **It is not a sign that the app was built outside ``create_app``.**
+    ``create_app`` always binds ``run_store``, ``ticket_store`` and
+    ``approval_store`` -- it builds the SQL implementations itself when the
+    caller injects none. The one attribute that can still be unbound after
+    ``create_app`` has run is ``ticket_intake``: it is built from the stores'
+    session factory, so a caller that injects the three stores but no intake
+    leaves it unset, and ``POST /api/tickets`` has no way to write a ticket and
+    its run in one transaction. ``create_app``'s own docstring says so; this
+    exception is what that case raises. The message names the attribute so the
     missing piece is obvious.
     """
 
     def __init__(self, name: str) -> None:
         super().__init__(
-            f"no {name!r} bound on app.state; the app factory must set it "
-            "(see opspilot.api.app.create_app)"
+            f"no {name!r} bound on app.state; create_app binds it only when a "
+            "session factory was built, so a caller that injects the stores must "
+            "inject this one too (see opspilot.api.app.create_app)"
         )
 
 

@@ -46,7 +46,17 @@ class TicketDetail(BaseModel):
 
 
 class RunRef(BaseModel):
-    """A run reference embedded in the ticket-create response (``{id, status}``)."""
+    """A run reference embedded in another payload.
+
+    Three fields -- ``id``, ``status`` and ``created_at`` -- and nothing else.
+    It is a *reference*, and it is embedded in three places: the ticket-create
+    response's ``run`` (contract §2), the ``runs`` list of a ticket (§2.2), and
+    the ``run`` an approval decision returns (§5).
+
+    It is not the summary of §3.1 (which carries the model provider and the
+    rest) and not the detail of §3 (which carries the steps, the tool calls and
+    the citations). A client that needs those follows the ``id``.
+    """
 
     id: UUID
     status: RunStatus
