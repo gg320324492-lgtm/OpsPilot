@@ -213,11 +213,22 @@ def get_customer(
 ) -> CustomerResult:
     """Look up a customer by email or by id.
 
-    Exactly one of ``customer_email`` / ``customer_id`` must be given. Passing
-    neither, or passing both where they identify different customers, returns a
+    **At least one** of ``customer_email`` / ``customer_id`` must be given, and
+    the two may be given together only when they agree. Passing neither, or
+    passing both where they identify different customers, returns a
     ``validation_error`` result rather than guessing -- guessing which one the
     caller meant is how a wrong customer gets refunded. Passing both when they
     agree is accepted and returns the customer.
+
+    The contract states the stricter rule -- "exactly one of
+    ``customer_email`` / ``customer_id`` must be given"
+    (``docs/mcp-contracts.md`` S1) -- and the runtime enforces that at gate 1,
+    before a call ever reaches this tool: ``CustomerResolveArgs`` in
+    ``src/opspilot/domain/tools.py`` refuses a proposal carrying both
+    identifiers. This server is the second line of defence rather than the only
+    one, because a direct MCP call bypasses the gate. So the rule *here* is
+    "at least one, and two only if they agree" -- which is what the code
+    does.
 
     Args:
         customer_email: The customer's billing email, e.g.
@@ -318,6 +329,17 @@ def get_subscription(customer_id: str) -> SubscriptionResult:
     return SubscriptionResult(subscription=Subscription.model_validate(record.model_dump()))
 
 
+def _reset_store() -> None:
+    """Restore the served store from the committed seed, in memory.
+
+    **In memory only.** This server never writes -- no tool calls
+    :meth:`Store.save` -- so the persisted file is left exactly as it was.
+    The other two servers' ``--reset`` rewrites that file as well, because
+    they do write.
+    """
+    _store.reset()
+
+
 def main() -> None:
     """Entry point for the ``crm`` stdio MCP server.
 
@@ -332,7 +354,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.reset:
-        _store.reset()
+        _reset_store()
         print(f"crm: reset store from {_SEED_PATH}", file=sys.stderr)
     server.run(transport="stdio")
 

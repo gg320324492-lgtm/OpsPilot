@@ -32,6 +32,21 @@ The key goes in the environment, never in a file and never in a committed one::
 Needs PostgreSQL with the migrations applied (the golden path retrieves through
 pgvector) and a key with quota. It writes ``.scratch/recorded_calls.json``.
 
+What that file is
+-----------------
+It is written in the **fixture shape** -- ``scenario``, ``recorded``, ``note``,
+``calls`` -- the same shape the two committed fixtures use, and its
+``"recorded"`` flag is ``true``: the calls in it crossed a real provider, which
+is precisely what the committed fixtures say they did not (both carry
+``"recorded": false``). Before this it wrote a bare JSON list of calls, which
+carried no ``recorded`` marker at all: a file that a reader could not tell from
+a hand-written one, and that was not the fixture shape either.
+
+The scenario name is deliberately **not** one of the committed fixtures'
+(``duplicate_charge``, ``already_refunded``) -- it is ``duplicate_charge_live``
+-- so that promoting a recording cannot overwrite a committed fixture by
+accident.
+
 What it does not do
 -------------------
 **It does not touch the committed fixtures.** It writes to ``.scratch/`` (which
@@ -75,6 +90,46 @@ sys.path.insert(0, str(REPO / "src"))
 
 from opspilot.adapters.models.fake import hash_request  # noqa: E402
 from opspilot.settings import get_settings  # noqa: E402
+
+#: The scenario name the recording is filed under. It is deliberately not one
+#: of the committed fixtures' scenarios ("duplicate_charge",
+#: "already_refunded"): this is a live run of the duplicate-charge ticket, not
+#: the scripted scenario those files hold, and a name that cannot collide is
+#: one less way to overwrite a committed fixture by accident.
+SCENARIO = "duplicate_charge_live"
+
+#: The note that travels with the recording. It says what the file *is*, which
+#: the ``recorded`` flag alone does not: it marks the calls as real, not the
+#: run as the golden path.
+NOTE = (
+    "Live recording made by scripts/record_live_fixture.py against a real "
+    "provider (not a scripted replay). It records what the model actually did "
+    "on the duplicate-charge ticket, which is not always the golden path -- "
+    "see the script's docstring for the 2026-10-15 run, which escalated "
+    "instead of proposing a refund."
+)
+
+
+def fixture_document(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the document a recording is written as.
+
+    The shape is the one the committed fixtures use -- ``scenario``,
+    ``recorded``, ``note``, ``calls`` -- and ``recorded`` is ``True``: the calls
+    in it crossed a real provider, which is what the two committed fixtures say
+    they did not (``"recorded": false``).
+
+    Args:
+        calls: The recorded calls, in the order they crossed the provider.
+
+    Returns:
+        A JSON-serialisable document, ready to be written out.
+    """
+    return {
+        "scenario": SCENARIO,
+        "recorded": True,
+        "note": NOTE,
+        "calls": calls,
+    }
 
 
 class _RecordingProvider:
@@ -237,8 +292,12 @@ async def main() -> int:
 
     out = REPO / ".scratch" / "recorded_calls.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(best, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"\nrecorded {len(best)} calls -> {out}")
+    document = fixture_document(best)
+    out.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(
+        f"\nrecorded {len(best)} calls -> {out} "
+        f"(scenario={document['scenario']}, recorded={document['recorded']})"
+    )
     for i, call in enumerate(best):
         prompt = call["request"]["prompt"]
         tools = call.get("available_tools") or []

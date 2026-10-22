@@ -345,18 +345,47 @@ def _issue_refund(
 # ---------------------------------------------------------------------------
 
 
+#: The store the module-level :data:`server` serves and ``--reset`` restores.
+#: It is built **once**, here, so that the server that serves and the flag
+#: that resets it are looking at the same document. It used to be built
+#: inside :func:`create_server`, and ``main()`` built a *second* store for the
+#: reset: the file was rewritten from the seed while the serving process kept
+#: serving the previous run's document in memory, and the serving process's
+#: first write put that stale document back over the reset.
+_default_store: Store = Store(_SEED_PATH, filename="billing.json")
+
+
+def _reset_default_store() -> None:
+    """Restore the default store from the committed seed, in memory and on disk.
+
+    :meth:`Store.reset` replaces the **in-memory** document only; the
+    persisted file is rewritten by the ``save()`` that follows it. Both are
+    needed for the flag to mean what it says: the in-memory reset is what the
+    running server serves, and the save is what the *next* server reads.
+
+    Args:
+        None. The store is the module-level :data:`_default_store`.
+
+    Raises:
+        StoreError: If the seed is missing or malformed, or the write fails.
+    """
+    _default_store.reset()
+    _default_store.save()
+
+
 def create_server(store: Store | None = None) -> MCPServer:
     """Build the billing MCP server, wiring the tools to ``store``.
 
     Args:
         store: The backing store. A fixture or test injects an isolated one
             (seeded from the committed ``seed.json`` into ``tmp_path``); when
-            omitted the server builds the default store, which honours
-            ``OPSPILOT_MCP_DATA_DIR``. Passing the store in is what keeps the
-            tests hermetic without an env-var dance, and it is how a test can
-            inspect the document the tools actually mutated.
+            omitted the tools are wired to the module-level
+            :data:`_default_store`, which honours ``OPSPILOT_MCP_DATA_DIR`` as
+            of import time. Passing the store in is what keeps the tests
+            hermetic without an env-var dance, and it is how a test can inspect
+            the document the tools actually mutated.
     """
-    backing = store if store is not None else Store(_SEED_PATH, filename="billing.json")
+    backing = store if store is not None else _default_store
     mcp = MCPServer(name="billing")
 
     # `name=` is REQUIRED on every tool. The SDK defaults the registered name to
@@ -417,12 +446,13 @@ def main() -> None:
     """Entry point for the ``billing`` stdio MCP server.
 
     ``--reset`` reloads the committed seed before serving, so a demo run always
-    starts from the same data.
+    starts from the same data. The reset applies to **the store this server
+    serves** -- the module-level :data:`_default_store` -- and rewrites the
+    persisted file as well as the in-memory document, so the next start reads
+    the seed too.
     """
     if "--reset" in sys.argv[1:]:
-        server_store = Store(_SEED_PATH, filename="billing.json")
-        server_store.reset()
-        server_store.save()
+        _reset_default_store()
     server.run(transport="stdio")
 
 

@@ -24,9 +24,9 @@ Atomicity guarantee
 **in the same directory**, flushes and ``fsync``\\ s it, then ``os.replace``\\ s it
 onto the real path. ``os.replace`` is atomic on POSIX and on Windows, so a reader
 ever sees either the complete previous document or the complete new one -- never
-a half-written file. The ``fsync`` is what makes the guarantee survive a power
-loss rather than only a process crash: without it the rename can land while the
-data is still in the OS page cache.
+a half-written file. The ``fsync`` is what makes the file's *contents* durable
+against a power loss; it does not make the *rename* durable, because the parent
+directory is never fsynced -- so a power loss can lose the new version, not tear it.
 
 This matters because the store *is* the demo's database. A truncated JSON file
 would make the golden path unreproducible and the failure would show up as a
@@ -323,7 +323,13 @@ class Store:
                 tmp_path.unlink(missing_ok=True)
 
     def reset(self) -> None:
-        """Replace the in-memory document with a fresh copy of the seed.
+        """Replace the **in-memory** document with a fresh copy of the seed.
+
+        The persisted file is *not* rewritten: restoring it is the caller's
+        job, and a caller that wants the file restored calls :meth:`save`
+        afterwards. That is what the servers' ``--reset`` flag does -- reset,
+        then save -- so that both the process that is serving now and the one
+        that starts next read the seed rather than the previous run's state.
 
         Backs the servers' ``--reset`` flag and the pytest fixture, so every test
         starts from the committed data.

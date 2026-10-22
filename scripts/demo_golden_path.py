@@ -3,8 +3,11 @@
 Why this exists
 ---------------
 ``docs/milestones.md`` §M9 asks for "a recorded GIF from the deterministic path".
-``MODEL_PROVIDER=fake`` is that path: no API key, a scripted replay, a
-byte-identical trace every run.
+``MODEL_PROVIDER=fake`` is that path: no API key, a scripted replay, the same
+model responses every run -- the same classification, the same tool proposals,
+the same refund. The *trace* is not byte-identical and does not claim to be:
+the run's own ids and timestamps are new every time, and what is deterministic
+is the model's behaviour, not the bytes the run leaves behind.
 
 But the *two-process* deployment cannot show the golden path on SQLite. The
 vector store is ``InMemoryVectorStore`` (``adapters/wiring.py``, chosen when
@@ -23,7 +26,10 @@ What it does, and what is real
 ------------------------------
 * the **real** ``FastAPI`` app, served by **uvicorn** on a real TCP port;
 * the **real** ``poll_forever`` worker loop, in a background thread;
-* the **real** MCP servers, over in-process transports, on a private store;
+* the **real** MCP servers, over in-process transports: ``billing`` and
+  ``issues`` on a private store under a temporary directory, and ``crm`` on the
+  read-only default store the gateway hands over -- it is the one server the
+  gateway does not build a fresh store for, and it never writes;
 * the **real** retrieval stack over the committed ``knowledge/`` corpus;
 * every operator action is a **real HTTP request** to ``127.0.0.1`` -- ``curl``
   is shown for each so the reader can issue the same call by hand.
@@ -38,12 +44,15 @@ verified and written out in the tape's own header. The committed GIF was
 captured the way vhs captures: real screenshots of the real terminal, encoded
 with the system ffmpeg. Nothing in it is drawn by hand.)
 
-Run it by hand (it prints the same output):
+Run it by hand (it prints the same lines; the ids and timestamps are new every
+run):
 
     ./.venv/Scripts/python.exe scripts/demo_golden_path.py
 
-It exits non-zero if the refund does not land, so a broken run is not recorded
-as a success.
+It exits non-zero if the refund does not land, so a broken run is visible to
+whoever ran it: the script's exit status says so. The GIF recorder does not
+read that status -- ``scripts/record_demo_gif.mjs`` encodes whatever frames the
+terminal showed -- so a failed run still produces a GIF, of the failure.
 """
 
 from __future__ import annotations
@@ -64,7 +73,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 # The deterministic path, pinned before anything reads settings. `fake` needs no
-# key and replays a committed script, so the trace is byte-identical every run.
+# key and replays a committed script, so the model's responses are the same
+# every run (the run's own ids and timestamps are not -- see the docstring).
 # The scenario names the script the fake replays; without it the provider has no
 # data and the run dies at `classifying`.
 os.environ["MODEL_PROVIDER"] = "fake"
