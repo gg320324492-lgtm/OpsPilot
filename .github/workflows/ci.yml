@@ -45,10 +45,11 @@ jobs:
   # lint — ruff check over the configured source roots, and ruff format --check.
   #
   # The README documents `ruff check` and pyproject.toml configures
-  # src = ["src", "tests", "evals", "mcp_servers"]. Running `ruff check` with no
-  # path is the config-driven check; passing `src tests` would narrow it and skip
-  # `evals/` and `mcp_servers/`, which are in the configured set -- the same
-  # mistake tests/unit/test_mypy_configuration_is_enforced.py exists to catch for
+  # src = ["src", "tests", "evals", "mcp_servers", "scripts", "desktop"]. Running
+  # `ruff check` with no path is the config-driven check; passing `src tests`
+  # would narrow it and skip `evals/`, `mcp_servers/`, `scripts/` and
+  # `desktop/`, which are in the configured set -- the same mistake
+  # tests/unit/test_mypy_configuration_is_enforced.py exists to catch for
   # mypy, applied to ruff.
   #
   # `ruff format --check` is a second, separate gate, and it is here because M0's
@@ -1470,7 +1471,12 @@ jobs:
         run: |
           # `--wait` blocks until every service with a healthcheck reports
           # healthy (or the timeout fires), which is what "up" means for this
-          # stack: postgres healthy, migrate exited 0, api healthy, worker on.
+          # stack: postgres healthy, migrate exited 0, api healthy, worker on
+          # and the web container running. The worker and the dashboard have
+          # no healthcheck of their own -- the worker serves no HTTP endpoint
+          # and the compose file probes none for the dashboard -- so for those
+          # two "running" is all `--wait` can mean, and the `web-e2e` job is
+          # what proves the dashboard actually answers.
           docker compose up -d --wait --wait-timeout 180
           # Belt and braces: the api's own healthcheck keys on /ready (matching
           # docker-compose.yml), so a 200 here means the database is reachable

@@ -153,11 +153,12 @@ COPY --chown=opspilot:opspilot knowledge/ ./knowledge/
 # fail the run. `opspilot.evals.__main__` reads the same root for its datasets,
 # so one copy satisfies both.
 #
-# `evals/datasets/`, not `evals/`: it is 36 KB against 2.6 MB for the tree, and
-# the difference is `evals/results/` -- generated eval output, which
-# `.dockerignore` already excludes from the build context and which must never
-# be baked into an image. The datasets are the inputs the image needs; the
-# results are what a previous run wrote.
+# `evals/datasets/`, not `evals/`: the datasets are 30 KB and the whole rest of
+# the tree is 3 KB of Python, so the only thing `evals/` adds over
+# `evals/datasets/` is the directory itself -- plus `evals/results/`, the
+# generated eval output, which `.dockerignore` already excludes from the build
+# context and which must never be baked into an image. The datasets are the
+# inputs the image needs; the results are what a previous run wrote.
 COPY --chown=opspilot:opspilot evals/datasets/ ./evals/datasets/
 
 # MCP servers write their working JSON store here. Baked as a directory owned by

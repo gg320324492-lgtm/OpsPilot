@@ -3,12 +3,17 @@
 # `docker compose up` brings up: postgres, migrate, api, worker, web.
 #
 # VERIFIED. `docker compose up` has been run: on a developer's WSL Docker daemon
-# (2026-10-11, all four services up) and on every push in CI, where
-# `docker-build` builds every image, runs `docker compose up -d --wait` and
-# checks `/ready`, and `web-e2e` drives the golden path through this same file
-# against PostgreSQL. What remains unverified here is narrower than it was: the
-# three MCP servers are not Compose services at all — they are spawned on demand
-# by the worker as stdio subprocesses, boundary D12a in docs/milestones.md.
+# (2026-10-11: postgres, api, worker and web running, migrate exited 0) and on
+# every push in CI, where `docker-build` builds every image, runs
+# `docker compose up -d --wait` and checks `/ready`, and `web-e2e` drives the
+# golden path through this same file against PostgreSQL.
+# What remains unverified here is narrower than it was: the
+# three MCP servers are not Compose services at all — they are stdio servers,
+# which the worker's gateway builds in-process by default
+# (MCP_TRANSPORT=inprocess) or spawns as child processes under
+# MCP_TRANSPORT=stdio; either way they have no port and no listener, so there
+# is nothing for a sibling container to connect to. Boundary D12a in
+# docs/milestones.md; the closing comment in this file says more.
 
 name: opspilot
 
@@ -235,10 +240,18 @@ services:
       # present in one service's environment and absent from the other's is a
       # deployment whose two halves disagree about its own configuration --
       # which is exactly the defect this block previously had, in reverse.
-      # Two defaults deliberately differ from the worker's, each for a reason
-      # stated on the line: WORKER_ID (a claimed run is the worker's to
-      # attribute; the api claims none) and nothing else -- OPSPILOT_FAKE_SCENARIO
-      # matches so `docker compose config` reads identically for both.
+      # NO DEFAULT DIFFERS FROM THE WORKER'S. Every variable this service
+      # shares with the worker is written with the same fallback in both
+      # blocks, so `docker compose config` reads identically for the api and
+      # the worker and a value an operator sets once is the value both halves
+      # see. The two keys this service has and the worker does not --
+      # API_HOST and API_PORT -- are not settings at all: they belong to the
+      # only service that serves HTTP, and the worker serves none. WORKER_ID
+      # is empty in BOTH blocks, on purpose (see the worker's own note): it is
+      # the worker that falls back to an identity it derives itself
+      # (`worker-<hostname>-<pid>`), and the api claims no run to attribute.
+      # Guarded by tests/unit/test_compose_settings_are_wired.py
+      # ::test_the_api_and_the_worker_declare_the_same_fallbacks.
       # Bind all interfaces INSIDE the container. The entry point defaults to
       # 127.0.0.1, which would be unreachable through a published port. This is
       # the container's own loopback and says nothing about the host: the host

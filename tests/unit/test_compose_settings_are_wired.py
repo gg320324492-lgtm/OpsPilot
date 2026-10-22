@@ -643,3 +643,60 @@ def test_every_published_port_is_bound_to_loopback() -> None:
         "refused rather than assumed, because Docker's unstated default is the "
         "one this test exists to catch."
     )
+
+
+def test_the_api_and_the_worker_declare_the_same_fallbacks() -> None:
+    """Where both services name a variable, they name it the same way.
+
+    ## Why this file exists
+
+    ``docker-compose.yml``'s own comment on the ``api`` service used to say
+    that "two defaults deliberately differ from the worker's" -- and then named
+    one of them, ``WORKER_ID``, whose default it described as different when
+    the two blocks wrote it identically. The comment was describing a
+    difference that the file did not contain, and it was the kind of sentence a
+    reader trusts: a deployment that wanted to know whether the api and the
+    worker disagreed about a value had a paragraph saying they did, and no
+    way to check.
+
+    ## What it asserts
+
+    For every variable both services declare, the rendered text is identical.
+    That is the property the corrected comment states: **no default differs**,
+    so ``docker compose config`` reads the same for both halves and a value an
+    operator sets once is the value both see.
+
+    ## What it deliberately does not assert
+
+    That the two blocks declare the same *set* of variables. They do not, and
+    they should not: the api serves HTTP and declares ``API_HOST`` and
+    ``API_PORT`` for it, and the worker serves no HTTP and declares neither.
+    Asserting set equality would be asserting a false property, and would go
+    red the moment somebody gave the worker an endpoint.
+    """
+    environments = _compose_environments()
+    api = environments["api"]
+    worker = environments["worker"]
+
+    shared = sorted(set(api) & set(worker))
+    assert shared, (
+        "the api and the worker declare no environment variable in common, so this "
+        "guard has nothing to compare. Both construct the same Settings object, so "
+        "a variable in one and not the other is a deployment whose halves disagree "
+        "about their own configuration."
+    )
+
+    disagreements = [
+        f"{variable}: api has {api[variable]!r}, worker has {worker[variable]!r}"
+        for variable in shared
+        if api[variable] != worker[variable]
+    ]
+    assert not disagreements, (
+        "the api and the worker declare the same variables with different values: "
+        f"{disagreements}.\n"
+        "docker-compose.yml states that no default differs between the two "
+        "services, so that `docker compose config` reads identically for both "
+        "halves. Either the file has drifted from its own comment, or the "
+        "comment has to say which difference is deliberate and why -- a "
+        "difference nobody wrote down is a difference a deployment inherits."
+    )
