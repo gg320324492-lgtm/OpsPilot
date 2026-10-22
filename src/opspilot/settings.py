@@ -546,9 +546,10 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the process-wide settings, constructed once and cached.
 
-    Caching is deliberate: settings are read from the environment at import
-    time, so every caller that asks gets the same object. Tests override it by
-    clearing the cache (``get_settings.cache_clear()``) after monkeypatching the
-    environment.
+    Caching is deliberate: the environment is read the first time this is
+    called -- not at import time, so a deployment that changes its environment
+    between import and first use is still read correctly -- and every caller
+    after that gets the same object. Tests override it by clearing the cache
+    (``get_settings.cache_clear()``) after monkeypatching the environment.
     """
     return Settings()

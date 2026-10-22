@@ -8,8 +8,11 @@ was a documented setting with no reader anywhere in the tree, so changing it in
 than a missing one, because it looks like control.
 
 Layer: leaf / cross-cutting. It imports the standard library and nothing else,
-so every layer may import it without a dependency appearing -- and nothing in
-the package imports it at module scope. The configuration is applied by
+so every layer may import it without a dependency appearing -- and importing it
+has **no side effect**: the two process entry points that call
+:func:`apply_log_level`` (``api/__main__.py`` and ``worker/__main__.py``) import
+this module at module scope like any other, and no logger is configured until
+they call the function. The configuration is applied by
 :func:`apply_log_level`, called from the process entry points (``api/__main__.py``
 and ``worker/__main__.py``) and from nowhere else.
 
@@ -34,7 +37,8 @@ no record is emitted twice.
 
 **What this does not cover.** In-process ``alembic`` runs call ``fileConfig``,
 which by default disables every logger it does not name -- and ``alembic.ini``
-names only alembic's own. ``migrations/env.py`` passes
+names only ``root``, ``sqlalchemy`` and ``alembic``, none of which is this
+application's own ``opspilot.*`` namespace. ``migrations/env.py`` passes
 ``disable_existing_loggers=False`` precisely so that does not happen, and the
 test that found the hazard is
 ``tests/integration/test_failed_tool_call_visibility.py``. So the hazard is

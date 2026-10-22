@@ -1,11 +1,17 @@
 """Approval status and approval decision value objects.
 
-Responsibility: model the human-approval gate (gate 5). An
-``ApprovalRequest`` is created in the *same transaction* as the
-``EXECUTING -> WAITING_APPROVAL`` transition, so the parked run and the pending
-approval can never disagree. One approval authorises *one specific* tool call
-with the exact arguments a human was shown -- never a run, and never a
-transaction id that a later proposal could reuse.
+Responsibility: model the human-approval gate (gate 5). The parked run and the
+pending approval are **two writes in a fixed order**, not one transaction: the
+``ApprovalRequest`` is written first and the run's transition to
+``WAITING_APPROVAL`` second, so a run is never parked on an approval that does
+not exist. The approval store and the run store each own their own
+transaction, so the two writes are **not** atomic: a crash between them leaves
+a pending approval behind a run still in ``EXECUTING``. That is the one
+direction in which the two can disagree, and it is the safe one -- the run is
+still claimable, so the worker re-drives it and the approval is found again.
+One approval authorises *one specific* tool call with the exact arguments a
+human was shown -- never a run, and never a transaction id that a later
+proposal could reuse.
 
 Layer: ``domain``. Imports only the standard library and Pydantic.
 
@@ -72,15 +78,16 @@ class ApprovalRequest(BaseModel):
     ``arguments_snapshot`` is an immutable copy of the arguments as shown to the
     approver; ``ToolCall.arguments`` must not change after this is written.
 
-    The three optional trailing fields are the *decision* side of the row, and
+    The four optional trailing fields are the *decision* side of the row, and
     they are separate columns rather than entries in ``arguments_snapshot``:
     the snapshot is what the human approved and what will be executed, so it is
     immutable (``docs/tool-permissions.md`` §3.2) and a display-only string has
     no business inside it.
 
-    - ``note`` -- the operator's own remark on the decision.
+    - ``decided_at`` -- when the decision was taken.
     - ``decided_by`` -- who decided. Server-assigned: it is the authenticated
       operator's identity, never a value the request body chose.
+    - ``note`` -- the operator's own remark on the decision.
     - ``context`` -- supplementary display context for the approver.
     """
 

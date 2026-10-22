@@ -30,10 +30,14 @@ had ``context: null``, and the contract's worked example
 Putting it there would also be wrong. ``arguments_snapshot`` is the one thing
 that means *"this is what the human approved and this is what will be
 executed"*, and it is immutable once written -- ``docs/tool-permissions.md``
-§3.2 says so, and ``ApprovalArgumentsChanged`` guards it. A second meaning
-inside it would stop the snapshot equalling the executed arguments, which is
-the invariant the whole approval gate rests on. So the context gets a column
-of its own, and the snapshot stays exactly one thing.
+§3.2 says so. The mechanism is **the absence of a write path**, not an
+exception: ``SqlToolCallStore.set_status`` has no ``arguments`` parameter at
+all, so nothing can change them after the fact. (``ApprovalArgumentsChanged``
+is *not* that mechanism -- it fires from a status guard on an already-executed
+row, which §3.2 spells out.) A second meaning inside the snapshot would stop
+it equalling the executed arguments, which is the invariant the whole approval
+gate rests on. So the context gets a column of its own, and the snapshot
+stays exactly one thing.
 
 Both columns are nullable and both default to NULL:
 
@@ -91,10 +95,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Reverse of the upgrade: the column added last is dropped first. On SQLite
-    # this needs the batch form -- SQLite cannot ``ALTER TABLE ... DROP
-    # COLUMN`` a column it would have to rewrite the table for, and Alembic's
-    # batch mode does that copy itself.
+    # Reverse of the upgrade: the column added last is dropped first. The batch
+    # form is used so the downgrade works on SQLite builds older than 3.35.0,
+    # which have no ``ALTER TABLE ... DROP COLUMN`` -- Alembic's batch mode
+    # does the table copy itself. On a current SQLite it degrades to the plain
+    # ``ALTER TABLE approval_requests DROP COLUMN`` statement, and on Postgres
+    # it is that statement either way.
     with op.batch_alter_table("approval_requests") as batch:
         batch.drop_column("context")
         batch.drop_column("note")

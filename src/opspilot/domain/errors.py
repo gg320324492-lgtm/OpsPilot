@@ -112,8 +112,8 @@ class ApprovalExpired(DomainError):
     only thing an operator reading it would want to know.
 
     It is also *not* ``ApprovalAlreadyDecided``: that one names a lost race
-    between two writers, and its message ("was already approved by ... at
-    ...") is exactly right there and exactly wrong here.
+    between two writers, and its message ("approval <id> was already decided
+    (<status>)") is exactly right there and exactly wrong here.
     """
 
     def __init__(self, approval_id: UUID) -> None:
@@ -191,7 +191,21 @@ class PolicyDenied(DomainError):
 
 
 class UnknownTool(DomainError):
-    """The model proposed a tool name that is not in the static registry (gate 2)."""
+    """The model proposed a tool name that is not in the static registry (gate 2).
+
+    **Nothing raises this on the live path, and that is not an oversight.**
+    Gate 2 does not fail the call: it records it. An unregistered name is
+    written to the ``tool_calls`` row as ``rejected`` with the reason
+    ``"unknown_tool"`` and the run carries on (``agents/runtime.py``, gate 2),
+    because an unknown tool is expected traffic from a model, not a fault in
+    the system. The exception and the API's 422 handler for it exist so the
+    condition has a name; a caller that *does* raise it gets the contract's
+    422 ``unknown_tool`` (``docs/api-contract.md`` §6).
+
+    The reason string and the class are two names for one condition, and they
+    are kept apart on purpose: the string is what the run's trace carries, the
+    class is what a caller that rejects the proposal outright would raise.
+    """
 
 
 class TicketExists(DomainError):

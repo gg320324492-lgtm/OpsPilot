@@ -1,9 +1,17 @@
 """Deterministic policy engine (gate 4) and risk explanation generation.
 
 Responsibility: the business rules that decide whether a *structurally valid*,
-*registered* tool call may proceed -- amount ceilings, idempotency pre-check,
-and state preconditions (e.g. "cannot refund an already-refunded transaction").
-This gate is code, not a prompt, and its verdict is reproducible.
+*registered* tool call may proceed -- amount ceilings and idempotency
+pre-check, plus the denylist. This gate is code, not a prompt, and its verdict
+is reproducible.
+
+**There is no state precondition here.** "Cannot refund an already-refunded
+transaction" is refused by the MCP server and only by the MCP server (its
+``invalid_state``): the transaction's status is a row the billing server can
+read and this engine cannot, so a rule about it here would need a new read and
+a new trust boundary for a check the server already makes authoritatively
+(``docs/tool-permissions.md`` §3). An already-refunded transaction therefore
+does reach the approver before it is refused.
 
 Layer: ``domain``. Imports only the standard library, Pydantic, and sibling
 domain modules. It must not touch the database or the gateway: the idempotency

@@ -8,9 +8,10 @@ test double: the deterministic demo and the whole test suite run on it.
 Layer: ``ports``. Imports only ``typing``, Pydantic and ``opspilot.domain``.
 
 The interface is deliberately narrow and structured-output-first. The model may
-only produce a schema-validated value object (``generate_structured``) or pick
-among already-registered tools (``choose_tool``); there is no method that hands
-the model a side effect. See ``docs/architecture.md`` §1 and §3.
+produce a schema-validated value object (``generate_structured``), pick among
+already-registered tools (``choose_tool``), or write free-form text
+(``generate_text``); there is no method that hands the model a side effect.
+See ``docs/architecture.md`` §1 and §3.
 """
 
 from __future__ import annotations
@@ -85,5 +86,14 @@ class ModelProvider(Protocol):
         prompt: str,
         timeout_seconds: float | None = None,
     ) -> str:
-        """Produce free-form text, used only for the customer reply."""
+        """Produce free-form text.
+
+        **No production caller.** The customer reply is *not* written this
+        way: the reply is a structured value (``AgentResponse``, with a body
+        and an escalation flag), so the runtime asks for it through
+        ``generate_structured`` and gets the escalation bit back as data
+        rather than as prose to parse. This method is the third way a provider
+        can be asked for something, it is implemented by every provider, and
+        nothing in the agent runtime or the worker calls it.
+        """
         ...

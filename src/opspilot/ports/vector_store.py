@@ -1,9 +1,10 @@
 """The ``VectorStore`` port.
 
-Responsibility: the retrieval boundary. ``search`` returns ``(document,
-chunk_id, score)`` triples so citations are *structural* -- the UI renders
-"Sources: refund-policy.md" from ids, never by parsing the model's sentence --
-and the eval's Recall@K metric is a query over the same data.
+Responsibility: the retrieval boundary. ``search`` returns ``SearchHit`` records
+-- the document it came from, the chunk's id and its score among them -- so
+citations are *structural*: the UI renders "Sources: refund-policy.md" from
+ids, never by parsing the model's sentence -- and the eval's Recall@K metric is
+a query over the same data.
 
 Layer: ``ports``. Imports only ``typing`` and Pydantic.
 

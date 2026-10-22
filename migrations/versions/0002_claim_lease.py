@@ -45,13 +45,21 @@ this row has never been claimed under the lease.
 The index is partial, over ``claimed_until``, matching the shape of
 ``ix_agent_runs_claimable``: it keeps the claim predicate's second clause (the
 lease check) an index condition rather than a filter over every claimable row.
-It is emitted on both dialects -- SQLite supports partial indexes, and the
-predicate is a plain SQL comparison, so unlike ``SKIP LOCKED`` it needs no
-dialect branch (ADR-0004).
+It covers the **leased** branch of that clause -- the rows whose lease has
+lapsed -- and not the never-leased one (``claimed_until IS NULL``), which is
+the branch ``ix_agent_runs_claimable`` already serves; a partial index cannot
+hold ``IS NULL`` rows and a NULL lease is not what the index is for. It is
+emitted on both dialects -- SQLite supports partial indexes, and the predicate
+is a plain SQL comparison, so unlike ``SKIP LOCKED`` it needs no dialect
+branch (ADR-0004).
 
 A migration must be a frozen snapshot of history, so the predicate here is a
-literal, not imported from ``models.py``; ``tests/integration/test_migration_schema.py``
-asserts the migration's columns match the ORM after ``alembic upgrade head``.
+literal, not imported from ``models.py``; the columns this migration adds are
+compared against the ORM by
+``tests/unit/test_migration_and_orm_agree_on_column_types.py``, which replays
+the chain's column declarations rather than running ``alembic upgrade head``,
+and the chain itself is exercised end to end by
+``tests/integration/test_migration_schema.py``.
 """
 
 from __future__ import annotations
@@ -77,9 +85,11 @@ def upgrade() -> None:
         "agent_runs",
         sa.Column("claimed_by", sa.String(), nullable=True),
     )
-    # Partial: only rows that carry a lease need this index, which is exactly the
-    # set the lease clause consults. A full index would carry every terminal run
-    # -- the overwhelming majority -- for nothing.
+    # Partial: only rows that carry a lease need this index -- the leased
+    # branch of the lease clause (``claimed_until < now``). A full index would
+    # carry every terminal run -- the overwhelming majority -- for nothing.
+    # The never-leased branch (``claimed_until IS NULL``) is the one
+    # ``ix_agent_runs_claimable`` already serves.
     op.create_index(
         "ix_agent_runs_claimed_until",
         "agent_runs",

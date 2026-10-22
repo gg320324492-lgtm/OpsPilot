@@ -5,9 +5,10 @@ at the persistence models' metadata, so autogenerate sees the real schema.
 
 This file is *configuration*, not application logic, and it is omitted from the
 coverage number (see ``pyproject.toml``). It runs both offline (``--sql``) and
-online; the online path does not force a single connection, so a migration may
-manage its own transactions -- which matters for the initial migration's
-``CREATE EXTENSION IF NOT EXISTS vector`` (see ``docs/data-model.md`` §5).
+online; the online path opens **one** connection and hands it to Alembic, and
+every migration runs on it -- which is why the initial migration's ``CREATE
+EXTENSION IF NOT EXISTS vector`` has to be issued on that connection rather
+than on one of its own (see ``docs/data-model.md`` §5).
 """
 
 from __future__ import annotations

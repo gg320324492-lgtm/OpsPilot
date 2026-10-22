@@ -46,8 +46,17 @@ class ToolSpec(BaseModel):
     """The static description of a registered tool.
 
     ``permission`` is the load-bearing field and is set by hand at the
-    registration site. ``requires_idempotency_key`` is schema-enforced at gate 1
-    for tools such as ``billing.issue_refund``.
+    registration site.
+
+    ``requires_idempotency_key`` says "this tool needs an idempotency key" --
+    ``billing.issue_refund`` does, because the server requires one. It is
+    **not** enforced at gate 1; gate 1 does the opposite. ``RefundArgs``
+    declares no ``idempotency_key`` field and runs under ``extra="forbid"``,
+    so a proposal that carries one is *refused* at gate 1: the model may not
+    choose the key, or it could pick a fresh one on every call and defeat the
+    duplicate check. The key is derived by the policy engine from the run and
+    the intended effect, and the runtime attaches it to the dispatch payload
+    (``docs/tool-permissions.md`` §4).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -254,7 +263,7 @@ class TransactionListArgs(BaseModel):
 
     ``invoice_id`` is the only argument, and it is the only one the tool takes:
     ``mcp_servers/billing/server.py`` declares
-    ``list_transactions(invoice_id: str)`` and ``docs/mcp-contracts.md`` §S2
+    ``list_transactions(invoice_id: str)`` and ``docs/mcp-contracts.md`` §2
     specifies ``{ "invoice_id": "INV-2026-384" }``. This model previously declared
     ``account_id`` plus a ``limit`` page size, and **no argument set satisfied
     both sides** -- gate 1 accepted ``account_id`` and the server rejected it as
