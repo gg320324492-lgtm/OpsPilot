@@ -856,7 +856,7 @@ test.describe("every mutating route handler is found, not listed", () => {
     const source = ts.createSourceFile(
       "probe.ts",
       [
-        "import { foreignOriginRefusal } from '@/lib/api/request-origin';",
+        "import { foreignOriginRefusal } from '@/lib/request-origin';",
         "export const POST = async (request: Request): Promise<Response> => {",
         "  const refusal = foreignOriginRefusal(request);",
         "  if (refusal !== null) {",
@@ -880,7 +880,7 @@ test.describe("every mutating route handler is found, not listed", () => {
     const source = ts.createSourceFile(
       "probe.ts",
       [
-        "import { foreignOriginRefusal } from '@/lib/api/request-origin';",
+        "import { foreignOriginRefusal } from '@/lib/request-origin';",
         "export async function POST(request: Request): Promise<Response> {",
         "  foreignOriginRefusal(request);",
         "  return new Response(null, { status: 204 });",

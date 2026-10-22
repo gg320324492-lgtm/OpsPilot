@@ -5,10 +5,13 @@ import { foreignOriginRefusal } from "@/lib/request-origin";
 /**
  * `POST /api/knowledge/reindex`, proxied from the browser.
  *
- * The third and last Route Handler, for the same reason as the other two: the
- * browser cannot hold the operator token. Reindex is a write that reads the
- * whole `knowledge/` tree and re-embeds what changed, so it is slow and it is
- * the one button on this screen that can fail in a way worth naming.
+ * The third and last of the three **privileged** Route Handlers, for the same
+ * reason as the other two: the browser cannot hold the operator token.
+ * (There is a fourth Route Handler under `web/src/app/api/` — `locale` — and it
+ * spends no credential, so this is not one of them; `web/src/lib/request-origin.ts`
+ * says why.) Reindex is a write that reads the whole `knowledge/` tree and
+ * re-embeds what changed, so it is slow and it is the one button on this
+ * screen that can fail in a way worth naming.
  *
  * **It is in the origin check for the same reason the other two are, and this
  * is the one where "same reason" needs saying out loud.** Reindex looks

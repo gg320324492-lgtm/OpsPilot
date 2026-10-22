@@ -26,6 +26,12 @@
  * imported and called directly, so "the guard rejected it" is an observation
  * rather than an inference from a container's mood.
  *
+ * Two more have since joined them, for the same reason:
+ * `composePublishesHostPort` (the pre-flight's other half -- does Compose
+ * publish the port the suite is about to probe?) and `redactComposeSecrets`
+ * (the environment capture's redaction). Both are pure, both are decisions
+ * that can be wrong, and both are checkable here without a daemon.
+ *
  * Importing `./stack` runs its module-level `findRepoRoot()`, which walks up
  * from the cwd looking for `docker-compose.yml`. That is a `fs` call and
  * nothing else -- no `docker` process is spawned at import time -- so this file
@@ -48,8 +54,11 @@ import { expect, test } from "@playwright/test";
 import {
   assessWorker,
   composeDiagnosticsDir,
+  composePublishesHostPort,
   describeWorkerState,
+  DIAGNOSTIC_CAPTURE_FILES,
   DIAGNOSTIC_SERVICES,
+  redactComposeSecrets,
   REPO_ROOT,
   type WorkerContainerState,
 } from "./stack";
@@ -376,5 +385,193 @@ test.describe("where a spec's compose capture is written", () => {
     // `ps -a` rather than `ps`: the exited worker is the one whose state is
     // wanted, and the default `ps` does not list it.
     expect(DIAGNOSTIC_SERVICES.length).toBe(5);
+  });
+
+  test("the capture carries the environment and the restart counts, not only the logs", () => {
+    // The two facts a log cannot carry. `compose-config.json` is the resolved
+    // environment -- which `OPSPILOT_REFUND_CEILING` this run used, which ports
+    // the compose file publishes -- and `inspect.json` is the container state,
+    // `RestartCount` among it. The restart count is the signature of the
+    // crash-loop that `docker compose up --wait` reports as `Healthy`, and it
+    // is invisible in the logs: a container's log is append-only, so a dead
+    // attempt's boot line is still sitting in it.
+    expect([...DIAGNOSTIC_CAPTURE_FILES]).toContain("compose-config.json");
+    expect([...DIAGNOSTIC_CAPTURE_FILES]).toContain("inspect.json");
+    // And the listing a reader sees is the whole set, not a subset of it.
+    expect([...DIAGNOSTIC_CAPTURE_FILES].sort()).toEqual([
+      "compose-config.json",
+      "inspect.json",
+      "ps.txt",
+    ]);
+  });
+});
+// ---------------------------------------------------------------------------
+// The pre-flight's other half: does Compose publish the port at all?
+// ---------------------------------------------------------------------------
+
+/**
+ * The rendered compose file, as `docker compose config --format json` prints
+ * it, reduced to the `web` service's `ports` entry.
+ *
+ * The shape is the one Compose actually emits: `published` is the **host**
+ * port and `target` is the container's. `host_ip` is kept because the
+ * repository's mapping names the loopback interface explicitly, and a
+ * regression that dropped it would be a LAN-reachable dashboard.
+ */
+function renderedConfig(ports: readonly unknown[]): string {
+  return JSON.stringify({
+    services: {
+      web: {
+        image: "opspilot/web:latest",
+        ports,
+      },
+    },
+  });
+}
+
+/** One published host port, the way Compose renders it. */
+function published(host: number, container: number, hostIp = "127.0.0.1"): unknown {
+  return {
+    mode: "ingress",
+    target: container,
+    published: String(host),
+    protocol: "tcp",
+    host_ip: hostIp,
+  };
+}
+
+test.describe("the compose port mapping the pre-flight reads", () => {
+  test("accepts the mapping the repository's own compose file declares", () => {
+    // `docker-compose.yml` publishes `127.0.0.1:3000:3000` for `web`.
+    const check = composePublishesHostPort(renderedConfig([published(3000, 3000)]), "web", 3000);
+    expect(check.published).toBe(true);
+  });
+
+  test("refuses a service that publishes a different port, and names what it publishes", () => {
+    // The case the pre-flight exists for: an operator moves `E2E_WEB_SERVICE_URL`
+    // and forgets the compose mapping. The old pre-flight (`assertPortFree`)
+    // passed here -- the port was free -- and the run then waited out its full
+    // timeout against a container that was never going to answer.
+    const check = composePublishesHostPort(renderedConfig([published(3000, 3000)]), "web", 3101);
+    expect(check.published).toBe(false);
+    if (check.published) {
+      throw new Error("unreachable: the assertion above already failed");
+    }
+    expect(check.reason).toContain("3000");
+    expect(check.reason).toContain("not 3101");
+  });
+
+  test("refuses a service that publishes nothing at all", () => {
+    const check = composePublishesHostPort(renderedConfig([]), "web", 3000);
+    expect(check.published).toBe(false);
+    if (check.published) {
+      throw new Error("unreachable: the assertion above already failed");
+    }
+    expect(check.reason).toContain("publishes no host port");
+  });
+
+  test("refuses a compose file with no such service, and says which one is missing", () => {
+    const check = composePublishesHostPort(renderedConfig([published(3000, 3000)]), "api", 8000);
+    expect(check.published).toBe(false);
+    if (check.published) {
+      throw new Error("unreachable: the assertion above already failed");
+    }
+    expect(check.reason).toContain("`api`");
+  });
+
+  test("refuses output that is not JSON at all, rather than guessing", () => {
+    const check = composePublishesHostPort("docker: 'command not found'", "web", 3000);
+    expect(check.published).toBe(false);
+    if (check.published) {
+      throw new Error("unreachable: the assertion above already failed");
+    }
+    expect(check.reason).toContain("did not print JSON");
+  });
+
+  test("a published range covers the ports inside it", () => {
+    // A compose file that publishes `8000-8003` publishes 8001. Reading only
+    // the first number of the range would refuse a port Docker does publish.
+    const check = composePublishesHostPort(
+      renderedConfig([published(8000, 8000)]),
+      "web",
+      3000,
+    );
+    expect(check.published).toBe(false);
+    const ranged = composePublishesHostPort(
+      JSON.stringify({
+        services: { web: { ports: [{ published: "3000-3003", target: 3000 }] } },
+      }),
+      "web",
+      3001,
+    );
+    expect(ranged.published).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The environment capture's redaction.
+// ---------------------------------------------------------------------------
+
+test.describe("the secrets taken out of the captured environment", () => {
+  test("a credential named by key is redacted and the name survives", () => {
+    // The shape `docker compose config` emits: `environment:` as a map.
+    const redacted = redactComposeSecrets({
+      services: {
+        api: {
+          environment: {
+            OPSPILOT_OPERATOR_TOKEN: "a-real-token",
+            OPENAI_API_KEY: "sk-real-key",
+            MODEL_PROVIDER: "fake",
+          },
+        },
+      },
+    }) as { services: { api: { environment: Record<string, string> } } };
+
+    const environment = redacted.services.api.environment;
+    expect(environment["OPSPILOT_OPERATOR_TOKEN"]).toBe("[redacted]");
+    expect(environment["OPENAI_API_KEY"]).toBe("[redacted]");
+    // The name is the thing a diagnosis needs; the value is not.
+    expect(environment["MODEL_PROVIDER"]).toBe("fake");
+  });
+
+  test("a credential inside a `NAME=value` list is redacted and the name survives", () => {
+    // The shape `docker inspect` emits: `Config.Env` as an array of strings.
+    const redacted = redactComposeSecrets({
+      Config: {
+        Env: [
+          "PATH=/usr/local/bin",
+          "OPSPILOT_OPERATOR_TOKEN=a-real-token",
+          "ANTHROPIC_API_KEY=sk-ant-real",
+        ],
+      },
+    }) as { Config: { Env: string[] } };
+
+    expect(redacted.Config.Env[0]).toBe("PATH=/usr/local/bin");
+    expect(redacted.Config.Env[1]).toBe("OPSPILOT_OPERATOR_TOKEN=[redacted]");
+    expect(redacted.Config.Env[2]).toBe("ANTHROPIC_API_KEY=[redacted]");
+  });
+
+  test("a password inside a database URL is redacted and the host is not", () => {
+    // The host and the database name are the answer to "which database was
+    // this run pointed at", which is why only the password is replaced.
+    const redacted = redactComposeSecrets(
+      "DATABASE_URL=postgresql+psycopg://opspilot:hunter2@postgres:5432/opspilot",
+    );
+    expect(redacted).toBe(
+      "DATABASE_URL=postgresql+psycopg://opspilot:[redacted]@postgres:5432/opspilot",
+    );
+  });
+
+  test("the restart count and the state survive the redaction", () => {
+    // The reason `inspect.json` is captured at all: the restart count is the
+    // signature of the crash-loop `--wait` reports as healthy, and it is
+    // invisible in the logs. Redaction must not touch it.
+    const redacted = redactComposeSecrets({
+      Name: "opspilot-worker-1",
+      State: { Status: "restarting", Restarting: true, RestartCount: 6, ExitCode: 1 },
+    }) as { State: { RestartCount: number; Status: string } };
+
+    expect(redacted.State.RestartCount).toBe(6);
+    expect(redacted.State.Status).toBe("restarting");
   });
 });

@@ -86,7 +86,9 @@
  * **deleted** — the old value, with `removed: true`. So an implementation
  * that believed the event would leave the menu in a language no cookie
  * asks for any more. This is the case `e2e/menu-electron.spec.ts` drives
- * last, and the one its mutation check breaks.
+ * last, and the step that catches an implementation which believed the
+ * event: with the handler trusting the event's own value, the menu stays
+ * in Chinese and that step's poll times out waiting for "View".
  */
 
 import { Menu, type Session } from "electron";

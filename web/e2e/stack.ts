@@ -190,8 +190,15 @@ export const WEB_SERVICE_URL = process.env.E2E_WEB_SERVICE_URL ?? "http://localh
  * rather than left to Docker's `0.0.0.0` default, so the dashboard is
  * loopback-only and this suite's `http://localhost:3000` still reaches it --
  * so an operator who moves this one with `E2E_WEB_SERVICE_URL` has to move the
- * compose mapping too, which the pre-flight below turns into a named error
- * instead of a container that never becomes healthy.
+ * compose mapping too, which the pre-flight in `startContainerisedWebOrSkip`
+ * turns into a named error instead of a container that never becomes healthy.
+ *
+ * **That pre-flight checks the mapping, not only the port.** `assertPortFree`
+ * answers "is something already listening here?", which is a different
+ * question: a port nobody has published is *free*, so the old pre-flight
+ * passed and the run went on to wait out its full timeout against a container
+ * that was never going to answer on it. `assertComposePublishesPort` is the
+ * other half -- it renders the compose file and asks it what it publishes.
  */
 export const WEB_SERVICE_PORT = portOfUrl(WEB_SERVICE_URL, DASHBOARD_PORT);
 
@@ -216,8 +223,24 @@ const PROVIDER_ENV: Record<string, string> = {
  */
 export const BASE_URL = DASHBOARD_URL;
 
-/** The API's published URL (the compose `api` service, port 8000). */
+/**
+ * The API's published URL (the compose `api` service, port 8000).
+ *
+ * The port is read out of this URL rather than assumed, for the same reason
+ * `WEB_SERVICE_PORT` is: an operator who moves it with `E2E_API_URL` has to
+ * move the compose mapping too, and `assertComposePublishesPort` is what turns
+ * that into a named error instead of a run that waits out its timeouts.
+ */
 export const API_URL = process.env.E2E_API_URL ?? "http://localhost:8000";
+
+/**
+ * The API's port when its URL names none.
+ *
+ * The compose `api` service publishes `127.0.0.1:8000:8000`, so a URL with no
+ * port means 8000 -- and the pre-flight that checks the mapping needs a
+ * number to check against.
+ */
+const DEFAULT_API_PORT = 8000;
 
 /**
  * The environment every `docker compose` call here runs with.
@@ -310,6 +333,17 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   await assertPortFree(DASHBOARD_PORT);
 
   const env = stackEnv();
+
+  // The other half of the pre-flight, for the API this stack brings up. The
+  // dashboard on the host talks to `http://localhost:8000`, and that address
+  // only exists because the compose `api` service publishes it -- so the
+  // mapping is checked before the (slow) stack comes up, not after.
+  assertComposePublishesPort(
+    env,
+    "api",
+    portOfUrl(API_URL, DEFAULT_API_PORT),
+    "the compose `api` service",
+  );
 
   // TEAR DOWN FIRST, WITH VOLUMES. `docker compose up` REUSES the named
   // `postgres-data` and `mcp-data` volumes, so a run against a stack a previous
@@ -498,6 +532,12 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
   await assertPortFree(WEB_SERVICE_PORT, "the compose `web` service");
 
   const env = stackEnv();
+
+  // And the mapping itself. `assertPortFree` above cannot see this: a port
+  // Compose does not publish is free, so that check passes and the run goes on
+  // to wait out `waitForHttp`'s full timeout against a container that was never
+  // going to answer. This asks the compose file what it actually publishes.
+  assertComposePublishesPort(env, "web", WEB_SERVICE_PORT, "the compose `web` service");
 
   // A fresh database first, so the api's `/ready` is a real migration state
   // rather than a volume a previous session left behind (same reasoning as
@@ -929,6 +969,21 @@ const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
 export const DIAGNOSTIC_SERVICES = ["postgres", "migrate", "api", "worker", "web"] as const;
 
 /**
+ * The files a capture writes besides the per-service logs.
+ *
+ * Named rather than spelled out inside the writer, so the list of what a
+ * reader will find in the artefact is one definition the tests can assert on.
+ *
+ * `compose-config.json` is the **environment** the stack was started with, and
+ * `inspect.json` is the **restart count** of each container -- the two facts a
+ * log cannot carry. A container's log is append-only, so a crash-looping
+ * worker's first boot line is still in it and the logs alone cannot tell a
+ * healthy worker from one that died and came back; `inspect.json` can, and it
+ * is why the capture writes it.
+ */
+export const DIAGNOSTIC_CAPTURE_FILES = ["ps.txt", "compose-config.json", "inspect.json"] as const;
+
+/**
  * Where `label`'s capture goes: `web/test-results/compose-logs/<label>/`.
  *
  * **One directory per capture, named for the spec that wrote it.** The bug this
@@ -988,6 +1043,37 @@ export function composeDiagnosticsDir(label: DiagnosticLabel): string {
  *
  * Best-effort throughout: this runs inside `afterAll`, where a thrown error
  * masks the test failure that actually mattered.
+ *
+ * WHAT ELSE IS IN THE DIRECTORY, AND WHY
+ * ---------------------------------------
+ * Four kinds of file, because a log alone cannot answer the two questions a
+ * reader of a red run actually has:
+ *
+ *   * `<service>.log` -- what the process said. Five files, one per service.
+ *   * `ps.txt` -- what Docker thought was running.
+ *   * `compose-config.json` -- **the environment the stack was started with**,
+ *     as `docker compose config` renders it. The logs cannot answer "which
+ *     `OPSPILOT_REFUND_CEILING` was this run using?", and the port mappings
+ *     live here too -- which is what `assertComposePublishesPort` checks, so
+ *     the file that decides the run also records why it decided that.
+ *   * `inspect.json` -- **how often each container restarted**, and its state,
+ *     as `docker inspect` reports it. `RestartCount` is the signature of the
+ *     crash-loop that `--wait` reports as `Healthy` (see `assessWorker`), and
+ *     the logs cannot show it: a container's log is append-only, so a dead
+ *     attempt's boot line is still in it. Without `inspect.json` the restart
+ *     count existed only inside the live process that read it, and was gone
+ *     with it.
+ *
+ * The last two are read *before* `docker compose down -v`, like the rest --
+ * after it there is nothing left to ask.
+ *
+ * **Secrets are redacted on the way in.** Both of those files carry resolved
+ * environment values, and the compose file renders whatever `OPENAI_API_KEY` /
+ * `ANTHROPIC_API_KEY` / `OPSPILOT_OPERATOR_TOKEN` the developer's `.env`
+ * holds. `redactComposeSecrets` replaces those values with `[redacted]` and
+ * leaves every other value alone, so the file still answers "was the
+ * environment configured, and with which *names*?" -- which is the question a
+ * diagnosis asks -- without copying a credential into an artefact CI uploads.
  */
 function writeComposeDiagnostics(env: NodeJS.ProcessEnv, label: DiagnosticLabel): void {
   const dir = composeDiagnosticsDir(label);
@@ -1001,10 +1087,147 @@ function writeComposeDiagnostics(env: NodeJS.ProcessEnv, label: DiagnosticLabel)
         "utf-8",
       );
     }
+    writeFileSync(path.join(dir, "compose-config.json"), composeConfigOutput(env), "utf-8");
+    writeFileSync(path.join(dir, "inspect.json"), inspectOutput(env), "utf-8");
   } catch {
     // Nothing here may mask the run's real outcome. A read-only or full disk
     // loses the diagnostics, not the test result.
   }
+}
+
+/**
+ * `docker compose config --format json`, with the secrets taken out.
+ *
+ * The *rendered* file, not the source YAML: the source carries `${VAR}` and the
+ * rendered one carries the values, which is the point -- "which environment did
+ * this run use" is a question only the rendered file can answer.
+ *
+ * Rendered with the same environment the stack was started with (`env`), for
+ * the reason `stackEnv`'s own comment gives: a diagnostic rendered against a
+ * different environment than the one that ran is a second, invented mystery.
+ */
+function composeConfigOutput(env: NodeJS.ProcessEnv): string {
+  const rendered = spawnSync("docker", ["compose", "config", "--format", "json"], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    timeout: 60000,
+    env,
+  });
+  if (rendered.error || rendered.status !== 0) {
+    return (
+      `docker compose config failed: ` +
+      `${(rendered.stderr ?? "").trim() || rendered.error?.message || "no output"}`
+    );
+  }
+  return renderRedactedJson(rendered.stdout ?? "");
+}
+
+/**
+ * `docker inspect` of every container in this compose project, secrets removed.
+ *
+ * `-aq` rather than `-q`: the exited container is the one whose state is
+ * wanted, and the default `ps` does not list it -- the same reasoning
+ * `workerContainerState` gives.
+ */
+function inspectOutput(env: NodeJS.ProcessEnv): string {
+  const ids = spawnSync("docker", ["compose", "ps", "-aq"], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    timeout: 30000,
+    env,
+  });
+  const containerIds = (ids.stdout ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  if (containerIds.length === 0) {
+    return "(no containers in this compose project)";
+  }
+  const inspected = spawnSync("docker", ["inspect", ...containerIds], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    timeout: 60000,
+    env,
+  });
+  if (inspected.error || inspected.status !== 0) {
+    return (
+      `docker inspect failed: ` +
+      `${(inspected.stderr ?? "").trim() || inspected.error?.message || "no output"}`
+    );
+  }
+  return renderRedactedJson(inspected.stdout ?? "");
+}
+
+/**
+ * Render a JSON document with its secrets redacted, or say why it could not.
+ *
+ * The redaction happens on the *parsed* tree, so it can be a value-level
+ * decision (is this key a credential?) rather than a text-level guess.
+ */
+function renderRedactedJson(text: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text.trim() === "" ? "(no output)" : text;
+  }
+  return JSON.stringify(redactComposeSecrets(parsed), null, 2);
+}
+
+/**
+ * Environment variable names whose value is a credential.
+ *
+ * Deliberately a pattern rather than a list of this repository's variables: the
+ * compose file may carry any of them, and a list would go stale the moment the
+ * file grows a new one. `KEY` alone is not in the pattern (`MONKEY` is not a
+ * credential), but `API_KEY` is.
+ */
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY/i;
+
+/**
+ * Replace credential values with `[redacted]`, everywhere in a JSON tree.
+ *
+ * Two rules, because the two artefacts hide secrets in two different shapes:
+ *
+ *   * **By key name** -- compose renders `environment:` as a map, so
+ *     `{"OPSPILOT_OPERATOR_TOKEN": "..."}` is caught by the key.
+ *   * **By assignment** -- `docker inspect` renders `Config.Env` as an array of
+ *     `"NAME=value"` strings, where the *name* is inside the value. Those are
+ *     caught by the `NAME=` prefix, and the value after the `=` is replaced
+ *     while the name is kept.
+ *
+ * A URL with inline credentials (`postgresql://user:secret@host/db`) is caught
+ * by a third rule, and only the password is replaced -- the host and the
+ * database name stay, because "which database was this run pointed at" is
+ * exactly the kind of question the environment capture exists to answer.
+ *
+ * **Pure**, so it is checked without Docker: `stack-diagnostics.spec.ts` drives
+ * it directly.
+ */
+export function redactComposeSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactComposeSecrets(entry));
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SECRET_NAME.test(key) ? "[redacted]" : redactComposeSecrets(child);
+    }
+    return out;
+  }
+  if (typeof value === "string") {
+    return redactSecretInString(value);
+  }
+  return value;
+}
+
+/** One string: an inline `NAME=value` assignment, or a URL with a password. */
+function redactSecretInString(text: string): string {
+  const separator = text.indexOf("=");
+  if (separator > 0 && SECRET_NAME.test(text.slice(0, separator))) {
+    return `${text.slice(0, separator)}=[redacted]`;
+  }
+  return text.replace(/(:\/\/[^/\s:@]+:)[^/\s@]+(@)/g, "$1[redacted]$2");
 }
 
 /**
@@ -1022,6 +1245,11 @@ function writeComposeDiagnostics(env: NodeJS.ProcessEnv, label: DiagnosticLabel)
  * silently would mean the browser's `baseURL` and the server's `PORT` came from
  * different decisions -- the exact drift `dashboard-port.ts` exists to prevent --
  * and retrying would only turn a one-line diagnosis into a mystery.
+ *
+ * **What it does NOT check is whether Compose publishes the port at all.** A
+ * port nobody has published is *free*, so this check passes and the run goes
+ * on to wait out its full timeout against a container that was never going to
+ * answer on it. `assertComposePublishesPort` is the other half.
  */
 async function assertPortFree(port: number, subject = "the dashboard"): Promise<void> {
   if (!(await isPortBusy(port))) {
@@ -1034,6 +1262,192 @@ async function assertPortFree(port: number, subject = "the dashboard"): Promise<
       `is read by both playwright.config.ts and this module, so the browser and the ` +
       `server stay in agreement).`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// The other half of the pre-flight: does Compose actually publish this port?
+//
+// WHY THIS IS NOT `assertPortFree`
+// -------------------------------
+// `assertPortFree` asks "is something already listening on this port?". A port
+// that the compose file does NOT publish is not listening on anything, so that
+// check passes -- and the run then waits out its full timeout
+// (`waitForHttp`: 120s for the dashboard, 120s for the api) against a
+// container that was never going to answer on it. The failure that reaches the
+// reader names a timeout, not a misconfigured port mapping.
+//
+// The two checks answer different questions and both are needed:
+//
+//   * `assertPortFree` -- is the port free *right now*?
+//   * `assertComposePublishesPort` -- will Compose publish it *at all*?
+//
+// The second one reads the rendered compose file (`docker compose config`),
+// not the source YAML, because the source is not what runs: `${VAR}` in a
+// `ports:` entry, a profile, or an override file can change what is published,
+// and the rendered file is the one Docker will act on.
+// ---------------------------------------------------------------------------
+
+/**
+ * The host ports a compose service publishes, as `docker compose config` renders
+ * them.
+ *
+ * `published` is the **host** port and `target` is the container's. The host
+ * one is what matters here: the URL this suite probes (`http://localhost:3000`)
+ * is a host address, and a mapping whose target is 3000 but whose published
+ * port is 3001 is a dashboard on a port nothing is looking at.
+ *
+ * A range (`"8000-8003"`) expands to every port in it, because a compose file
+ * that publishes a range does publish the port inside it.
+ */
+function hostPortsOf(rendered: unknown, service: string): number[] {
+  const services = (rendered as { services?: Record<string, unknown> } | null | undefined)?.services;
+  if (services === undefined || services === null) {
+    return [];
+  }
+  const definition = services[service];
+  if (definition === undefined || definition === null) {
+    return [];
+  }
+  const ports = (definition as { ports?: unknown }).ports;
+  if (!Array.isArray(ports)) {
+    return [];
+  }
+  const found: number[] = [];
+  for (const entry of ports) {
+    for (const port of parsePublishedPort((entry as { published?: unknown }).published)) {
+      found.push(port);
+    }
+  }
+  return found;
+}
+
+/** One `published` value: a number, a numeric string, or a `"lo-hi"` range. */
+function parsePublishedPort(published: unknown): number[] {
+  if (typeof published === "number") {
+    return Number.isInteger(published) ? [published] : [];
+  }
+  if (typeof published !== "string") {
+    return [];
+  }
+  const text = published.trim();
+  if (/^\d+$/.test(text)) {
+    return [Number(text)];
+  }
+  const range = /^(\d+)-(\d+)$/.exec(text);
+  if (range === null) {
+    return [];
+  }
+  const low = Number(range[1]);
+  const high = Number(range[2]);
+  const ports: number[] = [];
+  for (let port = low; port <= high; port += 1) {
+    ports.push(port);
+  }
+  return ports;
+}
+
+/**
+ * Does the rendered compose file publish `port` on the host for `service`?
+ *
+ * **Pure**, so it can be checked without Docker: it takes the JSON text
+ * `docker compose config --format json` printed and answers. `stack-diagnostics
+ * .spec.ts` drives it directly, the way it drives `assessWorker`.
+ *
+ * Every "I could not tell" answer is a `published: false` with a reason that
+ * says *which* of the four things was wrong -- the file did not render, it has
+ * no such service, the service publishes nothing, or it publishes something
+ * else. A single boolean would have made the caller guess, which is the thing
+ * this function exists to stop.
+ */
+export function composePublishesHostPort(
+  configJson: string,
+  service: string,
+  port: number,
+): { readonly published: true; readonly ports: readonly number[] } | {
+  readonly published: false;
+  readonly reason: string;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    return {
+      published: false,
+      reason: "`docker compose config` did not print JSON, so its port mapping could not be read",
+    };
+  }
+  const services = (parsed as { services?: Record<string, unknown> } | null | undefined)?.services;
+  if (services === undefined || services === null) {
+    return {
+      published: false,
+      reason: "the rendered compose file has no `services` block",
+    };
+  }
+  if (services[service] === undefined || services[service] === null) {
+    return {
+      published: false,
+      reason: `the rendered compose file has no \`${service}\` service`,
+    };
+  }
+  const ports = hostPortsOf(parsed, service);
+  if (ports.length === 0) {
+    return {
+      published: false,
+      reason: `the \`${service}\` service publishes no host port`,
+    };
+  }
+  if (ports.includes(port)) {
+    return { published: true, ports };
+  }
+  return {
+    published: false,
+    reason:
+      `the \`${service}\` service publishes host port(s) ` +
+      `${ports.join(", ")} and not ${port}`,
+  };
+}
+
+/**
+ * Refuse to start when the compose file does not publish the port the suite is
+ * about to probe.
+ *
+ * The message names both halves -- the port that was wanted and the port (or
+ * ports) that are published -- because the operator who has to fix this is
+ * looking at a compose file and an environment variable, and the useful thing
+ * to tell them is that the two disagree.
+ *
+ * A compose file that will not render is a failure here too, not a skip: the
+ * stack is not up, and a run that quietly skipped would be the "green skipped
+ * run that proved nothing" ADR-0004 is written against.
+ */
+function assertComposePublishesPort(
+  env: NodeJS.ProcessEnv,
+  service: string,
+  port: number,
+  subject: string,
+): void {
+  const rendered = spawnSync("docker", ["compose", "config", "--format", "json"], {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    timeout: 60000,
+    env,
+  });
+  if (rendered.error || rendered.status !== 0) {
+    throw new Error(
+      `\`docker compose config\` could not render the compose file, so it is unknown ` +
+        `whether ${subject} would be published on port ${port} ` +
+        `(${(rendered.stderr ?? "").trim() || "no output"}).`,
+    );
+  }
+  const check = composePublishesHostPort(rendered.stdout ?? "", service, port);
+  if (!check.published) {
+    throw new Error(
+      `${subject} is meant to be reachable on port ${port}, but ${check.reason}. ` +
+        `The compose file and the URL this suite probes have to name the same port; ` +
+        `move the URL (E2E_WEB_SERVICE_URL / E2E_API_URL) or the compose mapping, ` +
+        `and this check will pass.`,
+    );
+  }
 }
 
 /**
