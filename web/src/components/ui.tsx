@@ -230,11 +230,16 @@ export async function ErrorPanel({ error, title }: { error: unknown; title?: str
 /**
  * A `<time>` element for a timestamp.
  *
- * A `title` attribute carrying the absolute value on hover is not polish: the
- * relative label in most of these screens is computed at render time on the
- * server, so a page left open for ten minutes shows a "3 minutes ago" that has
- * not moved. The machine-readable `dateTime` is what makes the row copyable
- * into a bug report without an operator retyping it from the local rendering.
+ * A `title` attribute carrying the absolute value on hover is not polish. Two
+ * of the six screens render a relative label -- the Dashboard's recent-runs
+ * table and the approval card -- and that label is computed at render time on
+ * the server, so a page left open for ten minutes shows a "3 minutes ago" that
+ * has not moved. On the Dashboard's cell the `title` is the only place the
+ * absolute value appears at all; on the approval card the absolute time is
+ * already on screen and the attribute repeats it.
+ *
+ * The machine-readable `dateTime` is what makes the row copyable into a bug
+ * report without an operator retyping it from the local rendering.
  */
 export function Time({ value, children }: { value: string; children: ReactNode }) {
   return (

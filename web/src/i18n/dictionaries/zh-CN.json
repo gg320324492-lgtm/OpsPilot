@@ -32,7 +32,7 @@
     "unreachable": "无法连接到 API",
     "tokenHelp_before": "面板在服务端读取",
     "tokenHelp_middle": "，且绝不会将其发送到浏览器。请将它设置在",
-    "tokenHelp_after": " 中，取值与 API 进程启动时的值一致，然后重启开发服务器。",
+    "tokenHelp_after": "中，取值与 API 进程启动时的值一致，然后重启开发服务器。",
     "envFile": "web/.env.local"
   },
   "format": {

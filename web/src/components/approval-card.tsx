@@ -42,9 +42,14 @@
  *
  * `t` renders this file, and `copy` + `locale` are handed to the one Client
  * Component below it (`DecisionActions`). Both are typed against the English
- * catalogue. The `arguments_snapshot` heading, the `tool_call_id` label and the
- * tool name are **not** in the catalogue: they are a contract field name, a
- * field name and a tool identifier, and an operator greps for all three.
+ * catalogue.
+ *
+ * The `arguments_snapshot` heading and the `tool_call_id` label **are** in the
+ * catalogue -- they are `approvalCard.argumentsLabel` and
+ * `approvalCard.toolCallIdLabel` -- but what the catalogue holds for them is
+ * the contract's own field name, identical in every locale, because an
+ * operator greps the API schema for exactly those strings. The tool name is
+ * not in the catalogue at all: it comes off the wire and is rendered verbatim.
  */
 
 import Link from "next/link";

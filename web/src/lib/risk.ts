@@ -164,7 +164,7 @@ function isPermission(value: string | null | undefined): value is Permission {
  *
  * `t` is required rather than optional for the reason `formatRelative` gives: an
  * optional translator here would be silently defaulted by a caller that forgot
- * it, which is the one way an English sentence reaches a Chinese page. All three
+ * it, which is the one way an English sentence reaches a Chinese page. Both
  * callers are Server Components that have already resolved the locale.
  */
 export function riskProvenance(source: RiskSource, t: TFunction): string {

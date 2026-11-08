@@ -71,7 +71,7 @@ export function approvalStatusLabel(value: string, t: TFunction): string {
   return labelFor("approval", value, t);
 }
 
-/** `executed` / `awaiting_approval`, in this locale. */
+/** `proposed` / `rejected` / `awaiting_approval` / `executed` / `failed`, in this locale. */
 export function toolCallStatusLabel(value: string, t: TFunction): string {
   return labelFor("toolCall", value, t);
 }

@@ -314,9 +314,14 @@ export async function loadRunDetail(runId: string): Promise<{
  * operator approve both, believing they were two real proposals -- so the
  * group carries the count and an explanation instead.
  *
- * Only *pending* rows are grouped. Once one is decided the pair is history, and
- * a decided card beside a pending one is a normal state that needs no
- * explanation.
+ * Only the rows the filter returned are grouped. With the default `pending`
+ * filter those are pending rows; with `?status=approved` they are decided ones,
+ * and the grouping is the same either way -- two decided rows on one run are
+ * grouped too. What keeps a decided pair from being *explained* is the card,
+ * not this function: `components/approval-card.tsx` shows the duplicate notice
+ * only while both cards are pending, because a decided pair is history and a
+ * notice explaining a replay on it would be describing a state nobody can act
+ * on any more.
  */
 export async function loadApprovals(status: ApprovalStatus = "pending") {
   const loaded = await load<ApprovalList>(async () =>

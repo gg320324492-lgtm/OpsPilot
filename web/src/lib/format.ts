@@ -104,17 +104,17 @@ export function formatClock(value: string | null | undefined): string {
 /**
  * How long ago something happened, in words.
  *
- * Used only where the absolute time is *also* on screen. A relative time alone
- * is the classic dashboard lie: "3 minutes ago" on a page that has been open
- * for ten is wrong and reads as live, so every use here sits beside
- * `formatTimestamp`'s output rather than replacing it.
+ * **Two call sites, and only one puts the absolute time on screen beside this
+ * one.** The approval card renders `07:49:41 (5 minutes ago)`; the Dashboard's
+ * recent-runs table renders `5 minutes ago` alone -- and a relative time with
+ * no absolute value reachable at all is the classic dashboard lie, which is
+ * why that cell's `Time` element carries the absolute value in `title`.
  *
  * `t` is required rather than optional. An optional translator here would be
  * silently defaulted by every call site that forgot it, which is the one way an
  * English string reaches a Chinese page; making it a parameter means the
  * compiler names every caller that has to decide. It is a Server-Component-only
- * helper for exactly that reason -- a Client Component cannot read the cookie
- * the locale lives in.
+ * helper -- a Client Component cannot read the cookie the locale lives in.
  */
 export function formatRelative(
   value: string | null | undefined,
