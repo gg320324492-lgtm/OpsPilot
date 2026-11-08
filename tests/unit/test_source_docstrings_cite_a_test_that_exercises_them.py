@@ -59,6 +59,13 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE_ROOTS = (
     REPO_ROOT / "src" / "opspilot" / "api",
     REPO_ROOT / "src" / "opspilot" / "agents",
+    REPO_ROOT / "src" / "opspilot" / "evals",
+    REPO_ROOT / "src" / "opspilot" / "worker",
+    REPO_ROOT / "src" / "opspilot" / "adapters",
+    REPO_ROOT / "src" / "opspilot" / "domain",
+    REPO_ROOT / "src" / "opspilot" / "ports",
+    REPO_ROOT / "src" / "opspilot" / "tracing",
+    REPO_ROOT / "mcp_servers",
 )
 
 #: A ``tests/...py`` path inside backticks.
@@ -149,12 +156,21 @@ def test_a_cited_test_file_actually_exercises_the_symbol_it_is_cited_for() -> No
     against a real recorded step by ``tests/...``" where the named file asserts
     something else entirely. The cited file must contain the documented
     symbol's name, or the pointer is pointing at the wrong evidence.
+
+    **A private symbol is exempt.** A test does not call ``_render_report``; it
+    calls the CLI and asserts what the CLI prints, so the private name never
+    appears in the test file -- and the citation is perfectly good. The rule
+    is therefore about symbols a test *could* name, which is to say the public
+    ones. For a private symbol the only check that means anything is that the
+    file exists.
     """
     wrong: list[str] = []
     for path, symbol, docstring, _citations in _documented_symbols():
         for citation, sentence in _evidence_citations(docstring):
             target = REPO_ROOT / citation
             if not target.is_file():
+                continue
+            if symbol.startswith("_"):
                 continue
             if symbol in target.read_text(encoding="utf-8"):
                 continue
