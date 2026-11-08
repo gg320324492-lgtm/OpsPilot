@@ -119,6 +119,31 @@ async def test_the_explanation_describes_the_refund_the_server_actually_makes(
     which one the server will use, and the refund the server performs must be
     in the transaction's own currency.
     """
+    # The lists below are the substance of the check, so they are checked first:
+    # an empty tuple would make every "names no currency" loop run zero times,
+    # and the defect this file exists for -- an approver shown "This moves EUR
+    # 129.00" over a refund that moves dollars -- would come back without a
+    # single test going red.
+    assert _CURRENCY_CODES, (
+        "the list of currency codes the explanation must not name is empty; "
+        "the check below would run zero times and pass whatever the "
+        "explanation said"
+    )
+    assert _CURRENCY_SYMBOLS, (
+        "the list of currency symbols the explanation must not carry is empty; "
+        "the check below would run zero times and pass whatever the "
+        "explanation said"
+    )
+    assert set(_CURRENCY_CODES) == {"USD", "EUR", "GBP", "JPY"}, (
+        f"the forbidden currency codes are {sorted(_CURRENCY_CODES)}, not the "
+        "four the explanation used to render. One of them has dropped out, and "
+        "that currency could be named in front of an approver again."
+    )
+    assert set(_CURRENCY_SYMBOLS) == {"$", "€", "£", "¥"}, (
+        f"the forbidden currency symbols are {sorted(_CURRENCY_SYMBOLS)}, not "
+        "the four signs those codes render as."
+    )
+
     proposal: dict[str, object] = {
         "transaction_id": _TRANSACTION,
         "amount": _AMOUNT,

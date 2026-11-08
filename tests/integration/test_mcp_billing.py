@@ -115,6 +115,26 @@ def test_list_transactions_makes_no_duplicate_judgement(store: Store) -> None:
     nested field or a top-level verdict cannot sneak the judgement in. A tool
     that pre-decides the question makes the agent's reasoning untestable.
     """
+    # The marker list is the substance of this check: an empty tuple would make
+    # the loop below run zero times and the guard would read green while
+    # looking for nothing.
+    assert _JUDGEMENT_MARKERS, (
+        "no judgement marker is listed. The loop below would run zero times, "
+        "and 'the server never says which rows are duplicates' would be "
+        "checked against no markers at all."
+    )
+    assert set(_JUDGEMENT_MARKERS) == {
+        "duplicate",
+        "is_dup",
+        "dup_of",
+        "suspected",
+        "anomaly",
+        "suspicious",
+    }, (
+        f"the judgement markers are {sorted(_JUDGEMENT_MARKERS)}, not the six "
+        "the contract forbids. One of them has dropped out, and that word "
+        "could appear in the response again."
+    )
     out = _call(store, "billing.list_transactions", {"invoice_id": "INV-2026-384"})
     serialised = json.dumps(out).lower()
     for marker in _JUDGEMENT_MARKERS:

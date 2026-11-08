@@ -99,6 +99,21 @@ def _sqlite_claims() -> dict[str, bool]:
     sentence, not a break in the sentence.
     """
     claims: dict[str, bool] = {}
+    assert _SQLITE_CLAIM_DOCUMENTS, (
+        "no document is listed as carrying the SQLite in-memory claim. The "
+        "loop below would read no document at all, and every check built on "
+        "this -- 'the documents say in-memory' and 'the code hands SQLite an "
+        "in-memory store' -- would agree with each other about nothing."
+    )
+    assert set(_SQLITE_CLAIM_DOCUMENTS) == {
+        "docs/limitations.md",
+        ".env.example",
+        "docs/adr/0004-sqlite-tests-postgres-production.md",
+    }, (
+        f"the claim-carrying documents are {sorted(_SQLITE_CLAIM_DOCUMENTS)}, "
+        "not the three an operator meets. One of them has dropped out, and "
+        "nothing would check whether it still carries the claim."
+    )
     for relpath in _SQLITE_CLAIM_DOCUMENTS:
         path = REPO_ROOT / relpath
         assert path.is_file(), (

@@ -436,6 +436,20 @@ def test_the_per_process_settings_keep_a_blank_fallback() -> None:
     line in ``.env`` arrives as ``""`` too, which is the same value -- so blank
     is the shipped behaviour, not a degraded one.
     """
+    assert _MUST_BE_BLANK, (
+        "no variable is listed as per-process. The loop below would run zero "
+        "times, and the rule it checks -- a setting compose cannot compute "
+        "keeps a blank fallback -- would be enforced against nothing."
+    )
+    assert set(_MUST_BE_BLANK) == {
+        "MCP_CRM_COMMAND",
+        "MCP_BILLING_COMMAND",
+        "MCP_ISSUES_COMMAND",
+    }, (
+        f"the per-process settings are {sorted(_MUST_BE_BLANK)}, not the three "
+        "MCP_*_COMMAND variables. One of them has dropped out of the list, and "
+        "its fallback would no longer be required to stay blank."
+    )
     for service, values in _compose_environments().items():
         for variable in _MUST_BE_BLANK:
             rendered = values.get(variable)

@@ -185,6 +185,30 @@ async def test_a_tool_with_an_error_object_also_declares_a_top_level_code(
     )
 
 
+def test_there_is_a_refusal_for_every_server(tmp_path: Path) -> None:
+    """The list names a refusal for every server the runtime dispatches to.
+
+    ``_REFUSALS`` is the whole of the second claim in the module docstring --
+    "a refusal from each of the three servers arrives as a failure" -- and a
+    list that named no server would make the test below report nothing at all
+    while reading green. So the list is checked against the servers that
+    actually exist, rather than against a hand-written list of their names.
+    """
+    assert _REFUSALS, (
+        "no refusal is listed. The refusal test below is parameterised over "
+        "this list, so an empty list would skip it entirely and the "
+        "'a refusal from each server arrives as a failure' claim would be "
+        "checked against nothing."
+    )
+    named = {server_name for server_name, _tool, _arguments, _code in _REFUSALS}
+    served = set(build_in_process_servers(tmp_path))
+    assert named == served, (
+        f"the refusals are listed for {sorted(named)} but the runtime "
+        f"dispatches to {sorted(served)}. A server with no refusal listed has "
+        "no proof that its refusals survive the trip to the runtime."
+    )
+
+
 @pytest.mark.parametrize(("server_name", "tool", "arguments", "expected_code"), _REFUSALS)
 async def test_a_refusal_from_each_server_arrives_as_a_failure(
     gateway: MCPToolGateway,

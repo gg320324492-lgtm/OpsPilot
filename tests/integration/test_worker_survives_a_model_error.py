@@ -143,6 +143,35 @@ WEB_UNREACHABLE = [
 ]
 
 
+def test_the_unreachable_model_cases_are_the_ones_the_file_needs() -> None:
+    """Both provider SDKs' connection and timeout failures are all here.
+
+    A parametrised test over an empty list is *skipped* by pytest, not
+    failed. So an empty list would turn both tests below into skips, and
+    "the worker survives a model error" would become a claim about nothing --
+    which is the shape of the defect this file exists to prevent. The list is
+    pinned as well as checked for emptiness, because a case that quietly
+    dropped out would leave one SDK's failure mode untested.
+    """
+    assert WEB_UNREACHABLE, (
+        "no unreachable-model case is listed. Both tests below are "
+        "parameterised over this list, so an empty list would skip them "
+        "entirely and the worker's survival would be checked against "
+        "nothing."
+    )
+    pairs = {tuple(param.values) for param in WEB_UNREACHABLE}
+    assert pairs == {
+        ("anthropic", "APIConnectionError"),
+        ("openai", "APIConnectionError"),
+        ("anthropic", "APITimeoutError"),
+        ("openai", "APITimeoutError"),
+    }, (
+        f"the unreachable-model cases are {sorted(pairs)}, not both SDKs' "
+        "connection and timeout failures. One of them has dropped out, and "
+        "that failure mode would no longer be tested."
+    )
+
+
 class RaisingProvider:
     """A provider whose every call raises the same provider-SDK exception."""
 

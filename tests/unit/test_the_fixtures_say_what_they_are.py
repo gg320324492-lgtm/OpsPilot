@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+from typing import Any, cast
 
 from opspilot.adapters.models.fake import hash_request
 
@@ -80,7 +81,7 @@ def test_the_recorded_flag_agrees_with_the_request_hashes() -> None:
     """A recording carries hashes; a hand-written one does not."""
     for fixture in _fixtures():
         name = fixture["_path"]
-        calls = fixture.get("calls") or []
+        calls = cast("list[dict[str, Any]]", fixture.get("calls") or [])
         assert calls, f"{name} has no calls"
 
         hashes = [call.get("request_hash") for call in calls]
@@ -107,7 +108,7 @@ def test_a_recording_carries_the_hash_the_provider_would_compute() -> None:
         if fixture["recorded"] is not True:
             continue
         name = fixture["_path"]
-        for index, call in enumerate(fixture.get("calls") or []):
+        for index, call in enumerate(cast("list[dict[str, Any]]", fixture.get("calls") or [])):
             request = call.get("request") or {}
             expected = hash_request(str(request.get("system", "")), str(request.get("prompt", "")))
             assert call.get("request_hash") == expected, (

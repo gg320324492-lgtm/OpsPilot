@@ -147,8 +147,7 @@ def test_the_phase2_port_citations_point_at_the_ports() -> None:
     row = _row(_text(PHASE2), "A1")
     cited = [int(number) for number in re.findall(r":(\d+)", row)]
     assert len(cited) == 3, (
-        f"the A1 row cites {len(cited)} compose lines ({cited}); it names three "
-        "ports"
+        f"the A1 row cites {len(cited)} compose lines ({cited}); it names three ports"
     )
 
     lines = _text(COMPOSE).splitlines()
@@ -164,8 +163,7 @@ def test_the_phase2_port_citations_point_at_the_ports() -> None:
         ports.append(match.group(1))
 
     assert sorted(ports) == ["3000", "5432", "8000"], (
-        f"the cited lines publish {sorted(ports)}; the plan names 5432, 8000 "
-        "and 3000"
+        f"the cited lines publish {sorted(ports)}; the plan names 5432, 8000 and 3000"
     )
 
     # And the three loopback bindings really are the only published ports.
@@ -213,8 +211,7 @@ def test_the_phase2_holdout_counts_are_current() -> None:
             capture_output=True,
             text=True,
             check=True,
-        )
-        .stdout.split()
+        ).stdout.split()
     )
     digit = {word: number for number, word in WORDS.items()}.get(tracked.group(1))
     assert digit is not None, (
@@ -222,8 +219,7 @@ def test_the_phase2_holdout_counts_are_current() -> None:
         "number this file can read"
     )
     assert actual_tracked == digit, (
-        f"evals/results/ now has {actual_tracked} tracked files; the B4 row "
-        f"says {tracked.group(1)}"
+        f"evals/results/ now has {actual_tracked} tracked files; the B4 row says {tracked.group(1)}"
     )
 
 
@@ -236,8 +232,7 @@ def test_no_result_file_touches_the_holdout() -> None:
     for entry in EVAL_RESULTS.glob("*.json"):
         text = entry.read_text(encoding="utf-8")
         assert "tool_selection_holdout" not in text, (
-            f"{entry.name} now scores the holdout; the B4 row says the holdout "
-            "has never been run"
+            f"{entry.name} now scores the holdout; the B4 row says the holdout has never been run"
         )
 
 
@@ -253,9 +248,7 @@ def test_the_documented_catalogue_sizes_are_current() -> None:
 
     phase2 = _text(PHASE2)
     quoted = re.search(r"`en` \((\d+) string leaves\) and `zh-CN` \((\d+)\)", phase2)
-    assert quoted is not None, (
-        "the phase2-plan no longer states the two catalogues' leaf counts"
-    )
+    assert quoted is not None, "the phase2-plan no longer states the two catalogues' leaf counts"
     assert _leaves(english) == int(quoted.group(1)), (
         f"the English catalogue now holds {_leaves(english)} string leaves; the "
         f"plan says {quoted.group(1)}"
@@ -293,8 +286,7 @@ def test_the_documented_i18n_e2e_case_count_is_current() -> None:
     for spec in I18N_SPECS:
         actual += len(re.findall(r'^\s*test\(\s*"', _text(spec), re.M))
     assert actual == int(quoted.group(1)), (
-        f"the two i18n specs now hold {actual} test cases; limitations.md says "
-        f"{quoted.group(1)}"
+        f"the two i18n specs now hold {actual} test cases; limitations.md says {quoted.group(1)}"
     )
 
 
@@ -334,16 +326,13 @@ def test_the_case_study_scenario_counts_are_current() -> None:
     ]
 
     text = _text(CASE_STUDY)
-    quoted = re.search(
-        r"\*\*(\w+) of the (\w+) tests\*\*", text
-    )
+    quoted = re.search(r"\*\*(\w+) of the (\w+) tests\*\*", text)
     assert quoted is not None, (
         "the case study no longer says how many of the scenario tests assert "
         "against the billing server"
     )
     assert quoted.group(2).lower() == WORDS[len(tests)], (
-        f"the scenario file now holds {len(tests)} tests; the case study says "
-        f"{quoted.group(2)}"
+        f"the scenario file now holds {len(tests)} tests; the case study says {quoted.group(2)}"
     )
     assert quoted.group(1).lower() == WORDS[len(against_server)], (
         f"{len(against_server)} of the scenario tests now assert against the "
@@ -351,10 +340,7 @@ def test_the_case_study_scenario_counts_are_current() -> None:
     )
 
     whole = re.search(r"— (\w+) tests, one file", text)
-    assert whole is not None, (
-        "the case study no longer says how many tests the scenario file holds"
-    )
+    assert whole is not None, "the case study no longer says how many tests the scenario file holds"
     assert whole.group(1).lower() == WORDS[len(tests)], (
-        f"the scenario file now holds {len(tests)} tests; the case study says "
-        f"{whole.group(1)}"
+        f"the scenario file now holds {len(tests)} tests; the case study says {whole.group(1)}"
     )

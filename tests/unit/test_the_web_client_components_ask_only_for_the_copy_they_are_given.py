@@ -183,8 +183,7 @@ def _is_client_component(path: pathlib.Path) -> bool:
 def _sections_of(source: str) -> list[set[str]]:
     """The catalogue sections named by each ``Pick<typeof en, ...>`` type."""
     return [
-        set(_SECTION_NAME.findall(match.group("sections")))
-        for match in _COPY_PICK.finditer(source)
+        set(_SECTION_NAME.findall(match.group("sections"))) for match in _COPY_PICK.finditer(source)
     ]
 
 
@@ -290,9 +289,7 @@ class _Demand:
         self._cache[path] = demands
         return demands
 
-    def _demand_of_imports(
-        self, path: pathlib.Path, source: str, body: str
-    ) -> set[str]:
+    def _demand_of_imports(self, path: pathlib.Path, source: str, body: str) -> set[str]:
         """The sections the imported functions this body calls need."""
         needed: set[str] = set()
         called = _called_names(body)
@@ -361,8 +358,7 @@ def test_a_client_component_only_asks_for_the_catalogue_it_was_handed() -> None:
                 )
 
     assert not problems, (
-        "these Client Components look up catalogue sections they were not "
-        f"handed: {problems}"
+        f"these Client Components look up catalogue sections they were not handed: {problems}"
     )
 
 
@@ -378,9 +374,7 @@ def test_the_only_catalogue_reading_helper_in_the_shared_format_module_is_server
     """
     module = WEB_SRC / "lib" / "format.ts"
     source = _strip_comments(module.read_text(encoding="utf-8"))
-    readers = [
-        name for name, body in _function_bodies(source).items() if _t_keys(body)
-    ]
+    readers = [name for name, body in _function_bodies(source).items() if _t_keys(body)]
 
     assert readers == ["formatRelative"], (
         "web/src/lib/format.ts exports "
@@ -404,7 +398,7 @@ def test_the_only_catalogue_reading_helper_in_the_shared_format_module_is_server
     )
 
 
-def _catalogue_leaves(node: dict, prefix: str = "") -> dict[str, str]:
+def _catalogue_leaves(node: dict[str, object], prefix: str = "") -> dict[str, str]:
     """Every string in a catalogue, plural forms included, by full path."""
     leaves: dict[str, str] = {}
     for key, value in node.items():

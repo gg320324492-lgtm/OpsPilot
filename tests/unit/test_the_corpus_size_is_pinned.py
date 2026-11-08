@@ -2,11 +2,12 @@
 
 ## Why this file exists
 
-The corpus's size is quoted in **eleven** places: the README's figures table,
-the data model, the limitations, the architecture notes, the installer's
-walk-through, and its Chinese translation. It is also on the screenshot the
-README points at, and in the installer's list of literals -- the things a
-verifier compares against their screen, character for character.
+The corpus's size is quoted in **fifteen** places: the README (seven, one of
+them in its architecture diagram), the data model, the limitations, the
+installer's walk-through (three, one of them in its verifier's checklist) and
+its Chinese translation (three). It is also on the screenshot the README
+points at, and in the installer's list of literals -- the things a verifier
+compares against their screen, character for character.
 
 So a change to the corpus that moves the chunk count silently invalidates a
 screenshot and a list of literals, and nothing notices, because no test
@@ -54,16 +55,33 @@ EXPECTED_CHUNKS = 98
 
 #: The documents that quote the size, and where in them. The progress log is
 #: **not** in this list: it is an append-only record of what a run reported at
-#: the time, and rewriting it would be rewriting history.
+#: the time, and rewriting it would be rewriting history. Neither is
+#: ``docs/milestones.md``, whose acceptance-criteria outcome is the same kind
+#: of record.
 _QUOTING: tuple[tuple[str, str], ...] = (
     ("README.md", "17 policy documents → 98 chunks"),
     ("README.md", "17 documents → 98 chunks"),
     ("README.md", "17 documents seen, 17 indexed, 98 chunks written"),
+    ("README.md", "17 documents, 98 chunks"),
     ("README.md", "17 policy documents (98 chunks)"),
+    ("README.md", "17 seen · 17 indexed ·"),
     ("docs/data-model.md", "17 documents and 98 chunks"),
     ("docs/limitations.md", "17 documents, 98"),
     ("docs/installer-verification.md", "98 chunks"),
+    ("docs/installer-verification.md", "17/17/98"),
     ("docs/installer-verification.zh-CN.md", "98 chunks"),
+    ("docs/installer-verification.zh-CN.md", "17/17/98"),
+)
+
+#: Places that quote only the **document** count. The rule above wants both
+#: numbers near a quote, and a diagram has no room for the chunk count -- so
+#: these are a separate list, checked with the same "the phrase must still be
+#: there" rule and nothing more. They are separate because a place that states
+#: one of the two numbers is a place the other rule cannot judge, and folding
+#: it in would either weaken the rule for everybody or exempt it by name.
+_DOCUMENT_COUNT_ONLY: tuple[tuple[str, str], ...] = (
+    # The README's architecture diagram: "17 documents" beside "pgvector".
+    ("README.md", "17 documents             │"),
 )
 
 
@@ -102,6 +120,24 @@ def test_the_corpus_is_the_size_the_documents_say() -> None:
 def test_every_document_that_quotes_the_size_quotes_the_measured_one() -> None:
     """The number in the prose is the number the corpus has."""
     _documents, chunks = _corpus_size()
+    # The list is the substance of this test: an empty one would make the
+    # loop below run zero times and the guard would read green while reading
+    # no document at all.
+    assert _QUOTING, (
+        "no document is listed as quoting the corpus size. The loop below "
+        "would run zero times, and 'every document that quotes the size "
+        "quotes the measured one' would be true of no documents."
+    )
+    # The count is pinned as well as the emptiness, because a list that had
+    # quietly *lost* a place would check the remaining ones and read green:
+    # the quote it no longer covers would go stale with nothing to say so.
+    # Two of the entries cover two places each, so twelve entries are
+    # fourteen places; the diagram is the fifteenth and is listed separately.
+    assert len(_QUOTING) == 12, (
+        f"{len(_QUOTING)} places are listed as quoting the corpus size, not "
+        "the twelve this file covers. One of them has dropped out, and that "
+        "quote would no longer be checked."
+    )
     wrong: list[str] = []
     for relative, phrase in _QUOTING:
         path = REPO_ROOT / relative
@@ -122,6 +158,45 @@ def test_every_document_that_quotes_the_size_quotes_the_measured_one() -> None:
         "these documents quote a corpus size that is not the measured one:\n  "
         + "\n  ".join(wrong)
         + f"\n\nThe corpus currently splits into {chunks} chunks."
+    )
+
+
+def test_every_place_that_quotes_the_document_count_quotes_the_measured_one() -> None:
+    """A place that states only the document count still states the right one.
+
+    The README's architecture diagram says ``17 documents`` beside
+    ``pgvector`` and has no room for the chunk count, so the rule above --
+    which wants both numbers near a quote -- cannot judge it. But it is still
+    a place the corpus's size is written down, and a corpus that grew would
+    leave it stale with nothing to say so.
+
+    So it is checked with the same "the phrase must still be there" rule and
+    nothing more, in its own list: a place that states one of the two numbers
+    is a place the other rule cannot judge, and folding it in would either
+    weaken the rule for everybody or exempt it by name.
+    """
+    _documents, documents = _corpus_size()
+    assert _DOCUMENT_COUNT_ONLY, (
+        "no place is listed as quoting the document count alone. The loop "
+        "below would run zero times, and a diagram that kept a stale count "
+        "would go unnoticed."
+    )
+    assert len(_DOCUMENT_COUNT_ONLY) == 1, (
+        f"{len(_DOCUMENT_COUNT_ONLY)} places are listed as quoting the "
+        "document count alone, not the one this file knows about."
+    )
+    wrong: list[str] = []
+    for relative, phrase in _DOCUMENT_COUNT_ONLY:
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        if phrase not in text:
+            wrong.append(
+                f"{relative}: no longer says {phrase!r} -- either the corpus "
+                f"now holds {documents} documents, or the diagram was redrawn"
+            )
+    assert not wrong, (
+        "these places quote a document count that is not the measured one:\n  "
+        + "\n  ".join(wrong)
+        + f"\n\nThe corpus currently holds {documents} documents."
     )
 
 

@@ -127,8 +127,7 @@ def _class_fields(path: pathlib.Path, class_name: str) -> set[str]:
             return {
                 statement.target.id
                 for statement in node.body
-                if isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
+                if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
             }
     raise AssertionError(f"{path.name} has no class {class_name!r}")
 
@@ -200,9 +199,8 @@ def test_item_2_the_lease_is_what_a_live_claim_holds() -> None:
         "tests/integration/test_worker_claim_lease.py is gone; §8 item 2 "
         "names it as the SQLite half of the lease."
     )
-    assert (
-        "test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode"
-        in lease_test.read_text(encoding="utf-8")
+    assert "test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode" in lease_test.read_text(
+        encoding="utf-8"
     ), (
         "the test that asserts a lapsed lease makes the run claimable again is "
         "gone; §8 item 2 says that case is asserted rather than assumed."

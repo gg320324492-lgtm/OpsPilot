@@ -64,7 +64,7 @@ the outcome of a stub is a pass.
 
 ## What is deliberately exempt
 
-``KNOWN_M0_SKELETONS`` names the three M0 placeholders, each carrying
+``KNOWN_M0_SKELETONS`` names the M0 placeholders, each carrying
 ``@pytest.mark.skip(reason="M0 skeleton -- implemented in Mx")`` with the milestone
 recorded in its own module docstring. They are listed here rather than ignored so the
 decision is recorded and dated, the way ``test_mypy_configuration_is_enforced.py``
@@ -73,6 +73,17 @@ The exemption is not permanent:
 ``test_the_m0_skeleton_allowlist_still_shields_something`` goes red the moment an
 entry stops naming a stub, so a milestone that lands has to delete its entry rather
 than leave a hole in this guard behind it.
+
+**The list is empty.** The M8 and M2 placeholders it used to name have both been
+written -- ``tests/evals/test_harness.py`` now runs the real harness on the fake
+provider and compares the table it computes with the one ``docs/evals.md`` §4
+prints, and ``tests/integration/test_refund_idempotency.py`` now drives the
+billing server over a real MCP connection -- so there is nothing left to excuse.
+An empty allowlist is the strongest state of this guard rather than a hole in it:
+every marked test in the tree has a body that can fail, and
+``test_the_m0_skeleton_allowlist_still_shields_something`` asserts that the
+allowlist is *exactly* the set of marked stubs, so a new stub has to be listed or
+it fails.
 
 ## What this file does not do
 
@@ -113,20 +124,34 @@ REPO_ROOT = TESTS_ROOT.parent
 #: entry here is a debt with a milestone number on it: when M2, M4 or M8 lands the
 #: body becomes real, and ``test_the_m0_skeleton_allowlist_still_shields_something``
 #: fails until the entry is deleted.
-KNOWN_M0_SKELETONS: dict[str, str] = {
-    # "Placeholder: the eval harness runs end to end on the fake provider. M8."
-    "tests/evals/test_harness.py::test_fake_provider_run_produces_a_metric_table": "M8",
-    # "Placeholder: direct MCP idempotency test, no agent. Populated in M2."
-    "tests/integration/test_refund_idempotency.py"
-    "::test_same_idempotency_key_twice_produces_one_refund": "M2",
-    # The M4 entry -- "tests/unit/test_schemas.py::test_issue_refund_without_
-    # idempotency_key_fails_validation" -- is gone, and it was right to go. The
-    # stub it named was skipped through M4, M5, M6 and M7, and its *name*
-    # stated the opposite of the behaviour: a refund without an
-    # ``idempotency_key`` validates, because the key is derived by the policy
-    # engine and added at dispatch, never supplied by the model. The file now
-    # holds two real tests for that, and neither is marked.
-}
+#:
+#: **It is empty, and that is the honest state.** Both entries it used to hold
+#: were closed rather than carried:
+#:
+#: * ``tests/evals/test_harness.py::test_fake_provider_run_produces_a_metric_table``
+#:   -- "M0 skeleton -- implemented in M8". M8 landed: the harness runs the real
+#:   ``runner.run_dataset`` and the real ``metrics.summarize`` over the committed
+#:   datasets on the fake provider, and the table it produces is compared with the
+#:   one ``docs/evals.md`` §4 prints.
+#: * ``tests/integration/test_refund_idempotency.py::test_same_idempotency_key_
+#:   twice_produces_one_refund`` -- "M0 skeleton -- implemented in M2". M2 landed:
+#:   the billing server is started as a real child process and the refund is
+#:   called twice over the MCP connection.
+#:
+#: The M4 entry -- "tests/unit/test_schemas.py::test_issue_refund_without_
+#: idempotency_key_fails_validation" -- was gone earlier, and it was right to go:
+#: the stub it named was skipped through M4, M5, M6 and M7, and its *name* stated
+#: the opposite of the behaviour: a refund without an ``idempotency_key``
+#: validates, because the key is derived by the policy engine and added at
+#: dispatch, never supplied by the model. The file now holds two real tests for
+#: that, and neither is marked.
+#:
+#: An empty allowlist is not a hole in this guard -- it is the strongest state
+#: of it. ``test_the_m0_skeleton_allowlist_still_shields_something`` asserts
+#: that the allowlist is *exactly* the set of marked stubs in the tree, so an
+#: empty list means there are no marked stubs to excuse, and a new one has to be
+#: listed or it fails.
+KNOWN_M0_SKELETONS: dict[str, str] = {}
 
 #: Bodies that cannot fail, as ``(shape, source)`` pairs parsed in memory. The sweep
 #: is only as good as the classifier it runs, so the classifier is pinned against
@@ -403,6 +428,43 @@ def test_the_m0_skeleton_allowlist_still_shields_something() -> None:
             )
 
     assert not problems, "the M0 skeleton allowlist is stale:\n  " + "\n  ".join(problems)
+
+    # The allowlist is *exactly* the set of marked stubs in the tree -- no more
+    # and no less. This is the assertion that keeps the check above from being
+    # vacuous: a loop over an empty list proves nothing, because it never runs.
+    # The allowlist is empty today (both M0 placeholders have been written), so
+    # the number it would have checked is asserted instead of the loop's
+    # outcome: zero marked stubs, and an empty allowlist to excuse them.
+    stubs = {test.key for test in marked.values() if _why_it_cannot_fail(test.body) is not None}
+    listed = set(KNOWN_M0_SKELETONS)
+    assert listed == stubs, (
+        "the M0 skeleton allowlist and the marked stubs in the tree disagree.\n"
+        f"  listed but not a stub: {sorted(listed - stubs)}\n"
+        f"  a stub but not listed: {sorted(stubs - listed)}\n"
+        "A marked test whose body cannot fail has to be listed here, or it "
+        "fails test_no_marked_test_is_a_stub; a listed entry that is no longer "
+        "a stub shields nothing and has to go."
+    )
+
+
+def test_the_classifier_is_pinned_against_a_non_empty_set_of_shapes() -> None:
+    """Neither shape list is empty.
+
+    A parametrised test over an empty list is *skipped* by pytest, not
+    failed. So emptying either list would silently unpin the classifier --
+    and a classifier that returned ``None`` for every body would then make
+    ``test_no_marked_test_is_a_stub`` pass on a tree of stubs, which is the
+    exact defect this file exists to hunt.
+    """
+    assert REFUSED_SHAPES, (
+        "no refused shape is listed, so the classifier is pinned against "
+        "nothing and test_the_detector_refuses_every_stub_shape_it_names is "
+        "skipped rather than run"
+    )
+    assert ALLOWED_SHAPES, (
+        "no allowed shape is listed, so the other half of the classifier -- "
+        "the environment gate ADR-0004 requires -- is pinned against nothing"
+    )
 
 
 @pytest.mark.parametrize(

@@ -72,6 +72,16 @@ def _declared_dependencies() -> set[str]:
 
 def _imported_roots() -> dict[str, set[pathlib.Path]]:
     """Map each third-party top-level module name to where it is imported."""
+    assert SOURCE_ROOTS, (
+        "no source root is listed. The loop below would read nothing, and "
+        "'every imported package is declared' would be true of an empty set of "
+        "imports."
+    )
+    assert SOURCE_ROOTS == [REPO_ROOT / "src", REPO_ROOT / "mcp_servers"], (
+        f"the source roots are {SOURCE_ROOTS}, not the project's own two "
+        "trees. One of them has dropped out, and the packages imported there "
+        "would no longer be checked for being declared."
+    )
     stdlib = set(sys.stdlib_module_names)
     found: dict[str, set[pathlib.Path]] = {}
 

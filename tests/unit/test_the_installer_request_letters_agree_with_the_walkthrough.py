@@ -154,8 +154,7 @@ def test_the_free_disk_figure_agrees() -> None:
     gigabytes = match.group(1)
     for letter in (LETTER_EN, LETTER_ZH):
         assert f"{gigabytes} GB" in _text(letter), (
-            f"{letter.name} does not quote the walk-through's {gigabytes} GB "
-            "free-disk figure"
+            f"{letter.name} does not quote the walk-through's {gigabytes} GB free-disk figure"
         )
 
 
@@ -172,12 +171,10 @@ def test_the_first_launch_time_window_agrees() -> None:
     )
     low, high = match.groups()
     assert f"{low} to {high} minutes" in _text(LETTER_EN), (
-        f"the English letter does not quote the walk-through's {low}-{high} "
-        "minute window"
+        f"the English letter does not quote the walk-through's {low}-{high} minute window"
     )
     assert f"{low} 到 {high} 分钟" in _text(LETTER_ZH), (
-        f"the Chinese letter does not quote the walk-through's {low}-{high} "
-        "minute window"
+        f"the Chinese letter does not quote the walk-through's {low}-{high} minute window"
     )
 
 
@@ -212,9 +209,7 @@ def test_the_installer_file_name_agrees() -> None:
     """All three documents name the same installer file."""
     name = "OpsPilot-Setup-<version>-x64.exe"
     for document in (WALKTHROUGH, LETTER_EN, LETTER_ZH):
-        assert name in _text(document), (
-            f"{document.name} does not name the installer {name}"
-        )
+        assert name in _text(document), f"{document.name} does not name the installer {name}"
 
 
 def test_the_recording_format_agrees_and_neither_letter_names_a_file() -> None:
@@ -279,12 +274,8 @@ def test_the_windows_version_agrees() -> None:
         "the walk-through's 'what you need' table no longer states the Windows "
         "requirement; the letters still quote one"
     )
-    assert "10 or 11" in _text(LETTER_EN), (
-        "the English letter no longer says Windows 10 or 11"
-    )
-    assert "10 或 11" in _text(LETTER_ZH), (
-        "the Chinese letter no longer says Windows 10 or 11"
-    )
+    assert "10 or 11" in _text(LETTER_EN), "the English letter no longer says Windows 10 or 11"
+    assert "10 或 11" in _text(LETTER_ZH), "the Chinese letter no longer says Windows 10 or 11"
 
 
 def test_both_letters_tell_the_reader_not_to_paste_the_credential() -> None:
@@ -299,9 +290,7 @@ def test_both_letters_tell_the_reader_not_to_paste_the_credential() -> None:
         assert "operator token" in text, (
             f"{letter.name} no longer tells the reader not to paste the operator token"
         )
-        assert ".env" in text, (
-            f"{letter.name} no longer tells the reader not to paste a .env file"
-        )
+        assert ".env" in text, f"{letter.name} no longer tells the reader not to paste a .env file"
         assert "[redacted]" in text, (
             f"{letter.name} no longer says what to do if a line carries one"
         )
@@ -316,9 +305,7 @@ def test_the_screenshot_count_the_walkthrough_quotes_is_the_real_one() -> None:
     """
     recording = _section("Record the walk-through")
     match = re.search(r"The (\w+) screenshots in this repository", recording)
-    assert match is not None, (
-        "the walk-through no longer says how many screenshots it has"
-    )
+    assert match is not None, "the walk-through no longer says how many screenshots it has"
     words = {
         "ten": 10,
         "nine": 9,
@@ -333,6 +320,5 @@ def test_the_screenshot_count_the_walkthrough_quotes_is_the_real_one() -> None:
     assert word in words, f"the walk-through says '{word} screenshots', which is not a number"
     actual = len(list(SCREENSHOTS.glob("*.png")))
     assert actual == words[word], (
-        f"the walk-through says {word} ({words[word]}) screenshots; the "
-        f"repository has {actual}"
+        f"the walk-through says {word} ({words[word]}) screenshots; the repository has {actual}"
     )

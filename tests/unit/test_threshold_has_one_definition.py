@@ -179,6 +179,40 @@ def test_the_threshold_is_defined_once_in_the_source() -> None:
     )
 
 
+def test_the_resolvers_are_the_modules_this_file_claims_to_cover() -> None:
+    """The three modules named in the module docstring are the ones checked.
+
+    An empty ``_RESOLVERS`` would make the two parametrised tests below
+    *skip* rather than fail -- pytest reports an empty parameter set as a
+    skip -- and the loop in ``test_the_setting_is_what_the_helpers_return``
+    would run zero times. The file would then be green while checking
+    nothing, which is the state this file's own docstring says it exists to
+    prevent.
+
+    A list that had quietly lost a module would be worse in a quieter way:
+    that module's threshold would stop being guarded while this file still
+    claimed to cover it.
+    """
+    assert _RESOLVERS, (
+        "no resolver is listed. The two parametrised tests below would be "
+        "skipped rather than fail, and the loop in "
+        "test_the_setting_is_what_the_helpers_return would run zero times."
+    )
+    covered = {module_path for module_path, _helper in _RESOLVERS}
+    expected = {
+        "agents/runtime.py",
+        "worker/loop.py",
+        "adapters/retrieval/search.py",
+    }
+    assert covered == expected, (
+        f"the resolvers are {sorted(covered)}, but this file claims to cover "
+        f"{sorted(expected)}. A module that has dropped out of the list is a "
+        "module whose threshold is no longer guarded."
+    )
+    for module_path, _helper in _RESOLVERS:
+        assert (SRC / module_path).is_file(), f"{module_path} does not exist"
+
+
 def test_the_setting_is_what_the_helpers_return() -> None:
     """Every resolver returns the configured value, not a remembered one."""
     import importlib

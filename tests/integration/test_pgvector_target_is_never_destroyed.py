@@ -413,6 +413,22 @@ def test_neither_pgvector_test_can_reach_a_drop_all_of_its_own() -> None:
     would match the record of the fix rather than the fix.
     """
     problems: list[str] = []
+    # The list is the whole of this test: an empty one would make the loop
+    # below run zero times and the guard would read green while inspecting
+    # nothing. It is also checked against the two modules the file names in
+    # its own docstring, so a module cannot quietly drop out of the coverage.
+    assert COVERED_MODULES, (
+        "no module is listed as covered. The loop below would run zero times "
+        "and the guard would report that no postgres-marked test can reach a "
+        "drop_all -- without having looked at any of them."
+    )
+    covered = {path.relative_to(REPO_ROOT).as_posix() for path in COVERED_MODULES}
+    named = {DIFFERENTIAL_NODE.split("::")[0], CONTRACT_NODE.split("::")[0]}
+    assert covered == named, (
+        f"the covered modules are {sorted(covered)}, but the file names "
+        f"{sorted(named)}. One of them has dropped out of the coverage, and "
+        "the guard would no longer be watching it."
+    )
     for path in COVERED_MODULES:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         relative = path.relative_to(REPO_ROOT).as_posix()
