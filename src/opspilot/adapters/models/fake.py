@@ -12,12 +12,22 @@ fixture whose recorded response *complies with a prompt injection*, and asserts
 the run still cannot execute the refund. The fake is how "the model is
 encouraged to misbehave" is expressed as a test rather than a story.
 
-**It replays, it does not invent.** Every response comes from a fixture captured
-from a real provider interaction; an unmatched request raises
-``UnmatchedFixtureError`` naming what was asked for, never a default. A fake that
-quietly answers anything would make every test downstream of it measure the fake
-rather than the system (``docs/risks.md`` R2). Fixtures are regenerable with
-``record_fixtures`` below -- see ``record_fixture``.
+**It replays, it does not invent.** A response comes from a fixture, never
+from a default; an unmatched request raises ``UnmatchedFixtureError`` naming
+what was asked for. A fake that quietly answers anything would make every
+test downstream of it measure the fake rather than the system
+(``docs/risks.md`` R2).
+
+**The committed fixtures are hand-written placeholders, not recordings.** Both
+say so themselves -- ``"recorded": false`` and a note reading "HAND-WRITTEN
+PLACEHOLDER, not a recording" -- and neither carries a ``request_hash``, so
+the replay path below is not what serves them: they are served by the
+**scenario** path, which returns their calls in order. ``record_fixture()``
+below regenerates a fixture against a **real** provider, and it has not been
+run against one, so no recording is committed and the request-hash path has
+nothing committed to match against. ``docs/risks.md`` R2 records this, and
+``tests/unit/test_the_live_fixture_recording_is_marked_as_a_recording.py``
+holds the ``recorded`` flag's meaning.
 
 Fixture format (one JSON file per scenario, under ``evals/datasets/fixtures/``)::
 
@@ -28,7 +38,7 @@ Fixture format (one JSON file per scenario, under ``evals/datasets/fixtures/``):
             {
                 "method": "generate_structured",
                 "schema": "TicketClassification",
-                "request_hash": "sha256:...",
+                "request_hash": "sha256:...",  # null in a hand-written fixture
                 "request": {"system": "...", "prompt": "..."},
                 "response": {"value": {...}, "usage": {...}},
             }
@@ -39,10 +49,13 @@ Matching, in order:
 
 1. **Scenario name.** ``scenario="duplicate_charge"`` selects that file and
    returns its responses in order; the golden-path tests use this to say "play
-   the duplicate-charge script". A call index advances per scenario.
+   the duplicate-charge script". A call index advances per scenario. **This is
+   the path the committed fixtures are served by.**
 2. **Request hash.** ``hash_request(system, prompt)`` -- a SHA-256 over both --
-   selects the call whose ``request_hash`` matches. This is the replay path: the
-   same prompt that produced the recorded response is what must come back.
+   selects the call whose ``request_hash`` matches. This is the path a
+   *recording* is served by: the same prompt that produced the recorded
+   response is what must come back. A fixture with no ``request_hash`` -- which
+   is every committed one -- is never matched this way.
 """
 
 from __future__ import annotations
