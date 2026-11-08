@@ -126,7 +126,14 @@ class TicketIntake(Protocol):
         model_provider: str,
         model_name: str,
     ) -> tuple[UUID, AgentRun]:
-        """Insert the ticket and its run in one transaction; return both."""
+        """Insert the ticket and its run in one transaction; return both.
+
+        Raises:
+            TicketExists: if ``external_id`` is already taken. The duplicate is
+                detected by the unique index inside the ticket store, and the
+                whole transaction is rolled back -- so a rejected ticket leaves
+                no run either.
+        """
         ...
 
 

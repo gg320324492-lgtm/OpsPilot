@@ -249,13 +249,52 @@ def _documented_exceptions(docstring: str | None) -> set[str]:
     return names
 
 
-def _raised_exception_names(func: types.FunctionType) -> list[str]:
+def _called_methods(tree: ast.AST) -> set[tuple[str, str]]:
+    """The ``(class, method)`` pairs a method body calls.
+
+    The class is the name the call is made on: a constructor call
+    (``SqlTicketStore(session).create(...)``) names the class it builds, a
+    ``self`` call names the owner, and a module attribute names nothing worth
+    following.
+    """
+    calls: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        value = node.func.value
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            owner = value.func.id
+        elif isinstance(value, ast.Name):
+            owner = value.id
+        elif isinstance(value, ast.Attribute):
+            owner = value.attr
+        else:
+            continue
+        calls.add((owner, node.func.attr))
+    return calls
+
+
+def _raised_exception_names(
+    func: types.FunctionType,
+    module: types.ModuleType,
+    owner: type,
+    *,
+    depth: int = 2,
+    seen: frozenset[tuple[str, str]] = frozenset(),
+) -> list[str]:
     """The names of the exception classes ``func`` can raise.
 
     Found by parsing the source rather than by running it, so a raise that only
     happens on an error path is still counted. A bare ``raise`` (a re-raise of
     the exception being handled) is skipped: it raises whatever the handler
     caught, which is not a name this function chooses.
+
+    **The calls this method makes are followed, one level down.** The direct
+    parse is not enough: ``SqlTicketIntake.create`` does not raise
+    ``TicketExists`` itself -- it calls ``SqlTicketStore(session).create(...)``,
+    which does -- and a port that says nothing about it leaves its caller
+    guessing whether a duplicate ticket comes back as an exception. The
+    traversal stops at ``depth`` so a cycle cannot run away.
     """
     try:
         source = textwrap.dedent(inspect.getsource(func))
@@ -269,6 +308,24 @@ def _raised_exception_names(func: types.FunctionType) -> list[str]:
         target = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
         if isinstance(target, ast.Name):
             names.append(target.id)
+
+    if depth <= 0:
+        return names
+    for owner_name, method_name in _called_methods(tree):
+        key = (owner_name, method_name)
+        if key in seen:
+            continue
+        target_class = owner if owner_name == "self" else getattr(module, owner_name, None)
+        if not isinstance(target_class, type):
+            continue
+        called = getattr(target_class, method_name, None)
+        if not isinstance(called, types.FunctionType):
+            continue
+        names.extend(
+            _raised_exception_names(
+                called, module, target_class, depth=depth - 1, seen=seen | {key}
+            )
+        )
     return names
 
 
@@ -345,7 +402,9 @@ def test_every_domain_error_a_port_method_raises_is_documented_on_the_port(
         if impl_func is None:
             continue
         documented = _documented_exceptions(inspect.getdoc(port_func))
-        for raised in _raised_exception_names(cast("types.FunctionType", impl_func)):
+        for raised in _raised_exception_names(
+            cast("types.FunctionType", impl_func), module, implementation
+        ):
             exc_type = getattr(module, raised, None)
             if not isinstance(exc_type, type):
                 continue
