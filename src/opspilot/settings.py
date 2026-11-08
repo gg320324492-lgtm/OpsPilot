@@ -328,7 +328,7 @@ class Settings(BaseSettings):
     # claimable once the lease runs out (``docs/limitations.md`` §2, C1).
     #
     # The default is justified against a measurement, not picked round. A live
-    # eval measured a run's p95 drive duration at **276 seconds** (the figure
+    # eval measured a run's p95 drive duration at **276.7 seconds** (the figure
     # ``limitations.md`` §2 and the p95 note in ``docs/progress.md``'s latency
     # work carry). A default of **300 seconds** therefore exceeds a p95 run with
     # no renewal at all: for the common case the lease is longer than the work,

@@ -14,9 +14,11 @@ the vector store and the ``RETRIEVAL_MIN_SCORE`` threshold -- and threaded throu
 as the runtime's published ``RetrievalCallable``. A worker that passed ``None``
 would still record the RETRIEVING step, but with zero hits and no citations, so
 the run would have no Sources panel. It also passes ``retrieval_min_score``
-explicitly: the loop's own default is read from settings at import time, and
-passing the value the *process* was configured with is what makes a deployment
-that lowered the threshold in one place see it everywhere.
+explicitly. The loop's own default reads the *same* process-wide settings --
+``worker/loop.py``'s ``_settings_retrieval_min_score()``, called when each drive
+starts -- so it is already the value this process was configured with; passing
+it explicitly says so at the call site instead of leaving a reader to infer it
+from two readers of one setting.
 
 **The process, not just the loop (M7).** ``poll_forever`` is only the inner
 loop. Everything that makes it a *service* lives here:

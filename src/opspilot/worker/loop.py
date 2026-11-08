@@ -511,7 +511,7 @@ async def _renew_lease_while_driving(
     """Renew a claimed run's lease on a timer until cancelled.
 
     Run as a background task for the duration of one ``drain_once`` drive, so a
-    run that takes longer than its lease (the live eval's p95 was 276s, against a
+    run that takes longer than its lease (the live eval's p95 was 276.7s, against a
     300s default, but the tail is longer) does not lose its lease mid-drive and
     get stolen by a second worker. The interval is a third of the lease, so a
     single missed renewal still leaves a third of the lease in hand -- the run

@@ -59,7 +59,9 @@ class ModelProvider(Protocol):
     ) -> ModelResponse[TModel]:
         """Produce an instance of ``schema``, or raise if the model cannot comply.
 
-        A schema-invalid result twice fails the run (Phase 1 has no retries).
+        A schema-invalid result fails the run rather than being retried: Phase 1
+        has no retries, so a provider that cannot comply ends the run instead of
+        slowing it down.
         """
         ...
 

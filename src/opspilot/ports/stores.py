@@ -68,7 +68,17 @@ class TicketStore(Protocol):
     async def create(
         self, *, subject: str, body: str, customer_email: str, external_id: str | None = None
     ) -> UUID:
-        """Insert a ticket and return its id."""
+        """Insert a ticket and return its id.
+
+        Raises:
+            TicketExists: if ``external_id`` is already taken. The unique index
+                on ``tickets.external_id`` is what decides, so this store creates
+                exactly as many rows as the client posts -- there is no
+                read-then-write window for two concurrent posts to slip through.
+                The exception carries the id of the ticket that already holds the
+                ``external_id``, so the caller can read that ticket back rather
+                than re-deriving it (``docs/api-contract.md`` §9).
+        """
         ...
 
     async def get(self, ticket_id: UUID) -> TicketRecord | None:
@@ -178,7 +188,13 @@ class RunStore(Protocol):
         failure_reason: str | None = None,
         completed_at: datetime | None = None,
     ) -> None:
-        """Update status and, in the same transaction, write the state-change step."""
+        """Update status and, in the same transaction, write the state-change step.
+
+        Raises:
+            NotFoundError: if no run with that id exists. There is no run to
+                move and no step to write, so the caller has to be told rather
+                than handed a silent no-op.
+        """
         ...
 
 
@@ -210,6 +226,13 @@ class ToolCallStore(Protocol):
         dispatch). It is keyword-only and defaults to ``None``, which means
         "this transition measured nothing" and leaves the column NULL --
         additive, so every existing caller is unaffected.
+
+        Raises:
+            NotFoundError: if no tool call with that id exists.
+            ApprovalArgumentsChanged: if the call has already been executed. An
+                executed call is finished, and a second terminal transition over
+                it would rewrite the recorded outcome of a side effect that has
+                already happened.
         """
         ...
 
@@ -334,6 +357,15 @@ class ApprovalStore(Protocol):
                 because a caller cannot tell the two apart and the contract
                 promises a 409 for the second click (``docs/api-contract.md``
                 §6).
+            ApprovalExpired: if the approval timed out before anybody decided
+                it. This is a *different* answer from the one above and the
+                caller must be able to tell them apart: "somebody else was
+                here first" and "nobody was here at all" are different facts,
+                and the contract answers them with different 409s
+                (``approval_already_decided`` and ``approval_expired``). It is
+                deliberately **not** a ``LookupError``, because a route that
+                catches ``LookupError`` around this call would swallow it and
+                report an expired approval as somebody else's decision.
             NotFoundError: if no approval with that id exists.
         """
         ...

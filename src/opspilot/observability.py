@@ -10,7 +10,7 @@ than a missing one, because it looks like control.
 Layer: leaf / cross-cutting. It imports the standard library and nothing else,
 so every layer may import it without a dependency appearing -- and importing it
 has **no side effect**: the two process entry points that call
-:func:`apply_log_level`` (``api/__main__.py`` and ``worker/__main__.py``) import
+:func:`apply_log_level` (``api/__main__.py`` and ``worker/__main__.py``) import
 this module at module scope like any other, and no logger is configured until
 they call the function. The configuration is applied by
 :func:`apply_log_level`, called from the process entry points (``api/__main__.py``
