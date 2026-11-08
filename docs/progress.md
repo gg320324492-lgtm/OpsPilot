@@ -8735,9 +8735,73 @@ resolve.
 
 ### What the numbers are now
 
-The figures in the README and in the block above were recomputed against this
-tree rather than carried over. The counts that were wrong before this round —
-"twenty-two Compose-backed specs" (the tree has twenty-three), "the CI run's
-67 plus nine specs added since" (it is eighteen, and the table under it said
-so while the prose said nine) — are now checked by a guard rather than by a
-reader paying attention.
+The figures in the README were recomputed against this tree rather than carried
+over. The counts that were wrong before this round — "twenty-two
+Compose-backed specs" (the tree has twenty-three), "the CI run's 67 plus nine
+specs added since" (it is eighteen, and the table under it said so while the
+prose said nine) — are now checked by a guard rather than by a reader paying
+attention.
+
+---
+
+## The project wrote 2,172 directories to the system drive, and left them there
+
+**Date:** 2026-10-28. A request to move everything this project had written to
+the C: drive into the repository, and to stop writing there at all, turned
+into the largest single cleanup this repository has had, and the finding that
+made it worth doing was not a tidiness one.
+
+**The inventory.** On this machine, the project's files on C: were:
+
+| What | Where | How many | Size |
+|---|---|---|---|
+| per-eval-case scratch directories | `%LOCALAPPDATA%\Temp\opspilot-eval-*` | 1,494 | 197 MB |
+| the desktop packaging specs' scratch | `%LOCALAPPDATA%\Temp\opspilot-packaging-*` | 140 | |
+| the Electron menu specs' profiles | `%LOCALAPPDATA%\Temp\opspilot-menu-*` | 41 | |
+| pytest's base temporary directory | `%LOCALAPPDATA%\Temp\pytest-of-admin` | 7 | 225 MB |
+| electron-builder's installer cache | `%LOCALAPPDATA%\opspilot-desktop-updater` | 1 | 117 MB |
+| Electron's user data | `%APPDATA%\OpsPilot` | 1 | 15 MB |
+
+**Two defects, not one.** The first is the **leak**: the eval harness made a
+private directory per case and threw the handle away, so every case of every
+run left a directory behind. The second is the **location**: even the
+directories that were cleaned up went to the system temp directory, which is
+outside the repository, where `.gitignore` cannot protect them and `git status`
+cannot show them. A temporary file under the repository is one the developer
+can see and delete; a temporary file under `%LOCALAPPDATA%\Temp` is invisible,
+and the only way to find out how much disk it has taken is to go looking.
+
+**The rule now.** Everything this project writes at run time goes under the
+repository's own gitignored `.opspilot/` directory:
+
+- `src/opspilot/paths.py` is the single decision: `scratch_dir()` for
+  disposable files, `data_dir()` for the MCP servers' live stores, both
+  overridable with `OPSPILOT_SCRATCH_DIR` / `OPSPILOT_DATA_DIR`. The
+  repository root is found by walking up to the `pyproject.toml`, **not** from
+  the current working directory -- the MCP servers' data directory used to be
+  `<cwd>/.opspilot-data`, so the same code wrote into the checkout when run
+  from the checkout and onto the system drive when run from a terminal
+  elsewhere.
+- The root `conftest.py` points `TMPDIR`/`TEMP`/`TMP` at the repository and
+  clears `tempfile`'s cache, so pytest's base temporary directory follows.
+- The eval runner, the eval CLI, the demo script, the assets builder, the
+  OpenAPI schema dumper, the type generator, the GIF recorder and the four
+  desktop e2e specs all write inside the repository.
+- The desktop app's Electron user data -- the GPU cache, the locale cookie,
+  the operator token -- was `%APPDATA%\OpsPilot`. A development run puts it in
+  `.opspilot/electron-userdata`; a packaged app has no checkout to write into,
+  so it keeps the default unless `OPSPILOT_USER_DATA_DIR` says otherwise.
+
+**The guard** is `tests/unit/test_the_project_writes_only_inside_the_repository.py`:
+every call that chooses a temporary location must name a directory, and the
+one exception -- the store's temporary file, written beside the file it
+replaces, which is what makes the replacement atomic -- is checked rather than
+trusted. Mutation-verified: removing the `dir=` from the harness's per-case
+directory turns it red and names the line.
+
+**What is still on C:, and why.** The Claude Code session store
+(`%USERPROFILE%\.claude\projects\G--OpsPilot`) and its task-output directory
+are the **tool's** files, not the repository's: they hold this conversation's
+transcript, and moving them out from under the running app would empty the
+session list. They are the one thing on C: that this repository cannot
+redirect, and they are reported rather than moved.
