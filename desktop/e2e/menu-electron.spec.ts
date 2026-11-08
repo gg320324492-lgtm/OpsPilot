@@ -30,13 +30,17 @@
  * menu does not follow the cookie is a failure, never a skip.
  */
 
-import { existsSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import path from "node:path";
 
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 
 const DESKTOP_DIR = path.resolve(__dirname, "..");
+const REPO_ROOT = path.resolve(DESKTOP_DIR, "..");
+
+/** Where this project's throwaway files go -- inside the repository. */
+const SCRATCH_DIR =
+  process.env["OPSPILOT_SCRATCH_DIR"] ?? path.join(REPO_ROOT, ".opspilot", "tmp");
 const HARNESS = path.join(DESKTOP_DIR, "e2e", "fixtures", "menu-harness.mjs");
 const COMPILED_MENU = path.join(DESKTOP_DIR, "dist", "menu.js");
 
@@ -190,7 +194,12 @@ test("the menu follows the locale cookie, in a real Electron", async () => {
 });
 
 test("the menu starts in the language the operator chose last time", async () => {
-  const profile = mkdtempSync(path.join(tmpdir(), "opspilot-menu-profile-"));
+  // Inside the repository, under its own gitignored `.opspilot/` directory.
+  // The system temp directory is where it used to go, and a run that failed
+  // part-way left the profile there -- 18 of them on this machine before the
+  // path changed.
+  mkdirSync(SCRATCH_DIR, { recursive: true });
+  const profile = mkdtempSync(path.join(SCRATCH_DIR, "opspilot-menu-profile-"));
 
   // The first run makes the choice, and the choice is a *persistent* cookie —
   // which is what the dashboard's route writes, and what has to outlive the

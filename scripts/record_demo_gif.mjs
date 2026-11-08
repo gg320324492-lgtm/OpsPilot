@@ -31,7 +31,6 @@ import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
-import os from "node:os";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 
@@ -46,7 +45,10 @@ const REPO = path.resolve(import.meta.dirname, "..");
 const require = createRequire(path.join(REPO, "web", "package.json"));
 const { chromium } = require("playwright");
 const OUT_GIF = path.join(REPO, "docs", "assets", "golden-path.gif");
-const WORK = path.join(os.tmpdir(), "opspilot-gif");
+// **Inside the repository, not in the system temp directory.** The recorder's
+// frames used to be written under `os.tmpdir()`, which put them on the system
+// drive; a recording that failed part-way left its frames there.
+const WORK = path.join(process.env.OPSPILOT_SCRATCH_DIR ?? path.join(REPO, ".opspilot", "tmp"), "opspilot-gif");
 const FRAMES = path.join(WORK, "frames");
 const PORT = 7701;
 

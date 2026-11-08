@@ -29,12 +29,16 @@
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(WEB_ROOT, "..");
+// Where this project writes the files it must not commit. The same rule the
+// Python side follows (`src/opspilot/paths.py`): everything under the
+// repository's own `.opspilot/`, never the system temp directory.
+const SCRATCH_DIR = process.env.OPSPILOT_SCRATCH_DIR ?? join(REPO_ROOT, ".opspilot", "tmp");
+mkdirSync(SCRATCH_DIR, { recursive: true });
 const EMITTER = join(REPO_ROOT, "scripts", "openapi_schema.py");
 const TYPES_FILE = join(WEB_ROOT, "src", "lib", "api", "types.ts");
 
@@ -184,7 +188,11 @@ async function main() {
  * a check that cannot describe its own failure should still report the failure.
  */
 function writeDiff(generated) {
-  const scratch = mkdtempSync(join(tmpdir(), "opspilot-types-"));
+  // **Inside the repository, not in the system temp directory.** The scratch
+  // directory used to be made under `os.tmpdir()`, which put it on the system
+  // drive; the `rmSync` below removes it again, but a run that failed between
+  // the two left it behind.
+  const scratch = mkdtempSync(join(SCRATCH_DIR, "opspilot-types-"));
   const candidate = join(scratch, "types.ts");
   try {
     writeFileSync(candidate, generated, "utf8");

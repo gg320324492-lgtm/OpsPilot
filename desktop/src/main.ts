@@ -39,6 +39,7 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain, protocol, session } from "electron";
+import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -66,6 +67,39 @@ import { ensureOperatorToken, TOKEN_ENV_FILENAME, TOKEN_ENV_KEY } from "./runtim
 // Before `app.whenReady()`: scheme privileges are fixed at registration, and
 // registering afterwards does not retroactively apply them.
 registerPrivilegedSchemes();
+
+/**
+ * Where Electron keeps this application's own data.
+ *
+ * **Electron's default is `%APPDATA%\\<app name>`**, which is on the system
+ * drive: the GPU cache, the code cache, the locale cookie and the operator
+ * token all live there, in a directory the repository cannot see and cannot
+ * ignore. For a development run the answer is obvious -- the repository is
+ * right there, and its own `.opspilot/` directory is where everything else
+ * this project writes already goes.
+ *
+ * A **packaged** app has no checkout to write into, so the default stands
+ * unless ``OPSPILOT_USER_DATA_DIR`` names somewhere else. That variable is the
+ * knob for a machine that wants the installed app's data on another disk; it
+ * is read the same way the rest of the project reads its overrides.
+ */
+function resolveUserDataDir(): string | undefined {
+  const configured = process.env["OPSPILOT_USER_DATA_DIR"];
+  if (configured) {
+    return path.resolve(configured);
+  }
+  if (app.isPackaged) {
+    return undefined;
+  }
+  // `desktop/src/main.ts` -> `desktop/` -> the repository root.
+  return path.resolve(__dirname, "..", "..", ".opspilot", "electron-userdata");
+}
+
+const userDataDir = resolveUserDataDir();
+if (userDataDir) {
+  mkdirSync(userDataDir, { recursive: true });
+  app.setPath("userData", userDataDir);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let application: Application | null = null;

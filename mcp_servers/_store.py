@@ -82,7 +82,7 @@ _ENV_DATA_DIR = "OPSPILOT_MCP_DATA_DIR"
 # Where a store writes when nothing is configured. Deliberately a sibling of the
 # source tree's contents rather than inside the package -- see
 # `default_data_dir` for the incident that made this matter.
-_DEFAULT_DATA_SUBDIR = ".opspilot-data"
+_DEFAULT_DATA_SUBDIR = ".opspilot"
 
 
 class StoreError(RuntimeError):
@@ -379,8 +379,9 @@ def default_data_dir(seed_path: Path) -> Path:
     """Return the directory a store should persist into.
 
     ``OPSPILOT_MCP_DATA_DIR`` wins when set, so tests and Compose can isolate the
-    servers' files. Otherwise the store writes **outside the source tree**, to a
-    directory named after the seed's parent.
+    servers' files. Otherwise the store writes into the repository's own
+    ``.opspilot/data/`` directory, in a subdirectory named after the seed's
+    parent.
 
     The fallback deliberately does not use the seed's own directory. It did, and
     the consequence was that any call that forgot to pass ``data_dir`` wrote a
@@ -393,7 +394,8 @@ def default_data_dir(seed_path: Path) -> Path:
 
     A deployment sets ``OPSPILOT_MCP_DATA_DIR`` to a real volume; a bare
     `python -m mcp_servers.billing.server` gets a writable path that is at least
-    not inside the checkout.
+    not inside the package, and that is on the same disk as the checkout rather
+    than on the system drive.
 
     Args:
         seed_path: The seed file, used only to derive a stable directory name.
@@ -405,7 +407,15 @@ def default_data_dir(seed_path: Path) -> Path:
     configured = os.environ.get(_ENV_DATA_DIR)
     if configured:
         return Path(configured).expanduser().resolve()
-    # `<cwd>/.opspilot-data/<seed-parent-name>/` -- outside the package, and
+    # `<repo>/.opspilot/data/<seed-parent-name>/` -- outside the package, and
     # stable across runs so a server subprocess and the test talking to it agree
     # on where the file is.
-    return (Path.cwd() / _DEFAULT_DATA_SUBDIR / seed_path.parent.name).resolve()
+    #
+    # The root is **the repository, not the current directory**. It used to be
+    # ``Path.cwd()``, which meant the same code wrote into the checkout when it
+    # was run from the checkout and into ``C:\\Users`` when it was run from a
+    # terminal elsewhere -- the project's files on the system drive, in a place
+    # nothing was watching for them. The repository is found from this file, so
+    # the answer is the same on every machine and in every shell.
+    repo_root = Path(__file__).resolve().parents[1]
+    return (repo_root / _DEFAULT_DATA_SUBDIR / "data" / seed_path.parent.name).resolve()

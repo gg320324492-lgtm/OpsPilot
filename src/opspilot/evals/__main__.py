@@ -36,11 +36,12 @@ import importlib
 import json
 import os
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
+
+from opspilot.paths import scratch_dir
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -682,8 +683,16 @@ def _effective_dataset_path(name: str, per_dataset_limit: int | None) -> Path:
         return source
     lines = [line for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
     limited = lines[:per_dataset_limit]
-    tmp_dir = Path(tempfile.mkdtemp(prefix="opspilot-eval-smoke-"))
-    path = tmp_dir / f"{name}.jsonl"
+    # **A file in the project's scratch directory, not a directory in the
+    # system temp.** This used to be a ``mkdtemp``, and the directory it made
+    # outlived the run -- every smoke run left one behind on the system drive,
+    # and 1,188 of them were on this machine before the path was changed.
+    #
+    # The file keeps the dataset's own name, because the loader reads the
+    # dataset from the file's stem and a renamed file would load as an empty
+    # run that reports a clean table.
+    path = scratch_dir() / "smoke" / f"{name}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(limited) + "\n", encoding="utf-8")
     return path
 

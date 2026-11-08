@@ -39,9 +39,8 @@
  */
 
 import { app, session } from "electron";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,8 +54,18 @@ const { installMenu, syncMenuToCookie, watchLocaleCookie } = require(
 /** The origin the locale cookie lives on. The dashboard's, in a real run. */
 const DASHBOARD_URL = process.env["OPSPILOT_MENU_HARNESS_URL"] ?? "http://127.0.0.1:3210/";
 
+// Inside the repository, under its own gitignored `.opspilot/` directory.
+// The system temp directory is where it used to go, and a run that failed
+// part-way left the profile there -- 23 of them on this machine before the
+// path changed.
+const REPO_ROOT = path.resolve(here, "..", "..");
+const SCRATCH_DIR =
+  process.env["OPSPILOT_SCRATCH_DIR"] ?? path.join(REPO_ROOT, ".opspilot", "tmp");
+mkdirSync(SCRATCH_DIR, { recursive: true });
+
 const profile =
-  process.env["OPSPILOT_MENU_HARNESS_PROFILE"] ?? mkdtempSync(path.join(tmpdir(), "opspilot-menu-harness-"));
+  process.env["OPSPILOT_MENU_HARNESS_PROFILE"] ??
+  mkdtempSync(path.join(SCRATCH_DIR, "opspilot-menu-harness-"));
 app.setPath("userData", profile);
 app.setPath("sessionData", profile);
 

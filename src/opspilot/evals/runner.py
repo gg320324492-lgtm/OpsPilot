@@ -75,6 +75,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from opspilot.adapters.wiring import RetrievalStack
+from opspilot.paths import scratch_dir
 from opspilot.ports.model_provider import ModelResponse
 from opspilot.ports.vector_store import SearchHit
 
@@ -783,6 +784,7 @@ async def run_case(
     away, because tuning the approval to each case's expectation would make the
     metric agree with the expectation instead of measuring the system.
     """
+    import contextlib
     import tempfile
 
     from opspilot.adapters.orchestration.linear import LinearOrchestrator
@@ -800,8 +802,20 @@ async def run_case(
 
     ticket_text = str(getattr(case, _TICKET_FIELD[case.dataset]))
 
-    with tempfile.TemporaryDirectory() as raw_tmp:
-        workspace = Path(raw_tmp) if tmp_dir is None else tmp_dir
+    # The workspace is the caller's directory when it gave one -- the dataset
+    # runner makes a private one per case and removes it when the case ends.
+    # When it did not, a scratch directory is made here, and it is made
+    # **inside the repository** rather than in the system temp directory: every
+    # run of the suite used to leave a directory behind on the system drive,
+    # because this ``TemporaryDirectory`` was created and discarded while the
+    # real work happened in the caller's directory instead.
+    workspace_context = (
+        tempfile.TemporaryDirectory(dir=scratch_dir())
+        if tmp_dir is None
+        else contextlib.nullcontext(str(tmp_dir))
+    )
+    with workspace_context as raw_tmp:
+        workspace = Path(raw_tmp)
         with _case_resources(workspace) as (factory, stack, store_dir):
             assert isinstance(factory, object)  # a sessionmaker
             # The corpus is indexed once for this case so the citations asserted
@@ -1350,13 +1364,23 @@ async def run_dataset(
     cases = load_dataset(path)
     results: list[dict[str, object]] = []
     for case in cases:
-        tmp_root = dataset_dir or Path(tempfile.gettempdir())
+        # **The case's private directory is removed when the case ends.** It
+        # used to be a bare ``mkdtemp`` whose handle was thrown away, so every
+        # case of every run left a directory behind on the system drive -- 2,172
+        # of them, 197 MB, under ``%LOCALAPPDATA%\Temp``. The directory holds
+        # nothing that outlives the case: it is the MCP servers' private JSON
+        # store, and the results carry the outcome.
+        tmp_root = Path(dataset_dir) if dataset_dir else scratch_dir()
         tmp_root.mkdir(parents=True, exist_ok=True)
-        case_dir = Path(tempfile.mkdtemp(dir=tmp_root, prefix=f"opspilot-eval-{case.id}-"))
-        try:
-            results.append(await run_case(case, provider_name=provider_name, tmp_dir=case_dir))
-        except Exception as exc:
-            results.append(_failed_result(case, exc))
+        with tempfile.TemporaryDirectory(
+            dir=tmp_root, prefix=f"opspilot-eval-{case.id}-"
+        ) as case_dir:
+            try:
+                results.append(
+                    await run_case(case, provider_name=provider_name, tmp_dir=Path(case_dir))
+                )
+            except Exception as exc:
+                results.append(_failed_result(case, exc))
 
     if results and not any(_result_is_measurable(r) for r in results):
         # The first case's failure carries the diagnosis: when every case fails

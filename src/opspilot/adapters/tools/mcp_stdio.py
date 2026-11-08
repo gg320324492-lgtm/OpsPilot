@@ -122,6 +122,8 @@ from typing import TYPE_CHECKING, Any, TextIO, cast
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from opspilot.paths import scratch_dir
+
 if TYPE_CHECKING:
     from opspilot.adapters.tools.mcp_gateway import CallToolReturn
 
@@ -456,12 +458,17 @@ class StdioServerProcess:
         # A real file rather than a pipe: the SDK pumps the child's stderr into
         # it from its own task, and a file can be read back without racing a
         # reader against a writer. On POSIX ``TemporaryFile`` is unlinked at
-        # creation, so the name never exists on disk at all. Its lifetime is this
-        # task's, which is the lifetime of the server it describes -- hence the
-        # ``with`` around everything below rather than a close in ``aclose``.
+        # creation, so the name never exists on disk at all; on Windows it is a
+        # named file in the temp directory for as long as it is open, which is
+        # why it is given the project's own scratch directory rather than the
+        # system one. Its lifetime is this task's, which is the lifetime of the
+        # server it describes -- hence the ``with`` around everything below
+        # rather than a close in ``aclose``.
         with cast(
             TextIO,
-            tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace"),
+            tempfile.TemporaryFile(
+                dir=scratch_dir(), mode="w+", encoding="utf-8", errors="replace"
+            ),
         ) as opened:
             self._stderr = opened
             params = StdioServerParameters(

@@ -31,9 +31,10 @@ import argparse
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from opspilot.paths import scratch_dir
 
 # The repository root, so `src/` is importable when this script is run directly
 # (`python scripts/openapi_schema.py`) as well as under pytest.
@@ -68,7 +69,10 @@ def build_schema() -> dict[str, Any]:
         # A forward-slash URL, so the path is built with pathlib rather than
         # os.path.join -- which would emit backslashes on Windows and produce a
         # SQLite URL that is not a URL.
-        db_path = Path(tempfile.gettempdir()) / "opspilot-openapi-schema.db"
+        # **Inside the repository.** This used to be
+        # ``Path(tempfile.gettempdir()) / "opspilot-openapi-schema.db"``, which
+        # put a database on the system drive -- and one that was never removed.
+        db_path = scratch_dir() / "openapi-schema.db"
         # ``DATABASE_URL`` and not ``OPSPILOT_DATABASE_URL``: the settings
         # field's alias is ``DATABASE_URL`` and the model has no env prefix,
         # so that is the only name it binds. (``OPSPILOT_DATABASE_URL`` is

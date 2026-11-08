@@ -129,11 +129,15 @@
 
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const DESKTOP_DIR = path.resolve(__dirname, "..");
+const REPO_ROOT = path.resolve(DESKTOP_DIR, "..");
+
+/** Where this project's throwaway files go -- inside the repository. */
+const SCRATCH_DIR =
+  process.env["OPSPILOT_SCRATCH_DIR"] ?? path.join(REPO_ROOT, ".opspilot", "tmp");
 
 /** The committed multi-size icon the packaging configuration points at. */
 const COMMITTED_ICON = path.join(DESKTOP_DIR, "assets", "icon.ico");
@@ -755,7 +759,9 @@ test.describe("the icon the package ships", () => {
       return;
     }
 
-    const scratch = mkdtempSync(path.join(tmpdir(), "opspilot-icon-"));
+    // Inside the repository, under its own gitignored `.opspilot/` directory.
+    mkdirSync(SCRATCH_DIR, { recursive: true });
+    const scratch = mkdtempSync(path.join(SCRATCH_DIR, "opspilot-icon-"));
     try {
       // The committed icon's 32-pixel frame, written out as a plain PNG.
       // GDI+ cannot render a PNG-compressed icon frame, so the frame is

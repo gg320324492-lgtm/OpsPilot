@@ -27,16 +27,34 @@
 
 import { expect, test } from "@playwright/test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { resolveOperatorToken } from "../src/lifecycle/token";
 import { readEnvValue, resolveStackRoot, STACK_MARKER } from "../src/runtime/dependencies";
 import { ensureOperatorToken, TOKEN_ENV_FILENAME, TOKEN_ENV_KEY } from "../src/runtime/operator-token";
 
+/** The repository root -- the directory that holds `pyproject.toml`. */
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+/**
+ * Where this project's throwaway files go: inside the repository, under its
+ * own gitignored `.opspilot/` directory. The system temp directory is where
+ * they used to go, and a run that failed part-way left them there -- 140
+ * `opspilot-packaging-*` directories on this machine before the path changed.
+ */
+const SCRATCH_DIR =
+  process.env["OPSPILOT_SCRATCH_DIR"] ?? path.join(REPO_ROOT, ".opspilot", "tmp");
+
+/**
+ * Where this project's throwaway files go: inside the repository, under its
+ * own gitignored `.opspilot/` directory. The system temp directory is where
+ * they used to go, and a run that failed part-way left them there -- 140
+ * `opspilot-packaging-*` directories on this machine before the path changed.
+ */
 /** A directory that is thrown away afterwards, so a failure leaves nothing behind. */
 function scratch(): string {
-  return mkdtempSync(path.join(tmpdir(), "opspilot-packaging-"));
+  mkdirSync(SCRATCH_DIR, { recursive: true });
+  return mkdtempSync(path.join(SCRATCH_DIR, "opspilot-packaging-"));
 }
 
 /** A directory that holds `docker-compose.yml`, which is what makes it a stack root. */
@@ -97,7 +115,9 @@ test.describe("where a packaged app finds the stack", () => {
     // chosen by accident.
     const before = process.cwd();
     try {
-      process.chdir(tmpdir());
+      // A directory with no stack marker in it. Inside the repository, for
+      // the same reason as the scratch directory above.
+      process.chdir(SCRATCH_DIR);
       expect(() => resolveStackRoot({ packaged: false, resourcesPath: undefined })).toThrow(STACK_MARKER);
     } finally {
       process.chdir(before);

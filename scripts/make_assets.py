@@ -337,6 +337,8 @@ from typing import NamedTuple
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, UnidentifiedImageError
 
+from opspilot.paths import scratch_dir
+
 #: The sizes Windows may ask for. See the module docstring for why each.
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 
@@ -913,7 +915,7 @@ def check_icon(
         print(f"no such {name}: {target}", file=sys.stderr)
         return 1
 
-    with tempfile.TemporaryDirectory(prefix=f"opspilot-{name}-") as scratch:
+    with tempfile.TemporaryDirectory(dir=scratch_dir(), prefix=f"opspilot-{name}-") as scratch:
         candidate = pathlib.Path(scratch) / target.name
         try:
             build_icon(source, candidate, sizes)
@@ -1188,7 +1190,7 @@ def check_apple(source: pathlib.Path, target: pathlib.Path) -> int:
         print(f"no such apple-touch icon: {target}", file=sys.stderr)
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="opspilot-apple-") as scratch:
+    with tempfile.TemporaryDirectory(dir=scratch_dir(), prefix="opspilot-apple-") as scratch:
         candidate = pathlib.Path(scratch) / target.name
         try:
             build_apple(source, candidate)
@@ -1344,7 +1346,7 @@ def check_wordmark(source: pathlib.Path, target: pathlib.Path) -> int:
         print(f"no such wordmark: {target}", file=sys.stderr)
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="opspilot-wordmark-") as scratch:
+    with tempfile.TemporaryDirectory(dir=scratch_dir(), prefix="opspilot-wordmark-") as scratch:
         candidate = pathlib.Path(scratch) / target.name
         try:
             build_wordmark(source, candidate)

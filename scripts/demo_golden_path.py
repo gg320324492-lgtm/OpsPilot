@@ -62,7 +62,6 @@ import json
 import os
 import pathlib
 import sys
-import tempfile
 import threading
 import time
 import urllib.error
@@ -200,7 +199,14 @@ def _wait_for_ready(timeout: float = 30.0) -> bool:
 
 
 def main() -> int:
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="opspilot-demo-"))
+    # **Inside the repository, not in the system temp directory.** The demo
+    # used to make its scratch directory with ``tempfile.mkdtemp``, which put
+    # it on the system drive -- and it never removed it, so every run of the
+    # demo left a folder behind there.
+    from opspilot.paths import scratch_dir
+
+    tmp = scratch_dir() / "demo"
+    tmp.mkdir(parents=True, exist_ok=True)
     db_path = tmp / "opspilot.db"
     os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path.as_posix()}"
 

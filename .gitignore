@@ -27,6 +27,15 @@ coverage.xml
 coverage.json
 htmlcov/
 
+# ---- Everything this project writes at run time ----
+# The project's own scratch space: the test suite's temporary directories, the
+# eval harness's per-case stores, the generated-types scratch, the demo's
+# throwaway database and the MCP servers' live JSON stores. It is inside the
+# repository on purpose -- a temporary file the developer cannot see is a
+# temporary file nobody cleans up -- and it is ignored so that `git status`
+# stays about the source.
+.opspilot/
+
 # ---- Database files ----
 # The MCP servers each own a SQLite file when run outside Docker, and the local
 # dev database is SQLite. These are seeded from committed JSON, so nothing here
