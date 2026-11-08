@@ -8812,3 +8812,46 @@ are the **tool's** files, not the repository's: they hold this conversation's
 transcript, and moving them out from under the running app would empty the
 session list. They are the one thing on C: that this repository cannot
 redirect, and they are reported rather than moved.
+
+---
+
+## A cleanup that broke a guard, and what the guard now says
+
+**Date:** 2026-11-08. The C: cleanup moved the project's scratch directory
+from the system temp directory into the repository, and that broke a test
+three files away.
+
+**What broke.** `desktop/e2e/packaging.spec.ts` has a test called "still
+refuses a development launch started outside any repository". It asserts that
+the stack-root lookup throws when the working directory is outside a checkout.
+It used to `chdir` into the system temp directory -- which is outside -- and
+the cleanup moved the scratch directory to `G:\OpsPilot\.opspilot\tmp`, which
+is two levels below a `docker-compose.yml`. The lookup found it, and the test
+failed with "Received function did not throw". The test was right before the
+move and wrong after it.
+
+**Why nothing noticed.** The Python suite is green; the desktop e2e is a
+Playwright project that needs a built dashboard, and the change to it was a
+one-word substitution in a path. **Changing where a test's working directory
+comes from is a change to the test's premise, and the premise is what the
+assertion is about.** The test now finds a directory that is outside *every*
+repository -- the roots of the drives the machine has -- and checks each
+candidate rather than assuming it: a drive root that happened to hold a
+`docker-compose.yml` would make the test pass for the wrong reason, which is
+the failure this file exists to catch.
+
+**The generalisable rule.** A change to *where* something is written is a
+change to what the tests around it mean, and the tests that read that location
+have to be run, not reasoned about. The cleanup's own guard
+(`test_the_project_writes_only_inside_the_repository.py`) is green, and it
+was green while this test was red -- because it checks a different thing.
+A guard that passes is evidence about the property it holds, and about
+nothing else.
+
+**Also found in the same sweep, and held now:** the operator-facing messages
+the verification documents quote verbatim were checked for their *titles*
+only -- the detail and the remedy were copied by both documents and compared
+by neither -- and the claim that "the operator token is still absent from
+every browser bundle" had no test behind it at all. Both now have one, and
+the corpus comes from the application itself rather than from a
+transcription of it.
