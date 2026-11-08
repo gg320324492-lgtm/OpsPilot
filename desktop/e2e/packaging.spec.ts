@@ -26,7 +26,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { resolveOperatorToken } from "../src/lifecycle/token";
@@ -62,6 +62,53 @@ function fakeStackRoot(): string {
   const dir = scratch();
   writeFileSync(path.join(dir, STACK_MARKER), "name: opspilot\n", "utf8");
   return dir;
+}
+
+/**
+ * Does `directory`, or any ancestor of it, hold the stack marker?
+ *
+ * The walk is the one `findRepoRoot` performs, so the answer is about the
+ * filesystem rather than about a guess.
+ */
+function hasStackMarkerAbove(directory: string): boolean {
+  let current = directory;
+  for (;;) {
+    if (existsSync(path.join(current, STACK_MARKER))) {
+      return true;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return false;
+    }
+    current = parent;
+  }
+}
+
+/**
+ * A directory that is outside every repository: no ancestor of it holds a
+ * `docker-compose.yml`.
+ *
+ * The candidates are the roots of the drives this machine has, and each one is
+ * **checked** rather than assumed: a drive root that happened to hold a
+ * `docker-compose.yml` would make the test below pass for the wrong reason,
+ * which is the failure mode this file exists to catch.
+ */
+function directoryOutsideAnyRepository(): string {
+  const candidates = [path.parse(process.cwd()).root];
+  if (process.env["SystemDrive"] !== undefined) {
+    candidates.push(`${process.env["SystemDrive"]}\\`);
+  }
+  candidates.push("/");
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && !hasStackMarkerAbove(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    "no directory outside any repository could be found: every drive root on this " +
+      "machine holds a docker-compose.yml at or above it, so a development launch " +
+      "cannot be observed refusing to start.",
+  );
 }
 
 test.describe("where a packaged app finds the stack", () => {
@@ -113,11 +160,21 @@ test.describe("where a packaged app finds the stack", () => {
     // future change that made `resolveStackRoot` always return something would
     // otherwise turn "no stack" into a Compose failure in a working directory
     // chosen by accident.
+    //
+    // **The directory has to be outside the repository, and that is the whole
+    // difficulty.** `findRepoRoot` walks *up* from the working directory, so a
+    // directory inside the checkout finds the repository's own
+    // `docker-compose.yml` above it and the launch succeeds. This test used to
+    // chdir into the project's scratch directory, and that directory used to be
+    // the system temp directory — genuinely outside the repository, so the test
+    // was proving what it said. When the scratch directory moved inside the
+    // checkout, the test kept its name and its assertion and quietly stopped
+    // being about that: a launch from "outside any repository" was being
+    // observed from the middle of one, and the refusal it expected never came.
+    const outside = directoryOutsideAnyRepository();
     const before = process.cwd();
     try {
-      // A directory with no stack marker in it. Inside the repository, for
-      // the same reason as the scratch directory above.
-      process.chdir(SCRATCH_DIR);
+      process.chdir(outside);
       expect(() => resolveStackRoot({ packaged: false, resourcesPath: undefined })).toThrow(STACK_MARKER);
     } finally {
       process.chdir(before);

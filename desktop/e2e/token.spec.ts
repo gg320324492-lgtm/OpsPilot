@@ -23,8 +23,18 @@
 
 import { expect, test } from "@playwright/test";
 
+import { StartupError } from "../src/lifecycle/errors";
+import { startBackend, startDashboard } from "../src/lifecycle/session";
 import { resolveOperatorToken } from "../src/lifecycle/token";
 import { withCorsOrigin } from "../src/runtime/dependencies";
+import {
+  collector,
+  fakeAuthorizedHttp,
+  fakeDeps,
+  fakeHttp,
+  fakeRunner,
+  outcome,
+} from "./fakes";
 
 test.describe("resolving the operator token", () => {
   test("prefers the environment, so an exported token actually takes effect", () => {
@@ -108,8 +118,128 @@ test.describe("resolving the operator token", () => {
   });
 });
 
-test.describe("the CORS allowance this window needs", () => {
-  test("adds the window's own origin without dropping what was configured", () => {
+test.describe("the token in the window", () => {
+  /**
+   * Every string the window can show, from the progress events and from a
+   * failure the shell threw.
+   *
+   * The fields listed are the ones `Progress` and `UserFacing` carry that
+   * hold text: a note, a log line, a reason, the three parts of a problem,
+   * the endpoints and the service names. The enums (`kind`, `source`,
+   * `target`, `ownership`) and the number (`seq`) cannot hold a credential.
+   */
+  function visibleText(
+    events: readonly { note: string; line?: string; why?: string; endpoint?: string; url?: string; services?: readonly string[]; problem?: { title: string; detail: string; remedy: string } }[],
+    failure?: unknown,
+  ): string[] {
+    const texts: string[] = [];
+    for (const event of events) {
+      texts.push(event.note);
+      for (const value of [event.line, event.why, event.endpoint, event.url]) {
+        if (value !== undefined) {
+          texts.push(value);
+        }
+      }
+      texts.push(...(event.services ?? []));
+      if (event.problem !== undefined) {
+        texts.push(event.problem.title, event.problem.detail, event.problem.remedy);
+      }
+    }
+    if (failure instanceof StartupError) {
+      texts.push(failure.problem.title, failure.problem.detail, failure.problem.remedy);
+    }
+    return texts;
+  }
+
+  test("never reaches the renderer, in any message the page can show", async () => {
+    // The renderer is the untrusted side of this application: the dashboard's
+    // *server* process holds the token, and the browser bundle does not. The
+    // bridge hands the renderer exactly one thing — the progress history —
+    // so "the renderer cannot get the token" is precisely "no progress event
+    // the shell emits carries it".
+    //
+    // `getState()` in `src/ipc.ts` returns that history verbatim, which is
+    // what makes the question checkable here: without Electron, without a
+    // display and without Docker, which is where `shell.spec.ts` cannot
+    // always reach.
+    //
+    // The paths covered are the ones that *say something*: a normal start, a
+    // stack whose token does not match (the longest message the shell ever
+    // writes), a Compose failure, and a dashboard that was never built.
+    const token = "a-token-the-window-must-never-show";
+    const env = { OPSPILOT_OPERATOR_TOKEN: token };
+    const events = collector();
+    const failures: unknown[] = [];
+
+    // --- a normal start ----------------------------------------------------
+    const http = fakeHttp({
+      "http://127.0.0.1:8000/ready": (attempt) =>
+        attempt === 1 ? new Error("ECONNREFUSED") : 200,
+      "http://127.0.0.1:3210/": 200,
+    });
+    await startBackend(
+      fakeDeps({ runner: fakeRunner(), http: http.probe, env }),
+      events.emit,
+    );
+    await startDashboard(
+      fakeDeps({ runner: fakeRunner(), http: http.probe, env }),
+      events.emit,
+    );
+
+    // --- a stack this app did not start, holding a different token ---------
+    failures.push(
+      await startBackend(
+        fakeDeps({
+          runner: fakeRunner(),
+          http: fakeHttp({ "http://127.0.0.1:8000/ready": 200 }).probe,
+          authorizedHttp: fakeAuthorizedHttp({ "http://127.0.0.1:8000/api/runs": 401 }).probe,
+          env,
+        }),
+        events.emit,
+      ).catch((error: unknown) => error),
+    );
+
+    // --- a stack that would not come up -------------------------------------
+    failures.push(
+      await startBackend(
+        fakeDeps({
+          runner: fakeRunner({
+            answers: {
+              "docker compose up -d --wait --wait-timeout 300 postgres migrate api worker":
+                outcome({ ok: false, status: 1, stderr: "service api failed" }),
+            },
+          }),
+          http: fakeHttp({ "http://127.0.0.1:8000/ready": () => new Error("ECONNREFUSED") }).probe,
+          env,
+        }),
+        events.emit,
+      ).catch((error: unknown) => error),
+    );
+
+    // --- a dashboard that was never built ------------------------------------
+    failures.push(
+      await startDashboard(
+        fakeDeps({ runner: fakeRunner(), exists: () => false, env }),
+        events.emit,
+      ).catch((error: unknown) => error),
+    );
+
+    // The messages the shell produced have to exist for this to be a check
+    // rather than a vacuous one: a shell that said nothing would pass it.
+    expect(events.events.length).toBeGreaterThan(0);
+    expect(failures.filter((failure) => failure instanceof StartupError).length).toBeGreaterThan(0);
+
+    for (const text of visibleText(events.events, ...failures)) {
+      expect(
+        text,
+        "the operator token reached a message the window shows, and the window is the " +
+          "untrusted side of this application",
+      ).not.toContain(token);
+    }
+  });
+});
+
+test.describe("the CORS allowance this window needs", () => {  test("adds the window's own origin without dropping what was configured", () => {
     expect(withCorsOrigin("http://localhost:3000", "http://127.0.0.1:3210")).toBe(
       "http://localhost:3000,http://127.0.0.1:3210",
     );

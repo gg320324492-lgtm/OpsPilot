@@ -31,13 +31,16 @@
  * language. It is not a second navigation: the dashboard's own nav is in the
  * page, in the page's language, and the menu does not try to mirror it.
  *
- * Its shape is Electron's own default menu, item for item, because that is the
- * menu an operator's hands already know — and because replacing it with
- * something smaller is how a clipboard quietly disappears. The Edit menu is
- * here for a reason that is not symmetry: `web/src/app/tickets/ticket-form.tsx`
- * has a textarea, and Ctrl+C and Ctrl+V in it are the `copy` and `paste` roles.
- * A menu bar with only a View menu would take the clipboard away from the one
- * screen where an operator pastes a customer's message.
+ * Its shape is Electron's own default menu, because that is the menu an
+ * operator's hands already know — and because replacing it with something
+ * smaller is how a clipboard quietly disappears. It is not identical to it:
+ * two entries are left out, and the zoom group is in the order `Zoom In`,
+ * `Zoom Out`, `Actual Size`. Both differences are called out below. The Edit
+ * menu is here for a reason that is not symmetry:
+ * `web/src/app/tickets/ticket-form.tsx` has a textarea, and Ctrl+C and Ctrl+V
+ * in it are the `copy` and `paste` roles. A menu bar with only a View menu
+ * would take the clipboard away from the one screen where an operator pastes
+ * a customer's message.
  *
  * Two items are deliberately not carried over: `Force Reload` (a second reload
  * nobody asks for) and Electron's `Help` section, whose two entries point at

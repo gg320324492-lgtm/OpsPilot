@@ -113,11 +113,12 @@ test.describe("the menu's shape", () => {
     }
   });
 
-  test("is the default menu, in full, when the debug items are on", () => {
+  test("is the default menu minus Force Reload, when the debug items are on", () => {
     // Electron's default View menu is Reload, Force Reload, Toggle Developer
     // Tools, then the zoom group and the full-screen toggle. Force Reload is
-    // the one item deliberately not carried over, so the roles are asserted
-    // rather than compared with the default's.
+    // the one item deliberately not carried over, and the zoom group is in a
+    // different order, so the roles are asserted rather than compared with the
+    // default's.
     const template = menuTemplate("en", { debug: true });
     expect(rolesOf(template)).toEqual([
       "quit",

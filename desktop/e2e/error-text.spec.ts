@@ -101,6 +101,14 @@ import {
   dockerNotInstalled,
   dockerNotRunning,
 } from "../src/lifecycle/errors";
+import { startBackend, startDashboard } from "../src/lifecycle/session";
+import {
+  collector,
+  fakeAuthorizedHttp,
+  fakeDeps,
+  fakeHttp,
+  fakeRunner,
+} from "./fakes";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const DOCS = path.join(ROOT, "docs");
@@ -348,6 +356,150 @@ const EXPLANATIONS = TEMPLATES.map(templatePattern);
 /** The refund the golden path parks for approval. */
 const REFUND = goldenPathRefund(readFileSync(GOLDEN_PATH, "utf8"));
 
+/**
+ * Collapse a text's whitespace, so a message the document wraps across lines
+ * compares equal to the one the code writes on one.
+ */
+function collapse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A message's first sentence — the part a document may quote on its own.
+ *
+ * The cut is at a full stop *followed by a space*, which is why a URL inside
+ * the sentence does not split it: `https://www.docker.com/products/` has a
+ * full stop in it and no space after one.
+ */
+function firstSentence(text: string): string {
+  const stop = text.indexOf(". ");
+  return stop === -1 ? text : text.slice(0, stop + 1);
+}
+
+/**
+ * The verification documents, whitespace-collapsed.
+ *
+ * The documents wrap; the code does not. A comparison that did not collapse
+ * would report a drift where there is none, and a guard that cries wolf is a
+ * guard that gets switched off.
+ */
+const DOCUMENTS = new Map<string, string>(
+  ["installer-verification.md", "installer-verification.zh-CN.md"].map((file) => [
+    file,
+    collapse(readFileSync(path.join(DOCS, file), "utf8")),
+  ]),
+);
+
+/**
+ * The operator-facing messages the verification procedure quotes, each one
+ * produced by the code that shows it.
+ *
+ * ## Why the text is never written out here
+ *
+ * A message the shell composes out of a service list, a port and a URL cannot
+ * be typed into a table without becoming a second copy of the string — which
+ * is the disease this file exists to cure. So every entry below is *located*
+ * by the thing that carries it: the progress event's kind, or the function
+ * that builds it. A reworded message is then found by the same rule, and the
+ * comparison against the document is what goes red.
+ *
+ * ## What this closes
+ *
+ * The three Docker problems are the messages the procedure walks the operator
+ * through, and the documents reproduce the not-installed one in full: its
+ * title, its detail and its remedy. Only the title was checked. The detail
+ * and the remedy were quoted by the documents and by nothing else, so a
+ * reworded message would have left the documents quoting text the application
+ * never shows — the exact defect this file's own docstring says was found by
+ * an audit rather than by a test.
+ *
+ * The same applies to the progress notes and to the two other titles the
+ * documents quote: "The dashboard has not been built", "The backend already
+ * running does not accept this app's operator token", and the teardown note
+ * an operator reads when the app leaves somebody else's stack alone.
+ */
+async function promisedMessages(): Promise<{ what: string; text: string }[]> {
+  const found: { what: string; text: string }[] = [];
+
+  // --- the messages the shell builds from a fixed string --------------------
+  const notInstalled = dockerNotInstalled("docker", "ENOENT");
+  found.push(
+    { what: "the title of the Docker-not-installed state", text: notInstalled.title },
+    { what: "the detail of the Docker-not-installed state", text: notInstalled.detail },
+    { what: "the remedy of the Docker-not-installed state", text: notInstalled.remedy },
+  );
+  found.push({
+    what: "the title of the Docker-not-running state",
+    text: dockerNotRunning("cannot connect to the Docker daemon").title,
+  });
+
+  // --- the messages the shell composes while it works -----------------------
+  // A run in which the API is not answering yet, so the stack is started and
+  // the notes the window shows while it comes up are all produced.
+  const working = collector();
+  const http = fakeHttp({
+    "http://127.0.0.1:8000/ready": (attempt) =>
+      attempt === 1 ? new Error("ECONNREFUSED") : 200,
+    "http://127.0.0.1:3210/": 200,
+  });
+  await startBackend(fakeDeps({ runner: fakeRunner(), http: http.probe }), working.emit);
+  await startDashboard(fakeDeps({ runner: fakeRunner(), http: http.probe }), working.emit);
+  for (const kind of ["checking-docker", "backend-starting", "backend-ready", "dashboard-ready"]) {
+    const event = working.events.find((candidate) => candidate.kind === kind);
+    if (event === undefined) {
+      throw new Error(`the shell produced no "${kind}" event, so the corpus is incomplete`);
+    }
+    found.push({ what: `the "${kind}" note`, text: event.note });
+  }
+
+  // --- the message the shell shows when it refuses to adopt a stack --------
+  const disagreement = collector();
+  await startBackend(
+    fakeDeps({
+      runner: fakeRunner(),
+      http: fakeHttp({ "http://127.0.0.1:8000/ready": 200 }).probe,
+      authorizedHttp: fakeAuthorizedHttp({ "http://127.0.0.1:8000/api/runs": 401 }).probe,
+      env: { OPSPILOT_OPERATOR_TOKEN: "a-token-this-app-is-about-to-use" },
+    }),
+    disagreement.emit,
+  ).catch(() => undefined);
+  const refused = disagreement.events.find((event) => event.problem !== undefined);
+  if (refused?.problem === undefined) {
+    throw new Error("the shell refused no stack, so the corpus is incomplete");
+  }
+  found.push({
+    what: "the title of the token-disagreement state",
+    text: refused.problem.title,
+  });
+
+  // --- the message the shell shows when the dashboard is not there ----------
+  const unbuilt = collector();
+  const failure = await startDashboard(
+    fakeDeps({ runner: fakeRunner(), exists: () => false }),
+    unbuilt.emit,
+  ).catch((error: unknown) => error);
+  const problem = (failure as { problem?: { title: string } }).problem;
+  if (problem === undefined) {
+    throw new Error("the shell did not report an unbuilt dashboard, so the corpus is incomplete");
+  }
+  found.push({ what: "the title of the unbuilt-dashboard state", text: problem.title });
+
+  // --- the note the operator reads when the app leaves a stack alone --------
+  const adopted = collector();
+  const backend = await startBackend(
+    fakeDeps({ runner: fakeRunner(), http: fakeHttp({ "http://127.0.0.1:8000/ready": 200 }).probe }),
+    adopted.emit,
+  );
+  await backend.stop();
+  const skipped = adopted.events.find((event) => event.kind === "teardown-skipped");
+  if (skipped === undefined) {
+    throw new Error("the shell left no stack running, so the corpus is incomplete");
+  }
+  found.push({ what: 'the "teardown-skipped" note', text: skipped.note });
+
+  return found;
+}
+
 test.describe("the operator-facing messages", () => {
   test("are the ones the shell actually shows", () => {
     // A sanity check on the fixture itself: if `dockerNotRunning` stopped
@@ -379,8 +531,8 @@ test.describe("the operator-facing messages", () => {
 
 test.describe("the verification documents", () => {
   for (const file of ["installer-verification.md", "installer-verification.zh-CN.md"]) {
-    const document = readFileSync(path.join(DOCS, file), "utf8");
-    const quoted = quotedSpans(document);
+    const raw = readFileSync(path.join(DOCS, file), "utf8");
+    const quoted = quotedSpans(raw);
 
     test(`${file} quotes the messages the app shows`, () => {
       for (const title of WALKED_STATES) {
@@ -433,4 +585,47 @@ test.describe("the verification documents", () => {
       }
     });
   }
+
+  test("quote the operator's messages exactly as the shell writes them", async () => {
+    const messages = await promisedMessages();
+    // The corpus is produced by the shell, so it cannot be empty by accident:
+    // a change that moved a message elsewhere would leave this comparing
+    // against nothing, and a check that compares against nothing passes.
+    expect(messages.length).toBeGreaterThan(0);
+
+    for (const { what, text } of messages) {
+      const message = collapse(text);
+      const head = firstSentence(message);
+
+      // **Every document must reproduce the opening of the message.** A
+      // document may quote the first sentence and describe the rest in prose —
+      // the English procedure does exactly that with the "install Docker"
+      // remedy, whose parenthetical about Linux and macOS it summarises rather
+      // than reproduces.
+      for (const [file, document] of DOCUMENTS) {
+        expect(
+          document.includes(head),
+          `${file} does not quote ${what}. The window shows exactly this, and a verifier ` +
+            `comparing against anything else reports a failure that did not happen.`,
+        ).toBe(true);
+      }
+
+      // **And at least one document must reproduce the whole of it.** Without
+      // this, a message that was reworded *after* its first sentence would
+      // leave both documents quoting text the application no longer shows,
+      // with the opening still matching and nothing red. The two documents are
+      // one procedure in two languages, so a message they only ever quote by
+      // its opening is a message no document reproduces: the Chinese one
+      // quotes that remedy whole, and it is the check that keeps it so.
+      const quotedWhole = [...DOCUMENTS.values()].some((document) =>
+        document.includes(message),
+      );
+      expect(
+        quotedWhole,
+        `neither verification document quotes ${what} in full. The window shows exactly ` +
+          `this, and a verifier comparing against anything else reports a failure that did ` +
+          `not happen.`,
+      ).toBe(true);
+    }
+  });
 });
