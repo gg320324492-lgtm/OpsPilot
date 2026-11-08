@@ -118,9 +118,15 @@ def _head_revision(migrations_dir: Path) -> str | None:
 
     Uses Alembic's own ``ScriptDirectory`` rather than parsing version files, so
     the notion of "head" is the one ``alembic upgrade head`` uses and cannot
-    drift from it. A script directory with several heads (a branch, which this
-    project does not have) returns the first, because the check is "is the
-    database at a head", and any single answer is more useful than a crash.
+    drift from it.
+
+    **A script directory with several heads raises, and that is the right
+    outcome.** Alembic's ``get_current_head`` refuses to pick one of them --
+    choosing is the caller's job, and the caller has not been written -- and
+    this project does not have a branch. The caller's broad catch turns the
+    raise into the ``unknown`` check state, which is the honest answer: this
+    deployment's migrations are ambiguous, and a probe that certified one of
+    them would be certifying a database it cannot name.
     """
     from alembic.script import ScriptDirectory
 
