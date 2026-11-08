@@ -36,6 +36,20 @@ from tests.agent._golden_harness import Harness
 #: anyone deciding whether it renders.
 _REAL_WORK_STEP_TYPES = frozenset({"classification", "retrieval", "planning", "response"})
 
+#: The step type the *state* writers record, as opposed to the work steps the
+#: runtime records. It is not a work step, but it is a step the trace renders,
+#: so it is in the known set too.
+_STATE_CHANGE_STEP_TYPE = "state_change"
+
+#: Every step type the tree is allowed to record. A step type outside this set
+#: is one nobody has decided how it should read in the timeline.
+#:
+#: This set is subtracted *from* the recorded types, not the other way round.
+#: Filtering the recorded types by the known ones before comparing them makes
+#: the comparison blind to a new type by construction -- and that is precisely
+#: what this guard exists to catch.
+_KNOWN_STEP_TYPES = _REAL_WORK_STEP_TYPES | {_STATE_CHANGE_STEP_TYPE}
+
 
 async def test_every_real_step_renders_a_non_empty_label(harness: Harness) -> None:
     """No recorded step renders as an empty label."""
@@ -94,18 +108,37 @@ async def test_a_step_type_nothing_records_has_no_detail_branch(harness: Harness
 async def test_the_work_step_types_are_the_ones_the_trace_renders(
     harness: Harness,
 ) -> None:
-    """Every recorded work step type renders a meaningful detail.
+    """Every recorded step type renders a meaningful detail.
 
     The guard on the guard: if the runtime adds a step type, this fails until
     someone decides how it should read in the timeline.
+
+    It used to fail to do that. The recorded types were **filtered** by the
+    known ones before being compared, so a type the runtime had just begun
+    writing was filtered out of the comparison and the guard stayed green --
+    which is the one thing this guard exists to prevent, and it happened
+    silently. The comparison is now over every recorded type, with the known
+    set subtracted from it rather than the other way round.
     """
     steps = await _drive(harness)
-    work = {s.step_type for s in steps if s.step_type in _REAL_WORK_STEP_TYPES}
+    recorded = {s.step_type for s in steps}
+
+    unknown = sorted(recorded - _KNOWN_STEP_TYPES)
+    assert not unknown, (
+        f"the run recorded step types nothing here knows about: {unknown}. Every "
+        "step type the golden path produces must say something in the timeline: "
+        "a row labelled 'Next action proposed' with no detail tells the reader "
+        "the agent did something without saying what. Add the type to "
+        "_KNOWN_STEP_TYPES and decide how it renders, or delete the branch that "
+        "renders it."
+    )
+
+    work = recorded & _REAL_WORK_STEP_TYPES
     assert work == _REAL_WORK_STEP_TYPES, (
         f"the golden path recorded work steps {sorted(work)}, expected "
         f"{sorted(_REAL_WORK_STEP_TYPES)}"
     )
-    for step_type in sorted(_REAL_WORK_STEP_TYPES):
+    for step_type in sorted(_KNOWN_STEP_TYPES):
         matching = [s for s in steps if s.step_type == step_type]
         assert matching, f"no {step_type} step was recorded"
         for step in matching:

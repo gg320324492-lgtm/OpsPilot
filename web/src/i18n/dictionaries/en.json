@@ -140,7 +140,7 @@
     "replayEmphasis": "The money moves only once",
     "replayBody_after": "— the idempotency key blocks the replay — but both cards are real and either can be decided. Approving one does not decide the other.",
     "replayRunPrefix": "run",
-    "replayRunSuffix": "pending cards with identical arguments",
+    "replayRunSuffix": ": {count} pending cards with identical arguments",
     "runStatusPanel": "Run status",
     "inFlightSuffix": "in flight",
     "rowInFlight": "In flight",
