@@ -8855,3 +8855,61 @@ by neither -- and the claim that "the operator token is still absent from
 every browser bundle" had no test behind it at all. Both now have one, and
 the corpus comes from the application itself rather than from a
 transcription of it.
+
+---
+
+## The provider every test runs on claimed a provenance it does not have
+
+**Date:** 2026-11-08. Four agents swept the tree for reverse drift -- the
+documents, the desktop app, the web component layer, and the test suite's own
+claims -- and the finding that mattered most was in the file the whole suite
+stands on.
+
+**`src/opspilot/adapters/models/fake.py` is the default provider.** It is what
+a fresh clone runs, what CI runs, and what the deterministic demo runs, so its
+docstring is read by everyone who wants to know what the green means. It said:
+
+> **It replays, it does not invent.** Every response comes from a fixture
+> captured from a real provider interaction.
+
+The fixtures said otherwise. Both committed ones carry ``"recorded": false``
+and a note reading "HAND-WRITTEN PLACEHOLDER, not a recording", and neither
+carries a ``request_hash`` -- so the request-hash replay path the same
+docstring describes has nothing committed to match against. The scenario path
+serves them: the calls come back in order. The docstring also contradicted
+itself ten lines below, where the fixture format it shows is labelled
+``"recorded": false,  # false == hand-written placeholder``.
+
+``docs/risks.md`` R2 has said so since the risk register was corrected; the
+provider's own docstring had not caught up, and the provider is the file a
+reader reaches for first.
+
+**The four agents' findings, in one place.**
+
+| Where | The claim | The truth |
+|---|---|---|
+| ``readiness.py`` | a branched migration directory "returns the first" head | alembic raises; the catch turns it into ``unknown`` |
+| ``ports/stores.py`` | ``TicketIntake.create`` names no failure | the implementation raises ``TicketExists``, through the store it calls |
+| the ports guard | -- | it could only see exceptions raised **in the method itself**, so it could not see an exception raised by the method that method calls |
+| ``evals/README.md`` | the tree holds ``runner.py``, ``metrics.py``, ``test_harness.py`` | none of the three is in ``evals/`` |
+| ``docs/limitations.md`` | the local embedder "reaches Recall@5 = 14/20" | it reaches **13/20** over the corpus as it stands, and the score bands moved with it |
+| ``docs/phase2-plan.md`` | compose's three ports are at ``:68`` / ``:261`` / ``:515`` | they are at **:73**, **:274** and **:528** |
+| ``docs/milestones.md`` | the browser still reads from the API directly | the dashboard's README now says every read is made from the server |
+| ``desktop/src/menu-policy.ts`` | the menu is Electron's "item for item" | the same file says two entries are not carried over |
+| ``desktop/e2e/token.spec.ts`` | "the token is absent from every browser bundle" | nothing checked it |
+| ``web/src/i18n/dictionaries/zh-CN.json`` | -- | one value began with a space, and the JSX beside it prints the separator too, so the banner showed two spaces |
+| ``pyproject.toml`` | ruff excludes ``apps/web`` | there is no ``apps/`` directory |
+| ``src/opspilot/settings.py`` | answerable cases score ``>= 0.2500`` | the measured minimum is **0.2608** |
+
+**Two of the findings were mine.** The C: cleanup moved the scratch directory
+into the repository, and ``desktop/e2e/packaging.spec.ts`` has a test that
+``chdir``s into it to be "outside any repository" -- so that test went red,
+and the Python suite stayed green, because the Python suite does not run the
+desktop e2e. Changing *where* something is written changes what the tests
+around it mean. It is recorded in the entry above.
+
+The other was mine in a different way: the first version of the new fixture
+guard's pattern matched a single space where the docstring wraps its line, so
+the guard sat green against exactly the sentence it was written for. The
+mutation found it. **A guard that has never been seen to go red is not a
+guard.**
