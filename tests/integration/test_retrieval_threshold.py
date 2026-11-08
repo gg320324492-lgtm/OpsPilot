@@ -31,10 +31,16 @@ The measurements quoted in the assertions were taken over
 ``evals/datasets/retrieval.jsonl`` and are stated so a future change can be
 compared against them rather than guessed at:
 
-- answerable cases' top score: **0.2500 - 0.4727**
+- answerable cases' top score: **0.2608 - 0.4658**
 - ``expect_abstention`` cases' top score: **0.0907 - 0.1844**
 - shipped default: ``0.22``, inside the gap with margin on both sides
-- Recall@5 = 14/15, Recall@10 = 15/15, abstention 5/5
+- Recall@5 = 13/15, Recall@10 = 15/15, abstention 5/5
+
+(Re-measured 2026-11-08, over the corpus as it stands. The previous figures --
+0.2500 - 0.4727 and 14/15 -- were taken over an earlier corpus; the two cases
+that fall out of the top five now are ``ret-004`` and ``ret-011``. The bands are
+asserted as *separation*, not as exact values, so the change did not turn
+anything red -- which is why the numbers are quoted here rather than relied on.)
 
 The bands are asserted as *separation*, not as exact values: the property is
 "no unanswerable case outscores an answerable one", which is what makes the

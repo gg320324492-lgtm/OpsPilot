@@ -258,7 +258,14 @@ src = ["src", "tests", "evals", "mcp_servers", "scripts", "desktop"]
 # `docs/` holds the human-authored specification. Ruff >= 0.16 reformats fenced
 # Python blocks inside Markdown, which would rewrite the spec text itself. The
 # spec is an input artifact and is reviewed as prose, so it is excluded.
-extend-exclude = ["docs", "apps/web"]
+#
+# The list used to hold a second entry, `apps/web`. There is no `apps/`
+# directory in this repository -- the dashboard is `web/`, and it holds no
+# Python -- so the entry excluded nothing and named a path that does not
+# exist. It is gone rather than corrected to `web/`: excluding the whole
+# dashboard would be the wrong instinct, because a Python file that appears
+# under `web/` is code to lint, not prose.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = [

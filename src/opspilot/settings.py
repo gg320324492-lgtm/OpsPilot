@@ -297,12 +297,15 @@ class Settings(BaseSettings):
     # different quantities on different scales.
     #
     #   - ``local`` (default): measured over ``evals/datasets/retrieval.jsonl``
-    #     the answerable cases score >= 0.2500 and the ``expect_abstention``
-    #     cases <= 0.1844, so any value in (0.1844, 0.2500) separates them.
+    #     the answerable cases score >= 0.2608 and the ``expect_abstention``
+    #     cases <= 0.1844, so any value in (0.1844, 0.2608) separates them.
     #     0.22 sits in that window with margin on both sides. The threshold is
     #     therefore *doing something*: raising it to 0.25 starts abstaining on
     #     answerable questions, and lowering it to 0.18 stops abstaining on
     #     unanswerable ones.
+    #     (Measured 2026-11-08, over the corpus as it stands. The figures this
+    #     replaced -- 0.2500 and 0.4727 -- were taken over an earlier corpus and
+    #     are still a true, looser bound; the gap is 0.0764 wide now.)
     #   - ``openai``: provider embeddings are near-unit cosine on a familiar
     #     corpus, so 0.35 is the conservative default. It is a different number
     #     for the same setting, and an operator switching providers should

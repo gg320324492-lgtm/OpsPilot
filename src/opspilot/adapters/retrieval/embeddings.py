@@ -76,7 +76,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 # so keeping them gives a question about the airspeed velocity of an unladen
 # swallow a strong match against a finance document. With them dropped, the two
 # score populations separate (measured on ``evals/datasets/retrieval.jsonl``:
-# answerable cases score >= 0.2500, unanswerable <= 0.1844; with them kept the
+# answerable cases score >= 0.2608, unanswerable <= 0.1844; with them kept the
 # bands overlap and no threshold can discriminate).
 _STOPWORD_SOURCE = """
 a an the and or but if then than that this these those
