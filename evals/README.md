@@ -12,10 +12,14 @@ Full specification: `docs/evals.md`.
 evals/
 ├── datasets/          classification, retrieval, tool_selection, safety (JSONL)
 │   └── fixtures/      provider responses, hand-written placeholders (M4)
-├── results/           one JSON per run; only the README-quoted run is committed
+└── results/           one JSON per run; only the README-quoted run is committed
+
+src/opspilot/evals/
+├── __main__.py        the CLI: runs the datasets and prints the metric table
 ├── runner.py          drives each case in an isolated run (M8)
-├── metrics.py         reduces recorded records to the metric table (M8)
-└── test_harness.py    the harness's own test, under tests/evals/ 
+└── metrics.py         reduces recorded records to the metric table (M8)
+
+tests/evals/           the harness's own tests
 ```
 
 ## Datasets
@@ -42,10 +46,12 @@ Two properties of the datasets matter more than their size:
   wrong category (a billing dispute that mentions an API outage is still
   `billing_dispute`). Uniform phrasing would make the metric meaningless.
 - **Near misses.** The retrieval set includes a question about a $129 enterprise
-  duplicate that expects **both** `duplicate-charge-sop.md` and
-  `refund-policy.md`, because the answer requires reconciling two documents. It
-  also includes queries the corpus genuinely cannot answer, where the correct
-  behaviour is abstention.
+  duplicate (`ret-018`) that expects **both** `duplicate-charge-sop.md` and
+  `refund-policy.md`, because the answer requires reconciling two documents. A
+  related case (`ret-003`) expects **three** — the two plus
+  `enterprise-billing.md`, which overrides the general policy for an enterprise
+  subscription. It also includes queries the corpus genuinely cannot answer,
+  where the correct behaviour is abstention.
 
 ## Running
 
