@@ -34,6 +34,10 @@ single change that makes the stack local-only without any application change.
 asserts the compose file's port mappings all name a loopback interface, so a
 future edit cannot silently un-bind one.
 
+**Status: closed.** The compose file publishes `127.0.0.1:5432:5432`,
+`127.0.0.1:8000:8000` and `127.0.0.1:3000:3000` (`docker-compose.yml:73`,
+`:274`, `:528`). The A1 row of the acceptance table below carries the evidence.
+
 ### A2 — The dashboard proxies privileged writes with no source check (verified)
 
 `web/src/app/api/approvals/[approvalId]/[decision]/route.ts` reads
@@ -57,6 +61,13 @@ foreign `Origin`/`Host` and asserts it is refused without the API being called.
 The same request from the dashboard's own origin still succeeds. Both are in CI,
 because a security property no test exercises is a claim, not a control.
 
+**Status: closed.** All three privileged write routes call `foreignOriginRefusal`
+— `web/src/app/api/tickets/route.ts`,
+`web/src/app/api/knowledge/reindex/route.ts` and
+`web/src/app/api/approvals/[approvalId]/[decision]/route.ts` — and
+`web/e2e/write-origin.spec.ts` holds each to a test. The A2 row of the
+acceptance table below carries the evidence.
+
 ### A3 — Fixed database credentials (verified)
 
 `docker-compose.yml` sets `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` to
@@ -71,13 +82,20 @@ fallback, so a real deployment cannot run on the example credential by accident.
 the documented local-dev case, or the README's run instructions state plainly that
 the credential is local-only and what to change before exposing anything.
 
+**Status: closed.** `POSTGRES_PASSWORD` is now `${POSTGRES_PASSWORD:-opspilot}`
+(`docker-compose.yml:56`) and every service's `DATABASE_URL` is written from
+that same variable (`:118`, `:141`, `:333`), so setting it once changes both
+sides. `POSTGRES_USER` and `POSTGRES_DB` are still the literal `opspilot`; the
+A3 row of the acceptance table below carries the evidence and its own history.
+
 ### A4 — Stale descriptions that a reviewer will read (verified)
 
-`web/README.md:5` says the browser "talks to the API on `:8000` **directly from
-the browser process**" — untrue since the server-side proxy landed, and the
-`api-contract.md` documents the opposite. `web/README.md:106` says the six
-screens are "routing stubs and the nav shell" — they are implemented and the
-browser walkthrough drives three of them. Compose comments carry the same drift.
+At the baseline commit, `web/README.md` said the browser "talks to the API on
+`:8000` **directly from the browser process**" — untrue since the server-side
+proxy landed, and the `api-contract.md` documents the opposite — and described
+the six screens as "routing stubs and the nav shell" when they were
+implemented and the browser walkthrough drove three of them. Compose comments
+carried the same drift.
 
 Fix: correct `web/README.md` and sweep the compose comments. These are the files
 a hiring reviewer opens first.
@@ -85,6 +103,14 @@ a hiring reviewer opens first.
 **Acceptance:** no document in the repository describes a capability that
 `limitations.md` §8 records as absent, and no document describes the browser as
 calling the API directly.
+
+**Status: closed.** `web/README.md` now scopes its own sentence to writes — "It
+never *writes* to the API on `:8000` from the browser" (`web/README.md:5`) — and
+extends the same rule to reads a few lines later ("**Reads go the same way.**
+Every read is made from the server"); its *State of the screens* section
+(`web/README.md:114`) records all six as built. `docs/api-contract.md` §8.1 says
+the same thing from the other side. The A4 row of the acceptance table below
+records the closure.
 
 ---
 
@@ -425,7 +451,7 @@ complete the code looks**, so this is the table that decides.
 
 | | Acceptance | State | Evidence |
 |---|---|---|---|
-| **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all `127.0.0.1`: 5432 (`:68`), 8000 (`:261`), 3000 (`:515`); `tests/unit/test_compose_settings_are_wired.py` pins it |
+| **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all `127.0.0.1`: 5432 (`:73`), 8000 (`:274`), 3000 (`:528`); `tests/unit/test_compose_settings_are_wired.py` pins it |
 | **A2** | A privileged write is refused unless it came from the dashboard | **met** | all three write routes call `foreignOriginRefusal`: `web/src/app/api/tickets/route.ts`, `web/src/app/api/knowledge/reindex/route.ts`, `web/src/app/api/approvals/[approvalId]/[decision]/route.ts`; `web/e2e/write-origin.spec.ts` holds each to a test |
 | **A3** | The database password is configurable and the default is named as one | **met — and it was half-true until the 2026-10-20 review** | `${POSTGRES_PASSWORD:-opspilot}` with the argument in situ; the password in every service's `DATABASE_URL` is written from that same variable, so setting it once changes both sides. It did not, at first: the URL carried its own literal `opspilot` password, so `POSTGRES_PASSWORD` could be set and the stack would fail every `migrate`/`api`/`worker` authentication — and the README's remedy ("change the password in `DATABASE_URL` to match") meant hand-editing a committed file. The URL's *host* is still deliberately fixed. `test_compose_postgres_password_is_configurable.py` |
 | **A4** | "No document describes the browser as calling the API directly, and none describes a capability `docs/limitations.md` §8 records as absent" | **met** | the two sentences §P2-A4 names are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process" nor that the screens are "routing stubs"; `docker-compose.yml` carries neither either |
@@ -433,8 +459,9 @@ complete the code looks**, so this is the table that decides.
 | **B2** | A change moves the score, twice over | **deferred, deliberately** | two identical runs scored 3/15 and 2/15; the spread equals any plausible improvement, so the target is unmeasurable against this endpoint (`docs/progress.md`, "Two runs of the same code") |
 | **B3** | The metric's name matches what it counts | **met** | `docs/evals.md` §1 now states what row 5 counts and that it pools empty and malformed arguments; the malformed half gained its own metric on 2026-10-15 |
 | **B4** | A holdout set exists and tuning never consults it | **met** for the holdout's existence; the plan's third clause is **unmet** | `evals/datasets/tool_selection_holdout.jsonl`, 32 cases; `_OPT_IN_DATASETS` in `src/opspilot/evals/__main__.py:69` — not `evals/__main__.py`, which does not exist; the root `evals/` holds `datasets/`, `results/`, `README.md` and `__init__.py`. §P2-B4 states the acceptance in three clauses — "≥30 new cases committed; tuning decisions cite the 15; the holdout is run once at the end and its result reported whether or not it improves" — and this row quoted two. The **third is unmet**: **no** file in `evals/results/` touches the holdout (counted
-2026-10-22: 381 files, of which six are tracked and the rest are gitignored
-local runs; the directory grows with every evaluation), so it has never been run and no result has been reported. That is partly the design working as intended — `_OPT_IN_DATASETS` is opt-in and "never run by default", which is what "tuning never consults it" asks for — but the report the clause asks for does not exist |
+2026-11-08: six of the files in `evals/results/` are tracked and every other
+one is a gitignored local run; the directory grows with every evaluation), so
+it has never been run and no result has been reported. That is partly the design working as intended — `_OPT_IN_DATASETS` is opt-in and "never run by default", which is what "tuning never consults it" asks for — but the report the clause asks for does not exist |
 | **C1** | "A test that starts two workers against one PostgreSQL and asserts no run is claimed twice" | **partial — and the row first read "met", which was wrong** | The lease (`migrations/versions/0002_claim_lease.py`, the predicate in `SqlRunStore.claim_next` — `src/opspilot/adapters/persistence/repositories.py:566`) closes the *live-worker* half: the documented 30/30 concurrent double-claim is gone. Two files carry it and the split matters — `tests/integration/test_worker_claim_lease.py` is the dialect-independent half on SQLite (`test_thirty_non_overlapping_claim_pairs_never_share_the_run`, at `:118`), and `tests/integration/test_worker_claim_postgres.py::test_a_leased_claim_is_withheld_from_a_second_worker` (`:439`, one of **five** `postgres`-marked tests — this row used to say seven, which counts two other `test_` functions in that file that carry no marker) is the half that runs against a real PostgreSQL. But the acceptance as written is **unconditional**, and the repository's own test asserts the opposite case: `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode` drives a run, lets an unrenewed lease expire, and asserts a second worker **does** claim it — "two workers driving one run. That is the honest cost of a lease." `docs/limitations.md` §8 item 2 still lists the end-to-end promise as open and calls the production fix C1's open half. So the boundary is *stated and tested*, not removed — the same shape C2 chose, recorded here rather than read as a stronger guarantee than the code makes |
 | **C2** | The refund guarantee is made and tested, or its boundary is stated and tested | **met**, by the second route | `tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded` asserts the *failure* the contract does not cover, rather than denying it |
 | **C3** | An operator can tell a claimed-but-stalled run from an unclaimed one | **met** | the lease is projected to the run page (`web/src/app/runs/[runId]/page.tsx`); `web/e2e/claim-lease.spec.ts` |

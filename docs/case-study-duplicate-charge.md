@@ -263,11 +263,14 @@ TX-88219   $129.00 USD   refunded   refund_id: REF-10091  ← the duplicate, ref
 
 This is the check the repository is built around: **a run that says `COMPLETED`
 proves nothing about whether a refund row exists**, so the assertion is made
-against the thing that holds the money. Five of the six scenario tests in
+against the thing that holds the money. **Seven of the nine tests** in
 [`tests/agent/test_readme_scenarios.py`](../tests/agent/test_readme_scenarios.py)
-assert against this server rather than against the run's own status, and the
-browser walkthrough's final step asks it the same question from a fresh browser
-context.
+assert against this server rather than against the run's own status — the two
+that do not are `test_scenario_4b_boot_preserves_a_decision_and_sweeps_the_rest`,
+which asserts on run *statuses*, and
+`test_a_second_run_gets_a_different_idempotency_key`, which asserts on the key
+derivation itself — and the browser walkthrough's final step asks it the same
+question from a fresh browser context.
 
 ## 8. Completion
 
@@ -302,8 +305,9 @@ Against a live endpoint this is minutes — the evaluation run below has a p50 o
   weakest metric and **does not hold still between runs** — see below.
 - **It does not show two workers on one database.** One worker ran this. The
   claim query's locking clause is tested against a real PostgreSQL, but the
-  end-to-end two-worker guarantee does not hold and is not claimed
-  ([limitations.md](limitations.md) §2).
+  end-to-end two-worker promise is **not unconditional and is not claimed as
+  one**: it holds while the lease holds, and a lease that lapses makes the run
+  claimable again ([limitations.md](limitations.md) §2, and §8 item 2).
 - **It does not file a ticket.** `issues.create` is implemented and tested in
   isolation but the committed golden-path fixture does not propose it. Recorded
   boundary D19a ([limitations.md](limitations.md) §8).
@@ -329,9 +333,9 @@ important caveat belongs here too:
 > [`docs/progress.md`](progress.md#two-runs-of-the-same-code-b2-is-not-measurable-against-this-endpoint).
 > A tool-selection figure from a single run of this endpoint is not a result.
 
-The security property, by contrast, **is** stable: across all four runs the gate
-metrics are zero, and the run above had 170 attempted tool calls with **zero**
-unapproved `high_risk_write` executions.
+The security property, by contrast, **is** stable: `unsafe execution count` is
+**0** in all four committed runs, and the run above had 170 attempted tool calls
+with **zero** unapproved `high_risk_write` executions.
 
 ---
 
@@ -353,7 +357,7 @@ the billing server's final answer:
 cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
 ```
 
-Or run just the six end-to-end scenarios in Python:
+Or run the same scenarios in Python — nine tests, one file:
 
 ```bash
 pytest tests/agent/test_readme_scenarios.py

@@ -220,12 +220,16 @@ long procedures split awkwardly. Nothing in Phase 1 detects a bad split.
 `local` embedder is a **lexical** scorer, not a semantic one: a bag of
 stopword-free, lightly-stemmed words, weighted sublinearly by frequency and
 hashed into a fixed-width vector. It is a real retriever on this corpus —
-measured over `evals/datasets/retrieval.jsonl` it reaches **Recall@5 = 14/20**
+measured over `evals/datasets/retrieval.jsonl` it reaches **Recall@5 = 13/20**
 and **Recall@10 = 15/20** -- twenty cases, of which five are the unanswerable
 ones and score zero by abstaining -- and its scores separate answerable from
 unanswerable questions — which is what lets a fresh clone and the CI suite run the golden
-path with no API key. What it is not is semantic: **there is no synonymy**. A
-question whose answer is worded entirely differently from the question will not
+path with no API key. **Measured 2026-11-08, against the corpus as it stands;
+the committed 2026-10-11 run recorded `14/20`, because the corpus has been
+revised since** — `ret-004` and `ret-011` are the two answerable cases that no
+longer clear the top five. What it is not is semantic: **there is no
+synonymy**. A question whose answer is worded entirely differently from the
+question will not
 match it, and the stopword list and the two suffix rules are hand-written rather
 than derived from a corpus. Every number quoted in the README comes from a run
 whose *model* provider was a real endpoint but whose *embeddings* were this local
@@ -237,12 +241,14 @@ taken on trust.
 
 **`RETRIEVAL_MIN_SCORE` is calibrated against the default embedder, and only
 against it.** The default is `0.22`, chosen by measuring
-`evals/datasets/retrieval.jsonl`: the answerable cases score **≥ 0.2500** and
+`evals/datasets/retrieval.jsonl`: the answerable cases score **≥ 0.2608** and
 the `expect_abstention` cases **≤ 0.1844**, so any value in that gap separates
-them and `0.22` sits inside it with margin on both sides. Three things follow,
+them and `0.22` sits inside it with margin on both sides. (Measured 2026-11-08;
+the code's own comment in `src/opspilot/settings.py` names the older bound
+`≥ 0.2500`, which this measurement still satisfies.) Three things follow,
 and none of them is comfortable:
 
-1. **The margin is narrow.** 0.1844 → 0.2500 is a band 0.066 wide, on 20 cases.
+1. **The margin is narrow.** 0.1844 → 0.2608 is a band 0.0764 wide, on 20 cases.
    A corpus of 20 questions is a smoke test for separation, not a calibration.
 2. **The number is meaningless under a different embedder.** A provider's cosine
    and this lexical score are different quantities on different scales; `0.22`
@@ -349,7 +355,7 @@ is that test — it runs against a real PostgreSQL, drops and recreates the
 schema, and **skips** wherever none is reachable. The two are complementary,
 and neither replaces the other.
 
-**No coverage gate on `apps/web`.** The dashboard has type checking and linting
+**No coverage gate on `web/`.** The dashboard has type checking and linting
 in CI; its component behaviour is verified by hand against the golden path. This
 is a real gap and is the reason M7 is scheduled after the workflow it displays.
 
@@ -371,7 +377,7 @@ it for a public website, and this decides whether money moves on a
 loopback-bound dashboard, so it is an explicit operator choice rather than a
 default. One translation is not a localisation programme; `docs/phase2-plan.md`
 §P2-F scopes the remaining languages as a product decision this project has not
-made. Covered by 22 `web-e2e` cases across
+made. Covered by 23 `web-e2e` cases across
 `web/e2e/i18n.spec.ts` and `web/e2e/i18n-catalogue.spec.ts`.
 
 **The favicon's 256-pixel frame costs about 75 KB on the first visit, and the
@@ -455,11 +461,6 @@ deliberately.
 
 **The dashboard is operational, not polished.** It is designed to make a trace
 readable, which is what a reviewer needs. It is not a product.
-
-**No notification when an approval is pending.** An operator must have the
-Approvals page open. There is no email, no Slack, no webhook. Deliberate — email
-and Slack integrations are explicitly out of scope — but the consequence is that
-a run can sit parked indefinitely in a real deployment.
 
 **An expired approval's run stays parked forever.** Approvals do expire now —
 `APPROVAL_TTL_SECONDS`, swept by the worker — but expiring one does not re-park
@@ -669,7 +670,7 @@ could not keep.
      The system has **no** amount grading: gate 5 asks one question, whether
      the permission is `HIGH_RISK_WRITE` (`agents/runtime.py`), and
      `ApprovalRequest` has no role or band field. Two signatures are not
-     merely unimplemented but *structurally impossible*: `approvals.tool_call_id`
+     merely unimplemented but *structurally impossible*: `approval_requests.tool_call_id`
      is unique, so one tool call has one approval row. Phase 1 also has one
      operator, so there is no second signature to give.
    - **`knowledge/refund-policy.md`** says a refund above $100 needs human
