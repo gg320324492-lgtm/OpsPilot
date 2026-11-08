@@ -8762,6 +8762,13 @@ made it worth doing was not a tidiness one.
 | electron-builder's installer cache | `%LOCALAPPDATA%\opspilot-desktop-updater` | 1 | 117 MB |
 | Electron's user data | `%APPDATA%\OpsPilot` | 1 | 15 MB |
 
+**All of them are gone from C: now.** The first four were the system's temp
+directory, which the environment had already emptied; the last two were moved
+into the repository and then deleted, because they were the previous runs'
+residue and nothing in them was worth keeping. C: holds none of this
+project's files now, and it will not start holding them again -- that is what
+the rule below is for.
+
 **Two defects, not one.** The first is the **leak**: the eval harness made a
 private directory per case and threw the handle away, so every case of every
 run left a directory behind. The second is the **location**: even the
