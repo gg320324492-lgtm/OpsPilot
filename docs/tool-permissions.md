@@ -269,7 +269,9 @@ The test that matters is
 it calls the MCP server directly, twice, with the same key, and asserts one
 refund exists. This test does not go through the agent at all, so it holds even
 if the agent loop is rewritten. (`tests/integration/test_refund_idempotency.py`
-is the M0 placeholder — a skipped stub — and is not that test.)
+was the M0 placeholder for this; it now starts a real billing MCP subprocess
+and makes the same two calls over the wire, so it covers the connection the
+in-process test does not.)
 
 ## 5. What the model can and cannot do
 

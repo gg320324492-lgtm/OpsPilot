@@ -206,9 +206,11 @@ imports with no business logic, and a published GitHub repository.
       `tests/integration/test_mcp_billing.py::test_same_idempotency_key_twice_creates_one_refund`,
       which asserts `replayed` false then true, the same `refund_id`, and
       `len(store.data["refunds"]) == 1` against the store document.
-      `tests/integration/test_refund_idempotency.py` is still the M0 placeholder
-      — a `pytest.mark.skip` stub with the body `...`, never populated — and is
-      not evidence. The only real `UNIQUE` on an idempotency key is M1's
+      `tests/integration/test_refund_idempotency.py` was the M0 placeholder for
+      this criterion and is now filled in: it starts a real billing MCP
+      subprocess and calls `billing.issue_refund` twice **over the wire** with
+      the same key, asserting the persisted store document holds one refund
+      row. The only real `UNIQUE` on an idempotency key is M1's
       `uq_tool_calls_idempotency_key_executed`, in the application database.)
 - [x] A second call with the same key returns the same `refund_id` with
       `replayed: true` and creates no second refund row.

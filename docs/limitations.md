@@ -910,7 +910,7 @@ legible):
   denied.
 
   The mechanism makes the claim worse rather than merely unmet.
-  `FakeModelProvider._call_for` (`adapters/models/fake.py:148`) prefers scenario
+  `FakeModelProvider._call_for` (`adapters/models/fake.py:161`) prefers scenario
   mode: given a scenario name it returns calls by `method`, in file order, off a
   per-method cursor, without ever inspecting the request. `request_hash` is read
   only on the no-scenario fallback path and only to name the
