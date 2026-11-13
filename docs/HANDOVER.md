@@ -243,8 +243,11 @@ machine's copy of the project is disposable. In order:
 ```bash
 # 1. Stop the stack and remove the volumes it created (they hold the local
 #    database and the MCP stores -- nothing that is in git).
+#    Start Docker Desktop first if it is not running: with the daemon down,
+#    `docker compose down -v` cannot reach the volumes and they survive.
 cd G:/OpsPilot
 docker compose down -v
+docker volume ls | grep -E "postgres-data|mcp-data"   # expect no output
 
 # 2. Remove the project directory, with the virtual environment in it.
 rm -rf /g/OpsPilot
