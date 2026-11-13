@@ -8913,3 +8913,51 @@ guard's pattern matched a single space where the docstring wraps its line, so
 the guard sat green against exactly the sentence it was written for. The
 mutation found it. **A guard that has never been seen to go red is not a
 guard.**
+
+---
+
+## Everything pushed, and a handover for the next machine
+
+**Date:** 2026-11-14. The project was developed on one machine and is
+continuing on another, so the requirement was specific: **everything that is
+this project must be in the cloud repository, and the old machine must be
+able to be deleted outright.**
+
+**What was pushed.** `main` was **88 commits** ahead of the last pushed
+commit; it is now pushed, and a fresh clone's `main` is the tree at
+`14fd7be` plus the handover commit. The remote and the local tree agree
+exactly -- 481 tracked files each.
+
+**Nothing was left behind that mattered.** The files that are not in the
+cloud are all regenerable or disposable, and each one is listed in
+`docs/HANDOVER.md` §4 with the command that recreates it: `.env` (the operator
+token is a local development value and is regenerated with `secrets.token_urlsafe`),
+`.venv/`, the two `node_modules/`, the packaging output, the caches, the
+untracked evaluation runs, and the project's own `.opspilot/` scratch
+directory.
+
+**What the handover document says.** Where the repository is and which commit
+it is at; what the new machine needs (Python 3.12/3.13, Node 22, Docker only
+for the stack); the three things you can do from a fresh clone -- the suite,
+the deterministic demo, and the whole stack; the one setting that is required
+and why; a readiness checklist whose every line is a command; where the
+project actually stands, **including the fact that none of it has been through
+GitHub Actions since `f410911`**; the two product decisions still open; the
+reading order for the next person; and the exact commands to wipe the old
+machine -- including `docker compose down -v`, without which the named
+`postgres-data` and `mcp-data` volumes survive and the next machine's stack
+comes up against the previous machine's database.
+
+**Two things are deliberately *not* moved.** The Claude Code session store
+under `%USERPROFILE%\.claude\projects\G--OpsPilot` and its background-task
+directory are the **tool's** files, not the project's -- they hold this
+conversation's transcript, and moving them out from under the running
+application would empty its session list. The same is true of another tool's
+project directory on the same disk. Neither is OpsPilot's, and neither can be
+relocated without breaking the program that owns it.
+
+**The project's own files on C: are gone.** That was the previous round's
+work: the 2,172 directories the project used to leak onto the system drive
+now live under the repository's own `.opspilot/`, and
+`tests/unit/test_the_project_writes_only_inside_the_repository.py` keeps them
+there.

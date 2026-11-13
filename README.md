@@ -857,6 +857,7 @@ The specification was written before the code, and it is the artifact to review:
 | [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
 | [installer-verification.zh-CN.md](docs/installer-verification.zh-CN.md) | The same procedure in Chinese, for the person running it (the English file is authoritative) |
 | [progress.md](docs/progress.md) | The running record, including the measurements that disagree |
+| [HANDOVER.md](docs/HANDOVER.md) | **Continuing on another machine**: what is where, and how to wipe the old one |
 | [adr/](docs/adr/) | Five architecture decision records |
 
 ## Running it
