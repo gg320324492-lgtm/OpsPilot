@@ -6001,6 +6001,33 @@ project, and Phase 2 does not attempt it.
   and the split is stated in the spec's own docstring rather than left implicit:
   launching it spawns Docker and writes a token into `%APPDATA%`, which is the
   manual step `docs/installer-verification.md` §5 exists for.
+- **Rebuilt and re-verified on this machine, 2026-11-14.** `npm ci` (clean
+  `node_modules`, lockfile-resolved) then `npm run package` from
+  `desktop/` — the web build, the tsc compile, `stage-stack.mjs` (20 MiB staged
+  into `desktop/stage/stack/`) and `electron-builder --win --x64` all ran
+  without intervention. Fresh artefact:
+  `desktop/release/OpsPilot-Setup-0.1.0-x64.exe`, 119,227,780 bytes,
+  SHA-256 prefix `565206f73b3ef924`, beside `win-unpacked/`
+  (`app.asar` 146,166 bytes, `resources/stack/` present). The size differs
+  from the previous build's 121,654,288 bytes because `nsis` recompresses the
+  tree it finds; the posture suite, not the byte count, is the invariant. The
+  web build read `OPSPILOT_OPERATOR_TOKEN` from the root `.env` as a
+  **run-time** variable only (`web/src/lib/api/client.ts:212` reads
+  `process.env` server-side; nothing inlines it into the bundle), so the build
+  needed no token in its inputs and the staged tree ships none — confirmed by
+  the A3 assertions below.
+- `desktop/e2e/packaged-posture.spec.ts` was run against the fresh artefact
+  with `OPSPILOT_PACKAGED_REQUIRED=1 npx playwright test --project lifecycle
+  -g packaged-posture` (required mode: no silent skips), **6 passed**:
+  the ten icon sizes in the packaged executable; every published port in the
+  packaged compose file names `127.0.0.1` (A1); the packaged compose file is
+  byte-identical to the repository's (A1, staleness guard); no `.env` or
+  operator-token file inside the package (A3); the machine's real token appears
+  in no packaged file (A3); and the security policy inside `app.asar` matches
+  the source policy — `contextIsolation: true`, `nodeIntegration: false`,
+  `sandbox: true` (D3's renderer-untrusted assertion). It still does **not**
+  launch `OpsPilot.exe`; that stays the manual step
+  `docs/installer-verification.md` §5 exists for.
 - `docs/installer-verification.md` is the walk-through script, and
   `docs/installer-verification.zh-CN.md` is its Chinese translation — added
   2026-10-16, because the person who has to run the installer may not read
@@ -6027,7 +6054,9 @@ acceptance is "on a clean Windows machine with Docker Desktop, install the built
 package and walk the golden path end to end... by someone who did not build it".
 The installer was built by the author, so running it here is self-certification and
 does not meet the criterion. `docs/installer-verification.md` is the script; the
-missing part is a stranger.
+missing part is a stranger. The machine-doable half of D2 is done and repeatable:
+the package builds from a clean `npm ci` and the artefact passes the packaged
+posture suite (above, 2026-11-14). What remains is the person.
 
 ---
 
