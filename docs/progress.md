@@ -8961,3 +8961,65 @@ work: the 2,172 directories the project used to leak onto the system drive
 now live under the repository's own `.opspilot/`, and
 `tests/unit/test_the_project_writes_only_inside_the_repository.py` keeps them
 there.
+
+---
+
+## Phase 2 gaps closed on the new machine: C1 on a live PostgreSQL, B4's holdout run through the harness
+
+**Date:** 2026-11-14. Both runs below were made on the machine the handover
+document addressed, from the tree at `1e4000a` (`main`), with the project's
+Python 3.12 virtual environment (`.venv/Scripts/python.exe`).
+
+### C1 — the claim guarantee executed against a real PostgreSQL
+
+The five `postgres`-marked tests in
+`tests/integration/test_worker_claim_postgres.py` and the ten tests in
+`tests/integration/test_worker_claim_lease.py` had never been run on this
+machine; on the default suite they skip for want of `OPSPILOT_DATABASE_URL`
+(ADR-0004). They were run here against the Compose PostgreSQL:
+
+```bash
+docker compose up -d postgres
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
+  tests/integration/test_worker_claim_postgres.py -m postgres -v
+# 5 passed, 2 deselected in 3.04s
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
+  tests/integration/test_worker_claim_lease.py -v
+# 10 passed in 1.05s
+```
+
+**Result: 15/15 passed.** The `SKIP LOCKED` clause, the lease's PostgreSQL
+half and the thirty-pair lease regression now hold on the database production
+uses, not only on SQLite. `docs/limitations.md` §8 item 2 records the C1 status
+update; what stays open there is the lease-expiry boundary, which is a design
+decision, not an unrun test.
+
+### B4 — the holdout dataset run through the harness (fake provider: a plumbing check, not a model result)
+
+`evals/datasets/tool_selection_holdout.jsonl` (32 cases) had never been run.
+It was run through the harness:
+
+```bash
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m opspilot.evals run \
+  --dataset tool_selection_holdout
+# fake provider — harness check only, not a model result
+```
+
+The run produced `evals/results/2026-11-13T23-52-14.json` (a local run;
+`evals/results/*` is gitignored by design). It records
+`provider: "fake"`, `model: "hand-written-placeholder"`, the dataset
+`tool_selection_holdout` and a `tool selection` figure of 0.21875 over 32
+cases, with the `unsafe execution count` gate at 0.
+
+**The metrics under `MODEL_PROVIDER=fake` are meaningless and are not claimed
+as a result**: the scripted provider's answers are a property of the script,
+and the harness itself suppresses the table without `--allow-fake-scores`
+(`docs/limitations.md` §5). What this run verifies is that the holdout is
+**runnable and reproducible end to end** — dataset loading, the runner, the
+results file, the gate — which is the part of §P2-B4's third clause this
+machine can satisfy. A model-backed holdout run, and the improvement judgment
+the clause asks for, remain for a machine with a model key. The B4 and C1 rows
+of `docs/phase2-plan.md`'s acceptance table are updated to say the same.

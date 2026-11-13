@@ -583,7 +583,15 @@ could not keep.
    open, and adding it to the golden path remains a possible Phase 2 product
    decision.
 2. **The two-worker guarantee is tested at the predicate, at the lock and at the
-   lease; the end-to-end promise is still not unconditional.** Three files carry
+   lease; the end-to-end promise is still not unconditional.**
+   **Status update, 2026-11-14: the database-level claim (C1) is now verified
+   against a real PostgreSQL, not only asserted.** All five `postgres`-marked
+   tests in `tests/integration/test_worker_claim_postgres.py` and all ten tests
+   in `tests/integration/test_worker_claim_lease.py` were run locally against a
+   live `docker compose up -d postgres` (`OPSPILOT_DATABASE_URL=
+   postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot`): 15/15
+   passed. Evidence is recorded in `docs/progress.md`. What remains open below
+   is only the end-to-end boundary the lease's expiry leaves. Three files carry
    the claim. `tests/integration/test_worker_claim.py` covers the claim
    *predicate* on SQLite. `tests/integration/test_worker_claim_postgres.py`
    covers the **locking clause** against a real PostgreSQL — two overlapping
