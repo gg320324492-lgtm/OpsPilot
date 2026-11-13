@@ -74,6 +74,14 @@ skips for committed result files written before the breakdown was recorded.
 **There is no placeholder skip left** -- the three M0 stubs the suite used to
 carry are implemented.
 
+**One test needs the web dependencies.** `test_web_client_types.py` checks the
+generated client types against the live OpenAPI schema by running
+`web/scripts/generate-types.mjs`, which needs `openapi-typescript` from
+`web/node_modules`. Without `npm ci` in `web/`, that one test fails with
+"Cannot find package 'openapi-typescript'" and the rest are green. Run
+`cd web && npm ci` before the suite if you want the whole thing green in one
+go.
+
 Then the other three gates, all of which CI runs and all of which must be
 green:
 
@@ -172,6 +180,7 @@ machine can be wiped.
 ```bash
 git log --oneline -2                # the handover commit, on top of 14fd7be
 git status --porcelain              # empty
+cd web && npm ci && cd ..           # one test needs openapi-typescript
 python -m pytest -q                 # 1347 passed, 18 skipped
 ruff check && ruff format --check && mypy   # all clean
 cd web && npm run lint && npm run typecheck && npm run check:types && cd ..
