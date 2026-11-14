@@ -31,7 +31,7 @@ have made that answer reachable and wrong.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -243,3 +243,41 @@ class MaxStepsExceeded(DomainError):
         self.run_id = run_id
         self.max_steps = max_steps
         super().__init__(f"run {run_id} exceeded the {max_steps}-step budget")
+
+
+#: The ``error_category`` vocabulary for a model call that failed to produce a
+#: usable answer -- M1-03's requirement that an empty reply and a malformed one
+#: are distinguishable rather than collapsed into one "unknown". The tokens are
+#: machine-stable and written verbatim into the ``model_failed`` audit event's
+#: payload (``docs/api-contract.md`` §4.1).
+EMPTY_RESPONSE: Final[str] = "empty_response"
+INVALID_JSON: Final[str] = "invalid_json"
+SCHEMA_MISMATCH: Final[str] = "schema_mismatch"
+
+
+class ModelOutputError(OpsPilotError):
+    """A model call returned something that is not a usable answer.
+
+    This is the *content* failure -- the provider answered, and the answer was
+    empty, not JSON, or not the requested schema -- as opposed to the transport
+    failures (unreachable, timeout, HTTP status) the worker's SDK mapping
+    owns. It is raised by the provider adapters and caught by the runtime, so
+    the run it belongs to is failed *once*, with a diagnosis, and the worker
+    moves on to the next ticket.
+
+    ``error_category`` is one of the three tokens above. It is the field that
+    keeps M1-03's distinction honest at the type level: an empty response and
+    an invalid-JSON reply are both ``ModelOutputError`` to a caller, but they
+    are never the same category in a trace.
+
+    This is an ``OpsPilotError`` and deliberately *not* a ``DomainError``: it
+    is raised by an adapter about its own output, not by a domain rule, and
+    ``tests/unit/test_ports_match_their_implementations.py`` only forces the
+    latter to be documented on the port.
+    """
+
+    def __init__(self, schema_name: str, detail: str, *, error_category: str) -> None:
+        self.schema_name = schema_name
+        self.detail = detail
+        self.error_category = error_category
+        super().__init__(f"model returned a value invalid for {schema_name}: {detail}")

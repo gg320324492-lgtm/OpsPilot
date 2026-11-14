@@ -464,9 +464,9 @@ The run's audit ledger — the append-only record, not the execution timeline.
 
 `events` is in the order the ledger was written, oldest first, and it is
 **complete**: nothing is summarised and nothing is filtered out. The event types a
-run can write are `model_called`, `tool_executed`, `tool_failed`,
+run can write are `model_called`, `model_failed`, `tool_executed`, `tool_failed`,
 `tool_rejected`, `approval_requested`, `retrieval_abstained` and `run_failed`.
-`payload`'s shape depends on `event_type` — the two that matter most:
+`payload`'s shape depends on `event_type` — the three that matter most:
 
 - `tool_failed` carries `{tool_call_id, tool_name, permission, ok, latency_ms,
   error}`, where `error` is the code the tool server answered with
@@ -480,6 +480,33 @@ run can write are `model_called`, `tool_executed`, `tool_failed`,
 - `model_called` carries the provider, model, latency and token counts, and its
   token fields are `null` when the provider reports no usage — an unknown call
   contributes nothing rather than a fabricated zero.
+- `model_failed` is the structured diagnosis of a model call that produced no
+  usable answer (Phase 3 M1-03). One event per failed call, written by the
+  runtime when the reply was unusable *content* (empty, not JSON, wrong shape)
+  and by the worker when the provider *raised* (timeout, 429, 5xx, refused
+  connection). Its payload:
+
+  ```jsonc
+  { "provider": "anthropic", "model": "claude-sonnet-5-5",
+    "stage": "classifying",            // the run status the call was made from
+    "error_category": "rate_limit",    // see the vocabulary below
+    "latency_ms": 60211, "attempt": 1,
+    "http_status": 429,                // null when the provider exposed none
+    "request_id": "req_01…",           // null when the provider exposed none
+    "error_summary": "Rate limit reached for …" }  // truncated, credential-screened
+  ```
+
+  `error_category` is a closed vocabulary. The **content** categories come from
+  the adapters' `ModelOutputError`: `empty_response` (the provider answered with
+  nothing), `invalid_json` (the reply was not JSON) and `schema_mismatch` (the
+  reply was JSON but missed the requested schema) — an empty reply and a
+  malformed one are deliberately never the same token. The **transport**
+  categories come from the worker's SDK mapping: `timeout`, `rate_limit`,
+  `server_error`, `network`, `auth`, `invalid_response`, and `unknown` as the
+  honest fallback. `error_summary` is truncated (200 characters, tail marked
+  `…[truncated]`) and screened: a message matching a credential pattern is
+  replaced, never carried. The full provider error body does not reach the
+  ledger.
 
 **Which endpoint answers which question.** `/trace` is the *execution timeline*:
 which step ran, in what order, how long it took. This is the *compliance record*:

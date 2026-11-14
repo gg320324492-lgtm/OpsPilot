@@ -60,7 +60,13 @@ from opspilot.agents.prompts import tool_catalogue
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
 from opspilot.agents.state import RunContext, ToolCallRecord, default_max_steps
 from opspilot.domain.approvals import ApprovalContext, ApprovalRequest
-from opspilot.domain.errors import IllegalTransition, MaxStepsExceeded, MCPUnavailable, RunParked
+from opspilot.domain.errors import (
+    IllegalTransition,
+    MaxStepsExceeded,
+    MCPUnavailable,
+    ModelOutputError,
+    RunParked,
+)
 from opspilot.domain.policies import (
     derive_idempotency_key,
     evaluate_policy,
@@ -151,6 +157,14 @@ AUDIT_RUN_FAILED: Final[str] = "run_failed"
 # source of metrics 11-12; the runtime simply never wrote it, so two of the
 # twelve metrics could only ever print zero. See ``_record_model_call``.
 AUDIT_MODEL_CALLED: Final[str] = "model_called"
+# Written once per model call that failed to produce a usable answer -- an
+# empty reply, a non-JSON reply, a reply that missed the schema -- or that the
+# worker could not complete because the provider raised (timeout, 429, 5xx,
+# connection refused). The payload is the M1-03 structured diagnosis:
+# provider, model, stage, error category, latency, attempt, and -- when the
+# provider exposes one -- the HTTP status and request id. See
+# ``record_model_failure`` and ``docs/api-contract.md`` §4.1.
+AUDIT_MODEL_FAILED: Final[str] = "model_failed"
 # Written when the top retrieved score is below the abstention threshold and the
 # run escalates via ``PLANNING -> RESPONDING`` rather than planning from weak
 # evidence. A distinct event so an abstention is visible in the trace rather than
@@ -328,6 +342,116 @@ async def _record_model_call(
     await recorder.record_audit(
         event_type=AUDIT_MODEL_CALLED,
         actor="runtime",
+        payload=payload,
+    )
+
+
+#: The longest ``error_summary`` the diagnosis carries. A provider error body
+#: can run to kilobytes; the trace needs the shape of the failure, not the
+#: provider's prose. Long enough for SDK messages ("Connection error.", "Rate
+#: limit reached for ..."), short enough that a truncated tail is obvious.
+_ERROR_SUMMARY_LIMIT: Final[int] = 200
+
+#: Fragments that mark a string as carrying a credential. A provider SDK
+#: exception message should never hold one, but the summary is written
+#: verbatim from the error, so the filter is the seatbelt: if a fragment
+#: appears, the summary is replaced rather than truncated.
+_CREDENTIAL_FRAGMENTS: Final[tuple[str, ...]] = (
+    "api_key",
+    "api-key",
+    "apikey",
+    "authorization",
+    "bearer ",
+    "sk-",
+    "x-api-key",
+)
+
+
+def sanitized_error_summary(error: BaseException, limit: int = _ERROR_SUMMARY_LIMIT) -> str:
+    """The exception's message, truncated and screened for credentials.
+
+    The summary is what an operator reads in the trace; the full provider
+    error body stays out of the ledger (``docs/phase3-plan.md`` M1-03:
+    "默认脱敏、截断错误摘要"). ``str(error)`` for the SDK exceptions is the
+    provider's own one-line message -- it does not carry the request key -- and
+    the fragment screen is the belt to that suspenders.
+
+    A :class:`~opspilot.domain.errors.ModelOutputError` contributes its
+    ``detail`` rather than its full message: the message repeats the schema
+    name the trace already carries in ``error_category``'s company, and the
+    detail ("empty response", "not valid JSON: ...") is the part that
+    distinguishes the categories.
+
+    Truncation cuts the *tail* and marks it, so a reader can tell a short
+    message from a cut one.
+    """
+    if isinstance(error, ModelOutputError):
+        message = error.detail.strip() or type(error).__name__
+    else:
+        message = str(error).strip()
+    if not message:
+        return type(error).__name__
+    lowered = message.lower()
+    if any(fragment in lowered for fragment in _CREDENTIAL_FRAGMENTS):
+        return "[redacted: error message matched a credential pattern]"
+    if len(message) <= limit:
+        return message
+    return message[:limit] + "…[truncated]"
+
+
+async def record_model_failure(
+    recorder: TraceRecorder,
+    *,
+    ctx: RunContext,
+    stage: str,
+    error: BaseException,
+    latency_ms: int,
+    attempt: int = 1,
+    http_status: int | None = None,
+    request_id: str | None = None,
+    actor: str = "runtime",
+    category: str | None = None,
+) -> None:
+    """Write the ``model_failed`` audit event: the M1-03 structured diagnosis.
+
+    One event per failed model call, carrying the fields the milestone names:
+    provider, model, stage (the run status the call was made from), error
+    category, latency, attempt count, and -- when the provider exposes them --
+    the HTTP status and request id. The category comes from the exception
+    itself when it is a :class:`~opspilot.domain.errors.ModelOutputError` (the
+    adapters' empty-response / invalid-JSON / schema-mismatch vocabulary) and
+    falls back to ``unknown`` otherwise; the worker's SDK-derived categories
+    (timeout, rate limit, server error, network) are written by the worker's
+    own call of this helper, which passes them in.
+
+    The summary is :func:`sanitized_error_summary`'s output: truncated and
+    credential-screened. The full error body never reaches the ledger.
+
+    Written through ``record_audit`` for the same reason ``model_called`` is:
+    the event commits the moment the call returns, so a run that then goes to
+    ``FAILED`` keeps its diagnosis.
+    """
+    resolved: object
+    if category is not None:
+        resolved = category
+    elif isinstance(error, ModelOutputError):
+        resolved = error.error_category
+    else:
+        resolved = getattr(error, "error_category", None) or "unknown"
+    payload: dict[str, object] = {
+        "provider": ctx.run.model_provider,
+        "model": ctx.run.model_name,
+        "stage": stage,
+        "error_category": resolved,
+        "latency_ms": latency_ms,
+        "attempt": attempt,
+        "http_status": http_status,
+        "request_id": request_id,
+        "error_summary": sanitized_error_summary(error),
+    }
+    await recorder.record_audit(
+        event_type=AUDIT_MODEL_FAILED,
+        actor=actor,
         payload=payload,
     )
 
@@ -1748,6 +1872,7 @@ async def _respond(
     if ctx.run.status is not RunStatus.RESPONDING:
         await _transition(ctx, run_store, RunStatus.RESPONDING)
     response_ms = 0
+    started = time.perf_counter()
     try:
         body: str
         response = await provider.generate_structured(
@@ -1768,9 +1893,21 @@ async def _respond(
             latency_ms=response.usage.latency_ms,
             usage=response.usage,
         )
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, ModelOutputError) as error:
         # The structured reply did not validate. Phase 1 does not retry a
         # schema-invalid model response (``docs/agent-state-machine.md`` §3).
+        # ``ModelOutputError`` carries the diagnosis of *what* the provider sent
+        # instead of a usable reply; it is recorded before the run is failed. A
+        # plain ``ValueError`` is the fake provider's pre-existing path and
+        # stays unadorned.
+        if isinstance(error, ModelOutputError):
+            await record_model_failure(
+                recorder,
+                ctx=ctx,
+                stage="responding",
+                error=error,
+                latency_ms=_elapsed_ms(started),
+            )
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
     ctx.response_body = body
@@ -1798,15 +1935,29 @@ async def _classify(
     recorder: TraceRecorder,
 ) -> TicketClassification:
     """One structured classification call, recorded; schema-invalid fails the run."""
+    started = time.perf_counter()
     try:
         response = await provider.generate_structured(
             system=_SYSTEM_PROMPT,
             prompt=_classification_prompt(ctx),
             schema=TicketClassification,
         )
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, ModelOutputError) as error:
         # A model that cannot produce the schema fails the run; Phase 1 does not
-        # retry (``docs/agent-state-machine.md`` §3).
+        # retry (``docs/agent-state-machine.md`` §3). ``ModelOutputError`` is the
+        # adapter's "the reply was empty / not JSON / the wrong shape" -- the
+        # structured diagnosis is written before the run is failed so the trace
+        # says *which kind* of unusable answer arrived (M1-03). A plain
+        # ``ValueError`` (the fake provider's invalid-classification script) is
+        # the pre-existing schema_invalid path and stays exactly that.
+        if isinstance(error, ModelOutputError):
+            await record_model_failure(
+                recorder,
+                ctx=ctx,
+                stage="classifying",
+                error=error,
+                latency_ms=_elapsed_ms(started),
+            )
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
     value = response.value
@@ -1934,8 +2085,8 @@ async def _plan(
     for a live provider it includes the real network round trip that a
     provider-reported figure would exclude or approximate.
     """
+    started = time.perf_counter()
     try:
-        started = time.perf_counter()
         raw = await provider.choose_tool(
             system=_SYSTEM_PROMPT,
             prompt=_planning_prompt(ctx),
@@ -1943,7 +2094,19 @@ async def _plan(
         )
         planning_ms = _elapsed_ms(started)
         proposal = ProposedAction.model_validate(raw)
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, ModelOutputError) as error:
+        # ``ModelOutputError`` is the adapter's structured "the reply was
+        # unusable" signal; the diagnosis is written before the run is failed so
+        # the trace distinguishes the kinds (M1-03). A plain ``ValueError`` is
+        # the fake provider's pre-existing path and stays unadorned.
+        if isinstance(error, ModelOutputError):
+            await record_model_failure(
+                recorder,
+                ctx=ctx,
+                stage="planning",
+                error=error,
+                latency_ms=_elapsed_ms(started),
+            )
         await _fail_run(ctx, run_store, recorder=recorder, reason="schema_invalid")
         raise
     # A planning round *is* a model call, so it writes a ``model_called`` event

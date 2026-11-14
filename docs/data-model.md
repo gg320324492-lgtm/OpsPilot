@@ -371,11 +371,12 @@ anchor only; the ordinal is a write-side field and is not in the response.
 | `payload` | JSONB NOT NULL | |
 | `created_at` | TIMESTAMPTZ NOT NULL, indexed | |
 
-Event types, Phase 1:
+Event types, Phase 1 (plus `model_failed`, Phase 3 M1-03):
 
 ```
 tool_executed    tool_failed    tool_rejected
 approval_requested    run_failed    model_called    retrieval_abstained
+model_failed
 ```
 
 Append-only by convention: no UPDATE or DELETE path exists in the repository
@@ -386,12 +387,23 @@ SQL listener attached and fails if the SQL that reaches the driver rewrites a
 row, and it asserts the public interface offers exactly one append
 (`record_audit`) and one read (`list_audit_events`).
 
-**The seven event types are the whole vocabulary.** An earlier revision of this
+**The eight event types are the whole vocabulary.** An earlier revision of this
 table listed fourteen, and every one of the other eight — `run_created`,
 `state_changed`, `retrieval_performed`, `tool_proposed`, `approval_granted`,
 `approval_rejected`, `run_completed` and `knowledge_reindexed` — is **reserved
 by the schema and has no producer**: no code path in `src/` writes an event of
 any of them.
+
+`model_failed` is the structured diagnosis of a model call that produced no
+usable answer — written by the runtime when the reply's *content* was unusable
+(`error_category` `empty_response` / `invalid_json` / `schema_mismatch`, an
+empty reply and a malformed one deliberately distinct) and by the worker when
+the provider *raised* (`timeout` / `rate_limit` / `server_error` / `network` /
+`auth` / `invalid_response`, `unknown` as the honest fallback). Its payload
+carries provider, model, stage, category, latency, attempt count, the HTTP
+status and request id when the provider exposed them, and a truncated,
+credential-screened `error_summary` — never the full provider error body
+(Phase 3 M1-03).
 
 `retrieval_performed` is the one worth singling out, because it is not merely
 unwritten but *misnamed*. The event that exists is `retrieval_abstained`, and

@@ -69,11 +69,13 @@ from opspilot.agents.runtime import (
     AUDIT_RUN_FAILED,
     RetrievalCallable,
     executed_lookup_for,
+    record_model_failure,
     run_loop,
+    sanitized_error_summary,
 )
 from opspilot.agents.state import RunContext
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, RunParked
+from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, ModelOutputError, RunParked
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
@@ -197,6 +199,113 @@ _SDK_STATUS_REASONS: Final[tuple[tuple[str, str], ...]] = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# The M1-03 error-category vocabulary and its extraction from SDK errors
+# ---------------------------------------------------------------------------
+
+#: The ``error_category`` tokens written into the ``model_failed`` audit event.
+#: These are the *transport-level* categories -- what the worker derives from a
+#: raised SDK exception. The *content* categories (``empty_response``,
+#: ``invalid_json``, ``schema_mismatch``) belong to the runtime's
+#: ``ModelOutputError`` and never arrive here. ``unknown`` is the honest
+#: fallback, not a bin for "didn't bother looking".
+CATEGORY_TIMEOUT: Final[str] = "timeout"
+CATEGORY_RATE_LIMIT: Final[str] = "rate_limit"
+CATEGORY_SERVER_ERROR: Final[str] = "server_error"
+CATEGORY_NETWORK: Final[str] = "network"
+CATEGORY_INVALID_RESPONSE: Final[str] = "invalid_response"
+CATEGORY_AUTH: Final[str] = "auth"
+CATEGORY_UNKNOWN: Final[str] = "unknown"
+
+#: ``(attribute on the SDK module, error_category)`` -- the same shape as
+#: ``_SDK_STATUS_REASONS``, but mapping to the finer M1-03 vocabulary. Specific
+#: before broad; resolved through the raised class's MRO.
+_SDK_CATEGORY_TABLE: Final[tuple[tuple[str, str], ...]] = (
+    ("APITimeoutError", CATEGORY_TIMEOUT),
+    ("APIConnectionError", CATEGORY_NETWORK),
+    ("RateLimitError", CATEGORY_RATE_LIMIT),
+    ("InternalServerError", CATEGORY_SERVER_ERROR),
+    ("AuthenticationError", CATEGORY_AUTH),
+    ("PermissionDeniedError", CATEGORY_AUTH),
+    ("APIResponseValidationError", CATEGORY_INVALID_RESPONSE),
+    # The broad root last: a 400/404/409 from the provider is still the
+    # provider's answer and still an HTTP status the trace can carry.
+    ("APIError", CATEGORY_SERVER_ERROR),
+)
+
+
+def _error_category_for(error: BaseException) -> str:
+    """The M1-03 ``error_category`` for a raised SDK exception.
+
+    Walks the raised class's MRO against ``_SDK_CATEGORY_TABLE`` -- the same
+    mechanism ``_model_failure_reason`` uses for the coarser
+    ``failure_reason`` -- so an ``anthropic.RateLimitError`` is found as itself
+    before its ``APIStatusError``/``APIError`` ancestors. A
+    :class:`~opspilot.domain.errors.ModelOutputError` (the runtime's
+    content-level vocabulary) names its own category and never reaches this
+    function; an SDK error with no table hit is ``unknown``.
+    """
+    categories = _sdk_error_categories()
+    for cls in type(error).__mro__:
+        category = categories.get(cls)
+        if category is not None:
+            return category
+    return CATEGORY_UNKNOWN
+
+
+@cache
+def _sdk_error_categories() -> dict[type[BaseException], str]:
+    """Resolve ``_SDK_CATEGORY_TABLE`` against the importable SDKs.
+
+    Same shape and same reason as ``_model_failure_reasons``: the SDKs are
+    optional extras, so the table is built lazily, from whichever modules are
+    present, and only when an error actually needs classifying.
+    """
+    categories: dict[type[BaseException], str] = {}
+    for sdk in _PROVIDER_SDKS:
+        module = _import_provider_sdk(sdk)
+        if module is None:
+            continue
+        for attribute, category in _SDK_CATEGORY_TABLE:
+            cls = getattr(module, attribute, None)
+            if isinstance(cls, type) and issubclass(cls, BaseException):
+                categories.setdefault(cls, category)
+    return categories
+
+
+def _http_status_of(error: BaseException) -> int | None:
+    """The HTTP status the SDK exception carries, when it carries one.
+
+    Both SDKs put the status on ``APIStatusError.status_code``; a connection
+    failure or a timeout has no response and therefore no status, which is
+    ``None`` in the payload -- "not observed", not ``0``.
+    """
+    status = getattr(error, "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def _request_id_of(error: BaseException) -> str | None:
+    """The provider's request id from the exception, when the SDK surfaced one.
+
+    OpenAI exposes ``request_id`` directly; Anthropic exposes the response's
+    ``x-request-id`` header. Both are read defensively: an attribute that is
+    absent, or a header that is missing, is ``None`` -- the field is
+    "available when the provider exposes it" (M1-03), and pretending it always
+    exists would be a fabricated ``null`` the other way.
+    """
+    direct = getattr(error, "request_id", None)
+    if isinstance(direct, str) and direct:
+        return direct
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        for name in ("x-request-id", "request-id", "cf-ray"):
+            value = headers.get(name)
+            if isinstance(value, str) and value:
+                return value
+    return None
 
 
 def _import_provider_sdk(name: str) -> ModuleType | None:
@@ -668,7 +777,18 @@ async def drain_once(
     # hid that in the deployment the dashboard uses, and charged a full worker
     # restart per over-budget run.
     #
-    # That trio is the *inner* suppression and the model failures are the *outer*
+    # ``ModelOutputError`` is the fourth, and it is the same shape as
+    # ``MaxStepsExceeded``: the runtime's model-call sites catch it, record the
+    # ``model_failed`` diagnosis, and fail the run ``schema_invalid`` before
+    # re-raising -- so by the time it arrives here the row is already written
+    # and the only thing letting it escape would do is kill the worker over a
+    # provider that answered with prose instead of JSON. (It used to do
+    # exactly that: the adapters raise ``StructuredOutputError``, a
+    # ``RuntimeError``, which neither the runtime's ``except (ValidationError,
+    # ValueError)`` nor the SDK-derived catch below ever matched -- one empty
+    # reply was a dead worker and a queue of ``interrupted`` runs.)
+    #
+    # That group is the *inner* suppression and the model failures are the *outer*
     # catch, because they are two kinds of "not mine to crash over": control flow
     # the runtime raised on purpose, and an upstream that could not answer. Both
     # are decided here, at the one layer that holds the row, so both can record
@@ -676,8 +796,9 @@ async def drain_once(
     # fail and no reason to write, so a loop-level catch could only log
     # "something went wrong" and re-claim the same broken run.
     try:
+        drive_started = monotonic()
         try:
-            with contextlib.suppress(RunParked, MCPUnavailable, MaxStepsExceeded):
+            with contextlib.suppress(RunParked, MCPUnavailable, MaxStepsExceeded, ModelOutputError):
                 await run_loop(
                     ctx,
                     provider=provider,
@@ -701,17 +822,53 @@ async def drain_once(
             # (see ``_import_provider_sdk``). It is evaluated only when an exception
             # actually arrives here.
             reason = _model_failure_reason(error)
+            # The M1-03 structured fields, extracted from the exception itself.
+            # The stage is the status the run was in when the drive died -- the
+            # coarse "which model call was in flight" the runtime's own
+            # ``model_failed`` events carry; ``attempt`` is 1 because Phase 1
+            # makes no retry (the field is kept so a retrying worker fills it
+            # without a payload change).
+            category = _error_category_for(error)
+            stage = ctx.run.status.value
+            # Computed once: the log arguments and the trace payload must agree,
+            # and the values come off the exception in one place.
+            http_status = _http_status_of(error)
+            request_id = _request_id_of(error)
+            summary = sanitized_error_summary(error)
             # Logged *before* the failing write, for the runtime's own reason
             # (``agents/runtime.py``: a line logged after a database write "is a line
             # that write can destroy"). The stakes are the same here and were worse:
             # the worker's log for the entire incident held exactly one line -- the
-            # boot line.
+            # boot line. The message now carries the structured diagnosis too, so
+            # the log line and the trace row agree (M1-03: trace *and* log).
             logger.exception(
-                "model call failed: run=%s failure_reason=%s",
+                "model call failed: run=%s failure_reason=%s error_category=%s "
+                "provider=%s model=%s stage=%s attempt=%d http_status=%s request_id=%s "
+                "error_summary=%s",
                 run.id,
                 reason,
+                category,
+                run.model_provider,
+                run.model_name,
+                stage,
+                1,
+                http_status,
+                request_id,
+                summary,
             )
             await _mark_failed(run, run_store=run_store, reason=reason, recorder=recorder)
+            if recorder is not None:
+                await record_model_failure(
+                    recorder,
+                    ctx=ctx,
+                    stage=stage,
+                    error=error,
+                    latency_ms=int((monotonic() - drive_started) * 1000),
+                    actor="worker",
+                    category=category,
+                    http_status=http_status,
+                    request_id=request_id,
+                )
     finally:
         # The drive is over -- terminal, parked, failed, or a programming error
         # the outer catch does not swallow -- so stop renewing the lease. Cancel

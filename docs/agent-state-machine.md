@@ -216,7 +216,7 @@ implicit.
   |---|---|---|
   | `interrupted` | the boot sweep | the worker died with the run mid-flight |
   | `mcp_unavailable` | the runtime | the MCP server could not be reached |
-  | `schema_invalid` | the runtime | the model proposed arguments the tool's schema refused, twice |
+  | `schema_invalid` | the runtime | the model's answer did not fit what the run could act on: arguments the tool's schema refused, twice, or a reply that was empty / not JSON / the wrong shape (the category is in the `model_failed` trace event) |
   | `tool_error` | the runtime | a tool failed in a way the runtime could not turn into a refusal |
   | `max_steps_exceeded` | the runtime | the run spent its step budget |
   | `model_unavailable` | the worker | the provider could not be reached: a refused connection, a timeout, a 5xx, a 429 |
