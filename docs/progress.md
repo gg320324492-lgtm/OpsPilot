@@ -9078,19 +9078,21 @@ response calls, made through `generate_structured`, carry `true`). In all
 three runs, all three cases (tool-005, tool-006, tool-012) show exactly **two
 model calls with the pattern `T,T`** — classification, then response — and
 never a `false` in between, where tool-009's second run (a genuine
-decline-after-planning) shows `T,F,T` over three calls. No planning round ran
-at all. The shape these cases actually record is the **retrieval-abstention
-path** (`agents/runtime.py::_after_retrieve`): retrieval answered with five
-hits (`retrieved_documents` length 5), every one scored below
-`RETRIEVAL_MIN_SCORE` = 0.22, so zero citations were written
-(`cited_documents` empty), the run jumped `PLANNING -> RESPONDING` without a
-plan round, `escalated` is `true` because the abstention branch sets it, and
-the reply went out. The corrected statement: these three cases were not
-declined by the model — they were **abstained by the retrieval threshold
-before the model was ever asked for a tool**. That is a different defect with
-a different owner (retrieval scoring, not planning), and it makes the
-"9 wrong-set + 3 declined" split of the twelve read as "9 wrong-set + 3
-never-planned".
+decline-after-planning) shows `T,F,T` over three calls. **No planning round
+ran at all**, in any of the three runs. *(This paragraph first concluded that
+the cases therefore went through the retrieval-abstention path — five hits
+retrieved, all below `RETRIEVAL_MIN_SCORE`, `PLANNING -> RESPONDING` without a
+plan round. That inference was withdrawn the same evening, on re-check:
+`retrieved_documents` has length 5 and `cited_documents` is empty, which fits
+the abstention branch, but the results file records neither hit scores nor the
+`retrieval_abstained` audit event, and an immediate `done=true` decline in the
+first plan round would be indistinguishable from it in every field the file
+carries — the same two calls, the same zero citations, `escalated: true` in
+both readings. What the evidence supports is the narrower statement: **no
+planning round happened, so the twelve misses split as "9 wrong tool set +
+3 never-planned"**; whether a never-planned case was declined by the model or
+abstained by the retrieval threshold is not decidable from the committed
+files.)*
 
 **What the gate-1 rows add that the original section could not have.** The
 original section records that all 90 rejected calls in the 2026-10-11 file
