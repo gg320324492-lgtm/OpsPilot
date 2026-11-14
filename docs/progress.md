@@ -3866,9 +3866,11 @@ was right and the deployment disagreed with it.
 Three things asked about specifically, and the answer for each:
 
 - **`AnthropicProvider` timeout / retries.** `timeout` comes from
-  `MODEL_TIMEOUT_SECONDS`, one setting for both adapters; it was missing. There
-  is no `retries` setting anywhere - neither adapter passes `max_retries` - so
-  there was nothing to forward. Not an omission.
+  `MODEL_TIMEOUT_SECONDS`, one setting for both adapters; it was missing. At the
+  time of that sweep there was no `retries` setting anywhere - neither adapter
+  passed `max_retries` - so there was nothing to forward. Not an omission then.
+  (Phase 3 M1-02 later made the SDK-retry policy explicit and single-shot: see
+  the M1-02 note below.)
 - **DB pool.** `db.py:57` hardcodes `pool_pre_ping=True` and
   `connect_timeout=5`. No setting exists for pool size, overflow or recycle, so
   compose has nothing to pass. Not an omission.
@@ -9776,3 +9778,50 @@ record sheet is `docs/installer-verification.md` §"Filled: the walk of
 The acceptance table in `docs/phase2-plan.md` now reads **D2 met**; what remains
 of the person-steps is uploading the now-verifiable installer asset to the
 Release (P3-E's E2 in `docs/phase3-plan.md`).
+
+## M1-02 closed: the model request is explicitly single-shot (2026-11-15)
+
+The Phase 2 review's finding R1 (`docs/phase2-review-2026-11-14.md`) held that
+the two provider client factories left `max_retries` at the SDKs' default of 2,
+so one logical model call meeting a 429, a 5xx or a timeout put up to three
+HTTP requests on the wire — reproduced offline: a `httpx.MockTransport` that
+always answered 429 saw **3 requests** before `RateLimitError` surfaced. The
+policy chosen for the fix is the review's recommendation: **the SDK never
+retries; one logical call is one request**, and any retry policy stays with the
+caller (the planning loop), which can see failures and budget steps.
+
+### What changed
+
+- `src/opspilot/adapters/models/openai_provider.py` and
+  `src/opspilot/adapters/models/anthropic_provider.py`: both `_client()`
+  branches — custom `base_url` and SDK-default endpoint — now pass
+  `max_retries=0` explicitly. Timeout, key, `base_url` passthrough and the
+  JSON-compatibility paths (`json_object` fallback, `reasoning_content`
+  fallback, Anthropic's `output_config`/`tool` mechanisms) are untouched.
+- `tests/unit/test_provider_single_shot_no_sdk_retries.py` (new): the review's
+  observation turned into a regression pin. A real SDK client is built with
+  only its transport swapped for a counting one; each test drives one
+  `generate_structured` call against a transport that fails every request with
+  429, 500, or a read timeout, and asserts the transport saw **exactly one**
+  request and the client reports `max_retries == 0`. Parametrized over both
+  endpoints (SDK default and a custom `base_url`) for each SDK — 18 cases.
+  The anthropic side injects `httpx2` because the installed anthropic SDK
+  rejects an `httpx.AsyncClient` outright; the openai side keeps `httpx`.
+- Verified the pin bites: run against the pre-fix sources, the 16
+  failure-mode/property cases fail (3 requests observed, `max_retries == 2`);
+  against the fix, all pass. The two success-path cases assert the fix added
+  no round trip: a successful call is one request too.
+
+### Not changed, on purpose
+
+- No retry/timeout settings were added: a per-call SDK retry budget is
+  precisely what M1-02 removes, and `MODEL_TIMEOUT_SECONDS` already covers the
+  one attempt's timeout.
+- Tool writes were never retried by the SDK — R1's blast radius was model-call
+  latency, provider request volume and the one-attempt wording — so no
+  idempotency behavior changes.
+- `docs/api-contract.md`'s retry language (§1 "Retrying after a `500` is
+  safe", §9) is about **API clients retrying `POST /tickets` with the same
+  `external_id`** — a different layer, still true, untouched.
+- `docs/progress.md`'s earlier statement that "neither adapter passes
+  `max_retries`" was true of that sweep; it now points here.
