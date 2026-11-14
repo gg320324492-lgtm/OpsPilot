@@ -27,11 +27,15 @@ Two rules from ``docs/api-contract.md`` §8, both load-bearing:
   raised by :func:`ensure_operator_token_configured` at startup). A per-request
   401 would be a defence, but a process that came up silently open once is a
   process an operator trusts when they should not.
+- A token **shorter than** ``MIN_TOKEN_LENGTH`` also refuses to start
+  (``WeakOperatorToken``). A credential that fits in a hand-enumerable space is
+  not a credential on an interface that answers refunds.
 """
 
 from __future__ import annotations
 
 import secrets
+from typing import Final
 
 from fastapi import Header, HTTPException, status
 
@@ -59,26 +63,61 @@ class MissingOperatorToken(RuntimeError):
         )
 
 
+class WeakOperatorToken(RuntimeError):
+    """Raised at startup when ``OPSPILOT_OPERATOR_TOKEN`` is set but too short.
+
+    Same family as :class:`MissingOperatorToken` -- a configuration fault that
+    must escape the app factory so a deployment with a guessable credential is
+    told to fix it rather than served. A one- or two-character token passes a
+    non-empty check and fails ``compare_digest`` only by being wrong; against an
+    unauthenticated network interface it is a credential an attacker can
+    enumerate in a handful of requests, and the endpoints behind it approve
+    refunds. The floor is documented in ``.env.example`` and enforced nowhere
+    else, so it lives here.
+    """
+
+    def __init__(self, actual_length: int) -> None:
+        super().__init__(
+            f"OPSPILOT_OPERATOR_TOKEN is {actual_length} character(s), below the "
+            f"minimum of {MIN_TOKEN_LENGTH}. A short token is enumerable on an "
+            "unauthenticated interface. Generate one with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(32))" '
+            "(see .env.example)."
+        )
+
+
+#: The shortest token ``ensure_operator_token_configured`` accepts. Not a
+#: strength guarantee -- entropy is the operator's choice -- but a refusal of
+#: values whose brute-force space is small enough to enumerate by hand. Every
+#: shipped generator (``secrets.token_urlsafe(32)``) and every test value in
+#: this repository clears it; the two-character placeholder CI once used does
+#: not, which is the point.
+MIN_TOKEN_LENGTH: Final[int] = 16
+
+
 def ensure_operator_token_configured(settings: Settings | None = None) -> str:
-    """Return the configured token, or raise if it is empty.
+    """Return the configured token, or raise if it is empty or too short.
 
     Called once by the app factory, before any route can be served. Failing here
     is the whole point: a default-open auth is worse than no auth because it
-    looks like auth.
+    looks like auth, and a two-character auth looks like auth too.
 
     Args:
         settings: The settings to read; defaults to the process-wide settings.
 
     Returns:
-        The non-empty operator token.
+        The non-empty operator token, at least ``MIN_TOKEN_LENGTH`` characters.
 
     Raises:
         MissingOperatorToken: If ``opspilot_operator_token`` is empty.
+        WeakOperatorToken: If it is shorter than ``MIN_TOKEN_LENGTH``.
     """
     resolved = settings if settings is not None else get_settings()
     token = resolved.opspilot_operator_token
     if not token:
         raise MissingOperatorToken
+    if len(token) < MIN_TOKEN_LENGTH:
+        raise WeakOperatorToken(len(token))
     return token
 
 

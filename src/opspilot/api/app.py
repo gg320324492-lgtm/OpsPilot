@@ -36,6 +36,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from opspilot.api.auth import ensure_operator_token_configured
 from opspilot.api.errors import ERROR_RESPONSES, register_exception_handlers
+from opspilot.api.headers import SecurityHeadersMiddleware
 from opspilot.api.routers import approvals, health, knowledge, runs, tickets
 from opspilot.settings import Settings, WildcardCorsOrigin, get_settings
 
@@ -118,6 +119,7 @@ def create_app(
 
     Raises:
         MissingOperatorToken: If ``OPSPILOT_OPERATOR_TOKEN`` is unset or empty.
+        WeakOperatorToken: If it is shorter than ``MIN_TOKEN_LENGTH``.
     """
     settings = get_settings()
 
@@ -134,6 +136,7 @@ def create_app(
     )
 
     app.add_middleware(CORSMiddleware, **_cors_options(settings))
+    app.add_middleware(SecurityHeadersMiddleware)
 
     _bind_stores(
         app,

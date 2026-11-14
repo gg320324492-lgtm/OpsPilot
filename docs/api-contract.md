@@ -771,7 +771,9 @@ per-user identity are Phase 3, listed in
 The token is compared with `secrets.compare_digest`. If
 `OPSPILOT_OPERATOR_TOKEN` is unset, the API refuses to start with a clear error
 rather than defaulting to open — a default-open auth is worse than no auth,
-because it looks like auth.
+because it looks like auth. A token shorter than 16 characters is refused the
+same way (`api/auth.py::WeakOperatorToken`): a credential that fits in a
+hand-enumerable space is not a credential on an interface that answers refunds.
 
 ### 8.1 Browser access (CORS)
 
