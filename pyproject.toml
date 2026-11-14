@@ -376,6 +376,13 @@ ignore = [
 # factory's own `max_retries=0` reaches the real SDK -- the forwarded bag is
 # dynamic by design, as ANN401's existing exemptions above are.
 "tests/unit/test_provider_single_shot_no_sdk_retries.py" = ["ANN401", "ARG002"]
+# The repeat-invalid stop tests script providers and read rows back through
+# helpers that accept either a UUID or the exception's string run id, and pass
+# typed domain objects through a spy -- the dynamic annotations are the test
+# doubles' shape, matching the existing ANN401 exemptions above.
+"tests/agent/test_repeat_invalid_proposal_stop.py" = ["ANN401"]
+"tests/integration/test_worker_survives_repeat_invalid_stop.py" = ["ANN401"]
+"tests/unit/test_worker_honours_rejected_proposal_stop_limit.py" = ["ANN401"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation

@@ -15,6 +15,7 @@ holds data, not authority. The gates read the static registry, not the context.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -45,6 +46,38 @@ def default_max_steps() -> int:
     from opspilot.settings import get_settings
 
     return get_settings().max_steps
+
+
+def default_rejected_proposal_stop_limit() -> int:
+    """``Settings.rejected_proposal_stop_limit``, so the stop threshold has one
+    definition.
+
+    Phase 3 M2-02. Same shape and same reason as :func:`default_max_steps`
+    above: the threshold lives in ``settings.py`` and is resolved when a
+    ``RunContext`` is constructed, never frozen at import -- a deployment (or a
+    test) that sets ``REJECTED_PROPOSAL_STOP_LIMIT`` after this module was first
+    imported still gets the current value.
+    """
+    from opspilot.settings import get_settings
+
+    return get_settings().rejected_proposal_stop_limit
+
+
+def proposal_fingerprint(proposal: ProposedAction) -> tuple[str, str]:
+    """The ``(tool_name, canonical_arguments_json)`` identity of a proposal.
+
+    Two proposals are "the same invalid proposal" when both the tool name and
+    the arguments match exactly. The arguments are serialised with
+    ``sort_keys=True`` so ``{"a": 1, "b": 2}`` and ``{"b": 2, "a": 1}`` -- the
+    same call in a different key order -- count as the same proposal: the
+    model's JSON key order carries no information, and counting a re-ordered
+    duplicate as "different" would let the loop keep spinning. The JSON is a
+    string so the fingerprint is hashable and comparable across the run.
+    """
+    return (
+        proposal.tool_name or "",
+        json.dumps(proposal.arguments, sort_keys=True, ensure_ascii=False),
+    )
 
 
 @dataclass
@@ -99,6 +132,18 @@ class RunContext:
     # it builds, so this default is the fallback for tests and any future
     # builder, not the production path.
     max_steps: int = field(default_factory=default_max_steps)
+    # Phase 3 M2-02: the consecutive-identical-invalid-proposal stop threshold.
+    # Resolved per construction for the same reason as ``max_steps``; the worker
+    # passes it explicitly on every context it builds.
+    rejected_proposal_stop_limit: int = field(default_factory=default_rejected_proposal_stop_limit)
+    # The run's consecutive identical *invalid* proposals, as a stack of
+    # fingerprints (``(tool_name, canonical_arguments_json)``). A list rather
+    # than a counter because the reset is structural: a different proposal or an
+    # executed call empties the stack, and the *same* proposal pushes onto it --
+    # so "the streak broke" is ``not ctx.rejected_streak``, not an int that has
+    # to remember how to be re-zeroed at every call site. The runtime owns the
+    # pushes and clears; nothing here can widen a permission or bypass a gate.
+    rejected_streak: list[tuple[str, str]] = field(default_factory=list)
     response_body: str = ""
     escalated: bool = False
 

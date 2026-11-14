@@ -5066,7 +5066,7 @@ produce 16 tool rows over 6 distinct names**, proposing `billing.list_transactio
 `safe-013` proposed `issues.search` five times. The loop that produces this is
 ours, and `runtime.py`'s `_planning_prompt` is where to read it: after a rejection
 the model is re-offered the full `registered_tool_names()` menu and told only
-`tool_name(status)`, because `ToolCallRecord` (`state.py:51-64`) carries no reason
+`tool_name(status)`, because `ToolCallRecord` (`state.py:83-107`) carries no reason
 field and the gate's rule-level reason never reaches the prompt. **That is the line
 B2 should read, and this section stops there**: naming it is a finding, acting on
 it is §P2-B2's step, and per §P2-B2 no prompt text is to be added to see whether

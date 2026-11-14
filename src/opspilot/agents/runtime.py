@@ -58,13 +58,19 @@ from pydantic import ValidationError
 
 from opspilot.agents.prompts import tool_catalogue
 from opspilot.agents.schemas import AgentResponse, ProposedAction, TicketClassification
-from opspilot.agents.state import RunContext, ToolCallRecord, default_max_steps
+from opspilot.agents.state import (
+    RunContext,
+    ToolCallRecord,
+    default_max_steps,
+    proposal_fingerprint,
+)
 from opspilot.domain.approvals import ApprovalContext, ApprovalRequest
 from opspilot.domain.errors import (
     IllegalTransition,
     MaxStepsExceeded,
     MCPUnavailable,
     ModelOutputError,
+    RepeatInvalidProposalError,
     RunParked,
 )
 from opspilot.domain.policies import (
@@ -170,6 +176,11 @@ AUDIT_MODEL_FAILED: Final[str] = "model_failed"
 # evidence. A distinct event so an abstention is visible in the trace rather than
 # inferred from an empty retrieval step.
 AUDIT_RETRIEVAL_ABSTAINED: Final[str] = "retrieval_abstained"
+# Written when the consecutive-identical-invalid-proposal stop fires (M2-02).
+# Carries the tool, the streak length and the threshold, so an operator reading
+# the trace sees the *diagnosis* -- "stuck on one refused call" -- rather than
+# having to re-derive it from N identical rejected rows.
+AUDIT_REPEAT_INVALID_STOPPED: Final[str] = "repeat_invalid_stopped"
 
 # The gate names written to ``ToolCall.rejection_reason``. They are the answer to
 # "which gate refused this", so they name the gate, not the rule.
@@ -178,6 +189,16 @@ GATE_REGISTRY: Final[str] = "gate_2_registry_lookup"
 GATE_PERMISSION: Final[str] = "gate_3_permission_lookup"
 GATE_POLICY: Final[str] = "gate_4_policy_engine"
 GATE_APPROVAL: Final[str] = "gate_5_approval_gate"
+
+# The ``failure_reason`` for a run that kept re-proposing the *same* invalid
+# call until this stop fired (Phase 3 M2-02). Distinct from
+# ``max_steps_exceeded`` on purpose: the step budget says "the run ran out of
+# steps", which is a quantity; this says "the run was stuck re-proposing one
+# refused call", which is the diagnosis. The M1-01 classification found the
+# loop alive and well -- one historical case spent 23 identical proposals on
+# the same gate-refused call -- and the budget was the only thing that ended
+# it, reading as a step-count problem when it was a loop.
+REPEAT_INVALID_PROPOSALS: Final[str] = "repeat_invalid_proposals"
 
 # An injected lookup: given a run id and an idempotency key, return whether an
 # *executed* call with that key exists and, if so, the result it recorded. The
@@ -1164,6 +1185,85 @@ def _is_effect_bearing(tool_name: str) -> bool:
     return spec.permission is not Permission.READ
 
 
+async def _check_repeat_invalid_stop(
+    ctx: RunContext,
+    proposal: ProposedAction,
+    record: ToolCallRecord,
+    *,
+    recorder: TraceRecorder,
+    run_store: RunStore,
+) -> None:
+    """Update the consecutive-identical-invalid-proposal streak; stop the run at
+    the threshold.
+
+    Phase 3 M2-02. The streak lives on the context as a stack of fingerprints:
+    a gate-refused proposal pushes ``(tool_name, canonical_arguments_json)``,
+    and any *other* outcome clears it. "Invalid" is a gate refusal -- gate 1
+    (schema), gate 2 (unknown tool) or gate 4 (policy). A call that passed the
+    gates -- executed, or dispatched and failed -- is not an invalid *proposal*:
+    the model's behaviour changed, so the streak resets. A call parked at gate 5
+    raises ``RunParked`` from the gates and never reaches this check at all --
+    the drive ends there. ``REJECTED`` is exactly the set of statuses ``_reject``
+    and the policy engine return, and every rejection carries the gate name.
+
+    The reset on a *different* rejected proposal is the fingerprint comparison:
+    a different ``(tool_name, arguments)`` pair empties the stack and starts a
+    new one, so alternating between two refused calls never reaches the
+    threshold, and interleaving a valid call between repeats breaks it too --
+    the model demonstrably can change, which is the behaviour the stop is meant
+    to distinguish from being stuck.
+
+    At the threshold the run is failed with ``repeat_invalid_proposals`` -- a
+    diagnosis, not ``max_steps_exceeded``'s quantity -- after writing the audit
+    event, so the trace and the ``failure_reason`` both say *why* (M1-03: trace
+    *and* log; here, trace *and* failure_reason). The exception is raised last,
+    after every write, on the same ordering ``_park_run`` and the MCP path use:
+    the raise is the last thing that happens.
+    """
+    fingerprint = proposal_fingerprint(proposal)
+    if record.status == ToolCallStatus.REJECTED.value:
+        if ctx.rejected_streak and ctx.rejected_streak[-1] != fingerprint:
+            ctx.rejected_streak.clear()
+        ctx.rejected_streak.append(fingerprint)
+    else:
+        ctx.rejected_streak.clear()
+
+    limit = ctx.rejected_proposal_stop_limit
+    if limit <= 0 or len(ctx.rejected_streak) < limit:
+        return
+
+    tool_name = fingerprint[0]
+    # Trace first, then the failure row, then the raise -- the same
+    # evidence-before-consequence order the MCP-unavailable path uses, so an
+    # incident that takes the database down cannot leave the diagnosis unwritten.
+    await recorder.record_audit(
+        event_type=AUDIT_REPEAT_INVALID_STOPPED,
+        actor="runtime",
+        payload={
+            "tool_name": tool_name,
+            "streak": len(ctx.rejected_streak),
+            "limit": limit,
+            "rejection_gate": record.rejection_reason,
+            "rejection_detail": record.rejection_detail,
+        },
+    )
+    logger.warning(
+        "run stopped on repeated invalid proposals: run=%s tool=%s streak=%d limit=%d gate=%s",
+        ctx.run.id,
+        tool_name,
+        len(ctx.rejected_streak),
+        limit,
+        record.rejection_reason,
+    )
+    await _fail_run(
+        ctx,
+        run_store,
+        recorder=recorder,
+        reason=REPEAT_INVALID_PROPOSALS,
+    )
+    raise RepeatInvalidProposalError(str(ctx.run.id), tool_name, limit)
+
+
 async def run_step(
     ctx: RunContext,
     proposal: ProposedAction,
@@ -1202,6 +1302,17 @@ async def run_step(
     ctx.executed_tool_calls.append(record)
     ctx.proposed_actions.append(proposal)
     ctx.steps_taken += 1
+    # The M2-02 stop runs *after* the record is appended, so the trace of the
+    # refused call is already on the context when the stop fires -- the
+    # ``run_failed`` step and the audit event describe a history that includes
+    # the proposal that triggered them.
+    await _check_repeat_invalid_stop(
+        ctx,
+        proposal,
+        record,
+        recorder=trace,
+        run_store=run_store,
+    )
     # A write that was supposed to happen and did not makes the reply an
     # escalation. Set here rather than in ``_respond`` so the flag is a property
     # of the trace by the time anything reads it -- the worker's ``responded_
@@ -2343,6 +2454,7 @@ __all__: list[str] = [
     "GATE_POLICY",
     "GATE_REGISTRY",
     "GATE_SCHEMA",
+    "REPEAT_INVALID_PROPOSALS",
     "ExecutedLookup",
     "RetrievalCallable",
     "StageDriver",

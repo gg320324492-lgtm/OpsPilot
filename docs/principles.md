@@ -26,7 +26,7 @@ approval row. No prompt, retrieved document, or model output can change this.
 **Enforcement.**
 
 - The gates live in one linear function, `agents/runtime.py::`
-  `_gate_and_execute` (`src/opspilot/agents/runtime.py:584`), written
+  `_gate_and_execute` (`src/opspilot/agents/runtime.py:605`), written
   top-to-bottom in the documented order so a reviewer can verify the sequence
   by reading it. `docs/architecture.md` §1 is the specification it implements.
 - The order is pinned by `tests/security/test_gate_order.py::`
@@ -75,7 +75,7 @@ justification is never an input to them.
   documented vocabulary, and `tests/unit/test_the_failure_reasons_are_documented.py`
   keeps the documentation and the code from drifting apart.
 - The denylist can only remove capability: `OPSPILOT_TOOL_DENYLIST`
-  (`src/opspilot/settings.py:435`, parsed at `:508`) is consulted by
+  (`src/opspilot/settings.py:441`, parsed at `:514`) is consulted by
   `_denied_by_denylist` and there is no configuration path that adds or
   widens a permission — ADR-0003 is the argument for why that asymmetry is
   structural, not incidental.

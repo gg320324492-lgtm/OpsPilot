@@ -75,7 +75,13 @@ from opspilot.agents.runtime import (
 )
 from opspilot.agents.state import RunContext
 from opspilot.domain.approvals import ApprovalStatus
-from opspilot.domain.errors import MaxStepsExceeded, MCPUnavailable, ModelOutputError, RunParked
+from opspilot.domain.errors import (
+    MaxStepsExceeded,
+    MCPUnavailable,
+    ModelOutputError,
+    RepeatInvalidProposalError,
+    RunParked,
+)
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.model_provider import ModelProvider
 from opspilot.ports.orchestrator import Orchestrator
@@ -126,6 +132,21 @@ def _settings_max_steps() -> int:
     from opspilot.settings import get_settings
 
     return get_settings().max_steps
+
+
+def _settings_rejected_proposal_stop_limit() -> int:
+    """``Settings.rejected_proposal_stop_limit``, so the M2-02 stop threshold
+    has one definition.
+
+    Same shape and same reason as :func:`_settings_max_steps` above: the
+    threshold is read here -- the one place the worker constructs a
+    ``RunContext`` -- and passed explicitly on **both** return paths, so a
+    deployment that moves ``REJECTED_PROPOSAL_STOP_LIMIT`` reaches the loop that
+    enforces it rather than stopping at a dataclass default.
+    """
+    from opspilot.settings import get_settings
+
+    return get_settings().rejected_proposal_stop_limit
 
 
 # The abstention threshold used when a caller does not supply one used to be a
@@ -552,6 +573,7 @@ async def _build_context(
     in.
     """
     max_steps = _settings_max_steps()
+    rejected_proposal_stop_limit = _settings_rejected_proposal_stop_limit()
     ticket = await ticket_store.get(run.ticket_id)
     if ticket is None:
         return RunContext(
@@ -561,6 +583,7 @@ async def _build_context(
             customer_email="",
             ticket_id=run.ticket_id,
             max_steps=max_steps,
+            rejected_proposal_stop_limit=rejected_proposal_stop_limit,
         )
     return RunContext(
         run=run,
@@ -569,6 +592,7 @@ async def _build_context(
         customer_email=ticket.customer_email,
         ticket_id=ticket.id,
         max_steps=max_steps,
+        rejected_proposal_stop_limit=rejected_proposal_stop_limit,
     )
 
 
@@ -788,6 +812,16 @@ async def drain_once(
     # ValueError)`` nor the SDK-derived catch below ever matched -- one empty
     # reply was a dead worker and a queue of ``interrupted`` runs.)
     #
+    # ``RepeatInvalidProposalError`` (Phase 3 M2-02) is the fifth, and it is the
+    # same shape again: the consecutive-identical-invalid-proposal stop has
+    # already written its trace event, its WARNING line and the
+    # ``FAILED(repeat_invalid_proposals)`` row before it raises, so the
+    # exception carries no work left to do -- only a process to kill if it
+    # escapes. A model stuck re-proposing one refused call is an ordinary
+    # business outcome, the same family as spending the step budget, and the
+    # run's ``failure_reason`` names the actual diagnosis rather than a step
+    # count.
+    #
     # That group is the *inner* suppression and the model failures are the *outer*
     # catch, because they are two kinds of "not mine to crash over": control flow
     # the runtime raised on purpose, and an upstream that could not answer. Both
@@ -798,7 +832,13 @@ async def drain_once(
     try:
         drive_started = monotonic()
         try:
-            with contextlib.suppress(RunParked, MCPUnavailable, MaxStepsExceeded, ModelOutputError):
+            with contextlib.suppress(
+                RunParked,
+                MCPUnavailable,
+                MaxStepsExceeded,
+                ModelOutputError,
+                RepeatInvalidProposalError,
+            ):
                 await run_loop(
                     ctx,
                     provider=provider,
