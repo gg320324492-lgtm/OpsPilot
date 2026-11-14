@@ -36,15 +36,16 @@ imports with no business logic, and a published GitHub repository.
       in `src/opspilot/domain/runs.py` returns nine states and every edge
       identical, the empty successor sets on `COMPLETED` and `FAILED`
       included. Not audited document by document.)
-- [ ] Core architectural principles are stated with their enforcement mechanism,
-      not as slogans. (Untickable as written: no document in the repository
-      enumerates *five* core principles — the phrase appears only here and in
-      `progress.md`, which points at `architecture.md` §1–2, two sections; the
-      word "principle" does not appear in `architecture.md` at all. The
-      substance is real: §1 states the CI-enforced `HIGH_RISK_WRITE` invariant as
-      a query, §2 defends retrieval structurally and names the injection test,
-      §3's layering is enforced by `tests/unit/test_layering.py`. What cannot be
-      shown is that there are five.)
+- [x] Core architectural principles are stated with their enforcement mechanism,
+      not as slogans. (`docs/principles.md` enumerates five — model proposes /
+      code decides / humans approve; deterministic policy before model
+      judgement; full trace and audit; static registry with a remove-only
+      denylist; eval-driven with a held-out set — each with the enforcing file
+      or test and the failure shape, cross-referenced to the ADRs. The
+      substance was already real: `architecture.md` §1's CI-enforced
+      `HIGH_RISK_WRITE` invariant, §2's structural retrieval defence, §3's
+      layering test; what was missing was the five-item enumeration, which the
+      new document supplies.)
 - [x] The repository tree exists with `py.typed`, and `pip install -e ".[dev]"`
       succeeds. (`src/opspilot/py.typed` present; `opspilot` 0.1.0 installed
       with the `dev` extra and resolving to `src/opspilot/__init__.py`, so the

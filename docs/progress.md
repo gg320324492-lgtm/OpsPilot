@@ -44,7 +44,7 @@ logic.**
 | # | Criterion | Outcome |
 |---|---|---|
 | 1 | All specification docs exist and are internally consistent | ✅ 11 docs + 5 ADRs |
-| 2 | Five core principles stated with their enforcement mechanism | ✅ `architecture.md` §1–2, each with the gate or test that enforces it |
+| 2 | Five core principles stated with their enforcement mechanism | ✅ `docs/principles.md` — five principles, each with its enforcing file/test and failure shape; `architecture.md` §1–2 remains the specification detail |
 | 3 | Repository tree exists with `py.typed`; editable install succeeds | ✅ `uv pip install -e ".[dev]"` on Python 3.12 |
 | 4 | `import opspilot` works | ✅ 63 modules import with **no provider SDK installed** |
 | 5 | `ruff check` and `ruff format --check` clean | ✅ 122 files |
