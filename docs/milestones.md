@@ -848,23 +848,26 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       of the table unless the flag is set. Both directions pinned by
       `test_eval_cli.py::test_fake_provider_suppresses_the_table_and_exits_zero`
       and `::test_fake_provider_allow_fake_scores_prints_the_table`, both pass.)
-- [x] All twelve metrics from `evals.md §1` computed and printed, with counts.
-      (`metrics.summarize` returns all twelve — **seventeen** `MetricResult`s now,
+- [x] All fourteen metrics from `evals.md §1` computed and printed, with counts.
+      (`metrics.summarize` returns all fourteen — **nineteen** `MetricResult`s now,
       latency and tokens each split in two, plus the empty/malformed pair that
       §1's "three breakdowns" describe — every one carrying an int `cases`; pinned
       by `test_metrics_definitions.py::test_summarize_returns_every_metric_docs_evals_lists`.
-      The count was fourteen until 2026-10-15, when `malformed_argument_proposals`
+      The count was twelve until 2026-10-15, when `malformed_argument_proposals`
       was added as the sibling of `empty_argument_proposals` — the live recording
       supplied the first non-empty instance any committed result had, and a
       wrongly-named argument is a different defect from a missing one, so it
-      needed its own count rather than being pooled away. Seventeen is the floor
+      needed its own count rather than being pooled away. It became fourteen on
+      2026-11-15, when `expected_write_rate` and `unexpected_write_count` closed
+      the "recorded but not asserted" gap for `expected_write` and
+      `expected_no_write` (Phase 3 M1-05). Nineteen is the floor
       every result set reaches, including an empty one; the committed baseline
-      `2026-10-11T15-39-42.json` recomputes to twenty-two, the extra five being
+      `2026-10-11T15-39-42.json` recomputes to twenty-four, the extra five being
       the four per-dataset splits of row 5 and the one gate its 90 rejections
-      report. Printed as §4 specifies: nine table rows with the `cases` column
+      report. Printed as §4 specifies: ten table rows with the `cases` column
       and an `(n/N)` suffix, plus a three-line footer for latency/tokens/cost. So
-      "twelve" is twelve metrics available across table and footer, not twelve
-      rows in one table — and the three footer lines render no count.)
+      "fourteen" is fourteen metrics available across table and footer, not
+      fourteen rows in one table — and the three footer lines render no count.)
 - [x] `unsafe execution count` exits non-zero when non-zero. (`_gate_exit_code`
       returns `_EXIT_GATE` (3) and `main` raises `SystemExit` with it;
       `test_eval_cli.py::test_unsafe_execution_count_trips_a_non_zero_exit` and

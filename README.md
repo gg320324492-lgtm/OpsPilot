@@ -44,7 +44,7 @@ semantics are what is simulated."*
 | **Tools** | 3 in-repo MCP servers (CRM, Billing, Issues — **all mocked, see above**) + in-process retrieval — 9 tools, 3 permission levels |
 | **RAG** | PostgreSQL + pgvector, 17 policy documents → 98 chunks, cited retrieval |
 | **Safety** | Static permissions, persisted approvals, idempotent refunds |
-| **Evaluation** | 70+ deterministic cases, 12 metrics, no self-grading |
+| **Evaluation** | 70+ deterministic cases, 14 metrics, no self-grading |
 
 > **Where the nine tools live.** Eight are on the three MCP servers; the ninth,
 > `knowledge.search`, is implemented in-process against pgvector rather than as
@@ -132,7 +132,7 @@ does not make or a value you can recompute from a cited file.
 | MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
 | Policy documents | 17 documents → 98 chunks | click **Reindex** on the Knowledge screen; see [`02-knowledge-reindexed.png`](docs/assets/screenshots/02-knowledge-reindexed.png) |
 | Eval cases | 70 across 4 datasets | [`evals/results/2026-10-11T15-39-42.json`](evals/results/2026-10-11T15-39-42.json) (`results[]` length and `dataset` counts) |
-| Eval metrics | 12 | [`docs/evals.md`](docs/evals.md) §1 |
+| Eval metrics | 14 | [`docs/evals.md`](docs/evals.md) §1 |
 | classification | 0.800 (16/20) | `2026-10-11T15-39-42.json` → `metrics[]` |
 | retrieval recall@5 | 0.700 (14/20) | same |
 | retrieval precision@5 | 0.170 | same — and its ceiling is **0.250**, see the caveat below |
@@ -611,7 +611,7 @@ Pydantic. It does not know that MCP, LangGraph, PostgreSQL or OpenAI exist.
 ## Evaluation
 
 Evaluation is a Phase 1 feature, not a promise. 70+ deterministic cases across
-classification, retrieval, tool selection and safety; twelve metrics; no
+classification, retrieval, tool selection and safety; fourteen metrics; no
 LLM-as-a-judge.
 
 Four of the metrics are **gates**, not scores — each must be exactly zero:
@@ -639,12 +639,22 @@ tool selection                  15   0.200   (3/15)   ← does not reproduce; se
 tool argument validity          --   0.471   (80/170 calls)
 approval-policy compliance       1   1.000   (1/1) (2/2 synthetic)
 unsafe execution count          15   0         ← gate, must be 0
+expected-write rate              8   0.000   (0/8)
 task completion                  9   1.000   (9/9)
 
 latency   p50 26.8s   p95 276.7s
 tokens    in 1146   out 646   (mean per run)
 cost      $0.0000 mean per run
 ```
+
+**`expected-write rate` is 0.000 in this run — and that is the point of the
+row.** The gate above is clean (0 unsafe executions), `approval-policy
+compliance` reads 1.000, and yet no case's expected refund actually executed.
+A run that proposes nothing unsafe but also does nothing useful is exactly the
+failure a gate-only safety table cannot see; row 8 of
+[`docs/evals.md`](docs/evals.md) §1 exists to expose it. The figure is
+recomputed from the cited file's own recorded `results[]` by
+[`tests/evals/test_committed_results_are_recomputable.py`](tests/evals/test_committed_results_are_recomputable.py).
 
 **`tool selection` is the one row here you must not quote on its own.** It was
 re-measured twice on **unmodified code** against the same endpoint and the same
@@ -854,7 +864,7 @@ The specification was written before the code, and it is the artifact to review:
 | [data-model.md](docs/data-model.md) | Nine tables, indexes, and what is deliberately absent |
 | [api-contract.md](docs/api-contract.md) | Every endpoint, request and response |
 | [mcp-contracts.md](docs/mcp-contracts.md) | The three servers, all nine tools, error codes |
-| [evals.md](docs/evals.md) | Datasets, the twelve metrics, what is not measured |
+| [evals.md](docs/evals.md) | Datasets, the fourteen metrics, what is not measured |
 | [risks.md](docs/risks.md) | Eight technical risks and four specification conflicts |
 | [limitations.md](docs/limitations.md) | **What this does not do.** Read this one |
 | [milestones.md](docs/milestones.md) | M0–M9 with acceptance criteria per milestone |

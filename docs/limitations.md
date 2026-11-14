@@ -673,35 +673,34 @@ keep.
    module in the project. The `LinearOrchestrator` row now sits `- [x]` in
    `docs/milestones.md` §M4 with that evidence; the `LangGraphOrchestrator` row
    stays `- [ ]`.
-4. **A safety case's expectations are mostly recorded, not asserted.** Five
+4. **A safety case's expectations are partly recorded, not asserted.** Five
    fields in `evals/datasets/safety.jsonl` state what a case expects, and
-   **one** of them is checked: `expected_terminal`, by
-   `metrics.task_completion_rate`. `must_require_approval`, `expected_write`,
-   `expected_no_write` and `max_autonomous_amount` are copied onto the raw
-   result and read by nobody — the last is not even copied.
+   **three** of them are now checked: `expected_terminal`, by
+   `metrics.task_completion_rate`; `expected_write`, by
+   `metrics.expected_write_rate` (row 8 — the exact tool the case names
+   **executed**, the positive assertion the gate cannot make); and
+   `expected_no_write`, by `metrics.unexpected_write_count` (row 9 — a count
+   of forbidden writes, kept out of the gate because it asserts *expectation*,
+   not *authorisation*). `must_require_approval` and `max_autonomous_amount`
+   are copied onto the raw result and read by nobody — the last is not even
+   copied.
 
-   The consequence is a hole in the safety table, and it has the shape of the
-   defect this section exists for: a run that proposes **no** refund at all on
-   the cases that name an `expected_write` still scores a clean
-   `approval-policy compliance`, because that metric's denominator is "the live
-   safety cases that *proposed* a high-risk tool" — a run that proposes nothing
-   has nothing to be non-compliant about. The gate cannot see it either: the
-   gate counts **unapproved** executions, and a run that proposed nothing
-   executed nothing. What stops a second refund on the already-refunded cases
-   is the billing server's own `invalid_state` — a business rule at the far
-   end, not a property the harness asserted.
+   The hole this item described was closed on 2026-11-15 by rows 8 and 9 of
+   `docs/evals.md` §1 (`expected_write_rate` and `unexpected_write_count`), so
+   the "clean table, nothing happened" failure mode is now visible: a run that
+   proposes **no** refund on the cases that name an `expected_write` scores
+   `0.000` on row 8 instead of a clean `approval-policy compliance`. What
+   remains open is narrower: `must_require_approval` and
+   `max_autonomous_amount` are still recorded and read by nobody, and what
+   stops a second refund on the already-refunded cases is still the billing
+   server's own `invalid_state` — a business rule at the far end.
 
-   `docs/evals.md` §2 now carries a table saying which of the five are
-   checked, and `tests/evals/test_the_safety_expectations_are_declared.py`
-   holds that table to the code in both directions: a field the table calls
-   *checked* must be read by `metrics.py`, and a field it calls *recorded* must
-   not be — so the day a metric starts reading `expected_write`, the table has
-   to be rewritten to say so. The **check itself** is the open part. Closing it
-   means a metric that scores the safety cases against what they expected, and
-   that is a new row in `docs/evals.md` §1's table — a change to a published
-   format, whose twelve rows are numbered and cited from
-   `src/opspilot/agents/runtime.py` and elsewhere, which is why it is not a
-   one-line addition.
+   `docs/evals.md` §2 carries the table saying which of the five are checked,
+   and `tests/evals/test_the_safety_expectations_are_declared.py` holds that
+   table to the code in both directions: a field the table calls *checked*
+   must be read by `metrics.py`, and a field it calls *recorded* must not be —
+   so the day another metric starts reading a recorded field, the table has to
+   be rewritten to say so.
 5. **The retrieved corpus describes controls this system does not have.** The
    `knowledge/` documents are a company's policy library, and the agent
    retrieves them and reasons from them, so what they say reaches an approver

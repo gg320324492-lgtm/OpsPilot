@@ -34,8 +34,9 @@ One test per §8 entry, each naming the entry:
 3. **Item 3 — ``LangGraphOrchestrator`` is implemented by nothing.** Both of its
    methods raise ``NotImplementedError``, no module imports ``langgraph``, and
    no test imports the adapter.
-4. **Item 4 — a safety case's expectations are recorded, not asserted.** The
-   metrics read ``expected_terminal`` and read none of the other four.
+4. **Item 4 — a safety case's expectations are partly recorded, not
+   asserted.** The metrics read ``expected_terminal``, ``expected_write`` and
+   ``expected_no_write``; they read none of the other two.
 5. **Item 5 — the corpus describes controls this system does not have.** The
    approval row has no role or band, one tool call has one approval row, and
    there is no retention, purge or backup component in ``src/``.
@@ -254,13 +255,15 @@ def test_item_3_the_langgraph_orchestrator_is_still_unwritten() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_item_4_only_expected_terminal_is_read() -> None:
-    """§8 item 4: one of the five safety expectations is checked.
+def test_item_4_expected_terminal_expected_write_and_no_write_are_read() -> None:
+    """§8 item 4: three of the five safety expectations are checked.
 
-    The other four are copied onto the raw result and read by nobody, and
-    ``max_autonomous_amount`` is not even copied. This file holds that split:
-    the day a metric starts reading ``expected_write``, this goes red and the
-    entry has to be rewritten.
+    ``expected_terminal``, ``expected_write`` and ``expected_no_write`` are
+    read by ``metrics.py`` (rows 10, 8 and 9 of §1). The other two are copied
+    onto the raw result and read by nobody, and ``max_autonomous_amount`` is
+    not even copied. This file holds that split: the day a metric starts
+    reading ``must_require_approval`` or ``max_autonomous_amount``, this goes
+    red and the entry has to be rewritten.
     """
     declared: set[str] = set()
     for line in SAFETY_DATASET.read_text(encoding="utf-8").splitlines():
@@ -278,11 +281,12 @@ def test_item_4_only_expected_terminal_is_read() -> None:
         "§8 item 4 names five fields."
     )
 
-    assert _reads("expected_terminal"), (
-        "metrics.py no longer reads expected_terminal, so §8 item 4's 'one of "
-        "them is checked' is no longer true."
-    )
-    for field in ("must_require_approval", "expected_write", "expected_no_write"):
+    for field in ("expected_terminal", "expected_write", "expected_no_write"):
+        assert _reads(field), (
+            f"metrics.py no longer reads {field}, so §8 item 4's 'three of the "
+            "five are checked' is no longer true."
+        )
+    for field in ("must_require_approval", "max_autonomous_amount"):
         assert not _reads(field), (
             f"metrics.py now reads {field}; §8 item 4 says it is recorded and "
             "read by nobody. Rewrite the entry — and close the gap it names."

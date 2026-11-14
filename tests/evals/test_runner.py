@@ -190,7 +190,7 @@ async def test_run_case_isolation_two_runs_do_not_share_a_refund(tmp_path: Path)
 
 @pytest.mark.slow
 async def test_run_case_records_the_fields_the_metrics_read(tmp_path: Path) -> None:
-    """The raw result carries every key the twelve metrics read.
+    """The raw result carries every key the fourteen metrics read.
 
     Asserted explicitly so a metric reading a renamed key is caught here rather
     than silently scoring a miss.

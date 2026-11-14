@@ -26,7 +26,7 @@ about **this** tree that drift as the tree changes:
 2. **The MCP server count is the tree's** -- the three real server modules,
    plus the one tool that is not on a server.
 3. **The eval metric count is ``docs/evals.md`` §1's table.** The README says
-   twelve; the spec's table is what twelve means.
+   fourteen; the spec's table is what fourteen means.
 4. **The acceptance and DoD counts are ``docs/milestones.md``'s.** Counted
    from the file itself, so a milestone that lands and a criterion that is
    ticked both move the number.
@@ -159,7 +159,7 @@ def test_the_mcp_server_count_is_the_trees() -> None:
 
 
 def test_the_eval_metric_count_is_the_specs_table() -> None:
-    """The README says twelve; the spec's table is what twelve means."""
+    """The README says fourteen; the spec's table is what fourteen means."""
     row = _row("Eval metrics")
 
     lines = EVALS.read_text(encoding="utf-8").splitlines()
@@ -169,9 +169,9 @@ def test_the_eval_metric_count_is_the_specs_table() -> None:
         if not line.startswith("|"):
             break
         counted += 1
-    assert counted == 12, f"docs/evals.md §1 lists {counted} metrics, not twelve"
+    assert counted == 14, f"docs/evals.md §1 lists {counted} metrics, not fourteen"
 
-    assert re.search(r"\b12\b", row), f"the README's eval-metric row does not say twelve: {row!r}"
+    assert re.search(r"\b14\b", row), f"the README's eval-metric row does not say fourteen: {row!r}"
 
 
 def test_the_acceptance_and_dod_counts_are_the_milestones() -> None:
