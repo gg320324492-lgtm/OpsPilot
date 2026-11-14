@@ -342,6 +342,11 @@ ignore = [
 # the audit on `urllib.request`, and the URL is a `127.0.0.1` constant this file
 # defines, not caller-supplied.
 "scripts/demo_golden_path.py" = ["T20", "S105", "S310"]
+# The B2 diagnostic probe prints raw model replies -- that comparison table is
+# the whole point of running it, and it is invoked by hand from a terminal.
+# E501: the three prompt variants are single-line f-strings on purpose, so a
+# diff of the probe's output maps one line to one prompt shape.
+"scripts/minimax_probe.py" = ["T20", "E501"]
 # The live-fixture recorder prints its progress for the same reason the demo does
 # -- its stdout is how a person watches a metered recording happen, and routing it
 # through logging would hide it. ANN401 is the fake's case again: the wrapper takes
