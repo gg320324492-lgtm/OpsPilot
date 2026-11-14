@@ -9044,11 +9044,13 @@ not the race alone.
 PostgreSQL-marked tests, which need `OPSPILOT_DATABASE_URL` per ADR-0004).
 One full-suite run was made with a stray, untracked evals result file parked
 out of the tree: the sibling C1/B4 session's holdout run
-(`evals/results/2026-11-13T23-52-14.json`, gitignored by design) trips
-`test_no_result_file_touches_the_holdout`, whose assertion is that no result
-file scores the holdout — true for everything the repository tracks, false
-only for that session's leftover. The file was restored afterwards; it is
-data, not part of this change.
+(`evals/results/2026-11-13T23-52-14.json`, gitignored by design) trips the
+holdout guard in `tests/unit/test_the_documented_counts_agree_with_the_tree.py`
+(renamed to `test_no_committed_result_file_touches_the_holdout` when the B4 row
+was reworded), whose assertion is that no *committed* result file scores the
+holdout — true for everything the repository tracks, false only for that
+session's leftover. The file was restored afterwards; it is data, not part of
+this change.
 
 ---
 
