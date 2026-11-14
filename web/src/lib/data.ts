@@ -23,6 +23,7 @@ import type { components } from "@/lib/api/types";
 export type RunList = components["schemas"]["RunListResponse"];
 export type RunDetail = components["schemas"]["RunDetail"];
 export type Trace = components["schemas"]["TraceResponse"];
+export type Audit = components["schemas"]["AuditResponse"];
 export type ApprovalList = components["schemas"]["ApprovalListResponse"];
 export type Approval = components["schemas"]["ApprovalSummary"];
 export type TicketList = components["schemas"]["TicketListResponse"];
@@ -265,12 +266,13 @@ export function isNotFound(error: unknown): boolean {
   );
 }
 
-/** `GET /api/runs/{id}` plus `GET /api/runs/{id}/trace`, fetched together. */
+/** `GET /api/runs/{id}`, `GET /api/runs/{id}/trace` and the audit ledger, together. */
 export async function loadRunDetail(runId: string): Promise<{
   run: Loaded<RunDetail>;
   trace: Loaded<Trace>;
+  audit: Loaded<Audit>;
 }> {
-  const [run, trace] = await Promise.all([
+  const [run, trace, audit] = await Promise.all([
     load<RunDetail>(async () => {
       try {
         return await api.getRun(runId);
@@ -301,8 +303,24 @@ export async function loadRunDetail(runId: string): Promise<{
         throw error;
       }
     }),
+    // The audit ledger is a third read, for the model-failure panel (M2-01).
+    // It is its own `Loaded` rather than folded into `run`: the trace already
+    // proved that one failed sub-read should not discard the whole page, and
+    // a ledger the deployment does not serve is a missing panel, not a broken
+    // run. The caller renders `audit.error` as "this read failed" rather than
+    // as "no model errors", which is the difference that matters.
+    load<Audit>(async () => {
+      try {
+        return await api.getRunAudit(runId);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 422) {
+          return { run_id: runId, events: [] };
+        }
+        throw error;
+      }
+    }),
   ]);
-  return { run, trace };
+  return { run, trace, audit };
 }
 
 /**
