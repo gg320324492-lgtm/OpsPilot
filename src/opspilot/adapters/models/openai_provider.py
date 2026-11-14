@@ -107,6 +107,12 @@ class OpenAIModelProvider:
         endpoint rather than "use the default", so passing it unconditionally
         would break every plain-OpenAI deployment. Omitting it leaves the SDK's
         own ``https://api.openai.com/v1`` in place.
+
+        ``max_retries=0`` is set explicitly, on both the custom-endpoint and
+        default-endpoint paths: the SDK's own default is 2, which would make one
+        logical call issue up to three HTTP requests and double-charge tokens
+        for a request the caller never saw succeed. Retrying, when wanted, is
+        the caller's policy -- see the M1-02 record in ``docs/phase3-plan.md``.
         """
         if not self._api_key:
             raise MissingAPIKeyError("openai")
@@ -117,8 +123,9 @@ class OpenAIModelProvider:
                 api_key=self._api_key,
                 timeout=self._timeout_seconds,
                 base_url=self._base_url,
+                max_retries=0,
             )
-        return AsyncOpenAI(api_key=self._api_key, timeout=self._timeout_seconds)
+        return AsyncOpenAI(api_key=self._api_key, timeout=self._timeout_seconds, max_retries=0)
 
     async def generate_structured(
         self,

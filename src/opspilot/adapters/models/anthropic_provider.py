@@ -69,6 +69,12 @@ class AnthropicModelProvider:
         private precedence rule, and *omitted* when empty so a plain Anthropic
         deployment keeps the SDK's ``https://api.anthropic.com`` (passing ``""``
         would be an invalid endpoint, not "use the default").
+
+        ``max_retries=0`` is set explicitly, on both the custom-endpoint and
+        default-endpoint paths: the SDK's own default is 2, which would make one
+        logical call issue up to three HTTP requests and double-charge tokens
+        for a request the caller never saw succeed. Retrying, when wanted, is
+        the caller's policy -- see the M1-02 record in ``docs/phase3-plan.md``.
         """
         if not self._api_key:
             raise MissingAPIKeyError("anthropic")
@@ -79,8 +85,11 @@ class AnthropicModelProvider:
                 api_key=self._api_key,
                 timeout=self._timeout_seconds,
                 base_url=self._base_url,
+                max_retries=0,
             )
-        return anthropic.AsyncAnthropic(api_key=self._api_key, timeout=self._timeout_seconds)
+        return anthropic.AsyncAnthropic(
+            api_key=self._api_key, timeout=self._timeout_seconds, max_retries=0
+        )
 
     async def generate_structured(
         self,

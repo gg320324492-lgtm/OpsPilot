@@ -369,6 +369,13 @@ ignore = [
 # parameters: the server answers with whatever it was handed, whatever the
 # call was, and the names are the protocol's shape rather than carelessness.
 "tests/unit/test_gateway_claims_match_the_code.py" = ["ANN401", "ARG002"]
+# The single-shot tests drive the real SDKs over a counting transport. The
+# transport methods ignore the request (they answer every request with the same
+# canned failure -- ARG002 is the protocol's shape, not carelessness), and the
+# constructor wrappers forward whatever keyword the factory passes so the
+# factory's own `max_retries=0` reaches the real SDK -- the forwarded bag is
+# dynamic by design, as ANN401's existing exemptions above are.
+"tests/unit/test_provider_single_shot_no_sdk_retries.py" = ["ANN401", "ARG002"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation
