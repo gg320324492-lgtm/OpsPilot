@@ -374,7 +374,29 @@
     "failedCalls": {
       "other": "{count} 个工具调用未完成"
     },
-    "toolCallsAside": "已提出 {count} 个"
+    "toolCallsAside": "已提出 {count} 个",
+    "fieldLastActivity": "最近活动",
+    "approvedTitle": "已批准——工作进程尚未执行。",
+    "approvedBody": "操作员已批准本次运行的工具调用。该运行已可被领取；工具尚未执行，此批准没有执行任何操作。",
+    "replayTitle": "该调用已由更早的一次尝试执行。",
+    "replayBody": "本次运行提出的调用，其幂等键与已执行的调用一致。系统返回了已存储的结果，未再次执行该调用。",
+    "replayPill": "重放结果",
+    "modelErrorsTitle": "模型错误",
+    "modelErrorsMeta": "已记录 {count} 条",
+    "modelErrorsStage_before": "阶段",
+    "modelErrorsStage_after": "",
+    "modelErrorsUnknown": "未知阶段",
+    "modelErrorsEmptyTitle": "本次运行没有记录任何模型错误。",
+    "modelErrorsEmptyHint": "审计记录读取失败不等于没有错误——参见错误面板。",
+    "modelErrorsUnreadableTitle": "无法读取模型错误记录。",
+    "modelErrorsUnreadableHint": "本次运行可能仍有模型错误；审计接口没有应答。"
+  },
+  "runExport": {
+    "button": "导出摘要",
+    "exporting": "导出中…",
+    "ariaLabel": "将本次运行的脱敏证据摘要下载为 JSON 文件",
+    "failedStatus": "导出失败，状态码 {status}。",
+    "unreachable": "无法连接到仪表盘的导出接口。"
   },
   "knowledge": {
     "title": "知识库",

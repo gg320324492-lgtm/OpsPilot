@@ -393,12 +393,13 @@ async function readBody(response: Response): Promise<unknown> {
 // becomes a TypeScript error at every call site rather than an `undefined` at
 // runtime.
 //
-// Contract §1 lists sixteen endpoints; this table binds **fourteen** of them.
+// Contract §1 lists sixteen endpoints; this table binds **fifteen** of them.
 // The two it does not bind are `GET /health` and `GET /ready`: both health
 // endpoints are reached by `checkApiReachability` above -- which fetches
 // `/health` directly -- rather than through this table. The audit ledger
 // (`GET /api/runs/{run_id}/audit`) is bound below for Run Detail's
-// model-failure panel (M2-01).
+// model-failure panel (M2-01), and the evidence export
+// (`GET /api/runs/{run_id}/export`) for Run Detail's export button (M2-06).
 //
 // **Thirteen bound is not thirteen used.** Two of the bindings have no caller
 // anywhere in `web/src/`: `createRun` (`POST /api/runs`) and `getApproval`
@@ -464,6 +465,16 @@ export const api = {
   getRunTrace: (runId: string) =>
     apiFetch<components["schemas"]["TraceResponse"]>(
       `/api/runs/${encodeURIComponent(runId)}/trace`,
+    ),
+
+  /**
+   * `GET /api/runs/{run_id}/export` -- the single-run redacted evidence export
+   * (contract §4.2). A read like any other: the server has already applied the
+   * redactions the contract names, so this binding interprets nothing.
+   */
+  exportRun: (runId: string) =>
+    apiFetch<components["schemas"]["RunExport"]>(
+      `/api/runs/${encodeURIComponent(runId)}/export`,
     ),
 
   /**

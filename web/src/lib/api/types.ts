@@ -299,6 +299,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Run
+         * @description One run's redacted evidence export (contract §4.2).
+         *
+         *     Raises:
+         *         ApiError: 404 ``run_not_found`` if there is no such run -- an empty
+         *             export would say "this run produced nothing" about a run that
+         *             never existed, which is the plausible-lie failure this project
+         *             keeps having to name.
+         */
+        get: operations["export_run_api_runs__run_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/trace": {
         parameters: {
             query?: never;
@@ -733,6 +759,164 @@ export interface components {
             error: components["schemas"]["ErrorBody"];
         };
         /**
+         * ExportApproval
+         * @description One approval row in the export, with its snapshot credential-screened.
+         *
+         *     ``arguments_snapshot`` is what the human was shown and what executed, so
+         *     it is evidence; it is screened for the same reason the tool call's live
+         *     arguments are. The decision columns are carried in full -- who decided and
+         *     when is exactly what an auditor reads the export for.
+         */
+        ExportApproval: {
+            /** Arguments Snapshot */
+            arguments_snapshot?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
+            /** Decided By */
+            decided_by?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note?: string | null;
+            /** Reason */
+            reason: string;
+            /** Risk Explanation */
+            risk_explanation: string;
+            status: components["schemas"]["ApprovalStatus"];
+            /**
+             * Tool Call Id
+             * Format: uuid
+             */
+            tool_call_id: string;
+        };
+        /**
+         * ExportAuditEvent
+         * @description One audit-ledger row in the export.
+         *
+         *     The payload is transcribed as stored -- the ledger is already the
+         *     redacted surface (``sanitized_error_summary`` at the write boundary) --
+         *     and then passed through :func:`redact_sensitive` once more so a payload
+         *     key added later cannot smuggle a credential past the writer's own screen.
+         */
+        ExportAuditEvent: {
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ExportStep
+         * @description One execution step in the export, without the step's recorded payload.
+         *
+         *     ``agent_steps.output`` is deliberately **absent**: the step payloads carry
+         *     the verbatim model reply (the ``response`` step's ``body`` -- the one
+         *     string ``tracing/recorder.py`` stores verbatim) and the prompt text a
+         *     deployment running ``STORE_FULL_PROMPTS=true`` keeps, both of which the
+         *     milestone names as "默认隐藏的正文" the export must not carry. The step's
+         *     shape, order and timing are what an evidence file needs.
+         */
+        ExportStep: {
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Step Type */
+            step_type: string;
+        };
+        /**
+         * ExportToolCall
+         * @description One tool call in the export, with its arguments credential-screened.
+         *
+         *     ``arguments`` and ``result`` are passed through :func:`redact_sensitive`,
+         *     because a tool's arguments are whatever the model proposed -- free-form
+         *     JSON the policy gate never saw a credential pattern in. ``error`` is the
+         *     short policy/gateway code (``invalid_state``, ``not_found``), not a
+         *     provider error body, so it is carried as stored.
+         */
+        ExportToolCall: {
+            /** Arguments */
+            arguments?: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            permission: components["schemas"]["Permission"];
+            status: components["schemas"]["ToolCallStatus"];
+            /** Tool Name */
+            tool_name: string;
+        };
+        /**
+         * FailureDiagnostic
+         * @description The M1-03 structured failure diagnosis, projected from ``model_failed``.
+         *
+         *     These are the fields the milestone names: provider, model, stage, error
+         *     category, latency, attempt, and the HTTP status / request id when the
+         *     provider exposed them. ``error_summary`` is already the truncated,
+         *     credential-screened one-liner the writer produced; the *full* provider
+         *     error body was never written to the ledger, so it cannot reach the export
+         *     either. ``latency_ms``, ``attempt``, ``http_status`` and ``request_id`` are
+         *     optional because an event missing one (an older writer, a provider that
+         *     exposes nothing) still exports the fields it has.
+         */
+        FailureDiagnostic: {
+            /** Attempt */
+            attempt?: number | null;
+            /** Error Category */
+            error_category: string;
+            /** Error Summary */
+            error_summary: string;
+            /** Http Status */
+            http_status?: number | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Stage */
+            stage: string;
+        };
+        /**
          * HealthResponse
          * @description Body of ``GET /health`` (contract §7). Liveness only.
          */
@@ -842,6 +1026,18 @@ export interface components {
             status: string;
         };
         /**
+         * RedactionNotice
+         * @description What the export withholds, stated rather than implied.
+         *
+         *     An evidence file that silently omits fields reads as "this never
+         *     happened"; one that names its withholdings reads as "this was screened".
+         *     The keys are the contract: a client can render them verbatim.
+         */
+        RedactionNotice: {
+            /** Withheld */
+            withheld?: string[];
+        };
+        /**
          * RunCreateRequest
          * @description Body of ``POST /api/runs`` -- enqueue a run for an existing ticket.
          */
@@ -900,6 +1096,40 @@ export interface components {
             ticket_id: string;
             /** Tool Calls */
             tool_calls?: components["schemas"]["ToolCallDetail"][];
+        };
+        /**
+         * RunExport
+         * @description Body of ``GET /api/runs/{run_id}/export`` (contract §4.2).
+         *
+         *     The single-run evidence export: the run's summary, its steps, tool calls,
+         *     approvals, audit-ledger events and -- when the run failed a model call --
+         *     the structured failure diagnosis. Every free-form object it carries has
+         *     been through :func:`redact_sensitive`; the verbatim model reply and the
+         *     stored prompts are not in it at all.
+         *
+         *     ``redaction`` names the withholdings so a reader knows what is absent by
+         *     design rather than by omission.
+         */
+        RunExport: {
+            /** Approvals */
+            approvals?: components["schemas"]["ExportApproval"][];
+            /** Audit Events */
+            audit_events?: components["schemas"]["ExportAuditEvent"][];
+            claim_lease?: components["schemas"]["ClaimLease"];
+            failure_diagnostic?: components["schemas"]["FailureDiagnostic"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            redaction?: components["schemas"]["RedactionNotice"];
+            run: components["schemas"]["RunSummary"];
+            /** Steps */
+            steps?: components["schemas"]["ExportStep"][];
+            /** Ticket Subject */
+            ticket_subject?: string | null;
+            /** Tool Calls */
+            tool_calls?: components["schemas"]["ExportToolCall"][];
         };
         /**
          * RunListResponse
@@ -1882,6 +2112,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditResponse"];
+                };
+            };
+            /** @description Bad request (``validation_error``) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token (``unauthorized``) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No such resource (entity-specific code) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicting state (``*_already_decided`` and friends) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Schema validation failed (``schema_invalid``) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    export_run_api_runs__run_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunExport"];
                 };
             };
             /** @description Bad request (``validation_error``) */

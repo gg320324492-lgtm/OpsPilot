@@ -20,6 +20,7 @@ Base path: `/api`. Errors use a single shape (§6).
 | `GET` | `/api/runs/{run_id}` | Run detail: status, steps, tool calls, citations, claim lease |
 | `GET` | `/api/runs/{run_id}/trace` | The ordered execution timeline only |
 | `GET` | `/api/runs/{run_id}/audit` | The run's audit ledger (append-only events) |
+| `GET` | `/api/runs/{run_id}/export` | One run's redacted evidence export (§4.2) |
 | `GET` | `/api/approvals` | List approvals (default: `pending`) |
 | `GET` | `/api/approvals/{approval_id}` | One approval, with the arguments as shown |
 | `POST` | `/api/approvals/{approval_id}/approve` | Approve; resumes the run |
@@ -535,6 +536,92 @@ is no such run. An empty `events` list is **not** an error: it means the run
 exists and has recorded nothing yet. The distinction is deliberate — conflating
 "this run has an empty ledger" with "there is no such run" would make a mistyped
 run id indistinguishable from a run that had just been created.
+
+## 4.2 `GET /api/runs/{run_id}/export`
+
+One run's redacted evidence export — the same record the previous endpoints
+serve piecewise, assembled into a single JSON document for reproducing an
+incident, briefing a colleague, or attaching the run to a case study. Read-only;
+it carries no new permission model and rides the same bearer token as every
+`/api` route (§8).
+
+```jsonc
+{
+  "run": {
+    "id": "7c1b…", "ticket_id": "0f3a…", "status": "failed",
+    "model_provider": "anthropic", "model_name": "claude-sonnet-5-5",
+    "started_at": "2026-10-05T10:42:03Z", "completed_at": "2026-10-05T10:43:05Z",
+    "failure_reason": "model_unavailable",
+    "created_at": "2026-10-05T10:42:03Z"
+  },
+  "ticket_subject": "Charged twice for invoice INV-2026-384",
+  "claim_lease": { "state": "unclaimed", "claimed_by": null, "claimed_until": null },
+  "steps": [
+    { "sequence": 1, "step_type": "state_change", "latency_ms": 2,
+      "started_at": "2026-10-05T10:42:03Z" }
+  ],
+  "tool_calls": [
+    { "id": "aa07…", "tool_name": "billing.issue_refund",
+      "arguments": { "transaction_id": "TX-88219", "amount": 129.0 },
+      "permission": "high_risk_write", "status": "failed",
+      "latency_ms": 7, "idempotency_key": "7c1b…:billing.issue_refund:…",
+      "error": "invalid_state" }
+  ],
+  "approvals": [
+    { "id": "b1c2…", "tool_call_id": "aa07…", "status": "approved",
+      "reason": "duplicate charge",
+      "risk_explanation": "This moves 129.00 out of the account…",
+      "arguments_snapshot": { "transaction_id": "TX-88219", "amount": 129.0 },
+      "created_at": "2026-10-05T10:42:09Z",
+      "decided_at": "2026-10-05T10:44:00Z", "decided_by": "operator:1",
+      "note": null }
+  ],
+  "audit_events": [
+    { "id": "e91a…", "event_type": "model_called",
+      "created_at": "2026-10-05T10:42:04Z", "actor": "runtime",
+      "payload": { "provider": "anthropic", "model": "claude-sonnet-5-5",
+                   "latency_ms": 612 } }
+  ],
+  "failure_diagnostic": {
+    "provider": "anthropic", "model": "claude-sonnet-5-5", "stage": "classifying",
+    "error_category": "rate_limit", "latency_ms": 60211, "attempt": 1,
+    "http_status": 429, "request_id": "req_01…",
+    "error_summary": "Rate limit reached for …"
+  },
+  "generated_at": "2026-10-05T10:45:00Z",
+  "redaction": {
+    "withheld": [
+      "step payloads (verbatim model reply and prompts)",
+      "customer reply body",
+      "full provider error bodies",
+      "credentials matching a credential pattern"
+    ]
+  }
+}
+```
+
+`failure_diagnostic` is the run's last `model_failed` ledger event projected
+onto the M1-03 fields, or `null` when the run never failed a model call. Its
+`error_summary` is the same truncated, credential-screened one-liner the ledger
+stores (§4.1) — the full provider error body was never written, so the export
+cannot carry it.
+
+**Redaction is applied at this boundary, not assumed from upstream.** Every
+free-form object the export carries — tool-call `arguments`, approval
+`arguments_snapshot`, every audit `payload` — passes a key-level credential
+screen before serialisation: a key whose name matches a credential pattern
+(`api_key`, `authorization`, `token`, `password`, `secret`, …) has its value
+replaced with a redaction marker, and a string value embedding a provider key
+shape (`sk-…`) is replaced wholesale. What the contract withholds by *structure*
+rather than by screening: step payloads (which carry the verbatim model reply
+and, under `STORE_FULL_PROMPTS=true`, the prompts) are reduced to the step's
+shape and timing, and the customer reply body is not part of the export at all.
+`redaction.withheld` names all of this in the payload itself, so a reader knows
+what is absent by design rather than by omission.
+
+Errors: `401` without a valid bearer token (§8). `404 run_not_found` when there
+is no such run — an empty document would say "this run produced nothing" about
+a run that never existed.
 
 ## 5. Approvals
 

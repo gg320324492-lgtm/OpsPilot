@@ -31,10 +31,11 @@ import {
   type ModelFailure,
 } from "@/lib/run-state";
 import { permissionLabel, toolCallStatusLabel } from "@/i18n/enums";
-import { getT } from "@/i18n/server";
+import { getCopy, getT } from "@/i18n/server";
 import type { TFunction } from "@/i18n/format";
 import { ApprovalSummaryCard } from "./approval-summary";
 import { RunRefresher } from "./run-refresher";
+import { ExportButton } from "./export-button";
 
 /**
  * Run Detail: the screen that answers "what did OpsPilot actually do?".
@@ -69,7 +70,11 @@ export default async function RunDetailPage({
   params: Promise<{ runId: string }>;
 }) {
   // Async `params` is required from Next.js 16.
-  const [{ runId }, t] = await Promise.all([params, getT()]);
+  const [{ runId }, t, { locale, copy: exportCopy }] = await Promise.all([
+    params,
+    getT(),
+    getCopy("runExport"),
+  ]);
   const { run, trace, audit } = await loadRunDetail(runId);
 
   // 404 has its own branch rather than falling into the generic error panel: a
@@ -164,6 +169,11 @@ export default async function RunDetailPage({
               and the docstring on `RunRefresher`. Rendered as its own component
               because an async Server Component cannot hold client effects. */}
           {shouldAutoRefresh(detail.status) ? <RunRefresher /> : null}
+          {/* The M2-06 evidence export: one redacted JSON document for this
+              run. The client control is here because a download needs an event
+              handler and a credential, and neither belongs in a Server
+              Component; see `export-button.tsx`. */}
+          <ExportButton runId={detail.id} copy={exportCopy} locale={locale} />
         </>
       }
     >
