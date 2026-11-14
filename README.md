@@ -874,7 +874,10 @@ docker compose up
 
 That is the whole quick start. It brings up `postgres`, `migrate`, `api`,
 `worker` and `web`; the dashboard is on <http://localhost:3000> and the API on
-<http://localhost:8000>. **`.env` is required**, and it is required for exactly one setting.
+<http://localhost:8000>. The `migrate` service is a one-shot job: when it has
+finished applying the database migrations it exits, and `docker ps -a` shows
+it as `Exited (0)` — that is the expected healthy state, not a failure.
+**`.env` is required**, and it is required for exactly one setting.
 `docker-compose.yml` uses the `:?` form for `OPSPILOT_OPERATOR_TOKEN`, so an
 unset token stops Compose from rendering the project at all: `docker compose
 up` fails with *"required variable OPSPILOT_OPERATOR_TOKEN is missing a
@@ -896,7 +899,11 @@ PyPI, and the dashboard's build stage starts from a Node image pulled from
 Docker Hub. Both downloads happen **inside Docker's build network**, so a
 working browser or `pip` on the host does not guarantee them — a corporate
 proxy, a flaky link, or a regional mirror preference can make the first build
-fail with a timeout even though "the internet works".
+fail with a timeout even though "the internet works". The first build can
+also simply take several minutes; with `docker compose up -d` the build output
+is not streamed to your terminal, so a long quiet period is the build running,
+and the reason for a failure is in the full output (run without `-d`, or check
+`docker compose logs` afterwards) rather than in the silence.
 
 What to do when it fails:
 
@@ -912,7 +919,10 @@ What to do when it fails:
    of those is already taken on your machine, set `OPSPILOT_API_HOST_PORT`,
    `OPSPILOT_WEB_HOST_PORT` or `OPSPILOT_PG_HOST_PORT` in `.env` to move the
    host side (see `.env.example`); the services inside the Compose network do
-   not change.
+   not change. That override is verified end to end by
+   `tests/integration/test_host_port_overrides.py`, which stands the stack up
+   on high host ports and asserts reachability there; it skips cleanly on a
+   machine without Docker.
 
 Then, to walk the golden path by hand:
 

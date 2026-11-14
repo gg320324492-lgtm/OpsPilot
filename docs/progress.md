@@ -844,14 +844,16 @@ because no test *can*: the code path is unreachable for any input.
 **Started:** 2026-10-05
 
 > **CORRECTION (2026-10-06).** The first attempt at this slice built a **fourth
-> MCP server** (`mcp_servers/knowledge/server.py`) and wired it into the gateway
+> MCP server** (`mcp_servers/knowledge/server.py`, since deleted) and wired it into the gateway
 > with an `_SERVER_ALIASES = {"internal": "knowledge"}` translation. That violated
 > `docs/mcp-contracts.md` §4, titled "The `knowledge` tool is not an MCP server",
 > which says retrieval "is implemented in-process against pgvector rather than as
 > a fourth MCP server". Its nine tests all passed — they verified the server was
 > built *correctly* and none asked whether it should be built at all.
 >
-> The server, the alias and `tests/integration/test_mcp_knowledge.py` have been
+> The server, the alias and the deleted fourth-server test module (then named
+> `tests/integration/test_mcp_knowledge.py`; the name below is kept as the
+> historical record) have been
 > **deleted**. The replacement is `src/opspilot/adapters/tools/knowledge_tool.py`
 > (`KnowledgeTool`), an in-process dispatcher returning the same `ToolResult`
 > shape as `MCPToolGateway`; `knowledge.search` stays registered with
@@ -868,9 +870,10 @@ One focused slice: make `knowledge.search` — already declared in
 a real, callable tool reachable through the tool gateway. Previously no server
 implemented it and no gateway could dispatch it.
 
-Files owned by this slice: `mcp_servers/knowledge/server.py` (new),
-`src/opspilot/adapters/tools/mcp_gateway.py`, `tests/integration/test_mcp_knowledge.py`
-(new), and this section. The retrieval backend
+Files owned by this slice: `mcp_servers/knowledge/server.py` (new, since deleted),
+`src/opspilot/adapters/tools/mcp_gateway.py`, the fourth-server test module
+(below named `tests/integration/test_mcp_knowledge.py`, since deleted),
+and this section. The retrieval backend
 (`src/opspilot/adapters/retrieval/**`) and the agent/API/worker wiring are
 another agent's M5b and were not touched.
 
@@ -878,9 +881,9 @@ another agent's M5b and were not touched.
 
 | File | Change |
 |---|---|
-| `mcp_servers/knowledge/server.py` | New in-process MCP server; one tool `knowledge.search`, `structured_output=True`, Pydantic `SearchResult` return model |
+| `mcp_servers/knowledge/server.py` *(then; since deleted)* | New in-process MCP server; one tool `knowledge.search`, `structured_output=True`, Pydantic `SearchResult` return model |
 | `src/opspilot/adapters/tools/mcp_gateway.py` | `_KNOWN_SERVERS` gains `knowledge`; `_SERVER_ALIASES` maps the registry's `internal` to the `knowledge` server; `build_in_process_servers` builds it, optionally with an injected retriever |
-| `tests/integration/test_mcp_knowledge.py` | 9 tests driving the real gateway in-process |
+| `tests/integration/test_mcp_knowledge.py` *(then; since deleted)* | 9 tests driving the real gateway in-process |
 
 ### Decisions a reviewer should check
 
@@ -965,7 +968,7 @@ M5c above.
 | File | Change |
 |---|---|
 | `mcp_servers/knowledge/` | **Deleted** (the fourth MCP server) |
-| `tests/integration/test_mcp_knowledge.py` | **Deleted** (9 tests that verified the server was built, not that it should be) |
+| `tests/integration/test_mcp_knowledge.py` *(the deleted module, named as it was)* | **Deleted** (9 tests that verified the server was built, not that it should be) |
 | `src/opspilot/adapters/tools/mcp_gateway.py` | `knowledge` removed from `_KNOWN_SERVERS`; `_SERVER_ALIASES` removed; `build_in_process_servers` no longer takes `retriever` or builds a knowledge server |
 | `src/opspilot/adapters/tools/knowledge_tool.py` | **New.** `KnowledgeTool`, the in-process `knowledge.search` dispatcher returning a `ToolResult`; same refusal codes (`not_configured`, `retrieval_failed`, `validation_error`, `unknown_tool`) |
 | `src/opspilot/adapters/wiring.py` | **New.** `build_retrieval_stack(settings, *, session_factory)` builds embedder + vector store + the runtime `RetrievalCallable` + `KnowledgeTool` + reindex runner + `KnowledgeDocumentStore` from settings |
@@ -1543,13 +1546,15 @@ things (narrow margin, meaningless under a different embedder, still a single
 global threshold).
 
 `RETRIEVAL_MIN_SCORE` moved 0.35 → 0.22. **0.22 is `settings.py`'s default and
-`.env.example`'s; the same value is duplicated in two files this slice does not
-own** — `agents/runtime.py:79` (`_DEFAULT_RETRIEVAL_MIN_SCORE`) and
-`worker/loop.py:63` (`_DEFAULT_MIN_SCORE`), both still `0.35`. M5e's own
+`.env.example`'s; at the time of this slice the same value was duplicated in two
+files this slice did not own** — `agents/runtime.py` (`_DEFAULT_RETRIEVAL_MIN_SCORE`)
+and `worker/loop.py` (`_DEFAULT_MIN_SCORE`), both then `0.35`. M5e's own
 least-confident-decision note already named this triplication. **A caller that
-uses either default without passing the setting gets 0.35 and abstains**, which
-is the Finding A defect surviving on two of the three entry points. Reported, not
-fixed — those files are another agent's.
+used either default without passing the setting got 0.35 and abstained**, which
+was the Finding A defect surviving on two of the three entry points. Reported, not
+fixed then — those files were another agent's; both literals are gone now (each
+module resolves the threshold from `settings.py` per construction, with
+`agents/runtime.py` carrying only the comment that records why).
 
 ### Finding F2 — the memory store writes chunk rows
 
@@ -1635,8 +1640,8 @@ this defect with a green suite.
 
 .venv/Scripts/python.exe -m mypy --strict
     Success: no issues found in 136 source files
-    (4 errors remain in tests/agent/test_probe_tmp.py, another agent's
-     untracked scratch file; excluding it, the tree is clean)
+    (4 errors remained at the time in another agent's untracked scratch file;
+     excluding it, the tree was clean)
 
 .venv/Scripts/python.exe -m ruff check . && ... ruff format .
     12 errors, ALL in tests/agent/_golden_harness.py and
@@ -1961,7 +1966,9 @@ documents and twenty eval cases, and it cannot be produced.**
 
     TicketCategory = duplicate_charge | billing_other | technical | account | other
 
-`README.md:59`, `docs/milestones.md` §M6, `docs/evals.md` §1 and
+`README.md`'s golden-path ticket trace (README:63 at `cb457f4`, when this was
+written; the trace now reads `duplicate_charge` after §M6e's relabel),
+`docs/milestones.md` §M6, `docs/evals.md` §1 and
 `docs/api-contract.md` §3 all name `billing_dispute`. Measured against the enum,
 **17 of the 20 cases in `evals/datasets/classification.jsonl` expect a value the
 model is structurally incapable of emitting** — `billing_dispute` (8),
@@ -2053,7 +2060,8 @@ dataset says otherwise:
   `cls-009` ("double-charged again"), `cls-017` ("our duplicate charge"). Under
   my own proposed rule — twice ⇒ duplicate, wrongly ⇒ dispute — all three
   should have been `duplicate_charge`.
-- **`cls-001` is the README's own golden-path ticket** (`README.md:55`), and the
+- **`cls-001` is the README's own golden-path ticket** (README:59 at `cb457f4`;
+  README:179 today), and the
   replay fixtures classify that scenario as **`duplicate_charge`**, not
   `billing_dispute`. So the dataset and the fixtures disagree about the same
   ticket, and only the fixtures' label has any use anywhere.
@@ -3600,7 +3608,7 @@ guard. Both reverted, files diffed back.
 golden path and that D19's remaining strand is recorded as **D19a** — a
 boundary, not a chore that failed to happen. The `duplicate_charge` fixture
 proposes four calls and none creates an issue; the README trace keeps the line
-it already lacks; no code changed, by decision. Reasons: **README.md:95**'s rule
+it already lacks; no code changed, by decision. Reasons: **README.md:95**'s rule (README:216 today; the rule has not moved in meaning)
 that adding a call to make a diagram true would be writing code to match a
 drawing; **D7 and D12a**, where the document was corrected to match the
 behaviour rather than the reverse; and whether the workflow **should** file a
@@ -4106,7 +4114,7 @@ and it produced four false positives that a less careful pass would have
 
 ### The guard
 
-`tests/unit/test_worker_honours_max_steps.py` (11 tests) and
+`tests/unit/test_worker_honours_max_steps.py` (9 tests) and
 `tests/unit/test_store_full_prompts_is_wired.py` (9 tests).
 
 The MAX_STEPS file pins four things: the worker *passes* the configured budget on
@@ -4131,11 +4139,11 @@ Seven mutations, all red, then green on restore:
 
 | # | mutation | caught by |
 |---|---|---|
-| 1a | drop `max_steps=` from the missing-ticket branch | `...[ticket_missing]` (2) |
-| 1b | drop `max_steps=` from the happy-path branch | `...[ticket_found]` (2) + default test |
-| 2 | restore the literal `24` in `RunContext` | `test_state_does_not_redefine...` |
-| 3 | `runtime._DEFAULT_MAX_STEPS` re-freezes its own `24` | `test_runtime_does_not_redefine...` |
-| 4 | `default_max_steps()` resolves to a hardcoded `24` | `test_the_default_follows_the_setting...` |
+| 1a | drop `max_steps=` from the missing-ticket branch | `test_worker_passes_the_configured_budget_to_the_context[ticket_missing]` + `test_the_budget_is_not_the_literal_twenty_four[ticket_missing]` |
+| 1b | drop `max_steps=` from the happy-path branch | `test_worker_passes_the_configured_budget_to_the_context[ticket_found]` + `test_the_budget_is_not_the_literal_twenty_four[ticket_found]` + `test_the_default_is_still_twenty_four` |
+| 2 | restore the literal `24` in `RunContext` | `test_state_does_not_redefine_the_budget_from_a_literal` |
+| 3 | `runtime._DEFAULT_MAX_STEPS` re-freezes its own `24` | `test_runtime_does_not_redefine_the_budget_from_a_literal` |
+| 4 | `default_max_steps()` resolves to a hardcoded `24` | `test_the_default_follows_the_setting_after_import` |
 | A | remove the `STORE_FULL_PROMPTS` gate entirely | withheld + prompt (2) |
 | B | blanket "strip every string" instead of named keys | non-text untouched + 2 |
 | C | drop the `body` key instead of replacing it | withheld + complete + prompt (3) |
@@ -4184,15 +4192,15 @@ passed.** That was true before today and was not written down.
 | D10 | **met as written, with a standing caveat** | ten job ids in `ci.yml`: `lint typecheck test verify mcp-contract security eval-smoke web-lint web-typecheck docker-build`; README documents bare `ruff check` / `ruff format --check` / `mypy` / `pytest` and each job runs exactly that | **no — but see the CI section below** |
 | D11 | met | `eval-live.yml` triggers on `workflow_dispatch` alone | no |
 | D12 | unmet, as D12a | `docker-compose.yml` declares `postgres, migrate, api, worker, web` and no MCP services | no |
-| D12a | recorded-as-boundary | 40 stdio-transport tests pass; `MCP_TRANSPORT` read at `worker/__main__.py:433` | no |
+| D12a | recorded-as-boundary | 40 stdio-transport tests pass; `MCP_TRANSPORT` is settings-read (now `src/opspilot/settings.py:404`, then `worker/__main__.py:433`) | no |
 | D13 | met, verified live today | stack up 8–31h; `/ready` from inside the api -> `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`; worker `booted; marked 0 interrupted run(s) failed; polling every 1.0s` | no |
-| D14 | met | README sections: golden path (56), five scenarios (157), Architecture (223), Evaluation (292), limitations link (29); `docs/assets/golden-path.gif` = 359,981 bytes | no |
-| D15 | met, divergence documented | every metric value matches `evals/results/2026-10-08T05-24-41.json` (0.750 / 0.500 / 0.110 / 0.600 / 0.067 / 0.634 / 1.000 / 0 / 0.444); the `model` field differs and README:343-360 explains why | no |
+| D14 | met | README sections (as of `cb457f4`, when this row was scored): golden path (56), five scenarios (157), Architecture (223), Evaluation (292), limitations link (29); `docs/assets/golden-path.gif` = 359,981 bytes. (The README has since grown; those sections now start at lines 176, 471, 537, 606, 109.) | no |
+| D15 | met, divergence documented | every metric value matches `evals/results/2026-10-08T05-24-41.json` (0.750 / 0.500 / 0.110 / 0.600 / 0.067 / 0.634 / 1.000 / 0 / 0.444); the `model` field differs and the README's model-name note (at `cb457f4` README:343-360) explains why | no |
 | D16 | met | `limitations.md` §2 now states that no worker-concurrency test exists and that the old citation "never did" | no |
 | D17 | met | M0–M12 all have sections | no |
-| D18 | met | README:21 -> `Status: Phase 1, milestones M0–M9 — the golden path runs end to end.` | no |
+| D18 | met | README:21 (at `cb457f4`) -> `Status: Phase 1, milestones M0–M9 — the golden path runs end to end.` (the banner has since moved to README:55 with Phase 2 wording) | no |
 | D19 | unmet (its last strand is D19a) | the fixture proposes four calls — `crm.get_customer`, `billing.get_invoice`, `billing.list_transactions`, `billing.issue_refund` — and none creates an issue | no |
-| D19a | recorded-as-boundary | `README.md:94` states the tool is implemented and tested in isolation but not proposed by the fixture; `limitations.md` §8 item 1 carries the same | no |
+| D19a | recorded-as-boundary | `README.md:94` (at `cb457f4`; now README:92) states the tool is implemented and tested in isolation but not proposed by the fixture; `limitations.md` §8 item 1 carries the same | no |
 
 **D19a is not the nineteenth point.** It is a recorded boundary, and D19 stays
 unmet because of it. That is unchanged from `c96c289`, and it is the whole
@@ -4388,7 +4396,7 @@ pytest tests/security/test_permission_immutability.py
                        test_prompt_injection.py              9 passed
 pytest tests/integration/test_mcp_stdio_transport.py        40 passed
 pytest -k "issues_create or audit_event or tool_executed"    5 passed
-pytest -m postgres --collect-only -q   5 collected; grep -c test_pgvector -> 2  (CI's guard number)
+pytest -m postgres --collect-only -q   5 collected (the postgres-marked tests then in the tree); `grep -c test_pgvector` over the two files carrying them -> 2 in `test_vector_stores.py` (its `test_pgvector_store_*` group) + 1 in `test_citations.py` (`test_pgvector_and_memory_stores_agree`)
   + the four new test files            41 passed
 python -c "import opspilot"        G:\OpsPilot\src\opspilot\__init__.py
 Settings.model_fields vs .env.example     28 aliases, 0 missing, 28 keys, 12 empty
@@ -4698,7 +4706,8 @@ what they are not") ends its message with:
 
 **Four is wrong; five carried it.** `docs/risks.md` stated it twice — in R2's
 mitigation and again in R8 — and once each in `docs/agent-state-machine.md:248`,
-`README.md:551` and `evals/README.md`. The word "other" also miscounts: R2 was
+the README's architecture section (README:551 when this was written; the
+architecture diagram has since been rearranged) and `evals/README.md`. The word "other" also miscounts: R2 was
 not an "other" document, it was one of the places making the claim.
 
 The commit is correct; only its message miscounts. Every file it names was
@@ -4847,8 +4856,8 @@ edit.) One label from the suggested set is **split into two** and one is
   proposed. Both directions wrong in the same case.
 - **nothing proposed** — `proposed_tools` is `[]`.
 - **unregistered** — a proposed name absent from `TOOL_REGISTRY`
-  (`src/opspilot/domain/tools.py:84-116`). Kept as a category because gate 2
-  rejects these (`runtime.py:434-444`) as a different failure from a bad choice
+  (`src/opspilot/domain/tools.py:93-125`). Kept as a category because gate 2
+  rejects these (`src/opspilot/agents/runtime.py:480-492`) as a different failure from a bad choice
   among real tools.
 
 **"wrong tool" as a primary label is dropped**, because as defined — *"proposed a
@@ -6075,7 +6084,7 @@ the package must be reproducible from a file in the repository.
 
 | # | Criterion | Outcome |
 |---|---|---|
-| E1 | README positioned as a safety-gated AI operations agent, with the simulated billing stated plainly and no implication of a real finance system | ✅ `README.md:3` positions it as "**A safety-gated AI operations agent for B2B support and billing**", and the first section under the title is "The billing in this project is simulated. Read this first." (`README.md:13`). `billing.get_invoice`, `billing.list_transactions` and `billing.issue_refund` are named as served by the billing MCP server in this repository. **It did not say this before `7ad9679`**: the README listed "3 MCP servers (CRM, Billing, Issues)" and nothing told a reviewer those are in-repo mocks, so "Billing" and "refund" could be read as a real payment integration |
+| E1 | README positioned as a safety-gated AI operations agent, with the simulated billing stated plainly and no implication of a real finance system | ✅ `README.md:5` positions it as "**A safety-gated AI operations agent for B2B support and billing**" (README:3 at `7ad9679`), and the first section under the title is "The billing in this project is simulated. Read this first." (README:15 today; README:13 at `7ad9679`). `billing.get_invoice`, `billing.list_transactions` and `billing.issue_refund` are named as served by the billing MCP server in this repository. **It did not say this before `7ad9679`**: the README listed "3 MCP servers (CRM, Billing, Issues)" and nothing told a reviewer those are in-repo mocks, so "Billing" and "refund" could be read as a real payment integration |
 | E2 | A video, screenshots, and a case study that walk one duplicate charge from intake to the audited refund | ✅ `docs/assets/golden-path.gif` (359,981 bytes), ten screenshots in `docs/assets/screenshots/`, and `docs/case-study-duplicate-charge.md` (320 lines). The GIF is from before Phase 2 (`c989ffc`, 2026-10-08); the ten screenshots and the case study are from `7ad9679` |
 | E3 | A GitHub Release with the installer | ❌ **no tag exists** — `git tag` returns nothing and `gh release list` is empty. Deliberately held back pending D2 |
 | E4 | Every acceptance number in the document traced to the run that produced it | ✅ the README's figures table has a third column, "Source — verify it", and every row in it points at a file: the eval rows at `evals/results/2026-10-11T15-39-42.json` → `metrics[]`, the tool-selection repeat runs at the two 2026-10-13 files, the tool registry at `domain/tools.py::TOOL_REGISTRY` |
@@ -8372,7 +8381,9 @@ cannot happen), and `/ready` declares its **503** (whose body is the readiness
 shape and deliberately *not* the error envelope).
 
 **The guard is the one that could not have existed before.**
-`tests/unit/test_openapi_error_descriptions_name_the_codes_the_api_sends.py`
+`tests/unit/test_the_error_vocabulary_agrees_with_the_api.py` (first committed as
+`tests/unit/test_openapi_error_descriptions_name_the_codes_the_api_sends.py`,
+renamed when the check grew to cover the API side too)
 cross-checks the generated document against the contract's §6 table — the
 *written* contract, not a copy of it in the test, so a third answer cannot
 drift. Every code a description names must be one the table maps to that same
@@ -9046,8 +9057,10 @@ One full-suite run was made with a stray, untracked evals result file parked
 out of the tree: the sibling C1/B4 session's holdout run
 (`evals/results/2026-11-13T23-52-14.json`, gitignored by design) trips the
 holdout guard in `tests/unit/test_the_documented_counts_agree_with_the_tree.py`
-(renamed to `test_no_committed_result_file_touches_the_holdout` when the B4 row
-was reworded), whose assertion is that no *committed* result file scores the
+(`test_no_committed_result_file_touches_the_holdout`; an earlier note called the
+test itself "renamed" when the B4 row was reworded — the *file* kept its name,
+only the test function is `test_no_committed_result_file_touches_the_holdout`),
+whose assertion is that no *committed* result file scores the
 holdout — true for everything the repository tracks, false only for that
 session's leftover. The file was restored afterwards; it is data, not part of
 this change.
@@ -9074,7 +9087,7 @@ docker compose up -d postgres
 OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
   MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
   tests/integration/test_worker_claim_postgres.py -m postgres -v
-# 5 passed, 2 deselected in 3.04s
+# 5 passed in 3.04s
 OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
   MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
   tests/integration/test_worker_claim_lease.py -v
@@ -9539,3 +9552,87 @@ The GitHub Release `v0.1.0` body was also expanded the same day (what Phase 2
 contains, how to try it, the known limitations, and why no installer asset is
 attached yet); the desktop installer still awaits P2-D2's clean-machine
 verification before it is attached.
+
+---
+
+## Documentation consistency audit (2026-11-14)
+
+A full-tree cross-consistency audit of `docs/` (every `.md` under `docs/`, plus
+`README.md`), run by script over four dimensions: file-path references,
+line-number citations, test/function-name citations, and the inter-document
+links/anchors. The existing guards (`test_doc_line_citations_point_at_the_code`,
+`test_the_docs_cited_test_names_exist`, `test_doc_cross_references_resolve`)
+cover the *current* shapes; this audit also checked the shapes they deliberately
+do not (bare citations, historical mentions, counts the guards do not pin).
+
+### Found and fixed (objective errors)
+
+1. **Stale line citations** — `docs/milestones.md` cited
+   `routers/tickets.py:118` (the `POST /tickets` handler is now
+   `src/opspilot/api/routers/tickets.py:124`),
+   `duplicate_charge.json:15` twice (the `"category":` line is 17),
+   `ci.yml` "line 277" (the pgvector image is line 278), and
+   `repositories.py:693-703` (the `state_change` step is written at
+   `:713-722`); the same note's `tracing/recorder.py:197` citation is correct
+   but is now repo-rooted. `docs/progress.md` cited
+   `domain/tools.py:84-116` (the registry is `:93-125`) and
+   `runtime.py:434-444` (gate 2 is `:480-492`).
+2. **Citations to lines that no longer hold the text** — the M5e note pointed
+   at `agents/runtime.py:79` / `worker/loop.py:63` for the duplicated
+   `0.35` defaults; both literals are gone (each module now resolves the
+   threshold from `settings.py`). The note now says what was true *then* and
+   what is true now. The D-table's README line numbers (`:21`, `:55`, `:94`,
+   `:343-360`, golden path (56), five scenarios (157), Architecture (223),
+   Evaluation (292), limitations link (29)) were scored at `cb457f4`; the
+   README has since grown, so each row now names its as-scored commit and the
+   current line. `README.md:59` (the golden-path ticket) moved to `:179`;
+   `README.md:551` (the architecture diagram) moved with the diagram's
+   rearrangement.
+3. **Test names that no longer exist** — `docs/HANDOVER.md` cited
+   `tests/unit/test_the_documented_ci_jobs_exist.py` (the file is
+   `test_documented_ci_jobs_exist.py`); `docs/progress.md`'s error-vocabulary
+   paragraph cited the guard's first-commit name
+   `test_openapi_error_descriptions_name_the_codes_the_api_sends.py`, renamed
+   to `test_the_error_vocabulary_agrees_with_the_api.py` in `5563c00` — now
+   named with the rename recorded; the MAX_STEPS mutation table used
+   `...`-elided names (`test_state_does_not_redefine...` and friends), now
+   spelled out to the names that exist (`test_state_does_not_redefine_the_budget_from_a_literal`,
+   `test_runtime_does_not_redefine_the_budget_from_a_literal`,
+   `test_the_default_follows_the_setting_after_import`, and the two
+   parametrized wiring tests with their `[ticket_found]`/`[ticket_missing]`
+   ids); `test_worker_honours_max_steps.py` was said to carry 11 tests, it
+   carries 9. The M6 scenario shorthand (`test_scenario_1` … `test_scenario_5`,
+   `test_scenario_4b_...`) is now the tests' full names.
+4. **Counts** — limitations.md §8's C1 status update and progress.md's B4/C1
+   section said "all five `postgres`-marked tests"; the file carries five
+   *marked* tests among seven `test_` functions (the phase2-plan C1 row
+   already said this correctly), and the "5 collected; grep -c test_pgvector
+   -> 2" line now names what the grep actually counted (the
+   `test_pgvector_store_*` group plus the citations differential). The
+   `test_probe_tmp.py` mypy note now describes the scratch file without
+   citing a path that was never committed.
+5. **Deleted-module references kept honest** — the M5 fourth-server section
+   names `tests/integration/test_mcp_knowledge.py` and
+   `mcp_servers/knowledge/server.py`, both deleted; each mention is now
+   marked *(then; since deleted)* so the record stays readable without
+   pretending the paths exist.
+
+### Checked and sound (no change)
+
+Every `docs/adr/*.md`, `principles.md`, `tool-permissions.md`,
+`agent-state-machine.md`, `architecture.md`, `api-contract.md`,
+`mcp-contracts.md`, `data-model.md`, `evals.md`, `risks.md`, `limitations.md`
+and `case-study-duplicate-charge.md` citation of a test function, test file,
+source symbol, dataset fixture, results file, workflow job or knowledge-corpus
+document resolves to the thing named; the four guards that pin document counts
+pass; all inter-document links and anchors (including the ADR links from
+`docs/` subdirectories and the `#the-twelve-…` anchor) resolve.
+
+### Subjective items left alone
+
+The historical narratives (why a decision was made, what a defect cost, the
+"M0–M9 then Phase 2" framing, the future-docs-pass notes for the stranger
+test's D3–D6 residuals) are records of judgment, not checkable pointers, and
+are untouched. The known-open documentation work — the D2 clean-machine walk
+and the D3–D6 polish items recorded in the second-pass section above — remains
+open by decision, not by drift.

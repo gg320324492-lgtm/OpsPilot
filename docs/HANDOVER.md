@@ -2,13 +2,15 @@
 
 **Written:** 2026-11-14, on the machine the project was developed on, at the
 moment everything was pushed. The code state this document describes is commit
-**`14fd7be`** on `main`; this file is the one commit on top of it.
+**`8b402ef`** on `main`; this file is the one commit on top of it.
 
 **The short version.** Everything that is this project is on GitHub. Nothing on
-the old machine is needed to continue: clone, install, fill in one setting, and
-the suite is green. The old machine can then be wiped completely -- the whole
-`G:\OpsPilot` directory, the virtual environment in it, the Docker volumes it
-created, and the local `.env` with its operator token.
+the old machine is needed to continue: clone, install, fill in one required
+setting (the operator token; every other setting, including the published
+ports, has a working default), and the suite is green. The old machine can
+then be wiped completely -- the whole `G:\OpsPilot` directory, the virtual
+environment in it, the Docker volumes it created, and the local `.env` with
+its operator token.
 
 ---
 
@@ -18,12 +20,13 @@ created, and the local `.env` with its operator token.
 |---|---|
 | Repository | <https://github.com/gg320324492-lgtm/OpsPilot> |
 | Branch | `main` (the default; there is no other branch) |
-| Commit at handover | `14fd7be` |
+| Commit at handover | `8b402ef` |
 | Clone | `git clone https://github.com/gg320324492-lgtm/OpsPilot.git` |
 
-`main` was 88 commits ahead of the last pushed commit when this was written,
-so **`git log origin/main..main` being empty is the check that you have
-everything**: a fresh clone's `main` is `14fd7be` plus this handover document.
+**`git log origin/main..main` being empty is the check that you have
+everything**: a fresh clone's `main` is `8b402ef` plus this handover document.
+The GitHub Actions run at `8b402ef` (run `43563820661`, 2026-11-14) is green --
+16 jobs including `web-e2e` -- so CI has caught up with the handover state.
 
 ---
 
@@ -67,12 +70,13 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Expect **1347 passed, 18 skipped** (1365 collected). The skips are all
-environmental and are enumerated in the README's figures section: 16
-`postgres`-marked tests that need a real PostgreSQL with pgvector, and 2
-skips for committed result files written before the breakdown was recorded.
-**There is no placeholder skip left** -- the three M0 stubs the suite used to
-carry are implemented.
+Expect roughly **1354 passed, 18 skipped** -- the count moves as tests land,
+so treat a small delta as growth, not breakage; the CI job's numbers are the
+canonical ones. The skips are all environmental and are enumerated in the
+README's figures section: 16 `postgres`-marked tests that need a real
+PostgreSQL with pgvector, and 2 skips for committed result files written
+before the breakdown was recorded. **There is no placeholder skip left** --
+the three M0 stubs the suite used to carry are implemented.
 
 **One test needs the web dependencies.** `test_web_client_types.py` checks the
 generated client types against the live OpenAPI schema by running
@@ -94,7 +98,7 @@ mypy                       # bare: the file set comes from pyproject.toml
 **Do not pass a path to `ruff` or `mypy`.** Both are configured with a file
 list in `pyproject.toml` on purpose, and a narrower command silently checks
 less. `tests/unit/test_mypy_configuration_is_enforced.py` and
-`tests/unit/test_the_documented_ci_jobs_exist.py` exist to keep that honest.
+`tests/unit/test_documented_ci_jobs_exist.py` exist to keep that honest.
 
 **(b) Run the deterministic demo.** No Docker, no API key, no database -- it
 runs the whole golden path in one process and prints the trace.
@@ -112,10 +116,18 @@ docker compose up
 ```
 
 The dashboard is on <http://localhost:3000>, the API on
-<http://localhost:8000>. The walk-through is in the README's "Running it"
-section: reindex the knowledge (expect `17 seen · 17 indexed · 98 chunks
-written`), submit the README's ticket, watch it park, approve, watch it
-complete.
+<http://localhost:8000> -- both overridable, see §3.4. The walk-through is in
+the README's "Running it" section: reindex the knowledge (expect
+`17 seen · 17 indexed · 98 chunks written`), submit the README's ticket,
+watch it park, approve, watch it complete.
+
+**The first `docker compose up` needs network access.** The Python services'
+build stage runs `uv sync` against PyPI and the dashboard's build stage pulls
+a Node image from Docker Hub -- both inside Docker's build network, so a
+working browser on the host does not guarantee them. The README's
+["Network requirements"](../README.md#network-requirements) section has the
+retries, proxy and pre-pull guidance; most first-run failures clear on a
+second `docker compose up`.
 
 ### 3.3 The one setting that is required
 
@@ -125,6 +137,15 @@ deliberate -- a stack that came up without a token would have an API that
 refuses every write, and the failure would be a 401 in the middle of a
 demonstration rather than a refusal to start.
 
+It is the only *required* setting. Every other value, including the published
+host ports, has a local-development default: `.env.example` offers
+`OPSPILOT_PG_HOST_PORT`, `OPSPILOT_API_HOST_PORT` and `OPSPILOT_WEB_HOST_PORT`
+as optional overrides (defaults 5432 / 8000 / 3000) for when one of those is
+already taken on the machine -- the `127.0.0.1` binding stays fixed either
+way. An occupied port is the one failure a fresh clone can hit without doing
+anything wrong; setting the matching variable in `.env` moves the host side
+without touching the Compose network.
+
 **The old machine's token is not in the cloud.** It was never committed
 (`.env` is gitignored) and it was a local development value, not a secret
 that anything else depends on. Generate a new one:
@@ -133,7 +154,25 @@ that anything else depends on. Generate a new one:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### 3.4 The frontend and the desktop app
+### 3.4 Optional: the published ports
+
+Set in `.env` only when needed (an occupied host port); unset means the
+shipped default:
+
+| Variable | Default | Moves the host side of |
+|---|---|---|
+| `OPSPILOT_PG_HOST_PORT` | `5432` | PostgreSQL |
+| `OPSPILOT_API_HOST_PORT` | `8000` | the API |
+| `OPSPILOT_WEB_HOST_PORT` | `3000` | the dashboard |
+
+All three are pinned by `tests/unit/test_compose_settings_are_wired.py`, and
+the `127.0.0.1` prefix is fixed by the same test -- the variables change the
+host port, never the interface. A host-side port change does not affect the
+Compose network's internal addresses; only a process *outside* the stack
+(the eval harness, a notebook connecting to PostgreSQL) needs the new port
+written into its URL.
+
+### 3.5 The frontend and the desktop app
 
 ```bash
 cd web && npm ci && npm run lint && npm run typecheck && npm run check:types
@@ -178,10 +217,10 @@ Run these in order. If they all hold, the checkout is complete and the old
 machine can be wiped.
 
 ```bash
-git log --oneline -2                # the handover commit, on top of 14fd7be
+git log --oneline -2                # the handover commit, on top of 8b402ef
 git status --porcelain              # empty
 cd web && npm ci && cd ..           # one test needs openapi-typescript
-python -m pytest -q                 # 1347 passed, 18 skipped
+python -m pytest -q                 # 1354 passed, 18 skipped (the count moves as tests land)
 ruff check && ruff format --check && mypy   # all clean
 cd web && npm run lint && npm run typecheck && npm run check:types && cd ..
 cd desktop && npm run lint && npm run typecheck && cd ..
@@ -197,16 +236,40 @@ source.
 
 **Green.** The Python suite, all three static gates, the web and desktop
 lint/typecheck gates, and the generated client types agreeing with the live
-OpenAPI schema. The browser walk-through passes locally with Docker up (85
-passed, 0 skipped, measured 2026-10-21).
+OpenAPI schema.
 
-**Not yet run on CI.** The last green GitHub Actions run is
-[`39439825308`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/39439825308)
-at commit `f410911`, which is **behind** the commit at handover. Everything
-since then is verified locally and by the suite, but **has never been executed
-by GitHub Actions**. The first push to `main` after this handover is what runs
-it -- so watch that run, and expect the numbers in the README's figures table
-to be the ones the CI job reports rather than the local ones.
+**Green on CI at the handover commit.** The GitHub Actions run
+[`43563820661`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/43563820661)
+at `8b402ef` is green -- 16 jobs including `web-e2e`. The browser
+walk-through also passes locally with Docker up (85 passed, 0 skipped,
+measured 2026-10-21).
+
+### Phase 2 acceptance status at a glance
+
+Per the acceptance table in `docs/phase2-plan.md` (the table that decides --
+a package that cannot produce its evidence is not finished):
+
+| Package | What it asked for | State |
+|---|---|---|
+| A1–A4 | Network binding, write-origin check, DB password, stale descriptions | **met** |
+| B1 | Diagnose the 12 tool-selection failures first | **met** (`docs/progress.md`) |
+| B2 | A change that moves the eval score, twice over | **deferred, deliberately** -- the spread between identical runs equals any plausible improvement, so the target is unmeasurable against the current endpoint |
+| B3 | The metric's name matches what it counts | **met** |
+| B4 | A holdout set; run once at the end and reported | **met** as a pipeline run with a reported caveat: 32 cases committed, run 2026-11-14 under the scripted `fake` provider -- a plumbing check, not a model result. A model-backed holdout still needs a machine with a key |
+| C1 | Two workers, one database, no double claim | **met** at the database level; the lease-expiry boundary remains as designed |
+| C2 | Refund idempotency under concurrency | **met** -- both routes: in-process guarantee plus stated boundary |
+| C3 | A stalled claimed run is visible to the operator | **met** |
+| C4 | Diagnose the worker-startup gap | **met** |
+| D1 | The shell owns the stack lifecycle | **met** |
+| D2 | The installer is walked on a clean machine by someone who did not build it | **outstanding -- only a person can close it**; the script is `docs/installer-verification.md` |
+| D3 | The packaged app checked against A1–A3 | **met** for the shipped artefact; the running-installer half waits on D2 |
+| E | A stranger can clone, follow the README and reproduce the golden path | **met** -- two stranger passes, the second on a fresh clone at `e8e7f6a` against an occupied port 8000 |
+| F | Locale choice, English by default | **met** for the first catalogue |
+
+**What is left, in one line:** D2's clean-machine installer walk (a person,
+not code), and B2's re-measurement against a reliable model endpoint. E's
+GitHub Release `v0.1.0` exists; its installer asset is deliberately withheld
+until D2 passes.
 
 **Two product decisions are open and deliberately undecided.** They are
 recorded in `docs/limitations.md` §7 rather than guessed at:
@@ -214,12 +277,6 @@ recorded in `docs/limitations.md` §7 rather than guessed at:
 1. What happens when a **terminal** run is driven again -- park it or refuse
    it.
 2. The **re-propose path** for an approval that has expired.
-
-**One acceptance criterion cannot be closed by code.** §P2-D2: the installer
-walk-through has to be run by **someone who did not build the installer**. The
-script is `docs/installer-verification.md` with a Chinese companion, and the
-installer is obtainable from the `desktop-package` CI job's artefact. Nothing
-in the repository can substitute for the walk.
 
 **Known boundaries, all stated in `docs/limitations.md`:** the two-worker
 guarantee holds while the lease holds; the local embedder is lexical, not

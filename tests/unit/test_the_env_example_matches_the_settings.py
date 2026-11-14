@@ -79,9 +79,17 @@ def _aliases() -> dict[str, str]:
 
 
 def test_every_setting_is_in_the_template() -> None:
-    """A setting the template does not name is a setting nobody can set."""
+    """A setting the template does not name is a setting nobody can set.
+
+    "Named" includes being mentioned in a comment: ``MCP_*_COMMAND`` are
+    documented as commented-out lines (an uncommented blank assignment would
+    override their per-process ``default_factory`` with an empty command,
+    which the stdio transport refuses at spawn time), so the check also scans
+    the file's raw text for a setting's name before declaring it missing.
+    """
     template = _template()
-    missing = sorted(set(_aliases()) - set(template))
+    text = EXAMPLE.read_text(encoding="utf-8")
+    missing = sorted(name for name in set(_aliases()) - set(template) if name not in text)
     assert not missing, (
         f"these settings are not in .env.example: {missing}. A reader who copies "
         "the template cannot configure them, and the default they fall back to "

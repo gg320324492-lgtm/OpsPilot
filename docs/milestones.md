@@ -105,12 +105,12 @@ imports with no business logic, and a published GitHub repository.
       `tool_calls(idempotency_key)` where `status = 'executed'`, at 203-209.)
 - [x] `alembic upgrade head` runs against a pgvector container in CI. (Job
       `verify (pgvector)` in `.github/workflows/ci.yml` declares the service
-      container `pgvector/pgvector:pg16` (line 277), and one of its steps is
+      container `pgvector/pgvector:pg16` (line 278), and one of its steps is
       `alembic upgrade head` (line 321), followed by `alembic current` — which
       the job now compares against `alembic heads` rather than merely printing.)
 - [x] `POST /api/tickets` inserts a ticket and a `RECEIVED` run in one
       transaction and returns 201 **without starting any agent work**.
-      (`routers/tickets.py:118`. Asserted three ways:
+      (`src/opspilot/api/routers/tickets.py:124`. Asserted three ways:
       `test_create_ticket_returns_201_with_ticket_and_received_run`,
       `test_create_ticket_does_not_start_the_run` — which pins
       `worker_spy.call_count == 0` and `tool_spy.call_count == 0` — and
@@ -551,7 +551,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       run has always classified as `duplicate_charge`, 0.93, while this
       criterion and the README's trace both read `billing_dispute`, 0.94. The
       committed fixture
-      (`evals/datasets/fixtures/duplicate_charge.json:15`) emits
+      (`evals/datasets/fixtures/duplicate_charge.json:17`) emits
       `"category": "duplicate_charge"`, a real worker measured over the indexed
       corpus agrees (`docs/limitations.md` §3), and
       `tests/evals/test_golden_ticket_agreement.py` (3 passed) guards it;
@@ -574,7 +574,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       the run has always classified as **`duplicate_charge`, 0.93**, while §M6
       and the README's trace both read `billing_dispute`, 0.94. The committed
       fixture
-      (`evals/datasets/fixtures/duplicate_charge.json:15`) emits
+      (`evals/datasets/fixtures/duplicate_charge.json:17`) emits
       `"category": "duplicate_charge"`, and a real worker measured over the
       indexed corpus does the same (`docs/limitations.md` §3). `docs/progress.md`
       §M6e records widening `TicketCategory` to carry `BILLING_DISPUTE` and then
@@ -600,11 +600,11 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       run ever emits a step type the file neither times nor documents.)
       *The `state_change` NULL is a decision, not a gap.* Those rows are written
       by the `AgentStep(step_type="state_change", …)` constructor in
-      `SqlRunStore.set_status` (`adapters/persistence/repositories.py:693-703`),
+      `SqlRunStore.set_status` (`src/opspilot/adapters/persistence/repositories.py:713-722`),
       which is the path every transition takes — it writes the step in the same
       transaction as the `agent_runs.status` update, so the step and the status
       cannot disagree. An earlier version of this note blamed
-      `TraceRecorder.record_state_change` (`tracing/recorder.py:197`) for
+      `TraceRecorder.record_state_change` (`src/opspilot/tracing/recorder.py:197`) for
       omitting the argument. That is true of the source but false of the runs:
       the method has **no call sites in `src/`** — its only caller anywhere is
       `tests/unit/test_store_full_prompts_is_wired.py:243` — so changing it would
@@ -702,14 +702,16 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       three claims — parks; re-draining with the *same* worker id returns
       `False` and does not fail or spin the run; and after a human approves, a
       fresh boot step, a fresh provider instance and a new worker id resume the
-      run and execute the approved call. `test_scenario_4b_...` additionally
+      run and execute the approved call. `test_scenario_4b_boot_preserves_a_decision_and_sweeps_the_rest` additionally
       asserts `mark_interrupted_on_boot` sweeps claim-and-work runs but returns
       0 for a run with a human decision behind it.)
 - [x] `tests/agent/test_golden_path.py` and five scenario tests from the README.
       (Both files exist: `test_golden_path.py` is 363 lines and drives the run
       through `worker/loop.py::drain_once` rather than by calling the gate;
-      `test_readme_scenarios.py` carries `test_scenario_1` … `test_scenario_5`
-      plus `test_scenario_4b`.)
+      `test_readme_scenarios.py` carries the five scenario tests
+      `test_scenario_1_golden_path_refunds_once_after_approval` through
+      `test_scenario_5_mcp_server_down_fails_cleanly_with_no_partial_write`,
+      plus `test_scenario_4b_boot_preserves_a_decision_and_sweeps_the_rest`.)
 - [x] The five README scenarios all pass against the fake provider.
       (`pytest tests/agent/test_golden_path.py tests/agent/test_readme_scenarios.py`
       → 13 passed, replaying the committed `duplicate_charge` and

@@ -15,7 +15,13 @@
 # is nothing for a sibling container to connect to. Boundary D12a in
 # docs/milestones.md; the closing comment in this file says more.
 
-name: opspilot
+# The project name is templated so a second copy of the stack on one machine
+# (a test clone beside a checkout, say) does not fight it for container names
+# and published ports: set OPSPILOT_COMPOSE_PROJECT_NAME (or COMPOSE_PROJECT_
+# NAME, or `docker compose -p <name>`) in that copy. Compose interpolates the
+# `name:` field from the environment, verified against v2/v5; `-p` wins when
+# both are given. The default keeps the shipped behaviour unchanged.
+name: ${OPSPILOT_COMPOSE_PROJECT_NAME:-opspilot}
 
 services:
   # -------------------------------------------------------------------------
