@@ -70,7 +70,7 @@ services:
       # the sentence above true; the assertion that keeps it true is
       # tests/unit/test_compose_settings_are_wired.py
       # ::test_every_published_port_is_bound_to_loopback.
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${OPSPILOT_PG_HOST_PORT:-5432}:5432"
     healthcheck:
       # `pg_isready` ships with the image. The `-U`/`-d` are named so the check
       # proves the specific database is accepting connections, not merely that a
@@ -271,7 +271,7 @@ services:
       # interface the host has. Guarded by
       # tests/unit/test_compose_settings_are_wired.py
       # ::test_every_published_port_is_bound_to_loopback.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000"
     volumes:
       # A shared volume for the MCP servers' JSON stores. The worker's gateway
       # builds the three servers in-process and they persist mutations (a refund
@@ -525,7 +525,7 @@ services:
       # depend on it. Guarded by
       # tests/unit/test_compose_settings_are_wired.py
       # ::test_every_published_port_is_bound_to_loopback.
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${OPSPILOT_WEB_HOST_PORT:-3000}:3000"
     depends_on:
       api:
         # The dashboard checks API reachability on load

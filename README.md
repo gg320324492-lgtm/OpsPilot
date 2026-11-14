@@ -888,6 +888,32 @@ is enough on its own. Set the token to any non-empty string — it
 authenticates the API's write routes — and point it at a live model if you
 have one.
 
+### Network requirements
+
+The first `docker compose up` builds two images on your machine, and building
+means downloading: the Python services' build stage runs `uv sync` against
+PyPI, and the dashboard's build stage starts from a Node image pulled from
+Docker Hub. Both downloads happen **inside Docker's build network**, so a
+working browser or `pip` on the host does not guarantee them — a corporate
+proxy, a flaky link, or a regional mirror preference can make the first build
+fail with a timeout even though "the internet works".
+
+What to do when it fails:
+
+1. **Just run `docker compose up` again.** BuildKit caches every layer that
+   succeeded, so a retry re-downloads only the step that timed out. Most
+   first-run failures are transient and clear on the second or third attempt.
+2. **If it keeps failing**, point the build at your network's reality:
+   set `HTTP_PROXY`/`HTTPS_PROXY` in the shell that runs `docker compose` (or
+   in `~/.docker/config.json`), or pre-pull the base images
+   (`docker pull node:22-slim` and friends) on a connection that reaches them.
+3. The published ports the stack listens on after it is up — API `8000`,
+   dashboard `3000`, PostgreSQL `5432` — are bound to `127.0.0.1` only. If one
+   of those is already taken on your machine, set `OPSPILOT_API_HOST_PORT`,
+   `OPSPILOT_WEB_HOST_PORT` or `OPSPILOT_PG_HOST_PORT` in `.env` to move the
+   host side (see `.env.example`); the services inside the Compose network do
+   not change.
+
 Then, to walk the golden path by hand:
 
 1. **Knowledge** → click **Reindex knowledge/**. Expect `17 seen · 17 indexed ·

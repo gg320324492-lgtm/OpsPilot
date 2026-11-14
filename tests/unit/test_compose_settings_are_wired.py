@@ -141,6 +141,7 @@ The exceptions are named, with their reasons, rather than skipped:
 
 from __future__ import annotations
 
+import ipaddress
 import pathlib
 import re
 
@@ -566,6 +567,24 @@ def _published_ports(document: dict[str, object]) -> dict[str, list[object]]:
     return published
 
 
+def _looks_like_ip_literal(text: str) -> bool:
+    """Whether ``text`` is an IP address, as a ``ports:`` entry may lead with.
+
+    A short-syntax mapping is ``[IP:][HOST:]CONTAINER``; the leading field is
+    either an address or absent. Telling them apart is what lets the parser
+    accept ``"127.0.0.1:${VAR:-8000}:8000"`` -- whose later fields hold extra
+    colons from the template -- while still refusing ``"5432:5432"``, which
+    names no interface at all and is the Docker default this guard exists to
+    catch. ``ipaddress`` handles both loopback families and refuses anything
+    else a port field could be confused with.
+    """
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
+
+
 def _host_interface(entry: object) -> str | None:
     """The host address a ``ports:`` entry publishes on, or ``None``.
 
@@ -583,20 +602,37 @@ def _host_interface(entry: object) -> str | None:
       field is the interface and a *two*-field entry (``"5432:5432"``) names no
       interface at all. That two-field form is the defect this guard exists for,
       so it must resolve to ``None`` rather than being read as loopback.
+
+    A host side written ``${VAR:-fallback}`` is read as the *interface* the
+    literal spells: ``"127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000"`` is
+    loopback with a configurable port, not an unknown binding. That is safe
+    because the interface field carries no ``$`` in any spelling compose
+    accepts for a short-syntax entry; the port fields behind the ``$`` are the
+    number's business, not the interface's.
     """
     if isinstance(entry, dict):
         host_ip = entry.get("host_ip")
         return str(host_ip) if isinstance(host_ip, (str, int)) else None
     if not isinstance(entry, str):
         return None
-    # Drop the optional `/protocol` suffix before counting fields: a range such
-    # as `"3000-3005:3000-3005/tcp"` is still a two-field entry, and the
+    # Drop the optional `/protocol` suffix before reading the fields: a range
+    # such as `"3000-3005:3000-3005/tcp"` is still a two-field entry, and the
     # protocol must not make it look like it named an interface.
     without_protocol = entry.split("/", 1)[0]
-    fields = without_protocol.split(":")
-    if len(fields) != 3:
+    # A `${VAR:-fallback}` host port contains `:` inside the braces, so a plain
+    # `split(":")` counts four fields for what is a three-field entry. Split on
+    # the FIRST colon only: the interface is everything before it -- which
+    # never contains a `$` -- and the remainder is the host and container
+    # ports, templated or not. A bare `"5432:5432"` splits the same way; the
+    # difference is that its first field is a port number, not an address,
+    # which `_looks_like_ip_literal` tells apart.
+    interface, _, remainder = without_protocol.partition(":")
+    if not remainder:
+        # `":5432"` -- an interface with no port -- is not a port mapping.
         return None
-    return fields[0] or None
+    if interface and not _looks_like_ip_literal(interface):
+        return None
+    return interface or None
 
 
 def test_every_published_port_is_bound_to_loopback() -> None:
