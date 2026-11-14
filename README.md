@@ -7,7 +7,9 @@
 OpsPilot takes a customer support ticket, investigates it through MCP tools,
 retrieves the company policy that applies, proposes an action — and when that
 action moves money, **stops and waits for a human** before executing it exactly
-once. Every model call, tool call and retrieval is recorded and replayable.
+once per idempotency key, within one process (the boundary is stated in
+[`docs/mcp-contracts.md`](docs/mcp-contracts.md)). Every model call, tool call
+and retrieval is recorded in an append-only trace — auditable, not re-executable.
 
 > **The model proposes. Deterministic code decides. Tools execute.
 > Humans approve risky actions. Everything is traced.**
@@ -175,7 +177,7 @@ the model cannot influence: schema validation, registry lookup, static permissio
 lookup, a policy engine, and an approval gate.
 
 The result is a system that **can** run a real enterprise workflow autonomously
-for the 95% that is reading and reasoning, and **cannot** move money without a
+where the work is reading and reasoning, and **cannot** move money without a
 human, no matter what any prompt or document says.
 
 ## The golden path

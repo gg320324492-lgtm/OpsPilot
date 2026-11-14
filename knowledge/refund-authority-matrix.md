@@ -27,6 +27,14 @@ The bands are cumulative: a $600 refund needs Billing Operations **and** Finance
 manager sign-off, because each band's holder is accountable for the amounts in
 their band and above.
 
+**What the system enforces is narrower than this matrix.** The approval gate has
+**one approver, no roles and no amount bands**: one approval on one tool call
+releases the refund, whatever the amount. The cumulative sign-off this matrix
+requires is an **offline, company-process control** — the system neither
+executes nor records it, and a completed system approval is *not* evidence that
+the sign-off chain above happened. Running that chain remains a human
+responsibility outside this system.
+
 ## Automated Systems
 
 An automated system may:

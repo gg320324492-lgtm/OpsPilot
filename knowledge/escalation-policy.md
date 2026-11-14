@@ -34,6 +34,14 @@ Where a high-risk action is required and an approver is available, the correct
 path is the approval gate. Escalation is for cases the policy does not resolve,
 not for cases the policy resolves but requires authorisation to execute.
 
+**What the system does with an escalation.** The automated system can raise the
+escalation and record it in the execution trace. The tier routing table below is
+**company process**: the system does not route to tiers, and the offline work an
+escalation stands for — a human picking the ticket up, getting extra sign-off,
+or deciding with no approver available — happens **outside this system** and is
+not recorded in its trace. The trace is evidence that an escalation was raised,
+not that the offline handling occurred.
+
 ## Escalation Tiers
 
 | Tier | Handles | Response target |
