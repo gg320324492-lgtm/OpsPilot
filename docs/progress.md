@@ -9545,8 +9545,9 @@ billing store reconciled independently (TX-88218 charged, TX-88219 refunded).
 §P2-E's acceptance row is updated to **met**; the second pass's residual
 findings (D3–D6: the un-commented empty `MCP_*_COMMAND` lines in
 `.env.example`, the fixed Compose project name, the silent `Exited (0)`
-migrate, log-tail freshness) are low-severity, non-blocking documentation
-polish, recorded in the report and left for a future docs pass.
+migrate, log-tail freshness) were low-severity, non-blocking documentation
+polish — recorded in the report, and closed the same day (see "the second
+stranger pass's low-severity findings" above).
 
 The GitHub Release `v0.1.0` body was also expanded the same day (what Phase 2
 contains, how to try it, the known limitations, and why no installer asset is
@@ -9627,8 +9628,8 @@ pass; all inter-document links and anchors (including the ADR links from
 ### Subjective items left alone
 
 The historical narratives (why a decision was made, what a defect cost, the
-"M0–M9 then Phase 2" framing, the future-docs-pass notes for the stranger
-test's D3–D6 residuals) are records of judgment, not checkable pointers, and
-are untouched. The known-open documentation work — the D2 clean-machine walk
-and the D3–D6 polish items recorded in the second-pass section above — remains
-open by decision, not by drift.
+"M0–M9 then Phase 2" framing) are records of judgment, not checkable pointers,
+and are untouched. The known-open documentation work is the D2 clean-machine
+walk; the D3–D6 polish items from the second pass were closed the same day
+(see the "second stranger pass" record above), so what remains open is open by
+decision, not by drift.
