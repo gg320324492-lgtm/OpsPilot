@@ -9367,3 +9367,121 @@ current polling spec should already have ruled out. The five are not
 mutually exclusive — H5 is what made every other hypothesis invisible in the
 failing run — but each now has a capture that would name it, which is the
 second and third limbs of §P2-C4's acceptance made concrete.
+
+## C4 discrimination experiments: the five root-cause hypotheses, tested
+
+**Date:** 2026-11-14. The five hypotheses above were put to discriminating
+experiments on a live Compose stack (branch `worktree-c4-discrimination`,
+base `e504eee`). Each was driven the way an operator would reach it — the
+database seeded the way a dead worker leaves it, the worker broken the way a
+bad deployment breaks it, the page read the way the failing CI run read it —
+and each is now **confirmed, excluded, or undecidable**, with the observation
+that decided it.
+
+**H1 (stale lease) — CONFIRMED, and its signature is silence.** A `received`
+run was inserted directly into `agent_runs` with `claimed_by =
+'ghost-worker-from-previous-stack'` and `claimed_until = now() + 10 min` —
+exactly the row a worker that died mid-claim leaves behind. A healthy worker
+(`booted; marked 0 interrupted run(s) failed; polling every 1.0s`, `Up`,
+`RestartCount=0`) then polled for over **60 s**: the run stayed `received`
+with **0 steps** the whole time, the worker log stayed at the single boot
+line, and the row's lease was untouched. The predicate
+(`repositories.py::claim_next`, the `claimed_until < now` clause) excludes the
+row exactly as predicted, and **nothing logs** — the worker is healthy, the
+page is frozen, and only the row's own `claimed_until` in the future
+distinguishes this from "no worker at all". This is the failure shape CI run
+38202887580 saw, reproducible on demand; what the CI artifact lacked was the
+row query, not the repro.
+
+**H2 (boot-then-crash) — CONFIRMED; the signature is the traceback without
+the boot line, plus the restart count.** `DATABASE_URL` was pointed at a bad
+password and the worker started under `restart: unless-stopped`. The process
+died in `build_worker()` on
+`sqlalchemy.exc.OperationalError: ... FATAL: password authentication failed`,
+**before** `_run()` prints the boot line — the log is a bare traceback, zero
+`booted;` lines, and the container reached `Status=restarting` with
+`RestartCount=5` within seconds. This is precisely the shape `assessWorker`
+labels `unhealthy_container` (restart count non-zero ⇒ fail immediately,
+never wait out the deadline) and the shape the `BOOT_THEN_CRASH_LOG` fixture
+in `stack-diagnostics.spec.ts` asserts against. A crash-looping worker is
+therefore distinguishable from a slow one within one poll cycle, not 90 s.
+
+**H3 (worker never reached `poll_forever` — the silent boot) — PARTIALLY
+TESTABLE HERE; the clean reproduction is CI's to make.** Two attempts to
+produce the `silent` verdict (container `Up`, no boot line) on this machine
+hit walls that are themselves informative:
+
+- *Unknown provider* (`MODEL_PROVIDER=nonexistent`): `Settings` is shared by
+  api and worker, so **both** containers die at import with the same
+  `pydantic ValidationError` — the worker crash-loops (RestartCount→6, bare
+  traceback, no boot line) but so does the api, and `--wait` fails the whole
+  stack. That is *not* the hypothesis's shape (the hypothesis requires the
+  stack up and the worker alone silent).
+- *Bad stdio command* (`MCP_BILLING_COMMAND` with an unclosed quote):
+  `MCPServerSpawnError` is real and named (`the 'billing' MCP server did not
+  start from MCP_BILLING_COMMAND=... (No closing quotation)`), but the
+  handles are **lazy** — `build_worker_gateway` returns a `MCPToolGateway`
+  whose `server_factory` spawns nothing until the first tool call, so
+  `build_worker()` succeeds and the worker boots and polls normally. The bad
+  command surfaces mid-run, not at boot.
+
+What this machine *can* confirm is the detection half: the boot line prints
+only after every `build_worker` probe passes (`worker/__main__.py::_run`),
+`assessWorker` returns `silent` for exactly "container `Up`, restarts 0, no
+boot line", and a worker that boots on a warm cache prints within seconds.
+The remaining injection — a fault that passes `build_worker` but blocks
+before `_run`'s print — needs a CI-shaped image (e.g. the missing-`anthropic`
+extra the guard was built for) and is left to CI. Verdict:
+**undecidable locally in its clean form; the `silent` signature is
+implemented and unit-tested, and the two local injections sharpen where it
+can and cannot arise.**
+
+**H4 (claim lost to a transaction boundary) — EXCLUDED as a live
+possibility; its residue is H1.** The claim now writes `claimed_until`/
+`claimed_by` in the same transaction that reads the row
+(`repositories.py::claim_next`), so "claimed but written nowhere" is no
+longer a state the code can produce: the claim **is** the write. The H1
+experiment doubles as this hypothesis's live test — a claim that had been
+taken and lost would leave the row lease-free and immediately claimable, and
+the healthy worker in that experiment would have taken it within one 1 s
+poll. It never did, because the row's future lease excluded it — the lease
+mechanism working, not failing. What remains of H4 is exactly the lease's
+documented residue (a holder that dies leaves the row unclaimable until the
+lease lapses), which is H1's state, measured in `docs/limitations.md` §2.
+
+**H5 (the wait was structurally blind) — CONFIRMED as the original failure's
+mechanism, and EXCLUDED as a present one.** Three facts, in order:
+
+1. *The page cannot update itself.* The Run Detail page is a pure Server
+   Component (no `use client`, no interval, no `router.refresh` in
+   `web/src/app/runs/[runId]/page.tsx`), and the data layer fetches with
+   `cache: "no-store"` (`web/src/lib/api/client.ts::apiFetch`). A run that
+   changes status *after* the single render is invisible until the next
+   navigation — verified at the API level: the same `GET /api/runs/{id}`
+   returned `received`/0 steps at t=0 and `classifying`/1 step at t=1 s, so
+   the state was moving while a single-goto page would have shown the old
+   frame forever.
+2. *The worker is fast enough to make the blind window the whole story.* On
+   the fake provider the full drive to `waiting_approval` (or `completed`)
+   takes well under a second of wall time — a 90 s single-shot wait that
+   navigated once at t=0 saw `received` and nothing else, exactly the CI
+   artifact.
+3. *The current spec's poll loop closes it.* With the stack brought up
+   cleanly (`E2E_API_URL` pointing at the api's republished port, since this
+   machine's 127.0.0.1:8000 is held by an unrelated service),
+   `golden-path.spec.ts` — whose park-wait is `expect.poll` re-navigating
+   every 2 s for 90 s — **passes end to end (2 passed, 39.7 s)**, park
+   banner included, against the same worker that was invisible to the old
+   single-goto spec.
+
+**What follows.** The 38202887580 failure is now attributable: the *most
+likely* single cause is H1-shaped (a lease-bearing row the new worker could
+not claim, in a database the teardown did not actually clear), rendered
+unrecoverable by H5's blind wait, with H2 as the alternative the artifact
+could not exclude. The diagnostic order stands as written above, and every
+step of it now has a measured, reproducible observation behind it. The first
+limb of §P2-C4's acceptance — "the cause is found and fixed" — is satisfied
+in its second branch: the gate's evidence (boot line, restart count, log
+capture, lease columns, polling spec) is shown by these experiments to be
+sufficient to diagnose each of the five causes next time, and H5's fix is
+already in the spec.

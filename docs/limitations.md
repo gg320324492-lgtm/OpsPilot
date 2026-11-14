@@ -175,6 +175,40 @@ busy worker. What changed is that an operator can now rule the *dead-worker* and
 *claimed-but-stalled* cases in or out from the page instead of guessing — a run
 with no lease has not been claimed, and a run whose lease has expired says so.
 
+**The five root-cause hypotheses for the 38202887580 failure have been put to
+discriminating experiments, and the open question is now narrower.** The full
+write-up is `docs/progress.md` §"C4 discrimination experiments"; what survives
+here is the boundary. H1 (a lease-bearing row the new worker cannot claim,
+from a database the teardown did not clear) is **reproduced and confirmed** —
+the run stays `received`/0-steps for the whole lease under a healthy,
+polling worker, and *nothing logs*, which is why the CI artifact could not
+say why. H2 (boot-then-crash) is **reproduced and confirmed** — a bad
+`DATABASE_URL` dies in `build_worker()` with a traceback and **no boot line**,
+crash-looping under `restart: unless-stopped` (`RestartCount` climbing), which
+is exactly what `assessWorker`'s `unhealthy_container` verdict and
+`inspect.json`'s restart count exist to catch. H4 (a claim lost to a
+transaction boundary) is **excluded as a live state**: the claim now writes
+the lease in the same transaction that reads the row, so a lost claim is not
+something the current code can produce; its residue is H1's documented
+window. H5 (a structurally blind wait) is **confirmed as the original
+mechanism and excluded as a present one** — the Run Detail page is a pure
+Server Component with `cache: "no-store"` reads and no client polling, so the
+single-goto spec at `b8965d5` could not have seen the run move (measured:
+the API showed `received`/0 steps at t=0 and `classifying`/1 step at t=1 s),
+and the current `expect.poll` spec passes end to end against the same
+worker. H3 (a worker that never reaches `poll_forever`, the `silent` case)
+remains **not cleanly reproducible on a developer machine**: the two local
+injections miss the shape (an unknown `MODEL_PROVIDER` kills api and worker
+together through the shared `Settings` validation, and a malformed
+`MCP_*_COMMAND` surfaces at first tool call, not at boot, because the stdio
+handles are lazy). The `silent` verdict itself is implemented and
+unit-tested; what only CI can supply is the missing-extra image that makes a
+worker silent while the rest of the stack stays up. The residual open
+question is therefore narrower than "why did the worker not claim": it is
+"which of the two confirmed shapes (H1's silent stall, H2's crash loop) a
+given red run hit", and the gate's captures now answer that — boot line and
+restart count first, the row's lease columns second, and only then the wait.
+
 **No health checking of MCP servers at startup.** A dead billing server is
 discovered when a run tries to use it, not when the worker boots.
 
