@@ -2,8 +2,8 @@
 
 **status: draft** · 起草日期 2026-11-14
 **Baseline:** `6810b4f`（`main`；CI 于 `8b402ef` run `43563820661` 16 个 job 全绿，其后两次提交均为
-docs-only。pytest 1354 passed / 18 skipped，ruff 全绿；mypy 存在 8 个既有错误，全部位于
-anthropic/openai SDK 版本漂移相关的文件，非本仓库代码缺陷。）
+docs-only。pytest 1354 passed / 18 skipped，ruff 全绿；mypy 全绿——2026-11-14 在 `6810b4f`
+与 `2c5465b` 两处各实测一次，均为 "Success: no issues found"，无既有错误。）
 
 Phase 2 把 OpsPilot 从「能演示」推进到「可安装、可复现、双语、安全姿态经过两轮陌生人复验」。
 本计划回答下一阶段的一个问题：**当换上真实、不可靠、有方差的模型时，这套安全门控系统是否仍然
@@ -24,7 +24,7 @@ C1–C4、D1、D3、E、F = **met**；B2 = **deferred**；D2 = **outstanding**�
 |---|---|---|
 | B2 真实模型评测 | deferred：MiniMax-M3.1-Flash-Preview 两跑 3/15 与 2/15，7/15 的 case 在两跑中提出不同工具集，方差与预期改进同量级，验收判据失去功效。2026-11-14 三份 MiniMax-M3.1-Flash 结果（`evals/results/2026-11-14T08-18-31.json` 0/1、`…09-37-39.json` 1/15、`…10-40-41.json` 0/15）显示大面积空/错工具提案，根因诊断由 b2-diagnose session 进行中 | **P3-A** |
 | D2 安装包干净机人工验证 | outstanding；安装包已构建（`desktop/release/OpsPilot-Setup-0.1.0-x64.exe`，119,227,780 字节，SHA-256 前缀 `565206f7…`），打包后安全姿态 6 项检查（packaged-posture）通过 | **P3-E** |
-| mypy 8 个既有错误 | anthropic 0.115.0（httpx）与测试期望的 ~1.11（httpx2）版本漂移所致；位于 `adapters/persistence/db.py` 与 provider boundary 测试 | **P3-E** |
+| mypy（曾有「8 个既有错误」的记录） | 2026-11-14 两次实测（`6810b4f` 与 `2c5465b`）均为 0 错误，该记录过时；E3 的验收目标改为保持 0 错误并防止回归 | **P3-E** |
 | i18n 未覆盖面 | dashboard 传输错误文案（`web/src/lib/api/client.ts`）与 desktop shell 全部消息（`desktop/src/lifecycle/errors.ts` 等）仍为英文（limitations §7） | **P3-F** |
 | limitations 中标注 "Phase 3" 的条目 | 单 operator 无职责分离（§1）、响应未脱敏与保留策略（§1）、无 rate limiting（§1） | **P3-C**（范围受开放问题 3/4 约束） |
 
@@ -157,8 +157,9 @@ provider 熔断。**验收：可配置的每分钟建单上限与单 run token �
 
 **Priority P0（E1）/ P1（E2、E3）。**
 
-**动机。** P2-E 已建 Release v0.1.0，但无 installer asset（等 D2）；mypy 的 8 个既有错误让
-「全绿」表述需要脚注；依赖健康由 dep-health session 持续跟踪。
+**动机。** P2-E 已建 Release v0.1.0，但无 installer asset（等 D2）；mypy 当前实测 0 错误
+（2026-11-14，`6810b4f` 与 `2c5465b`），E3 的任务从「清零」改为「钉住 0 并防回归」；依赖健康由
+dep-health session 持续跟踪。
 
 **E1 — D2 收尾：干净机人工安装走查（P0，S，需用户执行）。** 沿用
 `docs/installer-verification.zh-CN.md` 的流程，在干净 Windows 机（有 Docker Desktop）安装
@@ -170,8 +171,9 @@ D2 行状态随之更新。**
 `OpsPilot-Setup-<ver>-x64.exe` 与 SHA-256；Release 正文含「已验证/未验证」清单（沿用 v0.1.0
 体例）；asset 上传可复现（本机代理不稳时按既有经验直连）。**
 
-**E3 — mypy 清零（P1，S）。** **验收：`mypy` 0 错误——anthropic/openai 依赖版本在
-requirements 中钉住，或测试改写为版本无关；CI typecheck 无新增豁免注释。**
+**E3 — mypy 保持清零（P1，S）。** 2026-11-14 实测 `mypy src tests` 已为 0 错误（早前记录的
+「8 个既有 SDK 漂移错误」不复存在，可能随依赖或代码变动消失）。**验收：`mypy` 持续 0 错误；
+anthropic/openai 依赖版本在 requirements 中钉住；CI typecheck 无新增豁免注释。**
 
 **依赖与风险。** E1 依赖用户时间；E2 依赖 E1 结论。风险低。
 
@@ -224,7 +226,7 @@ locale 下不再出现英文错误横幅（e2e 断言）。**
 
 E1（P0，用户执行）与 A1（P0，等 b2-diagnose 结论）可立即并行启动；A2 → A3 串行；B 包在 A2
 给出可用端点后校准；C1 等开放问题 4 决策；其余 P2 项按余力排布。**Phase 3 的退出条件：A2 的
-判定标准产出结论、E1 完成、E3 清零，且验收总表中无 P0/P1 项停留 open。**
+判定标准产出结论、E1 完成、E3 保持清零，且验收总表中无 P0/P1 项停留 open。**
 
 ## 5. Phase 3 不做什么（非目标）
 
@@ -262,7 +264,7 @@ E1（P0，用户执行）与 A1（P0，等 b2-diagnose 结论）可立即并行�
 | main | `6810b4f` | git |
 | CI | 16 jobs green @ `8b402ef`，run `43563820661`（其后仅 docs 提交） | GitHub Actions |
 | pytest | 1354 passed / 18 skipped | 本机 2026-11-14 |
-| mypy | 8 errors（anthropic/openai SDK 漂移，既有） | 本机 2026-11-14 |
+| mypy | 0 errors（`6810b4f` 与 `2c5465b` 各实测一次；早前「8 errors」记录过时） | 本机 2026-11-14 |
 | tool selection（MiniMax-M3.1-Flash-Preview） | 3/15 与 2/15（两跑） | `2026-10-13T18-24-25.json`、`2026-10-13T18-40-10.json` |
 | tool selection（MiniMax-M3.1-Flash，诊断中） | 0/1、1/15、0/15（三跑） | `2026-11-14T08-18-31.json`、`…09-37-39.json`、`…10-40-41.json` |
 | tool argument validity | 0.471（80/170，含 90 例空参数拒绝） | `2026-10-11T15-39-42.json` |
