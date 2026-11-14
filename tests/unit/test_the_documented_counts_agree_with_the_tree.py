@@ -181,14 +181,14 @@ def test_the_phase2_port_citations_point_at_the_ports() -> None:
 
 
 def test_the_phase2_holdout_counts_are_current() -> None:
-    """The B4 row's case count is current, and its tracked-file count too.
+    """The B4 row's case count is current, and its committed-run citation too.
 
     The row's *total* file count for ``evals/results/`` is deliberately not
     pinned here: the directory grows with every evaluation, so a guard over it
     would go red every time somebody ran one — a guard that cries wolf is a
-    guard that gets switched off. What is stable, and what the row actually
-    turns on, is the number of files the repository tracks and the fact that
-    none of them scores the holdout.
+    guard that gets switched off. What the row actually turns on is the
+    holdout's case count and the identity of the run that closed B4's third
+    clause.
     """
     row = _row(_text(PHASE2), "B4")
 
@@ -200,39 +200,51 @@ def test_the_phase2_holdout_counts_are_current() -> None:
         f"the holdout now holds {actual} cases; the B4 row says {cases.group(2)}"
     )
 
-    tracked = re.search(r"(\w+) of the files in `evals/results/` are tracked", row)
-    assert tracked is not None, (
-        "the B4 row no longer states how many of evals/results/'s files are tracked"
+    # The third clause is closed by one named local run. The row must keep
+    # naming it, and that run must exist and be the holdout's -- so the
+    # "tuning never consults it" claim is pinned to a real, checkable file
+    # rather than to a sentence.
+    cited = re.search(r"producing `evals/results/([^`]+\.json)`", row)
+    assert cited is not None, (
+        "the B4 row no longer names the results file that closed its third clause"
     )
-    actual_tracked = len(
-        subprocess.run(
-            ["git", "ls-files", "evals/results/"],  # noqa: S607
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
+    cited_path = REPO_ROOT / "evals" / "results" / cited.group(1)
+    # `evals/results/*` is gitignored by design (see evals/results/README.md),
+    # so the file is a local artefact, not a tracked one; it must exist on a
+    # machine that claims the clause is met, and must be the holdout's run.
+    assert cited_path.exists(), (
+        f"the B4 row cites {cited.group(1)}, which is not on this machine; "
+        "run the holdout (see docs/progress.md, 'B4') or re-word the row"
     )
-    digit = {word: number for number, word in WORDS.items()}.get(tracked.group(1))
-    assert digit is not None, (
-        f"the B4 row says {tracked.group(1)!r} tracked files, which is not a "
-        "number this file can read"
-    )
-    assert actual_tracked == digit, (
-        f"evals/results/ now has {actual_tracked} tracked files; the B4 row says {tracked.group(1)}"
+    cited_text = cited_path.read_text(encoding="utf-8")
+    assert '"tool_selection_holdout"' in cited_text, (
+        f"{cited.group(1)} is cited as the holdout run but does not name the dataset"
     )
 
 
-def test_no_result_file_touches_the_holdout() -> None:
-    """The B4 row's load-bearing claim: the holdout has never been run.
+def test_no_committed_result_file_touches_the_holdout() -> None:
+    """The B4 row's load-bearing claim: tuning never consulted the holdout.
 
-    The two counts above are only evidence if the directory contains no result
-    for the holdout. This is the assertion that makes them mean something.
+    The committed results are the ones a reader can check, so *those* must
+    carry no holdout run. A local (gitignored) run of the holdout is the
+    clause's own instrument -- it exists to be run once at the end -- and is
+    asserted by :func:`test_the_phase2_holdout_counts_are_current` through the
+    file the row cites; this guard keeps the *tracked* directory honest.
     """
-    for entry in EVAL_RESULTS.glob("*.json"):
-        text = entry.read_text(encoding="utf-8")
+    tracked = subprocess.run(  # noqa: S607
+        ["git", "ls-files", "evals/results/"],  # noqa: S607
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    for name in tracked:
+        if not name.endswith(".json"):
+            continue
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "tool_selection_holdout" not in text, (
-            f"{entry.name} now scores the holdout; the B4 row says the holdout has never been run"
+            f"{name} is committed and scores the holdout; the B4 row says "
+            "tuning never consulted it"
         )
 
 
