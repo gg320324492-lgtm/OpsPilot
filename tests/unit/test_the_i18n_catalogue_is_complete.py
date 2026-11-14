@@ -136,6 +136,11 @@ _IDENTICAL_BY_DESIGN: dict[str, str] = {
     # this address, and the e2e suite asserts the id.
     "ticketForm.emailPlaceholder": "the golden path's fixture email address",
     "ticketForm.externalIdPlaceholder": "the golden path's fixture ticket id",
+    # Punctuation-only scaffolding around an interpolated stage name. The
+    # before/after pair brackets `{failure.stage}` in the model-errors panel;
+    # Chinese keeps the same empty tail because the stage name needs no
+    # trailing particle there.
+    "run.modelErrorsStage_after": "empty tail after the interpolated stage name",
 }
 
 
