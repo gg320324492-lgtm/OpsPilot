@@ -9485,3 +9485,57 @@ in its second branch: the gate's evidence (boot line, restart count, log
 capture, lease columns, polling spec) is shown by these experiments to be
 sufficient to diagnose each of the five causes next time, and H5's fix is
 already in the spec.
+
+## Phase 2 gap E closed: the README fixes verified by a second stranger pass
+
+**Date:** 2026-11-14. The first stranger pass (2026-11-14, report kept at
+`E:\opspilot-stranger-test\REPORT.md`) reproduced the golden path but found
+two defects that discounted §P2-E: **D1** — the README said "nothing else"
+while the first `docker compose up` builds two images whose downloads happen
+inside Docker's build network, so a working host connection does not
+guarantee the build, and the README gave no failure guidance; **D2** — the
+three published ports were hard-wired (`127.0.0.1:5432/8000/3000`), leaving a
+stranger whose host port is taken with no way forward but editing the
+compose file.
+
+Both are fixed on `main` and the fix is verified by a second pass on a fresh
+clone:
+
+- `02e4288` — the holdout guards reworked so they pass on a machine that has
+  never run the holdout (`test_the_phase2_holdout_counts_are_current` now
+  checks the row's citation unconditionally and the cited artefact only where
+  it exists; `test_no_committed_result_file_touches_the_holdout` keeps the
+  *tracked* results honest), plus ruff-format cleanup.
+- `e8e7f6a` — the published host ports become
+  `127.0.0.1:${OPSPILOT_PG_HOST_PORT:-5432}:5432`,
+  `127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000` and
+  `127.0.0.1:${OPSPILOT_WEB_HOST_PORT:-3000}:3000`, documented in
+  `.env.example` with the reason the `127.0.0.1` prefix is not configurable
+  (phase2-plan A1); README gains a §"Network requirements" section (what the
+  first build downloads, why a working host connection does not guarantee it,
+  and the three-step failure path: retry — BuildKit caches succeeded layers —
+  then proxy or pre-pull).
+- CI on `e8e7f6a`: **all sixteen jobs green** (run 43563202887), including
+  `test (py3.12)`, `lint (ruff)` and `web-e2e`, which had been red on the
+  pre-fix merge.
+
+The second pass (fresh clone at `e8e7f6a`, on this machine, whose port 8000
+is genuinely occupied by an unrelated project's container — the exact
+conflict D2 describes): the default-port `docker compose up -d --wait` fails
+on the bind as documented, adding `OPSPILOT_API_HOST_PORT=18000` to `.env`
+brings all five services up (api healthy on `127.0.0.1:18000`, `/health` →
+200), the host's port 8000 stays with its original owner (netstat), and the
+golden path reproduces end to end through the overridden port — reindex
+17/17/98, `duplicate_charge` 0.93, approval releases the run, refund
+`REF-10091` with `replayed: false`, 21-step trace, 11 audit events, and the
+billing store reconciled independently (TX-88218 charged, TX-88219 refunded).
+§P2-E's acceptance row is updated to **met**; the second pass's residual
+findings (D3–D6: the un-commented empty `MCP_*_COMMAND` lines in
+`.env.example`, the fixed Compose project name, the silent `Exited (0)`
+migrate, log-tail freshness) are low-severity, non-blocking documentation
+polish, recorded in the report and left for a future docs pass.
+
+The GitHub Release `v0.1.0` body was also expanded the same day (what Phase 2
+contains, how to try it, the known limitations, and why no installer asset is
+attached yet); the desktop installer still awaits P2-D2's clean-machine
+verification before it is attached.
