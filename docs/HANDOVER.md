@@ -267,8 +267,11 @@ a package that cannot produce its evidence is not finished):
 | F | Locale choice, English by default | **met** for the first catalogue |
 
 **What is left, in one line:** B2's re-measurement against a reliable model
-endpoint (in progress), plus uploading the now-verified installer asset to
-Release `v0.1.0` (was withheld until D2 passed; D2 has passed).
+endpoint is done and recorded (PR #1 — the fix is real but the endpoint's
+variance kept tool selection at 2/15, so the acceptance was not met and the
+documents say so). Release `v0.1.0` now carries the verified
+`OpsPilot-Setup-0.1.0-x64.exe` (uploaded 2026-11-14); what remains from E is
+the walk-through video.
 
 **Two product decisions are open and deliberately undecided.** They are
 recorded in `docs/limitations.md` §7 rather than guessed at:

@@ -52,19 +52,21 @@ semantics are what is simulated."*
 > ([`docs/mcp-contracts.md`](docs/mcp-contracts.md) §4). The permission model
 > covers it identically.
 
-> **Status: Phase 1 milestones M0–M9 closed; Phase 2 done, with two items
-> still open — the golden path runs end to end.** The system is built: the agent
-> loop, the five gates, the persisted approval gate, idempotent refunds, retrieval
-> with citations, the dashboard, the desktop shell, the eval harness and CI all
-> exist and are tested. **D2 passed on 2026-11-14**: the built installer was
-> walked on a clean machine by someone who did not build it (sixteen checks,
-> record sheet in [`docs/installer-verification.md`](docs/installer-verification.md)).
-> The two that remain are named in
-> [`docs/phase2-plan.md`](docs/phase2-plan.md)'s acceptance table: **E**, the
-> GitHub Release, whose installer asset is now verifiable but not yet uploaded
-> (no tag is cut yet); and **C1**, where the two-worker guarantee is *boundary
-> stated and tested*, not closed. **B2**'s model-backed re-measurement continues
-> in the background.
+> **Status: Phase 1 milestones M0–M9 closed; Phase 2 done — the golden path
+> runs end to end, and the verified installer is downloadable.** The system is
+> built: the agent loop, the five gates, the persisted approval gate, idempotent
+> refunds, retrieval with citations, the dashboard, the desktop shell, the eval
+> harness and CI all exist and are tested. **D2 passed on 2026-11-14**: the
+> built installer was walked by someone who did not build it (sixteen checks,
+> record sheet in [`docs/installer-verification.md`](docs/installer-verification.md)),
+> and **[Release `v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
+> now carries the verified `OpsPilot-Setup-0.1.0-x64.exe`**. The two records
+> still worth reading in
+> [`docs/phase2-plan.md`](docs/phase2-plan.md)'s acceptance table are **B2**
+> (executed against the real endpoint and measured — the improvement was real
+> but the endpoint's variance ate it, so the 10/15 acceptance was *not* met)
+> and **C1**, where the two-worker guarantee is *boundary stated and tested*,
+> not closed.
 >
 > **The one run to check this README against** is
 > [`39439825308`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/39439825308)

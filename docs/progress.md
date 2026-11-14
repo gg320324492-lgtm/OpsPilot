@@ -6311,11 +6311,13 @@ items remain open, and **only a person can close any of them**:
   store, re-approve 409, `/ready` ok, loopback-only ports, `origin_missing`,
   `unauthorized`, no credential in the package, quit keeps the volumes, and
   the completed run survives a relaunch.
-- **E's GitHub Release — tag and asset.** `git tag` returns nothing and `gh
-  release list` is empty. This was sequencing, not oversight: the installer was
-  held until D2 was walked, and **D2 is now walked (2026-11-14)** — so uploading
-  the verified `OpsPilot-Setup-0.1.0-x64.exe` and publishing the tag is the one
-  person-step left, tracked as P3-E's E2 in `docs/phase3-plan.md`.
+- **E's GitHub Release — closed 2026-11-14.** The installer was held until D2
+  was walked; **D2 passed the same day** and the verified
+  `OpsPilot-Setup-0.1.0-x64.exe` (119,227,780 bytes, SHA-256 `565206f7…`) was
+  uploaded to the existing `v0.1.0` release, whose notes were rewritten to
+  describe the asset, the verification and the two environmental caveats. What
+  remains from E is the walk-through **video** §P2-E asks for — the walk itself
+  was not recorded, so that item stays a stated gap rather than a ticked box.
 - **C1 — the two-worker guarantee is boundary-stated-and-tested, not closed.** The
   lease closes the live-worker half: the 30/30 concurrent double-claim is gone.
   The repository asserts the opposite case in the other half — a run whose lease
