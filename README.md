@@ -141,6 +141,8 @@ semantics are what is simulated."*
 > ([`docs/mcp-contracts.md`](docs/mcp-contracts.md) §4). The permission model
 > covers it identically.
 
+
+
 ## The golden path
 
 ```

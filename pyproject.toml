@@ -342,6 +342,16 @@ ignore = [
 # the audit on `urllib.request`, and the URL is a `127.0.0.1` constant this file
 # defines, not caller-supplied.
 "scripts/demo_golden_path.py" = ["T20", "S105", "S310"]
+# The demo-paths stack manager is the same shape of tool: a CLI whose stdout is
+# the operator's instructions, and which shells out to `docker compose` by
+# design. T20/S105/S310 are the demo's reasons (above); S603/S607 are the
+# subprocess calls, whose arguments are this file's own constants and the
+# operator's `--project`, never untrusted input. E501: the recreate command in
+# `inject-429`'s output is one command an operator copies as one line. TRY003:
+# its failures are `SystemExit` subclasses raised from a script, not exception
+# classes in the library sense -- the same reason the workers' `__main__`
+# files carry TRY003.
+"scripts/demo_paths.py" = ["T20", "S105", "S310", "S603", "S607", "E501", "TRY003"]
 # The B2 diagnostic probe prints raw model replies -- that comparison table is
 # the whole point of running it, and it is invoked by hand from a terminal.
 # E501: the three prompt variants are single-line f-strings on purpose, so a

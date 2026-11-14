@@ -234,13 +234,47 @@ export const BASE_URL = DASHBOARD_URL;
 export const API_URL = process.env.E2E_API_URL ?? "http://localhost:8000";
 
 /**
- * The API's port when its URL names none.
+ * The API's port when its URL names none, and the default stack's host port.
  *
- * The compose `api` service publishes `127.0.0.1:8000:8000`, so a URL with no
- * port means 8000 -- and the pre-flight that checks the mapping needs a
- * number to check against.
+ * The compose `api` service publishes `127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000`;
+ * the value is also the default for `StackConfig.apiHostPort`, so the default
+ * stack and the `E2E_API_URL` default stay one decision.
  */
 const DEFAULT_API_PORT = 8000;
+
+/**
+ * Per-stack overrides for `startStackOrSkip`.
+ *
+ * Every field is optional, and every default is the value the stack has always
+ * used -- so `startStackOrSkip("label")` behaves exactly as before, while
+ * `startStackOrSkip("demo-paths", { ... })` can move the whole deployment
+ * aside: its own compose project (and therefore its own containers AND
+ * volumes), its own published ports and its own fake-provider script.
+ *
+ * **Why this exists.** `docs/phase3-plan.md` §M2-04 asks for browser demo
+ * paths that reset through their own compose project and never touch the
+ * desktop application's volumes. The project name was previously a `const`
+ * here; making it a per-call option is what turns "the walkthrough owns a
+ * disposable stack" from a comment into a parameter a caller can point at a
+ * name like `opspilot-demo-test`.
+ */
+export type StackConfig = {
+  /** The compose project name; becomes `COMPOSE_PROJECT_NAME`. */
+  readonly composeProject?: string;
+  /** The host port the compose `api` service publishes on (loopback only). */
+  readonly apiHostPort?: number;
+  /** The host port the host-run dashboard binds (`PORT` for `server.js`). */
+  readonly dashboardPort?: number;
+  /** The host port the compose `postgres` service publishes on (loopback only). */
+  readonly postgresHostPort?: number;
+  /** `OPSPILOT_FAKE_SCENARIO` for the worker started with this stack. */
+  readonly fakeScenario?: string;
+  /**
+   * Base URL the host browser uses to reach the API. Defaults to
+   * `http://localhost:<apiHostPort>`.
+   */
+  readonly apiBaseUrl?: string;
+};
 
 /**
  * The environment every `docker compose` call here runs with.
@@ -260,26 +294,98 @@ const DEFAULT_API_PORT = 8000;
  */
 const COMPOSE_PROJECT = "opspilot-e2e";
 
+/**
+ * The environment overrides of the stack that is currently up, or `undefined`
+ * before the first `startStackOrSkip` of a session.
+ *
+ * The worker-side helpers below (`stopWorker`, `recreateWorker`, `workerReport`,
+ * `refundedTransactionIds`, the repository programs) all reach Docker through
+ * `stackEnv()`, so they follow this value -- which is what lets the demo-paths
+ * walkthrough drive ITS stack (its own project, its own volumes, its own
+ * published ports) with the same helpers the other specs use, without threading
+ * a project name through every signature. Playwright runs this suite with
+ * `workers: 1` and `fullyParallel: false`, so there is never a second stack up
+ * concurrently and a module-level value cannot cross wires.
+ *
+ * **The port overrides matter as much as the project name.** Any `docker
+ * compose` command re-renders the whole file, so a `recreateWorker` against a
+ * stack whose api publishes on 18000 must render `OPSPILOT_API_HOST_PORT=18000`
+ * again -- with only the default (8000), compose would try to re-bind 8000 for
+ * a container that is already up on 18000, and the recreate would fail with
+ * "port is already allocated" against whatever else holds 8000.
+ */
+let activeStackOverrides: Record<string, string> | undefined;
+
+/**
+ * The host port the DEFAULT stack's `api` service publishes on, as a fallback
+ * when a `StackConfig` omits it.
+ *
+ * The compose file's own default is `OPSPILOT_API_HOST_PORT:-8000`; naming it
+ * here keeps the pre-flight check (`assertComposePublishesPort`) in step with
+ * the mapping that was actually created. The postgres mapping's default
+ * (5432) needs no constant here: nothing in this module reads that port.
+ */
+const DEFAULT_API_HOST_PORT = DEFAULT_API_PORT;
+
+/**
+ * The environment every `docker compose` call in the DEFAULT stack runs with.
+ *
+ * One definition, because a diagnostic that renders the compose file with a
+ * *different* environment than the stack was started with can fail for a reason
+ * that has nothing to do with the failure being diagnosed -- `:?` on
+ * `OPSPILOT_OPERATOR_TOKEN` refuses to render at all when the variable is
+ * unset, which would turn "here are the worker's logs" into an empty file and a
+ * second, entirely invented mystery.
+ *
+ * `extra` carries a per-stack `COMPOSE_PROJECT_NAME`, the published-port
+ * overrides and the fake scenario; see `stackEnvFor`.
+ */
 function stackEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     OPSPILOT_OPERATOR_TOKEN: THROWAWAY_TOKEN,
-    // **This stack's own compose project.** The compose file declares
-    // `name: opspilot`, which the desktop application also uses -- and the
-    // desktop app deliberately runs `compose down` *without* `-v`, so that
-    // quitting the window does not delete the operator's runs, approvals and
-    // refund ledger. This harness's teardown does use `-v`, because a
-    // walk-through wants a clean database. With one shared project name those
-    // two choices collide: the walk-through's first command would delete the
-    // desktop app's volumes, and its database and refund ledger would be
-    // gone.
+    // **This stack's own compose project and published ports.** The compose
+    // file declares `name: opspilot`, which the desktop application also uses
+    // -- and the desktop app deliberately runs `compose down` *without* `-v`,
+    // so that quitting the window does not delete the operator's runs,
+    // approvals and refund ledger. This harness's teardown does use `-v`,
+    // because a walk-through wants a clean database. With one shared project
+    // name those two choices collide: the walk-through's first command would
+    // delete the desktop app's volumes, and its database and refund ledger
+    // would be gone.
     //
     // `COMPOSE_PROJECT_NAME` wins over the file's top-level `name` (verified
     // against the installed compose), so every command in this file gets its
-    // own project, its own containers and its own volumes.
-    COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
+    // own project, its own containers and its own volumes. A stack started
+    // with a `StackConfig` leaves its overrides in `activeStackOverrides`, so
+    // the worker-side helpers below operate on THAT stack -- project AND port
+    // mappings (see the `activeStackOverrides` docstring for why the ports
+    // are load-bearing on a plain `recreateWorker`). Before any stack is up
+    // the value is undefined and the long-standing defaults apply; explicit
+    // values in the caller's own environment still win, because the spread
+    // below only ADDS what a started stack actually set.
+    ...activeStackOverrides,
+    COMPOSE_PROJECT_NAME: activeStackOverrides?.COMPOSE_PROJECT_NAME ?? COMPOSE_PROJECT,
     ...PROVIDER_ENV,
   };
+}
+
+/**
+ * `stackEnv()` plus one stack's overrides.
+ *
+ * `undefined` / empty entries in `overrides` are skipped rather than written,
+ * so a caller that only sets the project name does not blank out the API's
+ * port mapping (an empty `OPSPILOT_API_HOST_PORT` would render as
+ * `127.0.0.1::-8000`, which Compose refuses).
+ */
+function stackEnvFor(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...stackEnv() };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined && value !== "") {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export type StackHandle =
@@ -316,12 +422,24 @@ function dockerUnusableReason(): string | null {
  * that a spec cannot bring up a stack and silently contribute an unattributable
  * set of logs -- see `composeDiagnosticsDir` for what that costs when it goes
  * wrong.
+ *
+ * `config` moves the whole deployment aside -- its own compose project, its own
+ * published ports, its own fake-provider script. Omitted fields keep the
+ * values this module has always used, so the existing specs pass nothing and
+ * get exactly the stack they always got.
  */
-export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHandle> {
+export async function startStackOrSkip(
+  label: DiagnosticLabel,
+  config: StackConfig = {},
+): Promise<StackHandle> {
   const reason = dockerUnusableReason();
   if (reason !== null) {
     return { skip: true, reason };
   }
+
+  const apiHostPort = config.apiHostPort ?? DEFAULT_API_HOST_PORT;
+  const dashboardPort = config.dashboardPort ?? DASHBOARD_PORT;
+  const apiBaseUrl = config.apiBaseUrl ?? `http://localhost:${apiHostPort}`;
 
   // BEFORE the two minutes of compose and `next build`: if the port is already
   // taken, nothing below can succeed, and every minute spent finding that out is
@@ -330,20 +448,39 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   // just reporting the symptom, because the common cause is something else on
   // the machine (a `next dev`, a previous run killed before it could tear down)
   // and "EADDRINUSE" alone does not name that.
-  await assertPortFree(DASHBOARD_PORT);
+  await assertPortFree(dashboardPort);
 
-  const env = stackEnv();
+  const env = stackEnvFor({
+    COMPOSE_PROJECT_NAME: config.composeProject,
+    OPSPILOT_API_HOST_PORT: config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
+    OPSPILOT_PG_HOST_PORT:
+      config.postgresHostPort === undefined ? undefined : String(config.postgresHostPort),
+    OPSPILOT_FAKE_SCENARIO: config.fakeScenario,
+  });
+
+  // From here to teardown, the worker-side helpers (`stopWorker`,
+  // `recreateWorker`, `workerReport`, `refundedTransactionIds`, the repository
+  // programs) belong to THIS stack: its project name AND its port mappings.
+  // Only the keys this config actually set are recorded, so the default stack
+  // leaves the environment exactly as it found it. Restored when the stack
+  // goes down, so a second stack in the same session starts from the default
+  // again.
+  activeStackOverrides = Object.fromEntries(
+    Object.entries({
+      COMPOSE_PROJECT_NAME: config.composeProject,
+      OPSPILOT_API_HOST_PORT:
+        config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
+      OPSPILOT_PG_HOST_PORT:
+        config.postgresHostPort === undefined ? undefined : String(config.postgresHostPort),
+      OPSPILOT_FAKE_SCENARIO: config.fakeScenario,
+    }).filter((entry): entry is [string, string] => entry[1] !== undefined && entry[1] !== ""),
+  );
 
   // The other half of the pre-flight, for the API this stack brings up. The
   // dashboard on the host talks to `http://localhost:8000`, and that address
   // only exists because the compose `api` service publishes it -- so the
   // mapping is checked before the (slow) stack comes up, not after.
-  assertComposePublishesPort(
-    env,
-    "api",
-    portOfUrl(API_URL, DEFAULT_API_PORT),
-    "the compose `api` service",
-  );
+  assertComposePublishesPort(env, "api", apiHostPort, "the compose `api` service");
 
   // TEAR DOWN FIRST, WITH VOLUMES. `docker compose up` REUSES the named
   // `postgres-data` and `mcp-data` volumes, so a run against a stack a previous
@@ -388,7 +525,7 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
     );
   }
 
-  await waitForHttp(`${API_URL}/ready`);
+  await waitForHttp(`${apiBaseUrl}/ready`);
 
   // `--wait` has returned and the worker is NOT yet known to be polling. See
   // the module docstring: the worker has no healthcheck, so `--wait` is
@@ -406,12 +543,13 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   // On the host there is no separate internal URL, so `client.ts` falls back to
   // `NEXT_PUBLIC_API_BASE_URL` for the server-side path exactly as it does for
   // the browser -- the same value reaches both, and it is the right one here.
-  // `PORT` is `DASHBOARD_PORT` rather than a literal, because `BASE_URL` is
-  // derived from the same value and a literal here is how the two would drift.
+  // `PORT` is the resolved dashboard port rather than a literal, because the
+  // browser's `baseURL` (or the caller's own URL) is derived from the same
+  // value and a literal here is how the two would drift.
   const webEnv = {
     ...env,
-    NEXT_PUBLIC_API_BASE_URL: API_URL,
-    PORT: String(DASHBOARD_PORT),
+    NEXT_PUBLIC_API_BASE_URL: apiBaseUrl,
+    PORT: String(dashboardPort),
   };
   const build = spawnSync("npm", ["run", "build"], {
     cwd: WEB_DIR,
@@ -455,7 +593,7 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
   // if the server dies -- EADDRINUSE being the case that matters here -- the
   // poll aborts immediately with its exit code instead of waiting out the full
   // timeout against whatever else might answer on that port.
-  await waitForHttp(`${BASE_URL}/`, 120_000, child);
+  await waitForHttp(`http://localhost:${dashboardPort}/`, 120_000, child);
 
   return {
     skip: false,
@@ -465,7 +603,7 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
         // dashboard is the only thing here that survives `compose down`, and
         // releasing it before returning is what makes a second run in the same
         // session safe.
-        await stopDashboard(child, DASHBOARD_PORT);
+        await stopDashboard(child, dashboardPort);
       } finally {
         // The evidence, and the teardown, in a `finally` -- because
         // `stopDashboard` **throws** when the port is still answering, and that
@@ -485,6 +623,12 @@ export async function startStackOrSkip(label: DiagnosticLabel): Promise<StackHan
           timeout: 120000,
           env,
         });
+        // The stack is gone; the default project and ports are "current"
+        // again, so a later stack in the same session does not inherit this
+        // one's overrides.
+        if (activeStackOverrides?.COMPOSE_PROJECT_NAME === config.composeProject) {
+          activeStackOverrides = undefined;
+        }
       }
     },
   };
@@ -953,7 +1097,8 @@ export type DiagnosticLabel =
   | "web-service"
   | "claim-lease"
   | "i18n"
-  | "expired-approval";
+  | "expired-approval"
+  | "demo-paths";
 
 /** The directory `label`'s capture goes in, relative to `web/`. */
 const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
