@@ -488,6 +488,8 @@ const EXPECTED_ROUTE_FILES = [
   "approvals/[approvalId]/[decision]/route.ts",
   "knowledge/reindex/route.ts",
   "locale/route.ts",
+  "runs/[runId]/export/route.ts",
+  "runs/[runId]/recreate/route.ts",
   "tickets/route.ts",
 ];
 
