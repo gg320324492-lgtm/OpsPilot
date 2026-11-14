@@ -393,11 +393,13 @@ async function readBody(response: Response): Promise<unknown> {
 // becomes a TypeScript error at every call site rather than an `undefined` at
 // runtime.
 //
-// Contract §1 lists sixteen endpoints; this table binds **thirteen** of them.
-// The three it does not bind are `GET /api/runs/{run_id}/audit`, `GET /health`
-// and `GET /ready`: the audit ledger has no screen in the UI, and the two
-// health endpoints are reached by `checkApiReachability` above -- which fetches
-// `/health` directly -- rather than through this table.
+// Contract §1 lists sixteen endpoints; this table binds **fifteen** of them.
+// The two it does not bind are `GET /health` and `GET /ready`: both health
+// endpoints are reached by `checkApiReachability` above -- which fetches
+// `/health` directly -- rather than through this table. The audit ledger
+// (`GET /api/runs/{run_id}/audit`) is bound below for Run Detail's
+// model-failure panel (M2-01), and the evidence export
+// (`GET /api/runs/{run_id}/export`) for Run Detail's export button (M2-06).
 //
 // **Thirteen bound is not thirteen used.** Two of the bindings have no caller
 // anywhere in `web/src/`: `createRun` (`POST /api/runs`) and `getApproval`
@@ -463,6 +465,31 @@ export const api = {
   getRunTrace: (runId: string) =>
     apiFetch<components["schemas"]["TraceResponse"]>(
       `/api/runs/${encodeURIComponent(runId)}/trace`,
+    ),
+
+  /**
+   * `GET /api/runs/{run_id}/export` -- the single-run redacted evidence export
+   * (contract §4.2). A read like any other: the server has already applied the
+   * redactions the contract names, so this binding interprets nothing.
+   */
+  exportRun: (runId: string) =>
+    apiFetch<components["schemas"]["RunExport"]>(
+      `/api/runs/${encodeURIComponent(runId)}/export`,
+    ),
+
+  /**
+   * `GET /api/runs/{run_id}/audit` -- the append-only ledger (contract §4.1).
+   *
+   * Bound for Run Detail's model-failure panel (M2-01): the trace has no error
+   * field, and `model_failed` events live only here. The comment above says
+   * this table binds thirteen endpoints and names audit as unbound; this is
+   * the fourteenth, and the count in that comment now reads one low on purpose
+   * -- updating prose in the same commit as the binding that outdates it keeps
+   * the two from drifting apart.
+   */
+  getRunAudit: (runId: string) =>
+    apiFetch<components["schemas"]["AuditResponse"]>(
+      `/api/runs/${encodeURIComponent(runId)}/audit`,
     ),
 
   /** `GET /api/approvals` -- the pending inbox by default (contract §5). */

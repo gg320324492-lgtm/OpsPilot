@@ -37,7 +37,7 @@ from starlette.middleware.cors import CORSMiddleware
 from opspilot.api.auth import ensure_operator_token_configured
 from opspilot.api.errors import ERROR_RESPONSES, register_exception_handlers
 from opspilot.api.headers import SecurityHeadersMiddleware
-from opspilot.api.routers import approvals, health, knowledge, runs, tickets
+from opspilot.api.routers import approvals, export, health, knowledge, runs, tickets
 from opspilot.settings import Settings, WildcardCorsOrigin, get_settings
 
 if TYPE_CHECKING:
@@ -166,6 +166,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(tickets.router, responses=_router_responses())
     app.include_router(runs.router, responses=_router_responses())
+    app.include_router(export.router, responses=_router_responses())
     app.include_router(approvals.router, responses=_router_responses())
     app.include_router(knowledge.router, responses=_router_responses())
 

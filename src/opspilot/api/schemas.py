@@ -21,6 +21,7 @@ rather than left to the client.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +29,60 @@ from pydantic import BaseModel, ConfigDict, Field
 from opspilot.domain.approvals import ApprovalStatus
 from opspilot.domain.runs import ClaimLeaseState, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
+
+
+def redact_sensitive(value: object, _depth: int = 0) -> object:
+    """Screen a free-form JSON value for credential-shaped content.
+
+    The export re-uses :func:`~opspilot.agents.runtime.sanitized_error_summary`'s
+    fragment screen at the *key* level: a key whose name matches a credential
+    pattern has its value replaced, in place, recursively. This is the
+    structural half of the writer's string-level screen -- the writer screens
+    what an exception *says*, this screens what a payload *names*.
+
+    Returns a new structure; the input is never mutated (the caller may hold
+    the original row).
+    """
+    if _depth > 12:  # a run's payloads are shallow; the cap is a cycle seatbelt
+        return "[redacted: structure too deep]"
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(fragment in lowered for fragment in _SENSITIVE_KEY_FRAGMENTS):
+                out[str(key)] = "[redacted: key matched a credential pattern]"
+            else:
+                out[str(key)] = redact_sensitive(item, _depth + 1)
+        return out
+    if isinstance(value, list):
+        return [redact_sensitive(item, _depth + 1) for item in value]
+    if isinstance(value, str):
+        lowered = value.lower()
+        if any(fragment in lowered for fragment in _SENSITIVE_VALUE_FRAGMENTS):
+            return "[redacted: value matched a credential pattern]"
+        return value
+    return value
+
+
+#: Key-name fragments that mark a payload entry as carrying (or naming) a
+#: credential. Same vocabulary and same intent as the runtime's
+#: ``_CREDENTIAL_FRAGMENTS``; kept as a separate tuple because this screen
+#: matches against keys, which are identifiers, not prose.
+_SENSITIVE_KEY_FRAGMENTS: Final = (
+    "api_key",
+    "api-key",
+    "apikey",
+    "authorization",
+    "password",
+    "secret",
+    "token",
+    "x-api-key",
+)
+
+#: Value fragments that mark a *string* as a credential. ``sk-`` is the only
+#: provider-key shape carried here: a bare value that embeds it is a key
+#: whether or not its key name said so.
+_SENSITIVE_VALUE_FRAGMENTS: Final = ("sk-",)
 
 # ---------------------------------------------------------------------------
 # Shared sub-models
@@ -434,6 +489,149 @@ class KnowledgeReindexResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+
+
+class ExportStep(BaseModel):
+    """One execution step in the export, without the step's recorded payload.
+
+    ``agent_steps.output`` is deliberately **absent**: the step payloads carry
+    the verbatim model reply (the ``response`` step's ``body`` -- the one
+    string ``tracing/recorder.py`` stores verbatim) and the prompt text a
+    deployment running ``STORE_FULL_PROMPTS=true`` keeps, both of which the
+    milestone names as "默认隐藏的正文" the export must not carry. The step's
+    shape, order and timing are what an evidence file needs.
+    """
+
+    sequence: int
+    step_type: str
+    latency_ms: int | None = None
+    started_at: datetime
+
+
+class ExportToolCall(BaseModel):
+    """One tool call in the export, with its arguments credential-screened.
+
+    ``arguments`` and ``result`` are passed through :func:`redact_sensitive`,
+    because a tool's arguments are whatever the model proposed -- free-form
+    JSON the policy gate never saw a credential pattern in. ``error`` is the
+    short policy/gateway code (``invalid_state``, ``not_found``), not a
+    provider error body, so it is carried as stored.
+    """
+
+    id: UUID
+    tool_name: str
+    arguments: dict[str, object] = Field(default_factory=dict)
+    permission: Permission
+    status: ToolCallStatus
+    latency_ms: int | None = None
+    idempotency_key: str | None = None
+    error: str | None = None
+
+
+class ExportApproval(BaseModel):
+    """One approval row in the export, with its snapshot credential-screened.
+
+    ``arguments_snapshot`` is what the human was shown and what executed, so
+    it is evidence; it is screened for the same reason the tool call's live
+    arguments are. The decision columns are carried in full -- who decided and
+    when is exactly what an auditor reads the export for.
+    """
+
+    id: UUID
+    tool_call_id: UUID
+    status: ApprovalStatus
+    reason: str
+    risk_explanation: str
+    arguments_snapshot: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
+    decided_at: datetime | None = None
+    decided_by: str | None = None
+    note: str | None = None
+
+
+class ExportAuditEvent(BaseModel):
+    """One audit-ledger row in the export.
+
+    The payload is transcribed as stored -- the ledger is already the
+    redacted surface (``sanitized_error_summary`` at the write boundary) --
+    and then passed through :func:`redact_sensitive` once more so a payload
+    key added later cannot smuggle a credential past the writer's own screen.
+    """
+
+    id: UUID
+    event_type: str
+    created_at: datetime
+    actor: str
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class FailureDiagnostic(BaseModel):
+    """The M1-03 structured failure diagnosis, projected from ``model_failed``.
+
+    These are the fields the milestone names: provider, model, stage, error
+    category, latency, attempt, and the HTTP status / request id when the
+    provider exposed them. ``error_summary`` is already the truncated,
+    credential-screened one-liner the writer produced; the *full* provider
+    error body was never written to the ledger, so it cannot reach the export
+    either. ``latency_ms``, ``attempt``, ``http_status`` and ``request_id`` are
+    optional because an event missing one (an older writer, a provider that
+    exposes nothing) still exports the fields it has.
+    """
+
+    provider: str
+    model: str
+    stage: str
+    error_category: str
+    error_summary: str
+    latency_ms: int | None = None
+    attempt: int | None = None
+    http_status: int | None = None
+    request_id: str | None = None
+
+
+class RunExport(BaseModel):
+    """Body of ``GET /api/runs/{run_id}/export`` (contract §4.2).
+
+    The single-run evidence export: the run's summary, its steps, tool calls,
+    approvals, audit-ledger events and -- when the run failed a model call --
+    the structured failure diagnosis. Every free-form object it carries has
+    been through :func:`redact_sensitive`; the verbatim model reply and the
+    stored prompts are not in it at all.
+
+    ``redaction`` names the withholdings so a reader knows what is absent by
+    design rather than by omission.
+    """
+
+    run: RunSummary
+    ticket_subject: str | None = None
+    claim_lease: ClaimLease = Field(
+        default_factory=lambda: ClaimLease(state=ClaimLeaseState.UNCLAIMED)
+    )
+    steps: list[ExportStep] = Field(default_factory=list)
+    tool_calls: list[ExportToolCall] = Field(default_factory=list)
+    approvals: list[ExportApproval] = Field(default_factory=list)
+    audit_events: list[ExportAuditEvent] = Field(default_factory=list)
+    failure_diagnostic: FailureDiagnostic | None = None
+    generated_at: datetime
+    redaction: RedactionNotice = Field(default_factory=lambda: RedactionNotice())
+
+
+class RedactionNotice(BaseModel):
+    """What the export withholds, stated rather than implied.
+
+    An evidence file that silently omits fields reads as "this never
+    happened"; one that names its withholdings reads as "this was screened".
+    The keys are the contract: a client can render them verbatim.
+    """
+
+    withheld: list[str] = Field(
+        default_factory=lambda: [
+            "step payloads (verbatim model reply and prompts)",
+            "customer reply body",
+            "full provider error bodies",
+            "credentials matching a credential pattern",
+        ]
+    )
 
 
 class HealthResponse(BaseModel):

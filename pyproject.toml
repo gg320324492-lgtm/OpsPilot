@@ -383,6 +383,11 @@ ignore = [
 "tests/agent/test_repeat_invalid_proposal_stop.py" = ["ANN401"]
 "tests/integration/test_worker_survives_repeat_invalid_stop.py" = ["ANN401"]
 "tests/unit/test_worker_honours_rejected_proposal_stop_limit.py" = ["ANN401"]
+# The export tests script a failing provider and an accepting gateway whose
+# method signatures are the ports' shape, not the test's (ARG002 is the
+# protocol's unused parameters; ANN401 the dynamic annotations the doubles
+# carry), matching the exemptions the other worker-driving tests hold.
+"tests/integration/test_api_run_export.py" = ["ANN401", "ARG002"]
 # The provider adapters hold an SDK client typed by the SDK itself, which is
 # imported inside the method (never at module scope, so the package imports
 # without the extra). Its type is therefore genuinely dynamic at the annotation

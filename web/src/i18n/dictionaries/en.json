@@ -362,7 +362,29 @@
       "one": "{count} tool call did not complete",
       "other": "{count} tool calls did not complete"
     },
-    "toolCallsAside": "{count} proposed"
+    "toolCallsAside": "{count} proposed",
+    "fieldLastActivity": "Last activity",
+    "approvedTitle": "Approved — the worker has not executed it yet.",
+    "approvedBody": "An operator approved this run's tool call. The run is claimable; the tool has not run yet, so nothing has been executed by this approval.",
+    "replayTitle": "This call was already executed by an earlier attempt.",
+    "replayBody": "The run proposed a call whose idempotency key matches one that already executed. The stored result was returned and the call was not run again.",
+    "replayPill": "Replayed result",
+    "modelErrorsTitle": "Model errors",
+    "modelErrorsMeta": "{count} recorded",
+    "modelErrorsStage_before": "stage",
+    "modelErrorsStage_after": "",
+    "modelErrorsUnknown": "unknown stage",
+    "modelErrorsEmptyTitle": "No model errors recorded for this run.",
+    "modelErrorsEmptyHint": "A failed ledger read is not an empty ledger — see the error panel.",
+    "modelErrorsUnreadableTitle": "The model-error ledger could not be read.",
+    "modelErrorsUnreadableHint": "The run may still have model errors; the audit endpoint did not answer."
+  },
+  "runExport": {
+    "button": "Export summary",
+    "exporting": "Exporting…",
+    "ariaLabel": "Download this run's redacted evidence export as JSON",
+    "failedStatus": "The export failed with status {status}.",
+    "unreachable": "Could not reach the dashboard's export endpoint."
   },
   "knowledge": {
     "title": "Knowledge",
