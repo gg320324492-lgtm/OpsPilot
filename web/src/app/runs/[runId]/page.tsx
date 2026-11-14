@@ -8,7 +8,13 @@ import {
   StatusBadge,
   Time,
 } from "@/components/ui";
-import { formatClock, formatLatency, formatTimestamp, humanise } from "@/lib/format";
+import {
+  formatClock,
+  formatLatency,
+  formatRelative,
+  formatTimestamp,
+  humanise,
+} from "@/lib/format";
 import {
   isNotFound,
   loadRunDetail,
@@ -16,10 +22,19 @@ import {
   type ClaimLease,
   type ToolCall,
 } from "@/lib/data";
+import {
+  isApprovedAwaitingExecution,
+  isReplayBlockedCall,
+  lastActivityAt,
+  latestModelFailures,
+  shouldAutoRefresh,
+  type ModelFailure,
+} from "@/lib/run-state";
 import { permissionLabel, toolCallStatusLabel } from "@/i18n/enums";
 import { getT } from "@/i18n/server";
 import type { TFunction } from "@/i18n/format";
 import { ApprovalSummaryCard } from "./approval-summary";
+import { RunRefresher } from "./run-refresher";
 
 /**
  * Run Detail: the screen that answers "what did OpsPilot actually do?".
@@ -55,7 +70,7 @@ export default async function RunDetailPage({
 }) {
   // Async `params` is required from Next.js 16.
   const [{ runId }, t] = await Promise.all([params, getT()]);
-  const { run, trace } = await loadRunDetail(runId);
+  const { run, trace, audit } = await loadRunDetail(runId);
 
   // 404 has its own branch rather than falling into the generic error panel: a
   // run id pasted from a colleague's chat that this deployment does not have is
@@ -98,6 +113,13 @@ export default async function RunDetailPage({
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
   const failedCalls = detail.failed_tool_calls ?? [];
+  // M2-01 state distinctions, decided once here and handed to the render below.
+  // The predicates live in `lib/run-state.ts` so `e2e/run-state.spec.ts` can
+  // test them without a browser; the page only decides what to render.
+  const approvedAwaitingExecution = isApprovedAwaitingExecution(detail);
+  const replayBlocked = toolCalls.some(isReplayBlockedCall);
+  const modelFailures = latestModelFailures(audit.data?.events);
+  const lastUpdated = lastActivityAt(detail, trace.data);
   // The tool call the parked approval is about, matched by `tool_call_id`.
   //
   // **The approver card needs it, and it is already on this page.** The run
@@ -133,7 +155,17 @@ export default async function RunDetailPage({
           &middot; {detail.model_provider}/{detail.model_name}
         </>
       }
-      actions={<StatusBadge status={detail.status} t={t} />}
+      actions={
+        <>
+          <StatusBadge status={detail.status} t={t} />
+          {/* M2-01: a non-terminal run moves on its own; refresh this page so
+              an operator reading it sees the progress without reaching for the
+              reload button. A terminal run stops here -- see `shouldAutoRefresh`
+              and the docstring on `RunRefresher`. Rendered as its own component
+              because an async Server Component cannot hold client effects. */}
+          {shouldAutoRefresh(detail.status) ? <RunRefresher /> : null}
+        </>
+      }
     >
       <div className="space-y-6">
         {/* -- the state of the run, stated once, in words ------------------- */}
@@ -154,6 +186,20 @@ export default async function RunDetailPage({
           </div>
         ) : null}
 
+        {/* M2-01: "approved but not executing" is its own state, not a flavour
+            of parked. The worker was re-armed by an approval and has not got
+            here yet -- the money has not moved and nothing is progressing. It
+            needs its own sentence, because both neighbouring banners would be
+            false about it: the parked banner says a decision is still owed
+            (it was given), and nothing else on the page says the run is one
+            worker poll away from continuing. */}
+        {approvedAwaitingExecution ? (
+          <div className="rounded-lg border border-sky-400 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-100">
+            <p className="font-semibold">{t("run.approvedTitle")}</p>
+            <p className="mt-1">{t("run.approvedBody")}</p>
+          </div>
+        ) : null}
+
         {/* -- the run's own fields ---------------------------------------- */}
         <Panel title={t("run.runPanel")}>
           <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -169,6 +215,23 @@ export default async function RunDetailPage({
             <Field label={t("run.fieldCompleted")}>
               {detail.completed_at ? formatTimestamp(detail.completed_at) : "—"}
             </Field>
+            {/* M2-01 "most recent update": the newest of completion, last
+                trace step, start and creation, shown absolute (tooltip) and
+                relative (visible text), the same pairing the approval card
+                uses. A run with no activity yet renders the dash, never a
+                fabricated time. */}
+            <Field label={t("run.fieldLastActivity")}>
+              {lastUpdated ? (
+                <Time value={lastUpdated}>
+                  {formatTimestamp(lastUpdated)}{" "}
+                  <span className="text-neutral-500 dark:text-neutral-400">
+                    ({formatRelative(lastUpdated, t)})
+                  </span>
+                </Time>
+              ) : (
+                "—"
+              )}
+            </Field>
             <Field label={t("run.fieldClaim")}>
               <ClaimCell lease={lease} t={t} />
             </Field>
@@ -179,6 +242,20 @@ export default async function RunDetailPage({
             ) : null}
           </dl>
         </Panel>
+
+        {/* -- model failures, from the audit ledger ------------------------ */}
+        <ModelFailurePanel failures={modelFailures} auditError={audit.error} t={t} />
+
+        {/* -- the replay, named -------------------------------------------- */}
+        {replayBlocked ? (
+          <div
+            role="status"
+            className="rounded-md border border-neutral-300 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            <p className="font-semibold">{t("run.replayTitle")}</p>
+            <p className="mt-1">{t("run.replayBody")}</p>
+          </div>
+        ) : null}
 
         {failedCalls.length > 0 ? (
           <div
@@ -446,6 +523,12 @@ function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
                 <span className="font-mono text-sm font-medium">{call.tool_name}</span>
                 <Pill tone={permissionTone(call.permission)}>{permissionLabel(call.permission, t)}</Pill>
                 <Pill tone={toolStatusTone(call.status)}>{toolCallStatusLabel(call.status, t)}</Pill>
+                {/* M2-01: name the replay on the call itself, beside its
+                    rejected pill. The idempotency key below is the evidence;
+                    this pill is the reading of it. */}
+                {isReplayBlockedCall(call) ? (
+                  <Pill tone="warn">{t("run.replayPill")}</Pill>
+                ) : null}
                 <LatencyCell ms={call.latency_ms} stepType="tool_call" t={t} />
               </div>
               <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
@@ -631,4 +714,82 @@ function toolStatusTone(status: string): "neutral" | "warn" | "danger" | "ok" {
   if (status === "failed" || status === "rejected") return "danger";
   if (status === "awaiting_approval") return "warn";
   return "neutral";
+}
+
+/**
+ * The model-failure panel (M2-01: "模型错误……可读").
+ *
+ * A model failure lives in the audit ledger as a `model_failed` event, not on
+ * the run and not on the trace: the run's `failure_reason` is a single coarse
+ * token (`model_error` and its siblings), and the trace has no error column.
+ * So this panel reads `GET /api/runs/{id}/audit` -- the endpoint the dashboard
+ * had never bound -- through `loadRunDetail`, and renders the run's failed
+ * model calls newest first.
+ *
+ * Three things are deliberately NOT done here:
+ * - **The category is not translated.** `error_category` is a machine value
+ *   from the contract's closed vocabulary (`docs/api-contract.md` §4.1), and
+ *   `src/i18n/enums.ts` draws exactly this line: situations get labels,
+ *   recorded values stay verbatim. An operator greps the ledger for the same
+ *   string they read on the page.
+ * - **A failed read is not an empty panel.** `auditError` distinguishes "the
+ *   API did not answer" from "no model failed"; rendering the second for the
+ *   first would be the empty-panel defect `ui.tsx`'s docstring names, on the
+ *   exact screen where an operator is already debugging something.
+ * - **The summary is the ledger's own sentence.** `error_summary` was
+ *   sanitised and truncated server-side (M1-03); re-wrapping it here would add
+ *   a second opinion to a fact.
+ */
+function ModelFailurePanel({
+  failures,
+  auditError,
+  t,
+}: {
+  failures: ModelFailure[];
+  auditError: unknown;
+  t: TFunction;
+}) {
+  return (
+    <Panel title={t("run.modelErrorsTitle")}>
+      {auditError ? (
+        <EmptyState title={t("run.modelErrorsUnreadableTitle")} hint={t("run.modelErrorsUnreadableHint")} />
+      ) : failures.length === 0 ? (
+        <EmptyState title={t("run.modelErrorsEmptyTitle")} hint={t("run.modelErrorsEmptyHint")} />
+      ) : (
+        <ul className="space-y-3">
+          {failures.map((failure, index) => (
+            <li
+              key={`${failure.at}-${index}`}
+              className="rounded-md border border-red-200 bg-red-50/60 p-3 text-sm dark:border-red-900 dark:bg-red-950/30"
+            >
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono text-xs text-red-700 dark:text-red-300">
+                  {failure.category}
+                </span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {t("run.modelErrorsStage_before")} {failure.stage}
+                  {t("run.modelErrorsStage_after")}
+                </span>
+                <Time value={failure.at}>{formatClock(failure.at)}</Time>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {formatRelative(failure.at, t)}
+                </span>
+              </div>
+              {failure.summary ? (
+                <p className="mt-1 break-words text-sm text-neutral-700 dark:text-neutral-300">
+                  {failure.summary}
+                </p>
+              ) : null}
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {t("run.modelErrorsMeta", {
+                  attempt: failure.attempt ?? t("run.modelErrorsUnknown"),
+                  status: failure.httpStatus ?? t("run.modelErrorsUnknown"),
+                })}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
 }

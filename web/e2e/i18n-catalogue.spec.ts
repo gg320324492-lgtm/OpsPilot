@@ -392,6 +392,7 @@ test.describe("the formatter", () => {
       state: "STATE",
       who: "WHO",
       time: "TIME",
+      attempt: "ATTEMPT",
     } as const;
 
     const failures: string[] = [];
