@@ -57,6 +57,7 @@ from opspilot.adapters.persistence.repositories import (
     SqlTicketStore,
     SqlToolCallStore,
 )
+from opspilot.agents.runtime import sanitized_error_summary
 from opspilot.domain.runs import AgentRun, RunStatus
 from opspilot.ports.model_provider import ModelProvider, ModelResponse
 from opspilot.ports.tool_gateway import ToolResult
@@ -65,8 +66,11 @@ from opspilot.tracing.recorder import TraceRecorder
 from opspilot.worker.loop import (
     MODEL_REJECTED,
     MODEL_UNAVAILABLE,
+    _error_category_for,
+    _http_status_of,
     _model_failure_errors,
     _model_failure_reason,
+    _request_id_of,
     drain_once,
 )
 from tests.agent.test_runtime_fake import ScriptedProvider, UnusedOrchestrator
@@ -507,3 +511,114 @@ def test_a_programming_error_is_not_in_the_catch() -> None:
         assert programming_error not in errors, (
             f"{programming_error.__name__} is caught; the worker would survive a bug"
         )
+
+
+# ---------------------------------------------------------------------------
+# M1-03: the structured failure diagnosis
+# ---------------------------------------------------------------------------
+
+
+def _sdk_status_error(sdk: str, attribute: str, status: int) -> BaseException:
+    """Build a status-bearing SDK exception with a chosen HTTP status.
+
+    ``_sdk_error`` above always answers 401 (the status does not drive *its*
+    classification). These tests assert the diagnosis carries the status the
+    provider answered with, so the status is a parameter -- and the request id
+    header is set, the way the real gateways send it.
+    """
+    import httpx
+
+    module = pytest.importorskip(sdk)
+    error_class: Any = getattr(module, attribute)
+    request = httpx.Request("POST", _ENDPOINT)
+    return cast(
+        BaseException,
+        error_class(
+            "provider answered with an error",
+            response=httpx.Response(
+                status, request=request, headers={"x-request-id": f"req-{status}"}
+            ),
+            body=None,
+        ),
+    )
+
+
+def test_a_rate_limit_error_is_classified_with_its_http_metadata() -> None:
+    """A 429 carries the category, status and request id the milestone names.
+
+    The fields come off the SDK's own exception object, not from a table of
+    guesses: ``status_code`` is what the provider answered with and
+    ``request_id`` is what OpenAI attaches for cross-referencing on their side.
+    """
+    error = _sdk_status_error("openai", "RateLimitError", 429)
+    assert _error_category_for(error) == "rate_limit"
+    assert _http_status_of(error) == 429
+    assert _request_id_of(error) == "req-429"
+
+
+def test_a_server_error_is_classified_server_error() -> None:
+    """A 5xx is ``server_error`` -- distinct from a network that refused."""
+    for sdk in ("anthropic", "openai"):
+        error = _sdk_status_error(sdk, "InternalServerError", 500)
+        assert _error_category_for(error) == "server_error", sdk
+        assert _http_status_of(error) == 500, sdk
+
+
+def test_a_timeout_and_a_connection_error_are_distinct_categories() -> None:
+    """timeout is not network: one is "it took too long", the other "no route"."""
+    assert _error_category_for(_sdk_error("anthropic", "APITimeoutError")) == "timeout"
+    assert _error_category_for(_sdk_error("openai", "APITimeoutError")) == "timeout"
+    assert _error_category_for(_sdk_error("anthropic", "APIConnectionError")) == "network"
+    assert _error_category_for(_sdk_error("openai", "APIConnectionError")) == "network"
+
+
+def test_the_error_summary_is_truncated_and_screened() -> None:
+    """The ledger gets the shape of the failure, not the provider's prose."""
+    long_message = "x" * 500
+    assert sanitized_error_summary(Exception(long_message)).endswith("…[truncated]")
+    assert len(sanitized_error_summary(Exception(long_message))) < 250
+    # A credential-shaped message is replaced, not carried.
+    assert sanitized_error_summary(Exception("Authorization: Bearer sk-abc123")) == (
+        "[redacted: error message matched a credential pattern]"
+    )
+    # An empty message still names the exception type.
+    assert sanitized_error_summary(Exception()) == "Exception"
+
+
+async def test_a_rate_limited_run_leaves_a_structured_diagnosis(
+    factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ``model_failed`` audit event carries every M1-03 field.
+
+    The 429 is the case an operator pages on: the run dies honestly
+    (``model_unavailable``), and the trace says it was a rate limit, from which
+    provider, in which stage, with the status and request id to take to the
+    provider's dashboard.
+    """
+    broken = await _make_run(factory)
+    rate_limited = _sdk_status_error("openai", "RateLimitError", 429)
+    with caplog.at_level(logging.ERROR, logger="opspilot.worker.loop"):
+        processed = await _drain(factory, provider=RaisingProvider(rate_limited))
+    assert processed is True
+
+    failed = await SqlRunStore(factory).get(broken.id)
+    assert failed is not None
+    assert failed.status is RunStatus.FAILED
+    assert failed.failure_reason == MODEL_UNAVAILABLE
+
+    payloads = _audit_payloads(factory, broken.id, "model_failed")
+    assert payloads, "a failed model call left no structured diagnosis"
+    diagnosis = payloads[0]
+    assert diagnosis["provider"] == "fake"
+    assert diagnosis["model"] == "fake-1"
+    assert diagnosis["stage"] == "classifying"
+    assert diagnosis["error_category"] == "rate_limit"
+    assert diagnosis["http_status"] == 429
+    assert diagnosis["attempt"] == 1
+    assert isinstance(diagnosis["latency_ms"], int)
+    assert isinstance(diagnosis["error_summary"], str) and diagnosis["error_summary"]
+
+    # The worker's log line carries the same fields, so the log and the trace
+    # agree -- the incident's one-line log is what this closes.
+    assert any("error_category=rate_limit" in record.getMessage() for record in caplog.records)

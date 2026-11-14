@@ -26,7 +26,7 @@ approval row. No prompt, retrieved document, or model output can change this.
 **Enforcement.**
 
 - The gates live in one linear function, `agents/runtime.py::`
-  `_gate_and_execute` (`src/opspilot/agents/runtime.py:461`), written
+  `_gate_and_execute` (`src/opspilot/agents/runtime.py:584`), written
   top-to-bottom in the documented order so a reviewer can verify the sequence
   by reading it. `docs/architecture.md` §1 is the specification it implements.
 - The order is pinned by `tests/security/test_gate_order.py::`

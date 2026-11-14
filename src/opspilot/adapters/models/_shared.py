@@ -20,10 +20,11 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from opspilot.agents.prompts import build_system_prompt
+from opspilot.domain.errors import EMPTY_RESPONSE, INVALID_JSON, SCHEMA_MISMATCH, ModelOutputError
 from opspilot.ports.model_provider import ModelUsage
 
 
-class StructuredOutputError(RuntimeError):
+class StructuredOutputError(ModelOutputError):
     """The provider returned a value that does not fit the requested schema.
 
     ``generate_structured`` validates the model's reply against the Pydantic
@@ -36,13 +37,25 @@ class StructuredOutputError(RuntimeError):
     it: the retry that read it declined to fire on the prose reply, which is the
     case it existed for. Tests assert on it, and the two kinds really are
     different answers to the same question.
+
+    It is a ``ModelOutputError`` rather than a bare ``RuntimeError`` so the
+    runtime can catch it by the domain vocabulary and record *which kind* of
+    unusable answer arrived -- M1-03's requirement that an empty response and a
+    malformed one stay distinguishable in the trace.
     """
 
-    def __init__(self, schema_name: str, detail: str, *, decoded: bool) -> None:
-        self.schema_name = schema_name
-        self.detail = detail
+    def __init__(
+        self,
+        schema_name: str,
+        detail: str,
+        *,
+        decoded: bool,
+        error_category: str | None = None,
+    ) -> None:
         self.decoded = decoded
-        super().__init__(f"model returned a value invalid for {schema_name}: {detail}")
+        if error_category is None:
+            error_category = SCHEMA_MISMATCH if decoded else INVALID_JSON
+        super().__init__(schema_name, detail, error_category=error_category)
 
 
 def render_messages(system: str, prompt: str) -> list[dict[str, Any]]:
@@ -105,15 +118,32 @@ def parse_structured[TModel: BaseModel](raw: str | dict[str, Any], schema: type[
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
     except json.JSONDecodeError as exc:
+        # An empty reply is its own category, not merely "not valid JSON": the
+        # provider answered with nothing at all, which is a different defect
+        # from prose that fails to parse (M1-03). ``raw`` can be empty here
+        # only when it is a str -- a dict is never falsy by emptiness of
+        # content -- so this branch is exactly the "no reply body" case.
+        if isinstance(raw, str) and not raw.strip():
+            raise StructuredOutputError(
+                schema.__name__,
+                "empty response",
+                decoded=False,
+                error_category=EMPTY_RESPONSE,
+            ) from exc
         raise StructuredOutputError(
-            schema.__name__, f"not valid JSON: {exc}", decoded=False
+            schema.__name__,
+            f"not valid JSON: {exc}",
+            decoded=False,
+            error_category=INVALID_JSON,
         ) from exc
 
     try:
         return schema.model_validate(data)
     except ValidationError as exc:
         detail = f"{exc.error_count()} validation error(s)"
-        raise StructuredOutputError(schema.__name__, detail, decoded=True) from exc
+        raise StructuredOutputError(
+            schema.__name__, detail, decoded=True, error_category=SCHEMA_MISMATCH
+        ) from exc
 
 
 def reported_model(response: object, configured: str) -> str:
