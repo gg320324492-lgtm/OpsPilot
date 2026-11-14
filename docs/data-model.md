@@ -371,16 +371,17 @@ anchor only; the ordinal is a write-side field and is not in the response.
 | `id` | UUID PK | |
 | `run_id` | UUID FK → agent_runs NULL, indexed | Nullable: auth and reindex events have no run |
 | `event_type` | VARCHAR NOT NULL, indexed | See below |
-| `actor` | VARCHAR NOT NULL | `runtime` \| `worker` |
+| `actor` | VARCHAR NOT NULL | `runtime` \| `worker` \| `operator` |
 | `payload` | JSONB NOT NULL | |
 | `created_at` | TIMESTAMPTZ NOT NULL, indexed | |
 
-Event types, Phase 1 (plus `model_failed`, Phase 3 M1-03):
+Event types, Phase 1 (plus `model_failed`, Phase 3 M1-03, plus `run_recreated`,
+Phase 3 M2-03):
 
 ```
 tool_executed    tool_failed    tool_rejected
 approval_requested    run_failed    model_called    retrieval_abstained
-model_failed
+model_failed    run_recreated
 ```
 
 Append-only by convention: no UPDATE or DELETE path exists in the repository
@@ -391,12 +392,19 @@ SQL listener attached and fails if the SQL that reaches the driver rewrites a
 row, and it asserts the public interface offers exactly one append
 (`record_audit`) and one read (`list_audit_events`).
 
-**The eight event types are the whole vocabulary.** An earlier revision of this
+**The nine event types are the whole vocabulary.** An earlier revision of this
 table listed fourteen, and every one of the other eight — `run_created`,
 `state_changed`, `retrieval_performed`, `tool_proposed`, `approval_granted`,
 `approval_rejected`, `run_completed` and `knowledge_reindexed` — is **reserved
 by the schema and has no producer**: no code path in `src/` writes an event of
 any of them.
+
+`run_recreated` (Phase 3 M2-03) is written once, by the API, when
+`POST /api/runs/{id}/recreate` creates a follow-up run against a terminal
+run's ticket (api-contract.md §3.3). It lands on the **new** run's ledger — the
+original's ledger is a record of what that run did, and this event records what
+this action did — with `actor: "operator"` and
+`payload: {"original_run_id": "…"}`.
 
 `model_failed` is the structured diagnosis of a model call that produced no
 usable answer — written by the runtime when the reply's *content* was unusable
@@ -416,13 +424,15 @@ so a reader who went looking for `retrieval_performed` in the ledger would
 find neither the retrieval nor its abstention, and would conclude the run never
 retrieved anything.
 
-**`actor` is `runtime` or `worker`, and nothing else.** Every event the agent
-loop writes names `runtime`; the one the worker's own loop writes — a run whose
-model call failed, so the agent loop never got to record it — names `worker`.
-An earlier revision of this table listed `agent`, `operator:<id>` and
-`system`, none of which any code path produces: the constant `runtime` is
-there precisely so that a writer that is *not* the runtime is distinguishable
-from it by reading one column, and that writer has not been written yet.
+**`actor` is `runtime`, `worker` or `operator`, and nothing else.** Every event
+the agent loop writes names `runtime`; the one the worker's own loop writes — a
+run whose model call failed, so the agent loop never got to record it — names
+`worker`; and the one the API writes on a human's behalf — `run_recreated`,
+Phase 3 M2-03 — names `operator`, after the approvals decision path's own
+naming for the human side of the ledger. An earlier revision of this table
+listed `agent`, `operator:<id>` and `system`, none of which any code path
+produces: the constant `runtime` is there precisely so that a writer that is
+*not* the runtime is distinguishable from it by reading one column.
 
 ## 3. Why both `agent_steps` and `audit_events`
 

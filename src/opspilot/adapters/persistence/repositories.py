@@ -452,6 +452,26 @@ class SqlTicketStore(_SessionBound):
 class SqlRunStore(_SessionBound):
     """SQLAlchemy ``RunStore``, including the worker's claim query."""
 
+    def audit_recorder_for(self, run_id: UUID) -> object:
+        """A ``TraceRecorder`` bound to one run, for an API-side audit write.
+
+        Phase 3 M2-03: ``POST /api/runs/{id}/recreate`` writes one
+        ``run_recreated`` event against the *new* run's ledger, and the ledger
+        has no mutating store port by design (``ports/stores.py``) -- the
+        ``TraceRecorder`` is its only writer. The router probes for this method
+        with ``getattr`` (the same optional-method pattern as
+        ``list_tool_calls``), so an in-memory test double without it simply
+        skips the event; the SQL store in production provides it.
+
+        The import is deferred for the same reason the worker's is: the
+        ``tracing`` package resolves its session factory lazily, and importing
+        it at module scope would make this module unimportable without the
+        adapter's import-time requirements met.
+        """
+        from opspilot.tracing.recorder import TraceRecorder
+
+        return TraceRecorder(run_id=run_id, session_factory=self._bound)
+
     async def create(self, *, ticket_id: UUID, model_provider: str, model_name: str) -> AgentRun:
         """Insert a run in ``RECEIVED`` and return it."""
         with self._scope() as session:

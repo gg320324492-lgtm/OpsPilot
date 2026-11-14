@@ -1,9 +1,10 @@
 """Run routes.
 
 Responsibility: read a run and its trace -- status, steps, tool calls, and the
-citations that support its answer. Read-only in Phase 1: runs are created
-through the ticket endpoint and advanced by the worker, never driven by an HTTP
-request (which is what keeps the agent loop out of the request path).
+citations that support its answer -- plus the one *human follow-up* write:
+re-creating a terminal run (Phase 3 M2-03). Runs are otherwise created through
+the ticket endpoint and advanced by the worker, never driven by an HTTP request
+(which is what keeps the agent loop out of the request path).
 
 Layer: ``api`` (router).
 
@@ -21,7 +22,7 @@ a smaller failure than a run-detail screen that will not render.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -35,10 +36,12 @@ from opspilot.api.schemas import (
     CitationDetail,
     ClaimLease,
     CustomerReply,
+    OriginalWriteStatus,
     PendingApproval,
     RunCreateRequest,
     RunDetail,
     RunListResponse,
+    RunRecreateResponse,
     RunRef,
     RunSummary,
     StepDetail,
@@ -46,12 +49,38 @@ from opspilot.api.schemas import (
     TraceResponse,
     TraceStep,
 )
-from opspilot.domain.runs import AgentRun, RunStatus
+from opspilot.domain.runs import TERMINAL, AgentRun, RunStatus
 from opspilot.domain.tools import Permission, ToolCallStatus
 from opspilot.ports.stores import CustomerReplyRow, PendingApprovalRow
 from opspilot.settings import Settings, get_settings
 
+# Re-exported for the tests that assert the write-status rule against the real
+# store: the rule lives here (it is the router's classification, contract §3.3),
+# and ``no_implicit_reexport`` makes the re-export explicit rather than silent.
+__all__ = [
+    "OriginalWriteStatus",
+    "router",
+]
+
 router = APIRouter(prefix="/api", tags=["runs"], dependencies=[Depends(require_operator)])
+
+#: The one tool whose execution the re-create response reports on. It is the
+#: only tool in the registry that moves money, so "did the original run write?"
+#: means "did a refund execute?" -- a refused read does not make the answer
+#: ``unknown``.
+REFUND_TOOL: Final[str] = "billing.issue_refund"
+
+#: The audit event written when a run is re-created (contract §4.1). It is
+#: written against the **new** run: the original run's ledger is a record of
+#: what that run did, and this event records what *this* action did.
+AUDIT_RUN_RECREATED: Final[str] = "run_recreated"
+
+#: The actor the re-create audit event names. The route requires the operator
+#: token, so a human is acting; ``operator`` is the API's name for that side of
+#: the ledger (the approvals decision path records the *identity* instead, which
+#: Phase 1 has exactly one of -- ``docs/api-contract.md`` §5, ``limitations.md``
+#: §1).
+ACTOR_OPERATOR: Final[str] = "operator"
 
 
 class StepRow(Protocol):
@@ -189,6 +218,140 @@ async def create_run(
     return RunRef(id=run.id, status=run.status, created_at=run.created_at)
 
 
+@router.post("/runs/{run_id}/recreate", status_code=201, response_model=RunRecreateResponse)
+async def recreate_run(run_id: UUID, runs: RunStoreDep) -> RunRecreateResponse:
+    """Create a new run for the original run's ticket -- the human follow-up path
+    (Phase 3 M2-03, contract §3.2).
+
+    An operator reads a finished run, decides its outcome needs another pass,
+    and asks for a fresh run against the same ticket. The new run is a
+    **sibling, not a continuation**: it starts in ``RECEIVED`` like any other
+    run, and it inherits nothing from the original -- no approval, no executed
+    refund, no trace. That is deliberate and it is the whole point: the
+    follow-up exists because a human judged the original outcome insufficient,
+    so the judgement has to be re-made, not copied.
+
+    The response states what the original run actually wrote, as
+    ``original_write_status``. The three values are ``executed`` (a refund
+    row on the original run is recorded ``executed``), ``not_executed`` (no
+    refund row at all -- every proposal was refused at a gate, or none was
+    made) and ``unknown`` (refund rows exist but none is ``executed`` -- the
+    crash window of ``docs/risks.md`` C2 -- or the rows could not be read). The
+    value is computed here, from the store, so every client gets the same
+    answer; it is **advice**, not an authorisation: a new run must pass every
+    gate and win a fresh approval before anything moves, exactly like the
+    original did.
+
+    The idempotency key a new run derives is a function of *its* run id
+    (``domain/policies.py``), so the server's replay guard does not reach
+    across runs -- which is why the cross-run boundary is guarded here instead:
+    only a terminal run can be re-created, a parked run's approval stays where
+    it is, and the state machine's single ``RECEIVED`` entry point means a
+    re-created run cannot skip the gates. The end-to-end cross-run property
+    lives in ``tests/agent/test_recreate_run.py``, and this handler's own
+    contract -- statuses, error codes, the write-status rule -- lives in
+    ``tests/integration/test_api_run_recreate.py``.
+
+    Writes one ``run_recreated`` audit event against the **new** run's ledger:
+    the original's ledger records what that run did, and this event records
+    what this action did -- who asked, and from which original.
+
+    Raises:
+        ApiError: 404 ``run_not_found`` if there is no such run; 409
+            ``run_not_recreatable`` if the run is not terminal -- a parked,
+            in-flight or queued run still has a live path, and re-creating
+            under it would risk two agents on one ticket.
+    """
+    run = await runs.get(run_id)
+    if run is None:
+        raise _run_not_found(run_id)
+    if run.status not in TERMINAL:
+        raise ApiError(
+            409,
+            "run_not_recreatable",
+            f"Run {run_id} is {run.status.value}, not a finished run. "
+            "Only a completed or failed run can be re-created.",
+            {"run_id": str(run_id), "status": run.status.value},
+        )
+
+    write_status = await _original_write_status(runs, run)
+    # The settings come from the same source the sibling ``create_run`` uses, so
+    # the new run's model matches whatever the deployment is configured for --
+    # a re-created run is a *new* run, not a replay of the original's model.
+    settings = _settings()
+    model_name = settings.model_name or settings.model_provider
+    new_run = await runs.create(
+        ticket_id=run.ticket_id,
+        model_provider=settings.model_provider,
+        model_name=model_name,
+    )
+    await _record_recreated_event(runs, original=run, new_run=new_run)
+    return RunRecreateResponse(
+        original_run_id=run.id,
+        original_write_status=write_status,
+        run=RunRef(id=new_run.id, status=new_run.status, created_at=new_run.created_at),
+    )
+
+
+async def _original_write_status(runs: object, run: AgentRun) -> OriginalWriteStatus:
+    """Whether the original run's refund actually executed, as three values.
+
+    The rows are read through the same optional ``list_tool_calls`` method the
+    detail payload uses, so a store that cannot serve them yields ``unknown`` --
+    the honest answer when the evidence is unavailable, and the one that tells
+    the operator to check rather than the one that tells them to proceed.
+
+    The rule, per row status:
+
+    - any ``executed`` row -> ``executed``: the money moved and the row says so;
+    - a dangling ``proposed`` row -> ``unknown``: the run died between the
+      proposal and its gate outcome, or in the C2 window -- dispatched, then
+      lost before the row committed (``docs/risks.md`` C2). The row cannot say
+      which, so the answer cannot either;
+    - everything else -- ``rejected`` (refused at a gate, never dispatched),
+      ``awaiting_approval`` (parked, never decided, never dispatched),
+      ``failed`` (dispatched and *refused by the server*, which refuses
+      atomically: ``invalid_state``, ``amount_exceeds_transaction``) -- moved
+      nothing, and with no ``executed`` row anywhere the answer is
+      ``not_executed``.
+    """
+    try:
+        rows: list[ToolCallDetail] = await _load_tool_calls(runs, run.id)
+    except Exception:
+        return OriginalWriteStatus.UNKNOWN
+    refund_rows = [row for row in rows if row.tool_name == REFUND_TOOL]
+    if not refund_rows:
+        # No refund was ever proposed. Nothing moved, and there is no C2 window
+        # to worry about: a dispatched-and-lost refund leaves its ``proposed``
+        # row behind, so "no rows" means "no proposal".
+        return OriginalWriteStatus.NOT_EXECUTED
+    if any(row.status is ToolCallStatus.EXECUTED for row in refund_rows):
+        return OriginalWriteStatus.EXECUTED
+    if any(row.status is ToolCallStatus.PROPOSED for row in refund_rows):
+        return OriginalWriteStatus.UNKNOWN
+    return OriginalWriteStatus.NOT_EXECUTED
+
+
+async def _record_recreated_event(runs: object, *, original: AgentRun, new_run: AgentRun) -> None:
+    """Write the one ``run_recreated`` audit event against the new run.
+
+    The event is best-effort by construction: the re-creation itself has
+    already committed when this runs, and a store that offers no audit writer
+    (the in-memory test fakes) loses the event, not the run. What it must never
+    be is *silent* in the payload -- ``original_run_id`` is on every event, so
+    a reader can always answer "this new run came from where?".
+    """
+    recorder_factory = _optional_method(runs, "audit_recorder_for")
+    if recorder_factory is None:
+        return
+    recorder = recorder_factory(new_run.id)
+    await recorder.record_audit(
+        event_type=AUDIT_RUN_RECREATED,
+        actor=ACTOR_OPERATOR,
+        payload={"original_run_id": str(original.id)},
+    )
+
+
 @router.get("/runs", response_model=RunListResponse)
 async def list_runs(
     runs: RunStoreDep,
@@ -252,6 +415,14 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
     specification (``docs/agent-state-machine.md`` §2) and this is not one of its
     states.
 
+    ``original_write_status`` (Phase 3 M2-03) is populated only for a *terminal*
+    run -- failed or completed -- by the same rule ``POST
+    /api/runs/{id}/recreate`` reports (§3.3). A finished run is exactly the
+    state the re-create button shows for, so the screen that offers the button
+    is the one that states what the original wrote; a run still in flight
+    carries ``null``, because "did the write execute" is not yet a settled fact
+    about it.
+
     Raises:
         ApiError: 404 ``run_not_found`` if there is no such run.
     """
@@ -282,6 +453,9 @@ async def get_run(run_id: UUID, runs: RunStoreDep) -> RunDetail:
         pending_approval=pending,
         customer_reply=reply,
         failed_tool_calls=[tc for tc in tool_calls if tc.status is ToolCallStatus.FAILED],
+        original_write_status=(
+            await _original_write_status(runs, run) if run.status in TERMINAL else None
+        ),
     )
 
 

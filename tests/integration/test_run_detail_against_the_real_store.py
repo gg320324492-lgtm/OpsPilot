@@ -228,3 +228,42 @@ async def test_the_router_renders_a_seeded_run_with_its_panels_populated(
     assert tool_calls, "no tool calls rendered"
     assert citations, "no citations rendered"
     assert [c.chunk for c in citations] == ["refund-policy.md#refund-limits"]
+
+
+async def test_the_write_status_helper_serves_the_three_values_from_real_rows(
+    factory: sessionmaker[Session],
+) -> None:
+    """``_original_write_status`` over the *real* store, not just fakes.
+
+    The API tests pin the rule against ``FakeRunStore``; this one runs the same
+    helper against ``SqlRunStore`` so the classification a deployment serves is
+    the one the tests assert. Three runs, one per value: an executed refund
+    (``executed``), a gate-refused one (``not_executed``), and a dangling
+    ``proposed`` row -- the C2 window -- which is ``unknown``.
+    """
+    from opspilot.api.routers.runs import OriginalWriteStatus, _original_write_status
+    from opspilot.domain.tools import ToolCallStatus as Status
+
+    runs = repositories.SqlRunStore(factory)
+    calls = repositories.SqlToolCallStore(factory)
+    tickets = repositories.SqlTicketStore(factory)
+    ticket_id = await tickets.create(subject="s", body="b", customer_email="c@example.test")
+
+    async def _run_with_refund(status: Status) -> AgentRun:
+        run = await runs.create(ticket_id=ticket_id, model_provider="fake", model_name="fake-1")
+        call_id = await calls.record_proposed(
+            run_id=run.id,
+            tool_name="billing.issue_refund",
+            arguments={"transaction_id": "TX-1", "amount": 1.0},
+            permission=Permission.HIGH_RISK_WRITE.value,
+        )
+        await calls.set_status(call_id, status)
+        return run
+
+    executed = await _run_with_refund(Status.EXECUTED)
+    refused = await _run_with_refund(Status.REJECTED)
+    dangling = await _run_with_refund(Status.PROPOSED)
+
+    assert await _original_write_status(runs, executed) is OriginalWriteStatus.EXECUTED
+    assert await _original_write_status(runs, refused) is OriginalWriteStatus.NOT_EXECUTED
+    assert await _original_write_status(runs, dangling) is OriginalWriteStatus.UNKNOWN

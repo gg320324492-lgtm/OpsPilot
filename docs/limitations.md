@@ -407,7 +407,7 @@ is a real gap and is the reason M7 is scheduled after the workflow it displays.
 **One locale ships as a translation; there is no locale negotiation.** Corrected
 2026-10-14: this bullet previously read "No i18n infrastructure. The dashboard is
 English-only," which stopped being true at `651bcef`. What exists now: an
-English source catalogue, a `zh-CN` catalogue of **343 strings** across 18
+English source catalogue, a `zh-CN` catalogue of **355 strings** across 18
 namespaces (`web/src/i18n/dictionaries/zh-CN.json`; counted 2026-10-21, and the
 catalogues grow with the screens), an `httpOnly SameSite=Lax`
 cookie read server-side, and a switcher in the nav. English remains what a fresh
@@ -547,7 +547,10 @@ it and accept that a finished run becomes unfinished, or leave the run's status
 alone and refuse the proposal only — and the answer changes what the gate
 means. It is recorded here rather than answered, because it is a product
 decision: the security property (no dispatch) holds under all three, and only
-the status bookkeeping differs.
+the status bookkeeping differs. (The sanctioned way to re-run a finished
+ticket is the follow-up path — `POST /api/runs/{id}/recreate`, Phase 3 M2-03 —
+which creates a *new* run rather than driving the finished one; see
+`api-contract.md` §3.3.)
 
 **The native menu is localized; the operating system around it is not.** The
 application's own menu bar is built in the operator's language and follows the

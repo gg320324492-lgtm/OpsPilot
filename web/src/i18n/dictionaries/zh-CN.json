@@ -359,7 +359,19 @@
     "failedCalls": {
       "other": "{count} 个工具调用未完成"
     },
-    "toolCallsAside": "已提出 {count} 个"
+    "toolCallsAside": "已提出 {count} 个",
+    "recreateButton": "从此重新建单",
+    "recreateWorking": "正在重新建单…",
+    "recreateDialogTitle": "要为该工单重新建一个 run 吗？",
+    "recreateDialogBody": "将在同一工单下创建一个全新的 run。新 run 从头开始：不继承本 run 的任何内容——既不继承审批，也不继承已执行的退款；它提出的一切都要重新通过各道门，若涉及退款，还需人工重新审批后才会实际执行。",
+    "recreateWriteStatus_executed": "原 run 已执行退款。若新 run 提出同样的退款，除非交易状态已变化，否则会被计费系统拒绝——请先核实再继续。",
+    "recreateWriteStatus_not_executed": "原 run 未产生任何资金变动：其退款从未提出，或已在门禁处被拒绝。可以放心从头重跑。",
+    "recreateWriteStatus_unknown": "无法根据已记录的 trace 确认原 run 的退款情况。请先到计费系统核实，再决定是否依赖新 run。",
+    "recreateConfirm": "创建新 run",
+    "recreateCancel": "取消",
+    "recreateFailedTitle": "无法重新建单",
+    "recreateUnreachable": "面板无法访问自身接口 {endpoint}。",
+    "recreateDismiss": "关闭"
   },
   "knowledge": {
     "title": "知识库",

@@ -16,6 +16,7 @@ Base path: `/api`. Errors use a single shape (§6).
 | `GET` | `/api/tickets` | List tickets |
 | `GET` | `/api/tickets/{ticket_id}` | One ticket with its runs |
 | `POST` | `/api/runs` | Enqueue a run for an existing ticket |
+| `POST` | `/api/runs/{run_id}/recreate` | Re-create a finished run against its ticket (§3.3) |
 | `GET` | `/api/runs` | List runs (filterable by status) |
 | `GET` | `/api/runs/{run_id}` | Run detail: status, steps, tool calls, citations, claim lease |
 | `GET` | `/api/runs/{run_id}/trace` | The ordered execution timeline only |
@@ -407,6 +408,61 @@ ticket (§9).
 
 Raises `404 ticket_not_found` when the ticket does not exist.
 
+### 3.3 `POST /api/runs/{run_id}/recreate`
+
+The human follow-up path (Phase 3 M2-03): an operator reads a finished run,
+decides its outcome needs another pass, and asks for a **new** run against the
+same ticket. The new run is a sibling, not a continuation — it starts in
+`received` like any other run and inherits nothing from the original: no
+approval, no executed refund, no trace. A follow-up exists because a human
+judged the original outcome insufficient, so the judgement is re-made, not
+copied.
+
+```jsonc
+// 201
+{
+  "original_run_id": "7c1b…",
+  "original_write_status": "executed",
+  "run": { "id": "ae11…", "status": "received", "created_at": "2026-10-05T14:20:00Z" }
+}
+```
+
+`original_write_status` states what the original run actually wrote, computed
+server-side from the run's own tool-call rows — the same evidence the detail
+payload (§3) already carries:
+
+- `executed` — at least one `billing.issue_refund` call on the original run is
+  recorded `executed`. The money moved and the row says so.
+- `not_executed` — the original run carries no refund row at all: nothing was
+  proposed, or every proposal was refused at a gate. Safe to re-run from
+  scratch.
+- `unknown` — refund rows exist but none is recorded `executed` (the C2 crash
+  window: dispatched, then lost before the row committed), or the rows could
+  not be read. **Check the billing system before trusting the re-run.** The
+  value is advice, not an authorisation, and `unknown` is the honest answer
+  when the evidence cannot settle it.
+
+The value is *not* carried across runs by the idempotency guard: a new run
+derives its `idempotency_key` from its own run id (`tool-permissions.md` §4),
+so the server's replay protection does not reach from the original run to the
+re-created one. What guards the boundary instead is this endpoint's own rule —
+**only a terminal run can be re-created**:
+
+- a run parked in `waiting_approval` still has a live decision pending. It is
+  refused with `409 run_not_recreatable`; the approval workflow is where that
+  run's outcome is decided, and re-creating under it would risk two agents on
+  one ticket.
+- a queued or in-flight run (anything else non-terminal) is refused the same
+  way, for the same reason.
+
+A re-created run writes one `run_recreated` audit event against the *new*
+run's ledger (§4.1), with `actor: "operator"` and
+`payload: {"original_run_id": "…"}` — the original's ledger is a record of
+what that run did, and this event records what this action did.
+
+Raises `404 run_not_found` when the run does not exist; `409
+run_not_recreatable` when it is not terminal.
+
 ## 4. `GET /api/runs/{run_id}/trace`
 
 The timeline, without tool arguments or model payloads — the cheap endpoint the
@@ -687,7 +743,7 @@ The HTTP status is carried by `code`:
 | 401 | `unauthorized` — the bearer token is missing, malformed, or wrong (§8) |
 | 404 | `ticket_not_found`, `run_not_found`, `approval_not_found` — the route's own "no such entity"; `not_found` — the framework's, for a path that does not exist |
 | 405 | `method_not_allowed` — a known path, the wrong method |
-| 409 | `approval_already_decided`, `approval_expired`, `run_not_awaiting_approval`, `run_already_completed`, `ticket_exists`, `illegal_transition`, `approval_arguments_changed`, `policy_denied` |
+| 409 | `approval_already_decided`, `approval_expired`, `run_not_awaiting_approval`, `run_already_completed`, `run_not_recreatable` (Phase 3 M2-03, §3.2), `ticket_exists`, `illegal_transition`, `approval_arguments_changed`, `policy_denied` |
 | 422 | `schema_invalid` — the request body failed its schema (Pydantic); `unknown_tool` — a caller raised `UnknownTool` outright. **No HTTP path in Phase 1 raises it**: gate 2 *records* an unregistered name as a rejected tool call and the run carries on, so this code exists for a caller that rejects the proposal itself |
 | 500 | `internal_error` (message is generic; the detail is in the log, keyed by a `trace_id` returned in `details`) |
 | 503 | *(no code)* — `/ready` answers `{"status":"not_ready","checks":{…}}`, which is not this envelope (§7) |
@@ -854,6 +910,7 @@ through them.
 |---|---|
 | `POST /api/tickets` | Always creates. A client wanting dedupe sends `external_id`; a unique violation returns `409 ticket_exists` with the existing ticket. The ticket and its run are written in one transaction (§2), so a failed write leaves neither, and a retry after a `500` cannot find a half-created ticket. |
 | `POST /api/runs` | Always creates a new run for the ticket. Re-running an investigation is a legitimate action. |
+| `POST /api/runs/{run_id}/recreate` | Always creates a new run for the original's ticket — a sibling, never a continuation (§3.3). Only a terminal run can be re-created; a second request creates a *second* sibling run, which is the intended behaviour: each re-create is one human decision to look again. |
 | `POST /api/approvals/{id}/approve` | `409 approval_already_decided` on the second call — whether it arrives a second later or concurrently (§6). The grant itself happens at most once. |
 | `POST /api/approvals/{id}/reject` | `409` on second call, or `409 approval_already_decided` if already approved. |
 | `POST /api/knowledge/reindex` | Idempotent — documents are re-hashed and unchanged ones are skipped. Returns counts. |

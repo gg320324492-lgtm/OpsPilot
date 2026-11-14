@@ -17,9 +17,10 @@ import {
   type ToolCall,
 } from "@/lib/data";
 import { permissionLabel, toolCallStatusLabel } from "@/i18n/enums";
-import { getT } from "@/i18n/server";
+import { getCopy, getT } from "@/i18n/server";
 import type { TFunction } from "@/i18n/format";
 import { ApprovalSummaryCard } from "./approval-summary";
+import { RecreateRunButton } from "./recreate-button";
 
 /**
  * Run Detail: the screen that answers "what did OpsPilot actually do?".
@@ -56,6 +57,10 @@ export default async function RunDetailPage({
   // Async `params` is required from Next.js 16.
   const [{ runId }, t] = await Promise.all([params, getT()]);
   const { run, trace } = await loadRunDetail(runId);
+  // The follow-up button's copy, read once here with the same cookie the `t`
+  // above came from, so the two cannot disagree about the locale. Only the
+  // `run` section crosses into the Client Component.
+  const { locale, copy: recreateCopy } = await getCopy("run");
 
   // 404 has its own branch rather than falling into the generic error panel: a
   // run id pasted from a colleague's chat that this deployment does not have is
@@ -95,6 +100,11 @@ export default async function RunDetailPage({
   const pending = detail.pending_approval;
   const isParked = detail.status === "waiting_approval";
   const isFailed = detail.status === "failed";
+  // The follow-up path's states: a run only ever leaves the queue for good by
+  // reaching one of the two terminal states, and only there is the "did the
+  // original write execute" answer a settled fact (the API computes it, and
+  // sends `null` for anything still in flight).
+  const isTerminalRun = isFailed || detail.status === "completed";
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
   const failedCalls = detail.failed_tool_calls ?? [];
@@ -153,6 +163,16 @@ export default async function RunDetailPage({
             </p>
           </div>
         ) : null}
+
+        {/* -- the human follow-up path (Phase 3 M2-03) ---------------------- */}
+        {isTerminalRun && (
+          <RecreateRunButton
+            runId={detail.id}
+            copy={recreateCopy}
+            locale={locale}
+            writeStatus={detail.original_write_status ?? "unknown"}
+          />
+        )}
 
         {/* -- the run's own fields ---------------------------------------- */}
         <Panel title={t("run.runPanel")}>

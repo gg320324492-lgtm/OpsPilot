@@ -432,3 +432,30 @@ worker suppresses the resulting exception the same way it suppresses
 `MaxStepsExceeded` — the row is already written, and an ordinary outcome must
 not kill the poll loop.
 
+
+## 8. Re-creating a finished run (Phase 3 M2-03)
+
+A terminal run (`COMPLETED` or `FAILED`) is final: the transition table gives
+both states an empty successor set, and nothing in the runtime re-drives one.
+The sanctioned way to look at the same ticket again is **not** to move the
+finished run — it is to create a *sibling*: `POST /api/runs/{id}/recreate`
+(`api-contract.md` §3.3) inserts a fresh run in `RECEIVED` on the same ticket.
+
+The sibling inherits nothing. No approval carries over, no executed refund is
+copied, and the new run's idempotency key is derived from its own id — so the
+server's replay guard does not reach from the original run to the follow-up.
+That is deliberate: the follow-up exists because a human judged the original
+outcome insufficient, so the judgement is re-made through the same gates —
+including a fresh approval if the follow-up proposes another refund — not
+replayed. The cross-run property (an already-refunded transaction is refused
+with `invalid_state` when the follow-up's fresh approval is granted) is
+asserted end to end in `tests/agent/test_recreate_run.py`.
+
+Only a terminal run can be re-created. A parked, in-flight or queued run is
+refused with `409 run_not_recreatable`: it still has a live path, and a
+follow-up under it would put two agents on one ticket. The response states the
+original's write as `executed` / `not_executed` / `unknown` — computed from the
+original's own `billing.issue_refund` rows, `unknown` reserved for the
+dangling-proposal window (`docs/risks.md` C2) where the evidence cannot settle
+whether the money moved. It is advice, never an authorisation: the new run
+passes every gate regardless of what it says.
