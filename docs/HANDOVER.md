@@ -261,15 +261,14 @@ a package that cannot produce its evidence is not finished):
 | C3 | A stalled claimed run is visible to the operator | **met** |
 | C4 | Diagnose the worker-startup gap | **met** |
 | D1 | The shell owns the stack lifecycle | **met** |
-| D2 | The installer is walked on a clean machine by someone who did not build it | **outstanding -- only a person can close it**; the script is `docs/installer-verification.md` |
-| D3 | The packaged app checked against A1–A3 | **met** for the shipped artefact; the running-installer half waits on D2 |
+| D2 | The installer is walked on a clean machine by someone who did not build it | **met with its caveat stated (2026-11-14)** -- the operator walked all sixteen checks; record sheet in `docs/installer-verification.md` §"Filled: the walk of 2026-11-14"; two environmental deviations recorded there |
+| D3 | The packaged app checked against A1–A3 | **met** for the shipped artefact |
 | E | A stranger can clone, follow the README and reproduce the golden path | **met** -- two stranger passes, the second on a fresh clone at `e8e7f6a` against an occupied port 8000 |
 | F | Locale choice, English by default | **met** for the first catalogue |
 
-**What is left, in one line:** D2's clean-machine installer walk (a person,
-not code), and B2's re-measurement against a reliable model endpoint. E's
-GitHub Release `v0.1.0` exists; its installer asset is deliberately withheld
-until D2 passes.
+**What is left, in one line:** B2's re-measurement against a reliable model
+endpoint (in progress), plus uploading the now-verified installer asset to
+Release `v0.1.0` (was withheld until D2 passed; D2 has passed).
 
 **Two product decisions are open and deliberately undecided.** They are
 recorded in `docs/limitations.md` §7 rather than guessed at:

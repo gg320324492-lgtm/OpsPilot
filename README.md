@@ -52,16 +52,19 @@ semantics are what is simulated."*
 > ([`docs/mcp-contracts.md`](docs/mcp-contracts.md) §4). The permission model
 > covers it identically.
 
-> **Status: Phase 1 milestones M0–M9 closed; Phase 2 done, with three items
+> **Status: Phase 1 milestones M0–M9 closed; Phase 2 done, with two items
 > still open — the golden path runs end to end.** The system is built: the agent
 > loop, the five gates, the persisted approval gate, idempotent refunds, retrieval
 > with citations, the dashboard, the desktop shell, the eval harness and CI all
-> exist and are tested. The three are named in
-> [`docs/phase2-plan.md`](docs/phase2-plan.md)'s acceptance table: **D2**, the
-> installer walked on a clean machine by someone who did not build it; **E**, a
-> GitHub Release, which has no tag and is held back on purpose until D2 passes;
-> and **C1**, where the two-worker guarantee is *boundary stated and tested*,
-> not closed.
+> exist and are tested. **D2 passed on 2026-11-14**: the built installer was
+> walked on a clean machine by someone who did not build it (sixteen checks,
+> record sheet in [`docs/installer-verification.md`](docs/installer-verification.md)).
+> The two that remain are named in
+> [`docs/phase2-plan.md`](docs/phase2-plan.md)'s acceptance table: **E**, the
+> GitHub Release, whose installer asset is now verifiable but not yet uploaded
+> (no tag is cut yet); and **C1**, where the two-worker guarantee is *boundary
+> stated and tested*, not closed. **B2**'s model-backed re-measurement continues
+> in the background.
 >
 > **The one run to check this README against** is
 > [`39439825308`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/39439825308)

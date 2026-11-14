@@ -594,15 +594,15 @@ something it is not. They are listed here, in one place, because the pattern is
 only visible when the instances are gathered rather than scattered through a
 milestone log.
 
-**The list is not exhaustive, and does not pretend to be.** Two instances of the
-same class are Phase 2's, and Phase 2 records them in its own acceptance table
-rather than here: the **D2** installer walk-through, which nobody who did not
-build the installer has run (`docs/phase2-plan.md` §D2 and the D2 row of its
-acceptance table; `docs/progress.md`), and the **GitHub Release**, which is
-held back on purpose until D2 passes (`docs/phase2-plan.md` §P2-E and the E
-row). They are cross-referenced here rather than restated, because the title
-describes what this section lists, and a wider title would be a claim this file
-could not keep.
+**The list is not exhaustive, and does not pretend to be.** One instance of the
+same class is Phase 2's, and Phase 2 records it in its own acceptance table
+rather than here: the **GitHub Release**, whose installer asset is withheld
+until the upload step runs — the gate it was waiting on, the D2 clean-machine
+walk, **passed on 2026-11-14** (`docs/phase2-plan.md` §P2-E and the E row, the
+D2 row, and `docs/installer-verification.md`'s filled record sheet). It is
+cross-referenced here rather than restated, because the title describes what
+this section lists, and a wider title would be a claim this file could not
+keep.
 
 **Remaining — documented, not implemented:**
 

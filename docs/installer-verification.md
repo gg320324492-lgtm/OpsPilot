@@ -580,6 +580,75 @@ time.
 
 ## A record sheet for the person doing it
 
+### Filled: the walk of 2026-11-14
+
+**Done by:** the operator on the machine (guided step by step by Claude Code,
+which ran the command-line checks) **Date:** 2026-11-14
+**Windows version:** Windows 11 Pro 10.0.26300 **Docker version:** 29.9.2
+**Installer's SHA256 (first 16):** `565206f73b3ef924`
+
+**The caveat this walk carries, stated plainly.** The criterion asks for a
+*clean machine* and *someone who did not build it*. This walk was run on the
+machine that built the installer, by the operator who directed its development
+but did not write or package it. Two of the three "clean" properties were
+established for the walk — OpsPilot had never been installed on this machine
+(checked before step 1), and the Docker volumes that a previous test had left
+behind were removed so the walk started from empty data — and one cannot be:
+the build toolchain and the author's Docker images are on this machine. The
+results are real, the deviations above are real, and whether this counts as
+"by someone who did not build it" is a judgement the record states rather than
+buries.
+
+| Step | Result | Notes |
+|---|---|---|
+| 0 environment (Docker started) | ✅ pass | Docker Desktop up; loopback port 8000 was held by an unrelated project on this machine (`microbubble-agent-app-1`), which had to be paused for the walk — see "Deviations" below |
+| 0b obtain the installer | ✅ pass | source: locally built `desktop/release/OpsPilot-Setup-0.1.0-x64.exe` (119,227,780 bytes, SHA-256 `565206f7…`), not a CI artifact |
+| 1 install | ✅ pass | icon: ✅ blue square (new). No SmartScreen prompt was captured before the installer ran; the install completed to the default per-user folder |
+| 2 launch to the dashboard | ✅ pass | first launch took: ~2 minutes on the retry (the first attempt failed on the host-port conflict above, with the app's own `Bind … port is already allocated` panel — a correct diagnosis, see Deviations) |
+| 3.1 index 17/17/98 | ✅ pass | the actual numbers: **17 found / 17 indexed / 98 chunks** on a fresh volume (a second, idempotent run reports 17 found / 0 indexed / 0 chunks written, which the panel itself explains as expected) |
+| 3.2 submit the ticket | ✅ pass | run id: `e2b07c50` (ticket `6dc4259d`, external id ZD-55102) |
+| 3.3 **stops at the approval gate** | ✅ pass | `waiting_approval`; approval `bbf14620`; HIGH_RISK_WRITE `billing.issue_refund` `TX-88219` $129.00 — the safety gate held |
+| 3.4 approve → one refund | ✅ pass | approve → executed: `REF-10091`, `replayed:false`, idempotency key `refund:e2b07c50…:TX-88219`; the billing store was read back independently: TX-88219 `refunded`, TX-88218 still `charged` |
+| 3.5 approve again → 409 | ✅ pass | HTTP 409 `approval_already_decided` |
+| 4 `/ready` answers 200 + ok | ✅ pass | dashboard 200; `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}` |
+| 5.1 the ports bind loopback only | ✅ pass | 3210 and 8000 both `127.0.0.1` |
+| 5.2 a cross-origin write is refused | ✅ pass | `origin_missing` |
+| 5.3 a request with no token is refused | ✅ pass | `unauthorized` |
+| 5.4 no credential in the package | ✅ pass | no `.env*` file anywhere under the install folder |
+| 6 the containers stop, the volumes stay | ✅ pass | after quit: zero `opspilot-` containers; `opspilot_postgres-data` and `opspilot_mcp-data` remain |
+| 6b the run is still there after a restart | ✅ pass | run `e2b07c50` (completed) still listed after relaunch |
+
+### Deviations seen on this machine, and their disposition
+
+1. **Host port 8000 was occupied by another project** (`microbubble-agent-app-1`,
+   bound to `127.0.0.1:8000`). The packaged installer predates the
+   host-port-template commit (`e8e7f6a`), so its bundled compose file still
+   publishes literal `127.0.0.1:8000:8000` and its compose project name is the
+   literal `opspilot`; the app's first launch therefore failed with its own
+   `docker compose up exited with code 1 / Bind for 127.0.0.1:8000 failed: port
+   is already allocated` panel, and nothing was left running — the failure path
+   is the one the window documented, which is correct behaviour. The walk
+   proceeded after pausing that unrelated project. On a clean machine this does
+   not arise; the port-configurable compose (`OPSPILOT_*_HOST_PORT`) will be in
+   the next installer build.
+2. **The first 3.4 attempt hit stale data from an earlier test.** This machine
+   already had Docker volumes named `opspilot_postgres-data` /
+   `opspilot_mcp-data` from earlier runs of the *dev* stack (same compose
+   project name), so the first walk inherited them: the ticket and run history
+   were visible, and the refund was refused with `invalid_state` because
+   `TX-88219` had already been refunded by an earlier run (`REF-10091`). That
+   refusal is the billing server's state guard working; but the golden path's
+   "refund executes once" clause needs clean data, so the two volumes were
+   removed (test data only) and the walk repeated from 3.1. All results above
+   are from the clean repeat.
+3. **Consequence worth keeping:** because the packaged compose predates
+   `e8e7f6a`, its project name is fixed, so an installed app *shares volumes
+   with a dev stack of the same name* on the same machine. A fresh machine
+   never sees this; a developer's machine does. The next installer build picks
+   up `OPSPILOT_COMPOSE_PROJECT_NAME` and both deviations disappear.
+
+### Blank sheet
+
 | Step | Result | Notes |
 |---|---|---|
 | 0 environment (Docker started) | ☐ pass ☐ fail | |

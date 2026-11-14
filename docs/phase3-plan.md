@@ -18,12 +18,12 @@ Phase 2 把 OpsPilot 从「能演示」推进到「可安装、可复现、双�
 ## 1. 与 Phase 2 的衔接
 
 Phase 2 验收表（`docs/phase2-plan.md` §Acceptance status）当前状态：A1–A4、B1、B3、B4、
-C1–C4、D1、D3、E、F = **met**；B2 = **deferred**；D2 = **outstanding**。进入 Phase 3 的遗留项：
+C1–C4、D1、D3、E、F = **met**；B2 = **deferred**；D2 = **met（2026-11-14，附带已声明的保留）**。进入 Phase 3 的遗留项：
 
 | P2 遗留 | 现状（已验证） | P3 去向 |
 |---|---|---|
 | B2 真实模型评测 | deferred：MiniMax-M3.1-Flash-Preview 两跑 3/15 与 2/15，7/15 的 case 在两跑中提出不同工具集，方差与预期改进同量级，验收判据失去功效。2026-11-14 三份 MiniMax-M3.1-Flash 结果（`evals/results/2026-11-14T08-18-31.json` 0/1、`…09-37-39.json` 1/15、`…10-40-41.json` 0/15）显示大面积空/错工具提案，根因诊断由 b2-diagnose session 进行中 | **P3-A** |
-| D2 安装包干净机人工验证 | outstanding；安装包已构建（`desktop/release/OpsPilot-Setup-0.1.0-x64.exe`，119,227,780 字节，SHA-256 前缀 `565206f7…`），打包后安全姿态 6 项检查（packaged-posture）通过 | **P3-E** |
+| D2 安装包干净机人工验证 | **met，附带已声明的保留（2026-11-14）**：操作员按 `docs/installer-verification.md` 走完 16 项全部通过（安装 → 启动 2 分钟 → 索引 17/17/98 → 工单 → 审批门 → 退款 REF-10091/replayed:false → 重复批准 409 → /ready → loopback → origin_missing → unauthorized → 无凭据 → 退出保卷 → 重启后 run 仍在）；两处环境偏差已记录在案（宿主 8000 被无关项目占用、同名卷带入 dev 栈旧数据）。注意：被测安装包构建于 `e8e7f6a` 之前，其 compose 端口与项目名仍是字面量 | P3-E（仅剩 E2：v0.2.0 重新打包 + 上传 asset） |
 | mypy（曾有「8 个既有错误」的记录） | 2026-11-14 两次实测（`6810b4f` 与 `2c5465b`）均为 0 错误，该记录过时；E3 的验收目标改为保持 0 错误并防止回归 | **P3-E** |
 | i18n 未覆盖面 | dashboard 传输错误文案（`web/src/lib/api/client.ts`）与 desktop shell 全部消息（`desktop/src/lifecycle/errors.ts` 等）仍为英文（limitations §7） | **P3-F** |
 | limitations 中标注 "Phase 3" 的条目 | 单 operator 无职责分离（§1）、响应未脱敏与保留策略（§1）、无 rate limiting（§1） | **P3-C**（范围受开放问题 3/4 约束） |
@@ -157,15 +157,16 @@ provider 熔断。**验收：可配置的每分钟建单上限与单 run token �
 
 **Priority P0（E1）/ P1（E2、E3）。**
 
-**动机。** P2-E 已建 Release v0.1.0，但无 installer asset（等 D2）；mypy 当前实测 0 错误
+**动机。** P2-E 已建 Release v0.1.0，但 installer asset 尚未上传（D2 已于 2026-11-14 通过，上传这一步随之解锁）；mypy 当前实测 0 错误
 （2026-11-14，`6810b4f` 与 `2c5465b`），E3 的任务从「清零」改为「钉住 0 并防回归」；依赖健康由
 dep-health session 持续跟踪。
 
-**E1 — D2 收尾：干净机人工安装走查（P0，S，需用户执行）。** 沿用
-`docs/installer-verification.zh-CN.md` 的流程，在干净 Windows 机（有 Docker Desktop）安装
-`OpsPilot-Setup-0.1.0-x64.exe` 并走金路径。**验收：`docs/installer-verification.md` 记录执行
-人、机器、日期、结果；发现的缺陷按严重度回填本计划或以 hotfix 处理；`docs/phase2-plan.md` 的
-D2 行状态随之更新。**
+**E1 — D2 收尾：干净机人工安装走查（P0，S，需用户执行）。** ~~沿用
+`docs/installer-verification.md` 的流程走查~~ **已于 2026-11-14 完成**：操作员按流程走完
+16 项检查全部通过，记录见 `docs/installer-verification.md` §"Filled: the walk of
+2026-11-14"，`docs/phase2-plan.md` 的 D2 行已同步为 met。两处环境偏差（宿主 8000 被无关项目
+占用、同名卷带入 dev 栈旧数据）已记录在案，均属被测安装包早于 `e8e7f6a` 所致，下一版打包即消失。
+本项闭合，不再需要用户操作。
 
 **E2 — v0.2.0 tag 与 installer asset（P1，S）。** **验收：tag 附
 `OpsPilot-Setup-<ver>-x64.exe` 与 SHA-256；Release 正文含「已验证/未验证」清单（沿用 v0.1.0
@@ -216,7 +217,7 @@ locale 下不再出现英文错误横幅（e2e 断言）。**
 | C5 | 限流 + token 预算 + 结构化错误 + e2e | P2 | S | — |
 | D1 | 三类失败的诊断区 + UI 说真话 e2e | P2 | M | — |
 | D2 | 审计导出 API + 契约入档 | P2 | S | — |
-| E1 | D2 人工走查记录在案（用户执行） | P0 | S | 用户 |
+| E1 | D2 人工走查记录在案（用户执行） | P0 | S | 用户 — **met 2026-11-14** |
 | E2 | v0.2.0 tag + asset + SHA-256 + 已验证清单 | P1 | S | E1 |
 | E3 | mypy 0 错误，无豁免 | P1 | S | — |
 | F1 | dashboard/desktop 错误文案全量进词典 + guard | P2 | S | — |
@@ -224,9 +225,9 @@ locale 下不再出现英文错误横幅（e2e 断言）。**
 
 ## 4. Ordering
 
-E1（P0，用户执行）与 A1（P0，等 b2-diagnose 结论）可立即并行启动；A2 → A3 串行；B 包在 A2
+A1（P0，等 b2-diagnose 结论）可立即启动（E1 已于 2026-11-14 met）；A2 → A3 串行；B 包在 A2
 给出可用端点后校准；C1 等开放问题 4 决策；其余 P2 项按余力排布。**Phase 3 的退出条件：A2 的
-判定标准产出结论、E1 完成、E3 保持清零，且验收总表中无 P0/P1 项停留 open。**
+判定标准产出结论、E3 保持清零，且验收总表中无 P0/P1 项停留 open。**
 
 ## 5. Phase 3 不做什么（非目标）
 
