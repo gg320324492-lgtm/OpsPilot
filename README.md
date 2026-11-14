@@ -91,7 +91,7 @@ semantics are what is simulated."*
 >
 > The browser walkthrough runs on a machine with Docker: **85 passed, 0
 > skipped** (`npm run e2e`, 2026-10-21) — the CI run's 67 plus eighteen specs
-> added since. The twenty-three Compose-backed specs — nineteen that bring up
+> added since. The twenty-six Compose-backed specs — twenty-two that bring up
 > PostgreSQL, migrate, api and worker, and four that bring up the containerised
 > dashboard — are the whole point of that job, and until Docker was running
 > here they had never executed on this machine.
@@ -129,7 +129,7 @@ does not make or a value you can recompute from a cited file.
 | CI green | 16 of 16 jobs | run [`39439825308`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/39439825308) |
 | Python tests (CI) | 994 passed, 24 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs — the run is from commit `f410911`, so it predates the 347 tests added since |
 | Python tests (local) | 1347 passed, 18 skipped — 1365 collected | `pytest` on 2026-11-08, on the tree as it stands; the 4-test platform delta is the Windows-only `test_mcp_stdio_transport.py` process-enumeration tests, which are `skipif(sys.platform != "win32")` and so skip on the Linux runner |
-| Browser walkthrough | 67 passed | same run, the `web-e2e (browser golden path)` job — and run locally on 2026-10-21: **85 passed, 0 skipped** with Docker up, so the twenty-three Compose-backed specs ran rather than skipped, plus eighteen specs added since |
+| Browser walkthrough | 67 passed | same run, the `web-e2e (browser golden path)` job — and run locally on 2026-10-21: **85 passed, 0 skipped** with Docker up, so the twenty-six Compose-backed specs ran rather than skipped, plus eighteen specs added since |
 | Tools | 9 registered, 3 permission levels | `domain/tools.py::TOOL_REGISTRY` — 7 `READ`, 1 `SAFE_WRITE`, 1 `HIGH_RISK_WRITE` |
 | MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
 | Policy documents | 17 documents → 98 chunks | click **Reindex** on the Knowledge screen; see [`02-knowledge-reindexed.png`](docs/assets/screenshots/02-knowledge-reindexed.png) |
