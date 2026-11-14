@@ -133,6 +133,44 @@ def _build_parser() -> argparse.ArgumentParser:
         "run",
         help="Run the datasets through a provider and print the metric table.",
     )
+
+    compare = subparsers.add_parser(
+        "compare",
+        help=(
+            "Compare a results file with a stored baseline: identity facts, "
+            "dataset hashes and the metric table."
+        ),
+    )
+    compare.add_argument(
+        "--baseline",
+        required=True,
+        metavar="PATH",
+        help=(
+            "Path to a baseline summary JSON (e.g. "
+            "evals/baselines/phase1-baseline.json). Relative paths resolve "
+            "against the repository root."
+        ),
+    )
+    compare.add_argument(
+        "--results",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to the results file to compare. Default: the newest "
+            "evals/results/<timestamp>.json. Relative paths resolve against "
+            "the repository root."
+        ),
+    )
+    compare.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.02,
+        metavar="D",
+        help=(
+            "Maximum absolute change a rate may move and still count as "
+            "'within tolerance'. Default 0.02. The gate is compared exactly."
+        ),
+    )
     run.add_argument(
         "--provider",
         choices=("fake", "anthropic", "openai"),
@@ -418,6 +456,13 @@ _ROW_SPEC: Final[tuple[tuple[str, str, tuple[str, ...], bool, bool], ...]] = (
         True,
         True,
     ),
+    (
+        "expected-write rate",
+        "score",
+        ("expected_write_rate",),
+        True,
+        True,
+    ),
     ("task completion", "score", ("task_completion_rate",), True, True),
 )
 
@@ -662,6 +707,327 @@ def _relative(path: Path) -> str:
         return path.relative_to(_REPO_ROOT).as_posix()
     except ValueError:  # pragma: no cover - results dir is always under root
         return path.as_posix()
+
+
+# ---------------------------------------------------------------------------
+# compare -- the minimal baseline comparison (M1-04)
+# ---------------------------------------------------------------------------
+
+#: The identity facts a baseline records and a comparison checks before it
+#: compares any number. Each entry maps the baseline key to the label the
+#: report prints. A fact the baseline does not record (a file written before
+#: the key existed) or that the run being compared does not carry is printed
+#: as ``unknown`` -- never guessed, never silently skipped: a comparison
+#: against a different model is not a comparison, and the report must say so.
+_IDENTITY_KEYS: Final[tuple[tuple[str, str], ...]] = (
+    ("code_commit", "code commit"),
+    ("provider", "provider"),
+    ("model", "model"),
+    ("embedding_provider", "embedding provider"),
+    ("embedding_model", "embedding model"),
+    ("retrieval_top_k", "retrieval top_k"),
+    ("retrieval_min_score", "retrieval min score"),
+)
+
+#: Datasets whose file hash the baseline pins, in report order.
+_BASELINE_DATASETS: Final[tuple[str, ...]] = (
+    "classification",
+    "retrieval",
+    "tool_selection",
+    "safety",
+)
+
+#: Labels of the metric rows a comparison compares, in report order. The gate
+#: is compared too -- ``unsafe execution count`` must be 0 in both -- but a
+#: count that differs is reported as *changed*, not as a regression percentage.
+_COMPARE_LABELS: Final[tuple[str, ...]] = (
+    "classification",
+    "retrieval recall@5",
+    "retrieval precision@5",
+    "abstention correctness",
+    "tool selection",
+    "tool argument validity",
+    "approval-policy compliance",
+    "unsafe execution count",
+    "expected-write rate",
+    "task completion",
+)
+
+
+def _sha256_file(path: Path) -> str:
+    """The hex SHA-256 of a file's bytes."""
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_baseline(path: Path) -> dict[str, object]:
+    """Load and shape-check a baseline JSON file."""
+    try:
+        raw: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise _ConfigError(f"cannot read baseline {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise _ConfigError(f"baseline {path} is not a JSON object")
+    return raw
+
+
+def _current_identity(baseline: dict[str, object]) -> dict[str, object]:
+    """The identity facts of the run being compared, as the baseline records them.
+
+    ``code_commit`` comes from git when git can answer and is ``None``
+    (rendered ``unknown``) when it cannot -- a tarball checkout still gets a
+    comparison, it just says honestly that the commit is unknown. The
+    embedding/retrieval settings come from the live settings module, the same
+    source ``_write_results`` records them from, so both sides of the
+    comparison read one configuration.
+
+    The git binary is resolved through ``PATH`` (S607 notes a partial path);
+    this is the eval CLI reading the checkout it lives in, the same lookup
+    ``tests/evals/test_committed_results_are_recomputable.py`` performs, and
+    the command is a fixed literal.
+    """
+    import shutil
+    import subprocess
+
+    commit: str | None = None
+    git = shutil.which("git")
+    if git is not None:
+        try:
+            # S603: the argument list is a resolved absolute path to git plus a
+            # literal flag -- nothing here comes from outside the process.
+            completed = subprocess.run(  # noqa: S603
+                [git, "rev-parse", "HEAD"],
+                cwd=str(_REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode == 0:
+                commit = completed.stdout.strip() or None
+        except OSError:
+            commit = None
+
+    model = baseline.get("model")
+    provider = baseline.get("provider")
+    return {
+        "code_commit": commit,
+        "provider": provider,
+        "model": model,
+        "embedding_provider": _settings_value("embedding_provider"),
+        "embedding_model": _settings_value("embedding_model"),
+        "retrieval_top_k": _settings_value("retrieval_top_k"),
+        "retrieval_min_score": _settings_value("retrieval_min_score"),
+    }
+
+
+def _identity_differences(
+    baseline: dict[str, object], current: dict[str, object]
+) -> list[tuple[str, str, str]]:
+    """The identity facts that differ, as ``(label, baseline, current)`` triples.
+
+    Both sides are rendered with ``unknown`` for a missing fact, and a pair of
+    unknowns is *not* a difference -- two runs that both failed to record the
+    embedding model are not running different embedders. The baseline's
+    ``model_config`` block is flattened into the top level here so the report
+    can read one shape.
+    """
+    model_config = baseline.get("model_config")
+    flat: dict[str, object] = dict(baseline)
+    if isinstance(model_config, dict):
+        for key, value in model_config.items():
+            flat.setdefault(key, value)
+
+    differences: list[tuple[str, str, str]] = []
+    for key, label in _IDENTITY_KEYS:
+        base_value = flat.get(key)
+        current_value = current.get(key)
+        if _norm_identity(base_value) == _norm_identity(current_value):
+            continue
+        differences.append((label, _render_identity(base_value), _render_identity(current_value)))
+    return differences
+
+
+def _norm_identity(value: object) -> str:
+    """Normalise an identity value for comparison: strings, trimmed, ``?`` for None."""
+    if value is None:
+        return "?"
+    return str(value).strip()
+
+
+def _render_identity(value: object) -> str:
+    """Render one identity fact for the report: ``unknown`` for a missing one."""
+    if value is None:
+        return "unknown"
+    return str(value)
+
+
+def _dataset_hash_differences(baseline: dict[str, object]) -> list[tuple[str, str, str]]:
+    """The dataset hashes that differ between baseline and the current tree.
+
+    The baseline pins ``dataset_sha256``; the current side is re-hashed from
+    the working tree's ``evals/datasets/``. A differing hash means the cases
+    changed, so every metric difference below it is confounded -- the report
+    says so before the numbers, because "tool selection moved" over a changed
+    dataset is not a regression finding.
+    """
+    recorded = baseline.get("dataset_sha256")
+    if not isinstance(recorded, dict):
+        return []
+    differences: list[tuple[str, str, str]] = []
+    for name in _BASELINE_DATASETS:
+        base_hash = recorded.get(name)
+        path = _REPO_ROOT / "evals" / "datasets" / f"{name}.jsonl"
+        current_hash = _sha256_file(path) if path.is_file() else None
+        if base_hash == current_hash:
+            continue
+        differences.append((name, _render_identity(base_hash), _render_identity(current_hash)))
+    return differences
+
+
+def _compare_metrics(
+    baseline: dict[str, object], results_path: Path, tolerance: float
+) -> tuple[list[str], bool]:
+    """Compare the baseline's metric values with a results file's.
+
+    Returns the report lines and whether every compared metric is within
+    tolerance. A metric recorded on one side only is listed as *unknown* on
+    the other, not skipped: the row exists so a reader sees the asymmetry. The
+    gate row is held to exact equality (a count is a count); the rates get the
+    tolerance.
+    """
+    recorded = baseline.get("metrics")
+    if not isinstance(recorded, dict):
+        raise _ConfigError("the baseline carries no metrics object; nothing to compare")
+
+    try:
+        raw_results: object = json.loads(results_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise _ConfigError(f"cannot read results file {results_path}: {exc}") from exc
+    if not isinstance(raw_results, dict):
+        raise _ConfigError(f"results file {results_path} is not a JSON object")
+    file_metrics = raw_results.get("metrics")
+    if not isinstance(file_metrics, list):
+        raise _ConfigError(f"results file {results_path} carries no 'metrics' array")
+    current: dict[str, dict[str, object]] = {}
+    for row in file_metrics:
+        if isinstance(row, dict) and isinstance(row.get("name"), str):
+            current[row["name"]] = row
+
+    lines: list[str] = []
+    all_within = True
+    header = f"{'metric':<29}{'baseline':>10}   {'current':>10}   change"
+    lines.append(header)
+    for label in _COMPARE_LABELS:
+        base_row = recorded.get(label)
+        cur_row = current.get(label)
+        base_value = _comparable_value(base_row)
+        cur_value = _comparable_value(cur_row)
+        if base_value is None and cur_value is None:
+            continue
+        base_text = "unknown" if base_value is None else f"{float(base_value):.3f}"
+        cur_text = "unknown" if cur_value is None else f"{float(cur_value):.3f}"
+        if base_value is None or cur_value is None:
+            change = "n/a (one side unknown)"
+            all_within = False
+        else:
+            delta = float(cur_value) - float(base_value)
+            within = abs(delta) <= tolerance
+            all_within = all_within and within
+            change = "ok" if within else f"{'+' if delta > 0 else ''}{delta:.3f}"
+        lines.append(f"{label:<29}{base_text:>10}   {cur_text:>10}   {change}")
+    return lines, all_within
+
+
+def _comparable_value(row: object) -> float | None:
+    """A metric row's value, or ``None`` when the row is absent or unmeasured.
+
+    A recorded ``cases: null`` row is a metric the run did **not** run (a
+    tool-selection-only file's ``classification`` row), not a metric that ran
+    and scored zero. Treating that ``0.0`` as a score would report a
+    fabricated ``-1.000`` regression against a baseline that did run it; the
+    honest reading is "one side unknown", so the comparison skips the delta
+    and says so.
+    """
+    if not isinstance(row, dict):
+        return None
+    value = row.get("value")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    cases = row.get("cases")
+    if cases is None:
+        return None
+    return float(value)
+
+
+def _compare(args: argparse.Namespace) -> int:
+    """Execute one ``compare`` invocation and return the process exit code."""
+    baseline_path = Path(args.baseline)
+    if not baseline_path.is_absolute():
+        baseline_path = _REPO_ROOT / baseline_path
+    if not baseline_path.is_file():
+        print(f"opspilot-eval: baseline file not found: {baseline_path}", file=sys.stderr)
+        return _EXIT_CONFIG
+
+    if args.results:
+        results_path = Path(args.results)
+        if not results_path.is_absolute():
+            results_path = _REPO_ROOT / results_path
+    else:
+        candidates = sorted(_RESULTS_DIR.glob("*.json"))
+        if not candidates:
+            print(
+                "opspilot-eval: no --results given and evals/results/ holds no run to compare",
+                file=sys.stderr,
+            )
+            return _EXIT_CONFIG
+        results_path = candidates[-1]
+
+    try:
+        baseline = _load_baseline(baseline_path)
+        current = _current_identity(baseline)
+        identity_diffs = _identity_differences(baseline, current)
+        dataset_diffs = _dataset_hash_differences(baseline)
+        metric_lines, all_within = _compare_metrics(
+            baseline, results_path, tolerance=args.tolerance
+        )
+    except _ConfigError as exc:
+        print(f"opspilot-eval: {exc}", file=sys.stderr)
+        return _EXIT_CONFIG
+
+    print(f"OpsPilot eval comparison — baseline={baseline_path.name} vs {results_path.name}")
+    print()
+    print("identity")
+    for key, label in _IDENTITY_KEYS:
+        base_flat = dict(baseline)
+        model_config = baseline.get("model_config")
+        if isinstance(model_config, dict):
+            base_flat.setdefault(key, model_config.get(key))
+        diff = next((d for d in identity_diffs if d[0] == label), None)
+        base_text = diff[1] if diff else _render_identity(base_flat.get(key))
+        cur_text = diff[2] if diff else _render_identity(current.get(key))
+        marker = "  ← differs" if diff else ""
+        print(f"  {label:<24}{base_text:<42} vs {cur_text}{marker}")
+    if not identity_diffs:
+        print("  (all recorded identity facts agree)")
+    print()
+    print("dataset hashes")
+    for name, base_hash, cur_hash in dataset_diffs:
+        print(f"  {name:<24}{base_hash[:12]}…  vs {cur_hash[:12]}…  ← differs")
+    if not dataset_diffs:
+        print("  (all pinned dataset hashes agree)")
+    if dataset_diffs:
+        print("  note: a changed dataset confounds every metric difference below.")
+    print()
+    print("metrics")
+    for line in metric_lines:
+        print(line)
+    print()
+    if all_within:
+        print(f"result: within tolerance ({args.tolerance})")
+        return _EXIT_OK
+    print(f"result: at least one metric moved beyond tolerance ({args.tolerance})")
+    return _EXIT_GATE
 
 
 def _effective_dataset_path(name: str, per_dataset_limit: int | None) -> Path:
@@ -984,6 +1350,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
+    if args.command == "compare":
+        raise SystemExit(_compare(args))
     if args.command != "run":  # pragma: no cover - the subparser has one command
         parser.error(f"unknown command: {args.command}")
 

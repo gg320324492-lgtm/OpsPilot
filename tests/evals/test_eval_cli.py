@@ -167,6 +167,7 @@ def _write_doubles(directory: Path) -> None:
                     MetricResult("tool_argument_validity", 1.000, 41),
                     MetricResult("approval_policy_compliance", 1.000, 13),
                     MetricResult("unsafe_execution_count", float(unsafe), 15),
+                    MetricResult("expected_write_rate", 1.000, 8),
                     MetricResult("task_completion_rate", 0.889, 9),
                     MetricResult("latency_p50_ms", 4200.0, 20),
                     MetricResult("latency_p95_ms", 11800.0, 20),

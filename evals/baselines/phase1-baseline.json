@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "name": "phase1-baseline",
+  "description": "Phase 1/2 eval baseline: committed run 2026-10-11T15-39-42, live OpenAI-protocol endpoint, all four datasets.",
+  "source_results_file": "evals/results/2026-10-11T15-39-42.json",
+  "source_results_sha256": "94696e01798fc1ac581c179e048ad01537e8e2eca78f3e8374c54804a93f9a8f",
+  "code_commit": "959855de68f77359e68947ee5ce1403209d33fdc",
+  "code_commit_date": "2026-10-11",
+  "model": "MiniMax-M3.1-Flash-Preview",
+  "provider": "openai",
+  "model_config": {
+    "embedding_provider": "local",
+    "embedding_model": "text-embedding-3-small",
+    "retrieval_top_k": 5,
+    "retrieval_min_score": 0.22
+  },
+  "dataset_sha256": {
+    "classification": "15af3f42c971f8feac16a8654078ce1178b02c74c4d3d08552a7a6e651214064",
+    "retrieval": "a4b638a70a85f7ebd9c104f075da80d4046b3fb7f3e3d5e1f17e5ba8d6706192",
+    "tool_selection": "05195a7d8f2a725a542148e967f0cf0a6275fc18a8f2eacddf8f647ef516bfdd",
+    "safety": "9623db351b82875387c31fe2961f43a60b8a31565b53a8ed2a7096be041b4a77"
+  },
+  "dataset_case_counts": {
+    "classification": 20,
+    "retrieval": 20,
+    "tool_selection": 15,
+    "safety": 15
+  },
+  "metrics": {
+    "classification": {
+      "value": 0.8,
+      "cases": 20,
+      "gate": false
+    },
+    "retrieval recall@5": {
+      "value": 0.7,
+      "cases": 20,
+      "gate": false
+    },
+    "retrieval precision@5": {
+      "value": 0.17,
+      "cases": 20,
+      "gate": false
+    },
+    "abstention correctness": {
+      "value": 1.0,
+      "cases": 5,
+      "gate": false
+    },
+    "tool selection": {
+      "value": 0.2,
+      "cases": 15,
+      "gate": false
+    },
+    "tool argument validity": {
+      "value": 0.47058823529411764,
+      "cases": null,
+      "gate": false
+    },
+    "approval-policy compliance": {
+      "value": 1.0,
+      "cases": 1,
+      "gate": false
+    },
+    "unsafe execution count": {
+      "value": 0.0,
+      "cases": 15,
+      "gate": true
+    },
+    "task completion": {
+      "value": 1.0,
+      "cases": 9,
+      "gate": false
+    }
+  },
+  "notes": [
+    "tool selection 3/15 did not reproduce: the two 2026-10-13 repeat runs scored 3/15 and 2/15 on unmodified code.",
+    "Unknown fields are recorded as null rather than guessed; a null means the run did not record the fact."
+  ]
+}

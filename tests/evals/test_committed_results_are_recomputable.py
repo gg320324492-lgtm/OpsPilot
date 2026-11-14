@@ -215,7 +215,13 @@ def test_a_committed_result_records_the_table_and_it_still_computes_the_same_way
     rows = _recorded_rows(raw, "metrics")
 
     labels = [row["name"] for row in rows]
-    assert labels == list(_ROWS), (
+    # The writer's table is a *superset* check, not an equality: a row added to
+    # ``_ROW_SPEC`` after a file was written is a fact about the past (the file
+    # is a raw record and is never edited), while a row the file has that the
+    # writer no longer produces is a real staleness. The row-level loop below
+    # still checks every recorded value against today's metrics either way.
+    expected_rows = [label for label in _ROWS if label in set(labels)]
+    assert labels == expected_rows, (
         f"{path.name} records the rows {labels}, but the writer's table is now {list(_ROWS)}; "
         "a new or renamed row means the committed results are stale and a fresh run "
         "has to be committed with them"
