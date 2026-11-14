@@ -1,0 +1,89 @@
+{
+  "runs": {
+    "08-18-31": {
+      "cases": 1,
+      "calls": 5,
+      "valid": 4,
+      "invalid": 1,
+      "empty": 0,
+      "gate1_rej": 1,
+      "dup_extra_calls": 1,
+      "toolset_hits": 0,
+      "failed_runs": 0,
+      "argval": 0.8,
+      "tsr": 0.0
+    },
+    "09-37-39": {
+      "cases": 15,
+      "calls": 118,
+      "valid": 66,
+      "invalid": 52,
+      "empty": 1,
+      "gate1_rej": 52,
+      "dup_extra_calls": 68,
+      "toolset_hits": 1,
+      "failed_runs": 2,
+      "argval": 0.559,
+      "tsr": 0.067
+    },
+    "10-40-41": {
+      "cases": 15,
+      "calls": 98,
+      "valid": 37,
+      "invalid": 61,
+      "empty": 0,
+      "gate1_rej": 61,
+      "dup_extra_calls": 52,
+      "toolset_hits": 0,
+      "failed_runs": 2,
+      "argval": 0.378,
+      "tsr": 0.0
+    },
+    "12-04-22": {
+      "cases": 15,
+      "calls": 100,
+      "valid": 100,
+      "invalid": 0,
+      "empty": 0,
+      "gate1_rej": 0,
+      "dup_extra_calls": 65,
+      "toolset_hits": 2,
+      "failed_runs": 2,
+      "argval": 1.0,
+      "tsr": 0.133
+    },
+    "13-23-39": {
+      "cases": 15,
+      "calls": 112,
+      "valid": 40,
+      "invalid": 72,
+      "empty": 1,
+      "gate1_rej": 72,
+      "dup_extra_calls": 72,
+      "toolset_hits": 0,
+      "failed_runs": 3,
+      "argval": 0.357,
+      "tsr": 0.0
+    },
+    "14-51-10": {
+      "cases": 15,
+      "calls": 112,
+      "valid": 46,
+      "invalid": 66,
+      "empty": 2,
+      "gate1_rej": 66,
+      "dup_extra_calls": 63,
+      "toolset_hits": 2,
+      "failed_runs": 2,
+      "argval": 0.411,
+      "tsr": 0.133
+    }
+  },
+  "totals": {
+    "cases": 76,
+    "calls": 545,
+    "invalid": 252,
+    "empty": 4,
+    "gate1_rej": 252
+  }
+}
