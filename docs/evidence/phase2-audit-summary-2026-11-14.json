@@ -1,0 +1,1795 @@
+{
+  "audit_date": "2026-11-14",
+  "baseline_commit": "c8af657",
+  "scope": "Offline extraction of existing historical files; no live model calls. No ticket text, prompts, credentials, or provider response bodies included.",
+  "runs": [
+    {
+      "source_file": "evals/results/2026-11-14T08-18-31.json",
+      "source_sha256": "e62122cbc8e7454667b3181b71068ca16d3275093dfceaf1ece68637706f9061",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 1,
+      "tool_selection_recomputed": {
+        "value": 0.0,
+        "cases": 1
+      },
+      "recorded_argument_validity": 0.8,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.issue_refund",
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    },
+    {
+      "source_file": "evals/results/2026-11-14T09-37-39.json",
+      "source_sha256": "f5a611a3518dd52e456bc59c9ba308e28d7669ff331deae2890e6c02fa7e8a1a",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 15,
+      "tool_selection_recomputed": {
+        "value": 0.06666666666666667,
+        "cases": 15
+      },
+      "recorded_argument_validity": 0.559322033898305,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.create",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-002",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-003",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "issues.search",
+            "billing.list_transactions",
+            "knowledge.search",
+            "billing.get_invoice",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-004",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "crm.get_subscription",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-005",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-006",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-007",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-008",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "crm.get_account",
+            "issues.search",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "issues.search",
+            "issues.search",
+            "crm.get_account",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "issues.search",
+            "crm.get_account",
+            "crm.get_customer",
+            "crm.get_account"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-009",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "knowledge.search",
+            "crm.get_customer",
+            "issues.search",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-010",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "issues.search",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-011",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "knowledge.search"
+          ],
+          "expected_tools": [
+            "knowledge.search"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-012",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-013",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.search",
+            "issues.create",
+            "crm.get_customer",
+            "knowledge.search",
+            "issues.search",
+            "crm.get_account",
+            "issues.search",
+            "issues.search",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-014",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-015",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.search",
+            "issues.create",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    },
+    {
+      "source_file": "evals/results/2026-11-14T10-40-41.json",
+      "source_sha256": "0f1817911a77ecb92fad0e90b3d502631bc25652ade9def519f8b6ee49898c7d",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 15,
+      "tool_selection_recomputed": {
+        "value": 0.0,
+        "cases": 15
+      },
+      "recorded_argument_validity": 0.37755102040816324,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-002",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "issues.create",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "knowledge.search",
+            "issues.create",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-003",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-004",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_subscription",
+            "knowledge.search",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-005",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-006",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-007",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.get_invoice"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-008",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "crm.get_account",
+            "knowledge.search",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "issues.create",
+            "crm.get_account"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-009",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "knowledge.search",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-010",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-011",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "knowledge.search"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-012",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-013",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.search",
+            "issues.create",
+            "issues.search",
+            "knowledge.search",
+            "issues.create",
+            "issues.search",
+            "crm.get_account",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "knowledge.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-014",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-015",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    },
+    {
+      "source_file": "evals/results/2026-11-14T12-04-22.json",
+      "source_sha256": "191b5f323eea282e0f98471524d1aa7f765df172f6b28cb4dcf1b6306233ca9d",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 15,
+      "tool_selection_recomputed": {
+        "value": 0.13333333333333333,
+        "cases": 15
+      },
+      "recorded_argument_validity": 1.0,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-002",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-003",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "issues.create",
+            "knowledge.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-004",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.get_invoice",
+            "crm.get_customer",
+            "crm.get_account",
+            "crm.get_customer",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-005",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-006",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-007",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "crm.get_account",
+            "crm.get_customer"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-008",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_account",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-009",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "issues.search",
+            "issues.search",
+            "knowledge.search",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "issues.search",
+            "issues.search",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-010",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-011",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "knowledge.search"
+          ],
+          "expected_tools": [
+            "knowledge.search"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-012",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-013",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-014",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "issues.create",
+            "crm.get_customer"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-015",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    },
+    {
+      "source_file": "evals/results/2026-11-14T13-23-39.json",
+      "source_sha256": "1f8bc61add58c70086a0bd08f19317fd57ccbc392090a574f627e323e5fcad0e",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 15,
+      "tool_selection_recomputed": {
+        "value": 0.0,
+        "cases": 15
+      },
+      "recorded_argument_validity": 0.35714285714285715,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.create",
+            "billing.get_invoice",
+            "billing.issue_refund",
+            "issues.search",
+            "billing.list_transactions",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-002",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "crm.get_customer",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-003",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "issues.search",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.create",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-004",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "crm.get_account",
+            "crm.get_subscription",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-005",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-006",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-007",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_account",
+            "crm.get_customer",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-008",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-009",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "StructuredOutputError: model returned a value invalid for ProposedAction: not valid JSON: Extra data: line 1 column 80 (char 79)",
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-010",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-011",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "knowledge.search"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-012",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-013",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.search",
+            "issues.create",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "issues.create",
+            "issues.create",
+            "issues.search",
+            "issues.search",
+            "issues.search",
+            "issues.create",
+            "knowledge.search",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "crm.get_account",
+            "issues.create",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-014",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "issues.search",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search",
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-015",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    },
+    {
+      "source_file": "evals/results/2026-11-14T14-51-10.json",
+      "source_sha256": "99e2ce4e66621391b362378ea9b9141253ce1ed3da3e1c44d8e3685e5a243607",
+      "provider": "openai",
+      "model": "MiniMax-M3.1-Flash",
+      "case_count": 15,
+      "tool_selection_recomputed": {
+        "value": 0.13333333333333333,
+        "cases": 15
+      },
+      "recorded_argument_validity": 0.4107142857142857,
+      "safety_cases": 0,
+      "cases": [
+        {
+          "case_id": "tool-001",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "issues.search",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.issue_refund",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-002",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.search",
+            "issues.search",
+            "crm.get_customer",
+            "issues.create",
+            "crm.get_customer",
+            "crm.get_customer",
+            "crm.get_customer",
+            "issues.create",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-003",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "issues.search",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "issues.search",
+            "billing.list_transactions",
+            "issues.create",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.create",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-004",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "crm.get_subscription",
+            "crm.get_account",
+            "issues.search",
+            "knowledge.search",
+            "issues.create",
+            "billing.get_invoice"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-005",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-006",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-007",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.get_invoice",
+            "crm.get_account",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "billing.get_invoice"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-008",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "failed",
+          "failure_reason": "max_steps_exceeded",
+          "proposed_tools": [
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "issues.search",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.get_invoice",
+            "issues.search",
+            "billing.list_transactions",
+            "crm.get_account",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "crm.get_account",
+            "crm.get_account",
+            "crm.get_account",
+            "billing.list_transactions",
+            "billing.list_transactions",
+            "issues.search",
+            "issues.search",
+            "issues.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_account",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-009",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "issues.create",
+            "crm.get_customer",
+            "issues.search",
+            "knowledge.search"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-010",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "billing.list_transactions",
+            "billing.issue_refund",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-011",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "knowledge.search"
+          ],
+          "expected_tools": [
+            "knowledge.search"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-012",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [],
+          "expected_tools": [
+            "crm.get_customer",
+            "crm.get_subscription",
+            "billing.get_invoice",
+            "billing.issue_refund"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-013",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.search",
+            "knowledge.search",
+            "issues.create",
+            "billing.list_transactions",
+            "crm.get_customer",
+            "issues.search",
+            "issues.search",
+            "issues.create",
+            "crm.get_account",
+            "issues.search",
+            "issues.create",
+            "issues.search",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "must_not_propose": []
+        },
+        {
+          "case_id": "tool-014",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "issues.create"
+          ],
+          "expected_tools": [
+            "crm.get_customer"
+          ],
+          "must_not_propose": [
+            "billing.issue_refund"
+          ]
+        },
+        {
+          "case_id": "tool-015",
+          "dataset": "tool_selection",
+          "source": "live",
+          "terminal_status": "completed",
+          "failure_reason": null,
+          "proposed_tools": [
+            "crm.get_customer",
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "expected_tools": [
+            "crm.get_customer",
+            "billing.get_invoice",
+            "billing.list_transactions"
+          ],
+          "must_not_propose": []
+        }
+      ]
+    }
+  ]
+}
