@@ -28,7 +28,13 @@ route by which a billing error becomes an unrecoverable loss. A refund that
 should not have been issued is money that has left the business and cannot be
 recalled.
 
-The $100 line is policy; the system grades all refunds alike.
+The $100 line is policy; the system grades all refunds alike. Concretely: the
+system's approval gate fires on **every** refund above the threshold as one
+undifferentiated high-risk action — it does not check the band, the holder's
+role or any cumulative sign-off. The authority bands in
+[refund-authority-matrix.md](refund-authority-matrix.md) are an **offline,
+company-process control**: the system neither enforces nor records who, beyond
+the single approver, signed off.
 
 ## Eligible Reasons
 

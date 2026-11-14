@@ -21,6 +21,17 @@ is refused rather than believed. A real deployment needs roles, an approval
 sphere ("this operator may approve up to $500"), and separation between the
 actor proposing and the actor approving. **Phase 3.**
 
+**The approval gate is single-signer, and does not replace an offline
+multi-signature process.** One approval row on one tool call releases the
+refund, whatever the amount: there is no amount band, no approver role and no
+cumulative sign-off in the system (`ApprovalRequest` carries none of those
+fields, and `approvals.tool_call_id` is unique — see
+`knowledge/refund-authority-matrix.md`). The tiered authority the knowledge
+corpus describes (team lead, finance manager, CFO) is **company process, not
+system control**: the system neither executes nor records that chain, so a
+system approval is evidence that *a* human authorised the call, never that the
+matrix's sign-off chain happened.
+
 **No prompt-injection red-team.** The structural defence — permission gates that
 retrieved text cannot influence — is tested and holds. The *prompt-level* defence
 is a system-prompt instruction not to follow instructions found in retrieved
