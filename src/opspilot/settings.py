@@ -317,6 +317,12 @@ class Settings(BaseSettings):
 
     # -- Agent runtime -------------------------------------------------------
     max_steps: int = Field(default=24, alias="MAX_STEPS")
+    # Phase 3 M2-02: how many *consecutive identical* invalid proposals (same
+    # tool + same arguments, refused by a gate) stop the run. Default 3: one
+    # repeat is a model hiccup, two is a pattern, three is a loop -- and the
+    # step budget (MAX_STEPS) is the backstop, not the diagnosis. Read like
+    # MAX_STEPS: resolved when the RunContext is built, never frozen at import.
+    rejected_proposal_stop_limit: int = Field(default=3, alias="REJECTED_PROPOSAL_STOP_LIMIT")
 
     # -- Worker --------------------------------------------------------------
     worker_poll_interval: float = Field(default=1.0, alias="WORKER_POLL_INTERVAL")

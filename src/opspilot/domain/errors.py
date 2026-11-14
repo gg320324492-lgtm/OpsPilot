@@ -151,6 +151,38 @@ class RunParked(DomainError):
         super().__init__(f"run {run_id} parked awaiting approval for tool call {tool_call_id}")
 
 
+class RepeatInvalidProposalError(DomainError):
+    """The model re-proposed the *same* invalid call too many times in a row.
+
+    Phase 3 M2-02. Observed live (M1-01, case 12-04-22): a model spent its whole
+    step budget re-proposing one identical gate-refused call -- 23 identical
+    ``list_transactions`` proposals -- because nothing stopped the loop. The step
+    budget (``max_steps_exceeded``) already bounds the damage; this stop exists
+    so the run ends with a reason that names the *actual* failure: not "ran out
+    of steps" but "kept proposing the same refused call".
+
+    "Invalid" means refused by a gate -- schema-invalid arguments (gate 1), an
+    unknown tool (gate 2) or a policy refusal (gate 4). A call that *executed*
+    is not an invalid proposal, and it resets the streak: the model changed its
+    behaviour. The threshold is ``Settings.rejected_proposal_stop_limit``
+    (``REJECTED_PROPOSAL_STOP_LIMIT``, default 3).
+
+    Same shape as ``MaxStepsExceeded``: ``_fail_run`` has already written the
+    ``FAILED`` row (and the ``repeat_invalid_stopped`` audit event) before this
+    is raised, so it carries no work left to do -- the worker suppresses it so
+    an ordinary business outcome cannot kill the poll loop (``worker/loop.py``).
+    """
+
+    def __init__(self, run_id: str, tool_name: str, limit: int) -> None:
+        self.run_id = run_id
+        self.tool_name = tool_name
+        self.limit = limit
+        super().__init__(
+            f"run {run_id} stopped after {limit} consecutive identical invalid "
+            f"proposals of {tool_name!r}"
+        )
+
+
 class MCPUnavailable(DomainError):
     """A tool server could not be reached at all.
 

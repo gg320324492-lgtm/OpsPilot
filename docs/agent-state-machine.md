@@ -219,6 +219,7 @@ implicit.
   | `schema_invalid` | the runtime | the model's answer did not fit what the run could act on: arguments the tool's schema refused, twice, or a reply that was empty / not JSON / the wrong shape (the category is in the `model_failed` trace event) |
   | `tool_error` | the runtime | a tool failed in a way the runtime could not turn into a refusal |
   | `max_steps_exceeded` | the runtime | the run spent its step budget |
+  | `repeat_invalid_proposals` | the runtime | the model re-proposed the same invalid call — same tool *and* same arguments, refused by gate 1, 2 or 4 — `REJECTED_PROPOSAL_STOP_LIMIT` times in a row (default 3; Phase 3 M2-02). An executed, failed-dispatch or parked call resets the streak, as does a *different* refused proposal |
   | `model_unavailable` | the worker | the provider could not be reached: a refused connection, a timeout, a 5xx, a 429 |
   | `model_rejected` | the worker | the provider answered with a 401/403 -- our key is wrong, revoked or under-privileged |
   | `model_invalid_response` | the worker | the provider's answer did not fit the SDK's model of its API (a proxy or an SSO page answering in its place) |
@@ -395,3 +396,39 @@ onto every `RunContext` it builds). Exceeding it transitions to `FAILED` with
 not a crash, it is a loop — and an unbounded loop against a tool that mutates
 state is the expensive kind. Phase 1 has no retry logic, so the budget is
 generous on purpose; Phase 2's retry work will revisit it.
+
+## 7. Repeat-invalid-proposal stop (Phase 3 M2-02)
+
+The step budget bounds how *long* a loop can run; it does not say *why* the run
+ended. The historical evidence (docs/eval-failure-classification-2026-11-15.md)
+is that the dominant loop is not wandering — it is a model re-proposing one
+identical call the gates already refused, up to 23 times on one recorded case.
+
+So there is a second, narrower stop: when the model proposes the **same**
+invalid call — same tool name *and* same arguments — and a gate refuses it,
+`REJECTED_PROPOSAL_STOP_LIMIT` times **in a row** (default `3`, in
+`settings.py`; the worker passes it onto every `RunContext` it builds, like
+`MAX_STEPS`), the runtime ends the run `FAILED` with
+`repeat_invalid_proposals`, writes a `repeat_invalid_stopped` audit event
+naming the tool, the streak and the threshold, and logs the same at `WARNING`
+(`agents/runtime.py::_check_repeat_invalid_stop`).
+
+What counts:
+
+- **Invalid** means refused by a gate: gate 1 (schema-invalid arguments), gate
+  2 (unknown tool) or gate 4 (policy). Gate 3 records a permission and does not
+  refuse; gate 5 *parks* rather than refuses, so an `awaiting_approval` call is
+  not an invalid proposal.
+- **Consecutive** means the streak breaks on anything else: an executed call, a
+  failed dispatch, a parked call, or a *different* refused proposal. A model
+  that alternates between two refused calls, or that interleaves a working call
+  between repeats, never reaches the limit — the stop targets the run that is
+  *stuck*, not the run that is struggling.
+
+The stop is a diagnosis layered on the budget, not a replacement: it fires
+long before `MAX_STEPS` on a stuck run, and the step budget remains the
+backstop for loops that change shape often enough never to look stuck. The
+worker suppresses the resulting exception the same way it suppresses
+`MaxStepsExceeded` — the row is already written, and an ordinary outcome must
+not kill the poll loop.
+

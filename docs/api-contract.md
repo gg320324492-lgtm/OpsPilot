@@ -465,9 +465,17 @@ The run's audit ledger — the append-only record, not the execution timeline.
 `events` is in the order the ledger was written, oldest first, and it is
 **complete**: nothing is summarised and nothing is filtered out. The event types a
 run can write are `model_called`, `model_failed`, `tool_executed`, `tool_failed`,
-`tool_rejected`, `approval_requested`, `retrieval_abstained` and `run_failed`.
+`tool_rejected`, `approval_requested`, `retrieval_abstained`,
+`repeat_invalid_stopped` and `run_failed`.
 `payload`'s shape depends on `event_type` — the three that matter most:
 
+- `repeat_invalid_stopped` (Phase 3 M2-02) is written once, when the runtime
+  stops a run that kept re-proposing the *same* invalid call. Its payload is
+  `{tool_name, streak, limit, rejection_gate, rejection_detail}`: the tool that
+  was stuck on, how many identical refusals had accumulated, the configured
+  threshold (`REJECTED_PROPOSAL_STOP_LIMIT`, default 3), and the gate + reason
+  of the last refusal. The run then ends `FAILED` with
+  `failure_reason='repeat_invalid_proposals'` (docs/agent-state-machine.md §3).
 - `tool_failed` carries `{tool_call_id, tool_name, permission, ok, latency_ms,
   error}`, where `error` is the code the tool server answered with
   (`invalid_state`, `not_found`, `amount_exceeds_transaction`,

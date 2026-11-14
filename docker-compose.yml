@@ -200,6 +200,10 @@ services:
       RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
       MAX_STEPS: ${MAX_STEPS:-24}
+      # Phase 3 M2-02: the consecutive-identical-invalid-proposal stop. Inert in
+      # the api -- it never drives a run -- but passed so both halves agree on
+      # it, like MAX_STEPS above.
+      REJECTED_PROPOSAL_STOP_LIMIT: ${REJECTED_PROPOSAL_STOP_LIMIT:-3}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
       WORKER_ID: ${WORKER_ID:-}
       # The claim lease (docs/adr/0005; docs/limitations.md §2). Inert in the
@@ -384,6 +388,11 @@ services:
       # (agents/runtime.py). Also unset-but-silent before this line existed: a
       # budget set in .env did not reach the loop that spends it.
       MAX_STEPS: ${MAX_STEPS:-24}
+      # Phase 3 M2-02: the consecutive-identical-invalid-proposal stop
+      # (agents/runtime.py::_check_repeat_invalid_stop). A run stuck re-proposing
+      # one refused call ends `repeat_invalid_proposals` instead of spending the
+      # rest of the step budget.
+      REJECTED_PROPOSAL_STOP_LIMIT: ${REJECTED_PROPOSAL_STOP_LIMIT:-3}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1.0}
       # Unique per worker process — which is a *hard* requirement, not a
       # nicety. `agent_runs.claimed_by` is the second column of the claim

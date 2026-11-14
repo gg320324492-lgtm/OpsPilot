@@ -68,7 +68,7 @@ identical there and differ on Postgres.
 | `model_name` | VARCHAR NOT NULL | e.g. `claude-sonnet-5-5` |
 | `started_at` | TIMESTAMPTZ NULL | Set on first transition out of `RECEIVED` |
 | `completed_at` | TIMESTAMPTZ NULL | Set on entry to `COMPLETED`/`FAILED` |
-| `failure_reason` | TEXT NULL | Machine-stable token; see state-machine doc §3 |
+| `failure_reason` | TEXT NULL | Machine-stable token; see state-machine doc §3. One token per writer; `repeat_invalid_proposals` (Phase 3 M2-02) marks a run stopped for re-proposing the same invalid call past `REJECTED_PROPOSAL_STOP_LIMIT` |
 | `created_at` | TIMESTAMPTZ NOT NULL | |
 | `claimed_until` | TIMESTAMPTZ NULL | When the claim lease expires. See below |
 | `claimed_by` | VARCHAR NULL | The `WORKER_ID` holding the lease. See below |
@@ -170,7 +170,11 @@ gets no rows and should know that before they go looking for the bug.
 **A note on the `input`/`output` JSONB columns.** In Phase 1 they hold structured
 per-step metadata — `{provider, model}`, `{category, confidence}`,
 `{count, document_slugs}`, `{tool_name, done}`, `{from_status, to_status, at}` — plus,
-on the `response` step, the model's **composed reply** in full. That reply is a
+on the `response` step, the model's **composed reply** in full. A run stopped by
+the repeat-invalid-proposal limit (Phase 3 M2-02) additionally carries a
+`run_failed` step whose `output` is `{failure_reason: 'repeat_invalid_proposals'}`,
+beside the `repeat_invalid_stopped` audit event that names the tool and the
+streak (api-contract.md §4.1). That reply is a
 deliberate debugging affordance with a real privacy cost, recorded in
 [limitations.md](limitations.md) and slated for redaction in Phase 3; it is what
 makes the eval suite and the trace view possible at all. `STORE_FULL_PROMPTS=false`
