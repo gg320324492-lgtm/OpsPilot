@@ -142,7 +142,7 @@ does not make or a value you can recompute from a cited file.
 | Latency / tokens / cost | p50 26.8 s, p95 276.7 s, in 1146 / out 646 per run, $0.0000 | same file: p50 is the median of `results[].latency_ms` and p95 the nearest-rank percentile (`metrics.py::_median` / `_percentile`); tokens are the mean per run over the 140 `model_calls` carrying a usage record |
 | Model-call accounting | 358 calls, 5.1 per run; 140 with usage, 218 without | same, summed over every case's `model_calls` |
 | Tool-selection repeat runs | 3/15 and 2/15 | [`2026-10-13T18-24-25.json`](evals/results/2026-10-13T18-24-25.json), [`2026-10-13T18-40-10.json`](evals/results/2026-10-13T18-40-10.json) |
-| Acceptance criteria / DoD | 84 ticked of 90; DoD 18 of 19 | [`docs/milestones.md`](docs/milestones.md) |
+| Acceptance criteria / DoD | 85 ticked of 90; DoD 18 of 19 | [`docs/milestones.md`](docs/milestones.md) |
 
 **The numbers this README deliberately does not print:** a tool-selection figure
 without its two-run disagreement; a "percent of documents cited" for a retriever
