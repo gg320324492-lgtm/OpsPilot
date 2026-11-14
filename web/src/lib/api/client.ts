@@ -97,6 +97,10 @@ export type ApiErrorCode =
   | "approval_arguments_changed"
   | "policy_denied"
   | "unknown_tool"
+  // Phase 3 M2-03: re-creating a run that is not terminal. The run still has
+  // a live path -- parked on an approval, queued, or in flight -- and the
+  // guard is what keeps two agents off one ticket.
+  | "run_not_recreatable"
   // There is no "not_ready" member, and there never was one in a response.
   // `/ready` is the only route that answers 503, and it answers
   // `{"status":"not_ready","checks":{...}}` -- a readiness report, not the
@@ -446,6 +450,19 @@ export const api = {
   /** `GET /api/runs` -- optionally filtered by status (contract §1). */
   listRuns: (params: { status?: string; limit?: number; offset?: number } = {}) =>
     apiFetch<components["schemas"]["RunListResponse"]>(`/api/runs${queryString(params)}`),
+
+  /**
+   * `POST /api/runs/{run_id}/recreate` -- the human follow-up path (contract
+   * §3.3, Phase 3 M2-03). Creates a new RECEIVED run on the same ticket and
+   * reports what the original wrote. The browser calls this through the
+   * same-origin Route Handler (`app/api/runs/[runId]/recreate/route.ts`), which
+   * holds the token, exactly like the decision buttons.
+   */
+  recreateRun: (runId: string) =>
+    apiFetch<components["schemas"]["RunRecreateResponse"]>(
+      `/api/runs/${encodeURIComponent(runId)}/recreate`,
+      { method: "POST" },
+    ),
 
   /** `GET /api/runs/{run_id}` -- the run-detail payload (contract §3). */
   getRun: (runId: string) =>

@@ -36,6 +36,7 @@ import type { TFunction } from "@/i18n/format";
 import { ApprovalSummaryCard } from "./approval-summary";
 import { RunRefresher } from "./run-refresher";
 import { ExportButton } from "./export-button";
+import { RecreateRunButton } from "./recreate-button";
 
 /**
  * Run Detail: the screen that answers "what did OpsPilot actually do?".
@@ -70,11 +71,8 @@ export default async function RunDetailPage({
   params: Promise<{ runId: string }>;
 }) {
   // Async `params` is required from Next.js 16.
-  const [{ runId }, t, { locale, copy: exportCopy }] = await Promise.all([
-    params,
-    getT(),
-    getCopy("runExport"),
-  ]);
+  const [{ runId }, t, { locale, copy: exportCopy }, { copy: recreateCopy }] =
+    await Promise.all([params, getT(), getCopy("runExport"), getCopy("run")]);
   const { run, trace, audit } = await loadRunDetail(runId);
 
   // 404 has its own branch rather than falling into the generic error panel: a
@@ -115,6 +113,11 @@ export default async function RunDetailPage({
   const pending = detail.pending_approval;
   const isParked = detail.status === "waiting_approval";
   const isFailed = detail.status === "failed";
+  // The follow-up path's states: a run only ever leaves the queue for good by
+  // reaching one of the two terminal states, and only there is the "did the
+  // original write execute" answer a settled fact (the API computes it, and
+  // sends `null` for anything still in flight).
+  const isTerminalRun = isFailed || detail.status === "completed";
   const citations = detail.citations ?? [];
   const toolCalls = detail.tool_calls ?? [];
   const failedCalls = detail.failed_tool_calls ?? [];
@@ -209,6 +212,16 @@ export default async function RunDetailPage({
             <p className="mt-1">{t("run.approvedBody")}</p>
           </div>
         ) : null}
+
+        {/* -- the human follow-up path (Phase 3 M2-03) ---------------------- */}
+        {isTerminalRun && (
+          <RecreateRunButton
+            runId={detail.id}
+            copy={recreateCopy}
+            locale={locale}
+            writeStatus={detail.original_write_status ?? "unknown"}
+          />
+        )}
 
         {/* -- the run's own fields ---------------------------------------- */}
         <Panel title={t("run.runPanel")}>

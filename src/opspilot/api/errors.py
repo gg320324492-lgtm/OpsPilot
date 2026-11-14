@@ -118,6 +118,7 @@ _CODE_STATUS: dict[str, int] = {
     "approval_expired": 409,
     "run_not_awaiting_approval": 409,
     "run_already_completed": 409,
+    "run_not_recreatable": 409,
     "ticket_exists": 409,
     "illegal_transition": 409,
     "approval_arguments_changed": 409,

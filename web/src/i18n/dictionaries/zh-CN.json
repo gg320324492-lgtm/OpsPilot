@@ -310,21 +310,6 @@
     "fieldStarted": "开始时间",
     "fieldCompleted": "完成时间",
     "fieldClaim": "领取",
-    "fieldLastActivity": "最近活动",
-    "approvedTitle": "已批准——工作进程尚未执行。",
-    "approvedBody": "操作员已批准该运行的工具调用，但工作进程此后尚未领取该运行。资金未动，也没有任何东西在推进。工作进程下一次轮询时，运行会从这里继续；若长时间停在这里，请检查工作进程是否在运行。",
-    "replayTitle": "重放已被幂等键阻止。",
-    "replayBody": "该运行提出的一笔退款，在同一个幂等键下已经执行过。策略闸门拒绝了第二次提案，已记录的结果保持不变：资金恰好变动了一次。被阻止的调用已在下方“工具调用”面板中标注。",
-    "replayPill": "重放已阻止",
-    "modelErrorsTitle": "模型错误",
-    "modelErrorsEmptyTitle": "台账中没有模型错误。",
-    "modelErrorsEmptyHint": "一次未产生可用回答的模型调用，会向该运行的审计台账写入一条 `model_failed` 事件。这里为空表示到目前为止的每次模型调用都返回了可用结果。",
-    "modelErrorsUnreadableTitle": "无法读取审计台账。",
-    "modelErrorsUnreadableHint": "运行本身已加载，但 `GET /api/runs/{id}/audit` 请求失败，因此无法展示模型错误。这不等于“没有模型错误”——请刷新页面，或检查 API 是否在提供审计端点。",
-    "modelErrorsStage_before": "阶段：",
-    "modelErrorsStage_after": "",
-    "modelErrorsMeta": "第 {attempt} 次尝试 · HTTP 状态 {status}",
-    "modelErrorsUnknown": "未知",
     "fieldFailureReason": "失败原因",
     "claimHeld": "由 {worker} 持有至 {until}",
     "claimHeldUnnamed": "一个未命名的工作进程",
@@ -375,6 +360,18 @@
       "other": "{count} 个工具调用未完成"
     },
     "toolCallsAside": "已提出 {count} 个",
+    "recreateButton": "从此重新建单",
+    "recreateWorking": "正在重新建单…",
+    "recreateDialogTitle": "要为该工单重新建一个 run 吗？",
+    "recreateDialogBody": "将在同一工单下创建一个全新的 run。新 run 从头开始：不继承本 run 的任何内容——既不继承审批，也不继承已执行的退款；它提出的一切都要重新通过各道门，若涉及退款，还需人工重新审批后才会实际执行。",
+    "recreateWriteStatus_executed": "原 run 已执行退款。若新 run 提出同样的退款，除非交易状态已变化，否则会被计费系统拒绝——请先核实再继续。",
+    "recreateWriteStatus_not_executed": "原 run 未产生任何资金变动：其退款从未提出，或已在门禁处被拒绝。可以放心从头重跑。",
+    "recreateWriteStatus_unknown": "无法根据已记录的 trace 确认原 run 的退款情况。请先到计费系统核实，再决定是否依赖新 run。",
+    "recreateConfirm": "创建新 run",
+    "recreateCancel": "取消",
+    "recreateFailedTitle": "无法重新建单",
+    "recreateUnreachable": "面板无法访问自身接口 {endpoint}。",
+    "recreateDismiss": "关闭",
     "fieldLastActivity": "最近活动",
     "approvedTitle": "已批准——工作进程尚未执行。",
     "approvedBody": "操作员已批准本次运行的工具调用。该运行已可被领取；工具尚未执行，此批准没有执行任何操作。",
@@ -382,21 +379,14 @@
     "replayBody": "本次运行提出的调用，其幂等键与已执行的调用一致。系统返回了已存储的结果，未再次执行该调用。",
     "replayPill": "重放结果",
     "modelErrorsTitle": "模型错误",
-    "modelErrorsMeta": "已记录 {count} 条",
-    "modelErrorsStage_before": "阶段",
-    "modelErrorsStage_after": "",
-    "modelErrorsUnknown": "未知阶段",
     "modelErrorsEmptyTitle": "本次运行没有记录任何模型错误。",
     "modelErrorsEmptyHint": "审计记录读取失败不等于没有错误——参见错误面板。",
     "modelErrorsUnreadableTitle": "无法读取模型错误记录。",
-    "modelErrorsUnreadableHint": "本次运行可能仍有模型错误；审计接口没有应答。"
-  },
-  "runExport": {
-    "button": "导出摘要",
-    "exporting": "导出中…",
-    "ariaLabel": "将本次运行的脱敏证据摘要下载为 JSON 文件",
-    "failedStatus": "导出失败，状态码 {status}。",
-    "unreachable": "无法连接到仪表盘的导出接口。"
+    "modelErrorsUnreadableHint": "本次运行可能仍有模型错误；审计接口没有应答。",
+    "modelErrorsStage_before": "阶段",
+    "modelErrorsStage_after": "",
+    "modelErrorsMeta": "已记录 {count} 条",
+    "modelErrorsUnknown": "未知阶段"
   },
   "knowledge": {
     "title": "知识库",
@@ -436,5 +426,12 @@
         "other": "{count} 份文档的哈希发生变化"
       }
     }
+  },
+  "runExport": {
+    "button": "导出摘要",
+    "exporting": "导出中…",
+    "ariaLabel": "将本次运行的脱敏证据摘要下载为 JSON 文件",
+    "failedStatus": "导出失败，状态码 {status}。",
+    "unreachable": "无法连接到仪表盘的导出接口。"
   }
 }

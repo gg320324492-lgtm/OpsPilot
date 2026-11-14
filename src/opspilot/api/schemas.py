@@ -21,6 +21,7 @@ rather than left to the client.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Final
 from uuid import UUID
 
@@ -83,6 +84,34 @@ _SENSITIVE_KEY_FRAGMENTS: Final = (
 #: provider-key shape carried here: a bare value that embeds it is a key
 #: whether or not its key name said so.
 _SENSITIVE_VALUE_FRAGMENTS: Final = ("sk-",)
+
+
+class OriginalWriteStatus(StrEnum):
+    """Whether the original run's money-moving write actually happened.
+
+    Phase 3 M2-03. A three-valued answer, not a boolean, because "the run
+    failed" does not imply "nothing was written": a worker that dies between the
+    dispatch and the commit (``docs/risks.md`` C2) leaves the money moved and
+    the ``tool_calls`` row unrecorded, and the MCP server's own store -- not the
+    run table -- is the authority on which of the three is true.
+
+    - ``executed`` -- at least one ``billing.issue_refund`` call on the original
+      run is recorded ``executed``. The money moved and the row says so.
+    - ``not_executed`` -- the original run carries no ``executed`` refund row
+      **and** no refund row at all: nothing was proposed, or every proposal was
+      refused at a gate. Safe to re-run from scratch.
+    - ``unknown`` -- there are refund rows but none recorded ``executed`` (the
+      C2 window), or the tool-call rows could not be read at all. The operator
+      is told to check the billing system before trusting a re-run, because the
+      idempotency key alone cannot answer it: a *new* run derives a *new* key
+      (it is a function of the run id), so the server's replay guard does not
+      reach across runs.
+    """
+
+    EXECUTED = "executed"
+    NOT_EXECUTED = "not_executed"
+    UNKNOWN = "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Shared sub-models
@@ -342,6 +371,13 @@ class RunDetail(BaseModel):
     # money somewhere" impossible to read past -- which is the only property that
     # matters when the same page also says "and here is your reply".
     failed_tool_calls: list[ToolCallDetail] = Field(default_factory=list)
+    # Phase 3 M2-03: whether this run's money-moving write actually happened,
+    # computed server-side by the same rule ``POST /api/runs/{id}/recreate``
+    # reports (contract §3.3). Populated only for a *terminal* run -- a failed
+    # or completed one, exactly the states the re-create button shows for --
+    # and ``null`` otherwise, because "did the write execute" is not yet a
+    # settled fact about a run still in flight.
+    original_write_status: OriginalWriteStatus | None = None
 
 
 class TraceResponse(BaseModel):
@@ -650,6 +686,40 @@ class ReadyResponse(BaseModel):
 
     status: str
     checks: dict[str, str]
+
+
+# ---------------------------------------------------------------------------
+# Run re-creation (Phase 3 M2-03)
+# ---------------------------------------------------------------------------
+
+
+class RunRecreateResponse(BaseModel):
+    """Body of ``POST /api/runs/{run_id}/recreate`` (contract §3.2).
+
+    Three things an operator needs to act on the new run, and nothing else:
+
+    - ``original_run_id`` -- which run this was made from. The new run is a
+      sibling of the original under the same ticket, not a replacement: both
+      rows exist and both remain readable.
+    - ``original_write_status`` -- whether the original run's money-moving
+      write actually happened (``executed`` / ``not_executed`` / ``unknown``).
+      Stated in the *response* rather than left for the client to derive,
+      because the derivation needs the tool-call rows and the same three-valued
+      rule in every client is three chances to get "unknown" wrong.
+    - ``run`` -- the new run, in ``RECEIVED``, for the follow and the redirect.
+
+    What is deliberately **absent**: any approval from the original run, and any
+    executed refund row copied forward. A new run starts from nothing -- the
+    state machine's only entry point is ``RECEIVED`` -- so re-running a refunded
+    case means the new run must go through classification, retrieval, gates and
+    (if it proposes a refund) a *fresh* human approval before anything moves.
+    That is the whole point of the human follow-up path: a person decides the
+    original outcome was wrong, and the decision is re-made, not inherited.
+    """
+
+    original_run_id: UUID
+    original_write_status: OriginalWriteStatus
+    run: RunRef
 
 
 # ---------------------------------------------------------------------------

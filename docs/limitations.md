@@ -547,7 +547,10 @@ it and accept that a finished run becomes unfinished, or leave the run's status
 alone and refuse the proposal only — and the answer changes what the gate
 means. It is recorded here rather than answered, because it is a product
 decision: the security property (no dispatch) holds under all three, and only
-the status bookkeeping differs.
+the status bookkeeping differs. (The sanctioned way to re-run a finished
+ticket is the follow-up path — `POST /api/runs/{id}/recreate`, Phase 3 M2-03 —
+which creates a *new* run rather than driving the finished one; see
+`api-contract.md` §3.3.)
 
 **The native menu is localized; the operating system around it is not.** The
 application's own menu bar is built in the operator's language and follows the

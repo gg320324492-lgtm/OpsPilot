@@ -312,21 +312,6 @@
     "fieldStarted": "Started",
     "fieldCompleted": "Completed",
     "fieldClaim": "Claim",
-    "fieldLastActivity": "Last activity",
-    "approvedTitle": "Approved — the worker has not executed it yet.",
-    "approvedBody": "An operator approved this run's tool call, and the worker has not picked the run up since. No money has moved and nothing is progressing. Once a worker polls, the run resumes from here; if it stays like this, check that a worker is running.",
-    "replayTitle": "Replay blocked by the idempotency key.",
-    "replayBody": "This run proposed a refund that had already been executed under the same idempotency key. The policy gate refused the second proposal and the recorded result stands: the money moved exactly once. The blocked call is marked on the Tool calls panel below.",
-    "replayPill": "Replay blocked",
-    "modelErrorsTitle": "Model errors",
-    "modelErrorsEmptyTitle": "No model errors on the ledger.",
-    "modelErrorsEmptyHint": "A model call that produced no usable answer writes a `model_failed` event to this run's audit ledger. Nothing here means every model call so far returned something usable.",
-    "modelErrorsUnreadableTitle": "The audit ledger could not be read.",
-    "modelErrorsUnreadableHint": "The run itself loaded, but `GET /api/runs/{id}/audit` failed, so model failures cannot be shown. This is not the same as \"no model errors\" — reload the page or check that the API is serving the audit endpoint.",
-    "modelErrorsStage_before": "stage:",
-    "modelErrorsStage_after": "",
-    "modelErrorsMeta": "attempt {attempt} · HTTP status {status}",
-    "modelErrorsUnknown": "unknown",
     "fieldFailureReason": "Failure reason",
     "claimHeld": "Held by {worker} until {until}",
     "claimHeldUnnamed": "an unnamed worker",
@@ -378,6 +363,18 @@
       "other": "{count} tool calls did not complete"
     },
     "toolCallsAside": "{count} proposed",
+    "recreateButton": "Re-run from here",
+    "recreateWorking": "Re-running…",
+    "recreateDialogTitle": "Re-run this ticket as a new run?",
+    "recreateDialogBody": "This creates a new run on the same ticket. The new run starts from scratch: it inherits nothing from this one -- no approval, no executed refund -- and anything it proposes goes through the gates and, if it needs one, a fresh human approval before anything happens.",
+    "recreateWriteStatus_executed": "The original run executed its refund. If the re-run proposes the same refund, it will be refused by the billing system unless the transaction state has changed -- check before proceeding.",
+    "recreateWriteStatus_not_executed": "The original run moved nothing: its refund was never proposed or was refused at a gate. Safe to re-run from scratch.",
+    "recreateWriteStatus_unknown": "The original run's refund could not be confirmed from the recorded trace. Check the billing system before relying on the re-run.",
+    "recreateConfirm": "Create the new run",
+    "recreateCancel": "Cancel",
+    "recreateFailedTitle": "Could not re-create the run",
+    "recreateUnreachable": "The dashboard could not reach itself at {endpoint}.",
+    "recreateDismiss": "Dismiss",
     "fieldLastActivity": "Last activity",
     "approvedTitle": "Approved — the worker has not executed it yet.",
     "approvedBody": "An operator approved this run's tool call. The run is claimable; the tool has not run yet, so nothing has been executed by this approval.",
@@ -385,21 +382,14 @@
     "replayBody": "The run proposed a call whose idempotency key matches one that already executed. The stored result was returned and the call was not run again.",
     "replayPill": "Replayed result",
     "modelErrorsTitle": "Model errors",
-    "modelErrorsMeta": "{count} recorded",
-    "modelErrorsStage_before": "stage",
-    "modelErrorsStage_after": "",
-    "modelErrorsUnknown": "unknown stage",
     "modelErrorsEmptyTitle": "No model errors recorded for this run.",
     "modelErrorsEmptyHint": "A failed ledger read is not an empty ledger — see the error panel.",
     "modelErrorsUnreadableTitle": "The model-error ledger could not be read.",
-    "modelErrorsUnreadableHint": "The run may still have model errors; the audit endpoint did not answer."
-  },
-  "runExport": {
-    "button": "Export summary",
-    "exporting": "Exporting…",
-    "ariaLabel": "Download this run's redacted evidence export as JSON",
-    "failedStatus": "The export failed with status {status}.",
-    "unreachable": "Could not reach the dashboard's export endpoint."
+    "modelErrorsUnreadableHint": "The run may still have model errors; the audit endpoint did not answer.",
+    "modelErrorsStage_before": "stage",
+    "modelErrorsStage_after": "",
+    "modelErrorsMeta": "{count} recorded",
+    "modelErrorsUnknown": "unknown stage"
   },
   "knowledge": {
     "title": "Knowledge",
@@ -440,5 +430,12 @@
         "other": "{count} documents had a changed"
       }
     }
+  },
+  "runExport": {
+    "button": "Export summary",
+    "exporting": "Exporting…",
+    "ariaLabel": "Download this run's redacted evidence export as JSON",
+    "failedStatus": "The export failed with status {status}.",
+    "unreachable": "Could not reach the dashboard's export endpoint."
   }
 }

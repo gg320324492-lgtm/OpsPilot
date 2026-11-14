@@ -279,16 +279,24 @@ def test_audit_is_append_only() -> None:
         )
         audit_methods[owner.__name__] = names
 
-    assert audit_methods["SqlRunStore"] == ["list_audit_events"], (
+    assert audit_methods["SqlRunStore"] == ["audit_recorder_for", "list_audit_events"], (
         f"the run store exposes {audit_methods['SqlRunStore']}; the only audit "
-        "method on the read side may be the read."
+        "methods it may expose are the read and the recorder factory -- a "
+        "``TraceRecorder`` handed out by name (Phase 3 M2-03's ``run_recreated`` "
+        "event), not a second append path. The recorder still only appends."
     )
     assert audit_methods["TraceRecorder"] == ["record_audit"], (
         f"the recorder exposes {audit_methods['TraceRecorder']}; the only audit "
         "method on the write side may be the append."
     )
     for name, methods in audit_methods.items():
-        assert methods == ["list_audit_events"] or methods == ["record_audit"] or not methods, (
+        allowed = (
+            methods == ["list_audit_events"]
+            or methods == ["record_audit"]
+            or methods == ["audit_recorder_for", "list_audit_events"]
+            or not methods
+        )
+        assert allowed, (
             f"{name} exposes {methods}; no class may expose a second way to touch the audit ledger."
         )
 

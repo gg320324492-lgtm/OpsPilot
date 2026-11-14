@@ -246,6 +246,14 @@ export interface paths {
          *     specification (``docs/agent-state-machine.md`` §2) and this is not one of its
          *     states.
          *
+         *     ``original_write_status`` (Phase 3 M2-03) is populated only for a *terminal*
+         *     run -- failed or completed -- by the same rule ``POST
+         *     /api/runs/{id}/recreate`` reports (§3.3). A finished run is exactly the
+         *     state the re-create button shows for, so the screen that offers the button
+         *     is the one that states what the original wrote; a run still in flight
+         *     carries ``null``, because "did the write execute" is not yet a settled fact
+         *     about it.
+         *
          *     Raises:
          *         ApiError: 404 ``run_not_found`` if there is no such run.
          */
@@ -319,6 +327,54 @@ export interface paths {
         get: operations["export_run_api_runs__run_id__export_get"];
         put?: never;
         post?: never;
+        get?: never;
+        put?: never;
+        /**
+         * Recreate Run
+         * @description Create a new run for the original run's ticket -- the human follow-up path
+         *     (Phase 3 M2-03, contract §3.2).
+         *
+         *     An operator reads a finished run, decides its outcome needs another pass,
+         *     and asks for a fresh run against the same ticket. The new run is a
+         *     **sibling, not a continuation**: it starts in ``RECEIVED`` like any other
+         *     run, and it inherits nothing from the original -- no approval, no executed
+         *     refund, no trace. That is deliberate and it is the whole point: the
+         *     follow-up exists because a human judged the original outcome insufficient,
+         *     so the judgement has to be re-made, not copied.
+         *
+         *     The response states what the original run actually wrote, as
+         *     ``original_write_status``. The three values are ``executed`` (a refund
+         *     row on the original run is recorded ``executed``), ``not_executed`` (no
+         *     refund row at all -- every proposal was refused at a gate, or none was
+         *     made) and ``unknown`` (refund rows exist but none is ``executed`` -- the
+         *     crash window of ``docs/risks.md`` C2 -- or the rows could not be read). The
+         *     value is computed here, from the store, so every client gets the same
+         *     answer; it is **advice**, not an authorisation: a new run must pass every
+         *     gate and win a fresh approval before anything moves, exactly like the
+         *     original did.
+         *
+         *     The idempotency key a new run derives is a function of *its* run id
+         *     (``domain/policies.py``), so the server's replay guard does not reach
+         *     across runs -- which is why the cross-run boundary is guarded here instead:
+         *     only a terminal run can be re-created, a parked run's approval stays where
+         *     it is, and the state machine's single ``RECEIVED`` entry point means a
+         *     re-created run cannot skip the gates. The end-to-end cross-run property
+         *     lives in ``tests/agent/test_recreate_run.py``, and this handler's own
+         *     contract -- statuses, error codes, the write-status rule -- lives in
+         *     ``tests/integration/test_api_run_recreate.py``.
+         *
+         *     Writes one ``run_recreated`` audit event against the **new** run's ledger:
+         *     the original's ledger records what that run did, and this event records
+         *     what this action did -- who asked, and from which original.
+         *
+         *     Raises:
+         *         ApiError: 404 ``run_not_found`` if there is no such run; 409
+         *             ``run_not_recreatable`` if the run is not terminal -- a parked,
+         *             in-flight or queued run still has a live path, and re-creating
+         *             under it would risk two agents on one ticket.
+         */
+        post: operations["recreate_run_api_runs__run_id__recreate_post"];
+        delete?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -975,6 +1031,30 @@ export interface components {
             documents_seen: number;
         };
         /**
+         * OriginalWriteStatus
+         * @description Whether the original run's money-moving write actually happened.
+         *
+         *     Phase 3 M2-03. A three-valued answer, not a boolean, because "the run
+         *     failed" does not imply "nothing was written": a worker that dies between the
+         *     dispatch and the commit (``docs/risks.md`` C2) leaves the money moved and
+         *     the ``tool_calls`` row unrecorded, and the MCP server's own store -- not the
+         *     run table -- is the authority on which of the three is true.
+         *
+         *     - ``executed`` -- at least one ``billing.issue_refund`` call on the original
+         *       run is recorded ``executed``. The money moved and the row says so.
+         *     - ``not_executed`` -- the original run carries no ``executed`` refund row
+         *       **and** no refund row at all: nothing was proposed, or every proposal was
+         *       refused at a gate. Safe to re-run from scratch.
+         *     - ``unknown`` -- there are refund rows but none recorded ``executed`` (the
+         *       C2 window), or the tool-call rows could not be read at all. The operator
+         *       is told to check the billing system before trusting a re-run, because the
+         *       idempotency key alone cannot answer it: a *new* run derives a *new* key
+         *       (it is a function of the run id), so the server's replay guard does not
+         *       reach across runs.
+         * @enum {string}
+         */
+        OriginalWriteStatus: "executed" | "not_executed" | "unknown";
+        /**
          * PendingApproval
          * @description The approver-visible payload nested inside a parked run (contract §3).
          */
@@ -1083,6 +1163,7 @@ export interface components {
             model_name: string;
             /** Model Provider */
             model_provider: string;
+            original_write_status?: components["schemas"]["OriginalWriteStatus"] | null;
             pending_approval?: components["schemas"]["PendingApproval"] | null;
             /** Started At */
             started_at?: string | null;
@@ -1140,6 +1221,39 @@ export interface components {
             items: components["schemas"]["RunSummary"][];
             /** Total */
             total: number;
+        };
+        /**
+         * RunRecreateResponse
+         * @description Body of ``POST /api/runs/{run_id}/recreate`` (contract §3.2).
+         *
+         *     Three things an operator needs to act on the new run, and nothing else:
+         *
+         *     - ``original_run_id`` -- which run this was made from. The new run is a
+         *       sibling of the original under the same ticket, not a replacement: both
+         *       rows exist and both remain readable.
+         *     - ``original_write_status`` -- whether the original run's money-moving
+         *       write actually happened (``executed`` / ``not_executed`` / ``unknown``).
+         *       Stated in the *response* rather than left for the client to derive,
+         *       because the derivation needs the tool-call rows and the same three-valued
+         *       rule in every client is three chances to get "unknown" wrong.
+         *     - ``run`` -- the new run, in ``RECEIVED``, for the follow and the redirect.
+         *
+         *     What is deliberately **absent**: any approval from the original run, and any
+         *     executed refund row copied forward. A new run starts from nothing -- the
+         *     state machine's only entry point is ``RECEIVED`` -- so re-running a refunded
+         *     case means the new run must go through classification, retrieval, gates and
+         *     (if it proposes a refund) a *fresh* human approval before anything moves.
+         *     That is the whole point of the human follow-up path: a person decides the
+         *     original outcome was wrong, and the decision is re-made, not inherited.
+         */
+        RunRecreateResponse: {
+            /**
+             * Original Run Id
+             * Format: uuid
+             */
+            original_run_id: string;
+            original_write_status: components["schemas"]["OriginalWriteStatus"];
+            run: components["schemas"]["RunRef"];
         };
         /**
          * RunRef
@@ -2190,6 +2304,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunExport"];
+                };
+            };
+            /** @description Bad request (``validation_error``) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token (``unauthorized``) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No such resource (entity-specific code) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicting state (``*_already_decided`` and friends) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Schema validation failed (``schema_invalid``) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error (``internal_error``; the detail is in the log, keyed by a trace id returned in ``details``) */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    recreate_run_api_runs__run_id__recreate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunRecreateResponse"];
                 };
             };
             /** @description Bad request (``validation_error``) */
