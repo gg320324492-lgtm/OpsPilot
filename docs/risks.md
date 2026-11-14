@@ -122,10 +122,15 @@ MCP server directly, twice, bypassing the agent.
 **Residual.** None identified for the single-run case. Cross-run idempotency
 (two runs both refunding the same transaction) is handled by the MCP server's
 `invalid_state` check on an already-refunded transaction. The *concurrent*
-version of that race is not covered: nothing locks the store, so the atomic
-replace only guarantees a reader never sees a torn file, not that one writer
-wins the check-then-write. With a real payment API this would need a conditional
-write, and that is noted for Phase 2.
+in-process version of that race is now covered: the check-then-write runs under
+the store's in-process write lock (`Store.writing()`, closed in Phase 2 C2), so
+concurrent calls with one key produce one refund. What remains open is the
+*cross-process* version: two processes over one store file still get no
+read-modify-write isolation — the lock is per-process, and the atomic replace
+only guarantees a reader never sees a torn file, not that one writer wins. The
+deployment's one-process-per-store rule (architecture §8) is what keeps that
+case out of scope, and with a real payment API it would need a conditional
+write.
 
 ---
 

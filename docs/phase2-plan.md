@@ -225,14 +225,19 @@ The refund key is enforced by the handler's linear scan
 say is scoped to one process serving calls one at a time. Two callers can
 therefore both pass the scan.
 
-**Fix:** do not add a lock to the JSON store — `_store.py:41-45` records that its
-no-locking decision is deliberate. The honest options are an atomic
-check-and-write at the store boundary, or stating the boundary in the contract
-and testing the documented single-writer case. Decide which, and say why.
+**Fix (chosen 2026-11-14: both routes).** The store grew an in-process write
+lock — `Store.writing()`, a `threading.Lock`, not a file lock — and
+`issue_refund` runs its whole scan-check-mutate-save sequence inside it, making
+the check-and-write atomic against every other thread of the process (the SDK
+runs sync handlers on worker threads, so the race is real in-process). The
+lock is per-`Store` instance: no stale-lock failure mode, and it reaches
+exactly the writers that share one in-memory document. The contract
+(`mcp-contracts.md` S2) states the resulting boundary precisely: guaranteed
+within one process at any concurrency; **not** guaranteed across two processes
+over one store file — that stays the documented, tested failure mode.
 
-**Acceptance:** either the guarantee is made and tested, or the contract states
-precisely what it does and does not cover and the test pins that boundary. The
-failure mode is the second one being left implicit.
+**Acceptance:** the guarantee is made *and* tested, and the contract states
+precisely what it does not cover, with that boundary pinned too.
 
 ### C3 — What an operator sees when something goes wrong
 
@@ -463,7 +468,7 @@ complete the code looks**, so this is the table that decides.
 one is a gitignored local run; the directory grows with every evaluation), so
 it has never been run and no result has been reported. That is partly the design working as intended — `_OPT_IN_DATASETS` is opt-in and "never run by default", which is what "tuning never consults it" asks for — but the report the clause asks for does not exist |
 | **C1** | "A test that starts two workers against one PostgreSQL and asserts no run is claimed twice" | **partial — and the row first read "met", which was wrong** | The lease (`migrations/versions/0002_claim_lease.py`, the predicate in `SqlRunStore.claim_next` — `src/opspilot/adapters/persistence/repositories.py:566`) closes the *live-worker* half: the documented 30/30 concurrent double-claim is gone. Two files carry it and the split matters — `tests/integration/test_worker_claim_lease.py` is the dialect-independent half on SQLite (`test_thirty_non_overlapping_claim_pairs_never_share_the_run`, at `:118`), and `tests/integration/test_worker_claim_postgres.py::test_a_leased_claim_is_withheld_from_a_second_worker` (`:439`, one of **five** `postgres`-marked tests — this row used to say seven, which counts two other `test_` functions in that file that carry no marker) is the half that runs against a real PostgreSQL. But the acceptance as written is **unconditional**, and the repository's own test asserts the opposite case: `test_a_lease_that_lapses_mid_drive_is_the_tested_failure_mode` drives a run, lets an unrenewed lease expire, and asserts a second worker **does** claim it — "two workers driving one run. That is the honest cost of a lease." `docs/limitations.md` §8 item 2 still lists the end-to-end promise as open and calls the production fix C1's open half. So the boundary is *stated and tested*, not removed — the same shape C2 chose, recorded here rather than read as a stronger guarantee than the code makes |
-| **C2** | The refund guarantee is made and tested, or its boundary is stated and tested | **met**, by the second route | `tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded` asserts the *failure* the contract does not cover, rather than denying it |
+| **C2** | The refund guarantee is made and tested, or its boundary is stated and tested | **met — both routes (2026-11-14)** | The guarantee: `Store.writing()` in-process lock + atomic check-and-write in `issue_refund`, tested by `tests/integration/test_mcp_billing.py::test_two_concurrent_threads_on_the_same_key_create_one_refund` and `::test_many_concurrent_threads_on_the_same_key_create_one_refund` (one fresh refund, rest replay), `::test_concurrent_refunds_on_different_transactions_both_persist`, and the lock semantics in `tests/integration/test_mcp_store.py::test_writing_admits_one_thread_at_a_time`, `::test_writing_releases_the_lock_when_the_body_raises`, `::test_writing_is_per_store_not_global`. The stated boundary (two processes over one file stay uncovered): `::test_second_writer_over_the_same_key_is_discarded` and `::test_the_second_writer_still_misses_the_first_writer_s_persisted_row` |
 | **C3** | An operator can tell a claimed-but-stalled run from an unclaimed one | **met** | the lease is projected to the run page (`web/src/app/runs/[runId]/page.tsx`); `web/e2e/claim-lease.spec.ts` |
 | **C4** | The worker-startup gap the e2e job hit | **met**, on the second and third limbs of the plan's acceptance | `web/e2e/stack-diagnostics.spec.ts` — the `assessWorker` guard (the pure function the restart check moved into, asserted against a boot-then-crash log, a crash-looping container, a container that exited after booting, an absent container and a silent log) and `composeDiagnosticsDir` (the per-service log capture, asserted not to collide) — plus `docs/progress.md:5121` ("the cause is NOT established, and the artifact cannot establish it") and `docs/progress.md:5436` ("C4's three findings, two fixed and one recorded"). `tests/integration/test_worker_entry_point.py`, which this row used to cite, is about the `opspilot-worker` console-script entry point, not this. §P2-C4 states the acceptance in three limbs: "the cause is found and fixed, **or** the gate's evidence is shown to be sufficient to diagnose it next time, **and** `docs/limitations.md` records it as an open question rather than a closed one". The **first limb is unmet** — the cause was never diagnosed, which §P2-C4 says itself. The **second is met** by the two guards above. The **third is met in `docs/limitations.md` §2** ("Reliability"), **not §8**: the five-minute unclaimed window is described there as "the exact snapshot CI run 38202887580 could not explain" |
 | **D1** | The shell owns the stack lifecycle and stops only what it started | **met** | `desktop/src/lifecycle/` (no Electron import) + `desktop/e2e/shell.spec.ts`, which launches a real window |

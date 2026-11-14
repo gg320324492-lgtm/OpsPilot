@@ -296,22 +296,51 @@ check, not by a store constraint**: `issue_refund` scans the stored `refunds`
 rows for a matching `idempotency_key` and returns the recorded refund with
 `replayed: true` rather than inserting a second row. The billing store is a
 plain JSON document (`mcp_servers/_store.py`) — no schema, no index, and so no
-`UNIQUE` constraint of any kind — and `_store.py` says plainly that it does not
-lock. The guarantee's boundary is therefore one process serving calls one at a
-time: a *sequential* repeat returns the recorded refund, which is what the
-golden path and the tests rely on. The check-then-write is not atomic, so this
-is not a claim about concurrent duplicate delivery.
+`UNIQUE` constraint of any kind.
+
+**What is guaranteed — one process, any concurrency.** The whole
+scan-check-mutate-save sequence runs inside the store's in-process write lock
+(``Store.writing()``, a `threading.Lock` — `_store.py`'s concurrency note).
+The SDK runs this sync handler on a worker thread
+(``func_metadata.call_fn`` → ``anyio.to_thread.run_sync``), so concurrent
+calls to one process really can interleave; the lock makes the check-then-write
+atomic against them. Two (or eight) concurrent calls with the same key produce
+exactly one fresh refund — one caller reports `replayed: false`, every other
+reports `replayed: true` with the same `refund_id`, and the document ends with
+one refund row, one `next_refund_id` bump and one transaction-status change,
+whatever order the threads are scheduled in. A sequential repeat — the golden
+path's case — remains a plain replay.
+
+**What is not guaranteed — two processes over one store file.** The lock is
+per-`Store` instance, and each process holds its own. Two callers each holding
+their own document over the same file — two processes, or a process and a
+hand-run server — can still both pass their scans, both append, and both
+report `replayed: false` with the same `refund_id`; the atomic `os.replace`
+then keeps one whole document in full and discards the other. The file is
+never torn, but one caller's success (refund row *and* transaction-status
+write together) is not persisted. The key does **not** protect that case; the
+contract is one writer per store file per process, which
+`docs/architecture.md` §8 makes the deployment: each server is a standalone
+stdio process with its own store file.
 
 Idempotency here is enforced by the handler rather than inherited from the
 storage engine; that is why `tests/integration/test_mcp_billing.py` can call the
-server directly, bypassing the agent, and still be a meaningful test. The
-boundary above is pinned, not merely asserted: the sequential single-writer case
-is `test_same_idempotency_key_twice_creates_one_refund`, and the *documented
-failure mode* for two writers over one file — both scans miss, both report
-`replayed: false`, and the atomic replace keeps one whole document and discards
-the other — is
-`test_second_writer_over_the_same_key_is_discarded`. That test is expected to
-change if the guarantee is ever made.
+server directly, bypassing the agent, and still be a meaningful test. Both
+sides of that boundary are pinned, not merely asserted. The in-process
+guarantee: `test_two_concurrent_threads_on_the_same_key_create_one_refund` and
+`test_many_concurrent_threads_on_the_same_key_create_one_refund` (the barrier
+race), `test_concurrent_refunds_on_different_transactions_both_persist` (the
+lock serialises the section, not the business rule — an unrelated refund still
+goes through), and the lock semantics themselves in
+`tests/integration/test_mcp_store.py::test_writing_admits_one_thread_at_a_time`
+(one writer inside at a time), `::test_writing_releases_the_lock_when_the_body_raises`
+(a failed write does not poison the lock) and
+`::test_writing_is_per_store_not_global` (two stores over one file share
+nothing). The documented cross-process failure mode — both scans miss, both
+report `replayed: false`, and the atomic replace keeps one whole document and
+discards the other — is
+`test_second_writer_over_the_same_key_is_discarded` and
+`test_the_second_writer_still_misses_the_first_writer_s_persisted_row`.
 
 ---
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -356,6 +357,164 @@ def test_second_writer_over_the_same_key_is_discarded(tmp_path: Path) -> None:
     assert len(writer_b.data["refunds"]) == 1
     assert writer_b.data["refunds"][0]["reason"] == "writer-b"
     assert writer_b.data["refunds"][0] != on_disk["refunds"][0]
+
+
+def test_two_concurrent_threads_on_the_same_key_create_one_refund(store: Store) -> None:
+    """Two threads racing one key against *one* store -> one refund, one replay.
+
+    The single-process guarantee. The SDK runs a sync tool function on a worker
+    thread (``func_metadata.call_fn`` -> ``anyio.to_thread.run_sync``), so two
+    calls served by one process really can interleave; the check-then-write must
+    therefore be atomic in-process, not merely fast enough to win a race. Both
+    threads start together on a barrier and both take the same path into
+    ``issue_refund``; whatever order they are scheduled in, the store's
+    check-and-write section admits exactly one of them.
+
+    This is the C2 acceptance test: after the fix, both callers get a success
+    (one fresh, one ``replayed``) and the document holds one refund row. Before
+    the fix this failed nondeterministically, which is precisely why the
+    guarantee had to be implemented rather than assumed.
+    """
+    key = "refund:run-race:TX-88219"
+    args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
+    barrier = threading.Barrier(2, timeout=_THREAD_TIMEOUT_SECONDS)
+    results: list[dict[str, Any]] = []
+    errors: list[BaseException] = []
+
+    def racer() -> None:
+        try:
+            barrier.wait()
+            server = create_server(store)
+            result = asyncio.run(server.call_tool("billing.issue_refund", args))
+            assert isinstance(result, CallToolResult)
+            assert result.structured_content is not None
+            results.append(dict(result.structured_content))
+        except BaseException as exc:  # pragma: no cover - only on a broken run
+            errors.append(exc)
+
+    threads = [threading.Thread(target=racer), threading.Thread(target=racer)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(_THREAD_TIMEOUT_SECONDS)
+    assert not any(thread.is_alive() for thread in threads), "a racer hung"
+    assert not errors, f"a racer crashed: {errors!r}"
+
+    assert len(results) == 2
+    fresh = [r for r in results if r["replayed"] is False]
+    replayed = [r for r in results if r["replayed"] is True]
+    assert len(fresh) == 1, f"exactly one caller may create the refund, got {results!r}"
+    assert len(replayed) == 1, f"the second caller must replay, got {results!r}"
+    assert fresh[0]["refund_id"] == replayed[0]["refund_id"]
+
+    # The document, not the responses, is the authority: exactly one row, and
+    # the transaction moved to refunded exactly once.
+    assert len(store.data["refunds"]) == 1
+    assert store.data["refunds"][0]["idempotency_key"] == key
+    tx = next(t for t in store.data["transactions"] if t["transaction_id"] == "TX-88219")
+    assert tx["status"] == "refunded"
+    assert store.data["next_refund_id"] == 10092
+
+
+def test_many_concurrent_threads_on_the_same_key_create_one_refund(store: Store) -> None:
+    """The same race with more contenders -- the barrier makes the window wide.
+
+    Two threads can interleave by luck; eight hammering one key through a
+    barrier cannot all fit through the check-then-write section by luck. Every
+    caller must return, exactly one must report ``replayed: false``, and the
+    document must end with one refund row and one bumped counter. A store that
+    merely scanned before writing would append several rows here.
+    """
+    key = "refund:run-stampede:TX-88219"
+    args = {"transaction_id": "TX-88219", "amount": 129.00, "idempotency_key": key}
+    contenders = 8
+    barrier = threading.Barrier(contenders, timeout=_THREAD_TIMEOUT_SECONDS)
+    results: list[dict[str, Any]] = []
+    errors: list[BaseException] = []
+    lock = threading.Lock()
+
+    def racer() -> None:
+        try:
+            barrier.wait()
+            server = create_server(store)
+            result = asyncio.run(server.call_tool("billing.issue_refund", args))
+            assert isinstance(result, CallToolResult)
+            assert result.structured_content is not None
+            with lock:
+                results.append(dict(result.structured_content))
+        except BaseException as exc:  # pragma: no cover - only on a broken run
+            with lock:
+                errors.append(exc)
+
+    threads = [threading.Thread(target=racer) for _ in range(contenders)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(_THREAD_TIMEOUT_SECONDS)
+    assert not any(thread.is_alive() for thread in threads), "a racer hung"
+    assert not errors, f"a racer crashed: {errors!r}"
+
+    assert len(results) == contenders
+    fresh = [r for r in results if r["replayed"] is False]
+    assert len(fresh) == 1, f"exactly one caller may create the refund, got {results!r}"
+    assert all(r["refund_id"] == fresh[0]["refund_id"] for r in results)
+
+    assert len(store.data["refunds"]) == 1
+    assert store.data["refunds"][0]["idempotency_key"] == key
+    assert store.data["next_refund_id"] == 10092
+
+
+def test_concurrent_refunds_on_different_transactions_both_persist(store: Store) -> None:
+    """The lock serialises the writes; it must not serialise away a valid one.
+
+    Two callers refunding *different* transactions with different keys both
+    succeed. Guarding the check-and-write with one lock is only correct if the
+    lock guards the section rather than the business rule: a second, unrelated
+    refund must still go through. This is the test that would catch a fix that
+    "solved" the duplicate by refusing every write while one is in flight.
+    """
+    args_a = {
+        "transaction_id": "TX-88218",
+        "amount": 89.50,
+        "idempotency_key": "refund:run-par-a:TX-88218",
+    }
+    args_b = {
+        "transaction_id": "TX-88219",
+        "amount": 129.00,
+        "idempotency_key": "refund:run-par-b:TX-88219",
+    }
+    barrier = threading.Barrier(2, timeout=_THREAD_TIMEOUT_SECONDS)
+    results: dict[str, dict[str, Any]] = {}
+    errors: list[BaseException] = []
+
+    def racer(name: str, call_args: dict[str, Any]) -> None:
+        try:
+            barrier.wait()
+            server = create_server(store)
+            result = asyncio.run(server.call_tool("billing.issue_refund", call_args))
+            assert isinstance(result, CallToolResult)
+            assert result.structured_content is not None
+            results[name] = dict(result.structured_content)
+        except BaseException as exc:  # pragma: no cover - only on a broken run
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=racer, args=("a", args_a)),
+        threading.Thread(target=racer, args=("b", args_b)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(_THREAD_TIMEOUT_SECONDS)
+    assert not any(thread.is_alive() for thread in threads), "a racer hung"
+    assert not errors, f"a racer crashed: {errors!r}"
+
+    assert results["a"]["code"] is None and results["a"]["replayed"] is False
+    assert results["b"]["code"] is None and results["b"]["replayed"] is False
+    assert len(store.data["refunds"]) == 2
+    statuses = {t["transaction_id"]: t["status"] for t in store.data["transactions"]}
+    assert statuses["TX-88218"] == "refunded"
+    assert statuses["TX-88219"] == "refunded"
 
 
 def test_the_second_writer_still_misses_the_first_writer_s_persisted_row(tmp_path: Path) -> None:

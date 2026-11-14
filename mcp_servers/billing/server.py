@@ -17,26 +17,31 @@ The tool surface (``docs/mcp-contracts.md`` S2):
   true`` and inserts no second row. That uniqueness lives in application logic
   -- the linear scan over ``_rows(store, "refunds")`` in ``issue_refund`` -- and
   not in the store, which is a plain JSON document with no schema, no index and
-  therefore no ``UNIQUE`` constraint. The guarantee is therefore scoped to one
-  process serving calls one at a time: the check runs against the same in-memory
-  document the store persists, so it holds for sequential calls in the same
-  process, but the check-then-write is not atomic across two concurrent callers
-  (``_store.py``'s concurrency note: the atomic replace is not locking).
+  therefore no ``UNIQUE`` constraint. The scan and the write run under the
+  store's in-process write lock (``Store.writing()``), so the check-then-write
+  is atomic against every other caller of this process -- including the worker
+  threads the SDK really produces, since it runs sync tool functions off the
+  stdio loop (``func_metadata.call_fn``). The guarantee is therefore scoped to
+  one process: concurrent calls with one key produce one refund and one
+  replay. It does not reach two *processes* over one store file; that residual
+  boundary is stated in ``docs/mcp-contracts.md`` S2 and pinned by the
+  two-writer tests (``_store.py``'s concurrency note: the atomic replace is not
+  locking).
 
-  What that boundary means in practice, stated rather than left implicit: the
-  store's ``save()`` replaces the *whole document*, and ``os.replace`` is
-  atomic for a reader but gives no read-modify-write isolation between two
-  writers. So if two callers each hold their own in-memory document over the
-  same file -- two processes against one store file, or a process and a
-  hand-run server -- both scans can miss each other, both append a refund, and
-  both report ``replayed: false`` with the same ``refund_id``. The atomic
-  replace then keeps one document in full and discards the other: the file is
-  never torn, and it ends with a single refund row, but one caller's success was
-  not persisted and its transaction-status write is gone. The key does **not**
-  protect that case; nothing here serialises two writers. The contract is
-  therefore one writer per store file -- which ``docs/architecture.md`` §8 makes
-  the deployment (each server is a standalone stdio process with its own store
-  file) and which
+  What the residual boundary means in practice, stated rather than left
+  implicit: the store's in-process lock serialises the writers that share one
+  in-memory document -- the threads of one process, which the SDK really
+  produces -- but it says nothing about two callers each holding their *own*
+  in-memory document over the same file: two processes against one store file,
+  or a process and a hand-run server. There the two scans can still miss each
+  other, both append a refund, and both report ``replayed: false`` with the
+  same ``refund_id``. The atomic replace then keeps one document in full and
+  discards the other: the file is never torn, and it ends with a single refund
+  row, but one caller's success was not persisted and its transaction-status
+  write is gone. The key does **not** protect that case; nothing here
+  serialises two processes. The contract is therefore one writer per store
+  file per process -- which ``docs/architecture.md`` §8 makes the deployment
+  (each server is a standalone stdio process with its own store file) and which
   ``tests/integration/test_mcp_billing.py::test_second_writer_over_the_same_key_is_discarded``
   pins as the documented failure mode rather than a hypothetical one.
 
@@ -263,6 +268,13 @@ def _issue_refund(
     On success the transaction is moved to ``refunded``, a refund row is
     appended, the ``next_refund_id`` counter increments, and one ``save()``
     persists both writes together.
+
+    The replay scan, the validation checks and the mutation all run under
+    ``store.writing()``: the check-then-write is atomic against every other
+    caller of this process, so two concurrent calls with one key produce one
+    refund and one replay, whatever order the worker threads are scheduled in.
+    The guarantee is per-process -- two processes over one store file are still
+    outside it, and that boundary is the contract's, not an oversight.
     """
     if not idempotency_key.strip():
         return RefundResult(code="validation_error", transaction_id=transaction_id)
@@ -272,61 +284,70 @@ def _issue_refund(
     # Idempotency first: this linear scan over the stored refunds is the
     # authority (there is no store-level constraint to lean on). A replay
     # returns the recorded refund unchanged and never looks at the transaction
-    # again. It holds for sequential calls in one process; it does not, on its
-    # own, serialise two concurrent callers. Two callers on *one* in-memory
-    # document (one stdio process, calls served one at a time) are safe, because
-    # the first appends its row before returning; two callers on *separate*
-    # documents over one file are not, and the atomic replace keeps one document
-    # and discards the other rather than interleaving them. See the module
-    # docstring and ``_store.py``'s concurrency note.
-    for refund in _rows(store, "refunds"):
-        if refund.get("idempotency_key") == idempotency_key:
-            return RefundResult(
-                refund_id=refund.get("refund_id"),
-                transaction_id=refund.get("transaction_id"),
-                amount=refund.get("amount"),
-                currency=refund.get("currency"),
-                status="refunded",
-                idempotency_key=idempotency_key,
-                created_at=refund.get("created_at"),
-                replayed=True,
-            )
+    # again.
+    #
+    # The whole scan-check-mutate-save sequence runs under the store's
+    # in-process write lock, which is what makes it an atomic check-and-write:
+    # the SDK runs this sync handler on a worker thread
+    # (``func_metadata.call_fn`` -> ``anyio.to_thread.run_sync``), so two calls
+    # to one process really can interleave, and without the lock both could
+    # pass this scan before either saved. With it, exactly one caller creates
+    # the refund and every other caller of the same key replays it. The lock is
+    # per-``Store`` instance, so it reaches exactly the writers that share this
+    # in-memory document; two *processes* over one store file remain outside
+    # its reach, and the atomic replace then keeps one whole document and
+    # discards the other rather than interleaving them. That residual boundary
+    # is stated in ``docs/mcp-contracts.md`` S2 and pinned by the two-writer
+    # tests. See the module docstring and ``_store.py``'s concurrency note.
+    with store.writing():
+        for refund in _rows(store, "refunds"):
+            if refund.get("idempotency_key") == idempotency_key:
+                return RefundResult(
+                    refund_id=refund.get("refund_id"),
+                    transaction_id=refund.get("transaction_id"),
+                    amount=refund.get("amount"),
+                    currency=refund.get("currency"),
+                    status="refunded",
+                    idempotency_key=idempotency_key,
+                    created_at=refund.get("created_at"),
+                    replayed=True,
+                )
 
-    transaction: dict[str, Any] | None = None
-    for candidate in _rows(store, "transactions"):
-        if candidate.get("transaction_id") == transaction_id:
-            transaction = candidate
-            break
-    if transaction is None:
-        return RefundResult(code="not_found", transaction_id=transaction_id)
+        transaction: dict[str, Any] | None = None
+        for candidate in _rows(store, "transactions"):
+            if candidate.get("transaction_id") == transaction_id:
+                transaction = candidate
+                break
+        if transaction is None:
+            return RefundResult(code="not_found", transaction_id=transaction_id)
 
-    if transaction.get("status") != "charged":
-        return RefundResult(code="invalid_state", transaction_id=transaction_id)
+        if transaction.get("status") != "charged":
+            return RefundResult(code="invalid_state", transaction_id=transaction_id)
 
-    transaction_amount = float(transaction.get("amount", 0.0))
-    if amount > transaction_amount:
-        return RefundResult(code="amount_exceeds_transaction", transaction_id=transaction_id)
+        transaction_amount = float(transaction.get("amount", 0.0))
+        if amount > transaction_amount:
+            return RefundResult(code="amount_exceeds_transaction", transaction_id=transaction_id)
 
-    number = int(store.data.get("next_refund_id", 10091))
-    refund_id = f"REF-{number}"
-    created_at = _now()
-    currency = str(transaction.get("currency", "USD"))
+        number = int(store.data.get("next_refund_id", 10091))
+        refund_id = f"REF-{number}"
+        created_at = _now()
+        currency = str(transaction.get("currency", "USD"))
 
-    store.data["next_refund_id"] = number + 1
-    _rows(store, "refunds").append(
-        {
-            "refund_id": refund_id,
-            "transaction_id": transaction_id,
-            "amount": amount,
-            "currency": currency,
-            "idempotency_key": idempotency_key,
-            "reason": reason,
-            "created_at": created_at,
-        }
-    )
-    transaction["status"] = "refunded"
-    transaction["refund_id"] = refund_id
-    store.save()
+        store.data["next_refund_id"] = number + 1
+        _rows(store, "refunds").append(
+            {
+                "refund_id": refund_id,
+                "transaction_id": transaction_id,
+                "amount": amount,
+                "currency": currency,
+                "idempotency_key": idempotency_key,
+                "reason": reason,
+                "created_at": created_at,
+            }
+        )
+        transaction["status"] = "refunded"
+        transaction["refund_id"] = refund_id
+        store.save()
 
     return RefundResult(
         refund_id=refund_id,

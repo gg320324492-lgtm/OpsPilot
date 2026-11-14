@@ -8990,3 +8990,62 @@ work: the 2,172 directories the project used to leak onto the system drive
 now live under the repository's own `.opspilot/`, and
 `tests/unit/test_the_project_writes_only_inside_the_repository.py` keeps them
 there.
+
+## C2 closed: the refund idempotency guarantee is made, and its boundary is stated
+
+**Date:** 2026-11-14. Phase 2 C2 asked for one of two routes — make the
+concurrent-refund guarantee, or state its boundary in the contract and test it.
+The decision was **both**, and both are in the tree on branch
+`worktree-phase2-c2-refund-idempotency`.
+
+**The guarantee.** `mcp_servers/_store.py` grew `Store.writing()`: an
+**in-process** write lock (a plain `threading.Lock`, one per `Store`
+instance) held across a tool's whole check-then-write sequence. The trigger
+for making it now is a fact about the SDK: a sync tool function does *not* run
+on the stdio loop — `func_metadata.call_fn` dispatches it through
+`anyio.to_thread.run_sync` — so two calls to one billing server really can
+interleave, and the old "calls are served one at a time" reasoning was false
+at the layer where the scan runs. `issue_refund` now runs its replay scan,
+validation, mutation and `save()` inside `with store.writing():`, so two (or
+eight) concurrent calls with one key produce exactly one fresh refund and
+`replayed: true` for the rest, whatever order the threads arrive in. The lock
+is deliberately *not* a file lock: `_store.py`'s no-file-locking reasoning
+stands (no stale-lock failure mode), and the lock reaches exactly the writers
+that share one in-memory document.
+
+**The boundary, stated.** `docs/mcp-contracts.md` S2 now separates the two
+sides: guaranteed within one process at any concurrency; **not** guaranteed
+across two processes over one store file, where both scans can still miss each
+other and the atomic `os.replace` keeps one whole document and discards the
+other. `docs/risks.md` R4's residual paragraph was rewritten to match — the
+concurrent in-process race is closed, the cross-process one stays out of scope
+by the one-process-per-store deployment rule. `docs/phase2-plan.md`'s C2
+section records the decision and its acceptance-table row now reads
+**met — both routes**, with the test list as evidence.
+
+**The tests.** Three race tests in `tests/integration/test_mcp_billing.py`:
+two threads and eight threads through a barrier on one key (exactly one
+`replayed: false`, one refund row, one counter bump), and two concurrent
+refunds on *different* transactions both persisting — the test that catches a
+fix that "works" by refusing everything. Three lock-semantics tests in
+`tests/integration/test_mcp_store.py`: mutual exclusion (a second writer
+cannot enter while the first holds the section), release on exception (a
+failed write does not poison the lock), and per-store scope (two stores over
+one file share nothing — the boundary pinned as a fact, not flattered into a
+global lock). All three lock tests **fail on the pre-fix code** and pass on
+the new one; the barrier race tests were checked against the old code and
+pass there too — a barrier cannot force the microsecond scan-write window,
+which is why the guarantee needed the lock *and* the deterministic lock tests,
+not the race alone.
+
+**What ran.** `tests/integration/test_mcp_billing.py` 23 passed,
+`tests/integration/test_mcp_store.py` 19 passed, then the full suite
+(`pytest -q`, no markers): **1353 passed, 18 skipped** (the skips are the
+PostgreSQL-marked tests, which need `OPSPILOT_DATABASE_URL` per ADR-0004).
+One full-suite run was made with a stray, untracked evals result file parked
+out of the tree: the sibling C1/B4 session's holdout run
+(`evals/results/2026-11-13T23-52-14.json`, gitignored by design) trips
+`test_no_result_file_touches_the_holdout`, whose assertion is that no result
+file scores the holdout — true for everything the repository tracks, false
+only for that session's leftover. The file was restored afterwards; it is
+data, not part of this change.

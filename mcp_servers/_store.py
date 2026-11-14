@@ -35,18 +35,38 @@ confusing ``StoreError`` far from the write that caused it.
 Concurrency assumption
 ----------------------
 
-**One process per server.** Each server is a standalone stdio process with its
-own store file, per ``docs/architecture.md`` S8, so two processes never write the
-same file, and within a process the tools are served one call at a time off the
-stdio loop. That is why there is **no file locking** here: a lock would protect
-against a scenario this deployment does not have, and would add a failure mode
-(a stale lock file) in exchange for nothing.
+**One process per server, and one write at a time within it.** Each server is a
+standalone stdio process with its own store file, per ``docs/architecture.md``
+S8, so two processes never write the same file, and there is **no file locking**
+here: a cross-process lock would protect against a scenario this deployment
+does not have, and would add a failure mode (a stale lock file) in exchange for
+nothing.
+
+Within one process the picture changed when the SDK started running sync tool
+functions on worker threads (``func_metadata.call_fn`` ->
+``anyio.to_thread.run_sync``): "served one call at a time off the stdio loop"
+is no longer true of the handler bodies, so a mutating tool that scans and then
+writes has a real check-then-write window between two threads. :meth:`Store.writing`
+is the answer, and it is deliberately an **in-process** ``threading.Lock``:
+it has no stale-lock failure mode (the lock dies with the process), and it
+serialises exactly the writers that share one in-memory document. A mutating
+tool must hold it across the whole read-check-write sequence -- see the billing
+server's ``issue_refund``, whose idempotency scan and ``save()`` run inside
+``with store.writing():``. The lock is a ``threading.Lock`` rather than an
+``asyncio.Lock`` because the handlers are sync functions running on arbitrary
+worker threads, not coroutines on the loop.
+
+What this does **not** buy: two *processes* over one store file still get no
+read-modify-write isolation. Each process holds its own lock, so the
+cross-process race -- both scans miss, both append, the atomic replace keeps
+one whole document and discards the other -- is exactly as uncovered as
+``_store.py`` has always said. The guarantee is one writer per store file per
+process; the contract records that boundary (``docs/mcp-contracts.md`` S2).
 
 The atomic replace is not locking and does not pretend to be. It guarantees that
-*if* two writers did race -- which this design assumes they do not -- the loser's
-whole document is discarded rather than interleaved, so the file is never
-corrupt. It says nothing about which writer wins, and it is not a substitute for
-the idempotency keys that guard the mutating tools.
+*if* two writers did race across processes -- which this design still assumes
+they do not -- the loser's whole document is discarded rather than interleaved,
+so the file is never corrupt. It says nothing about which writer wins.
 
 Default location
 ----------------
@@ -60,9 +80,11 @@ volume.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -177,6 +199,11 @@ class Store:
     memory under :attr:`data`. Reads go through :meth:`collection` and
     :meth:`find`; mutations edit :attr:`data` in place and then call
     :meth:`save` once, so a tool that touches two collections writes one file.
+
+    A mutating tool that must check-then-write atomically (the billing server's
+    idempotency scan) wraps the whole sequence in ``with store.writing():`` --
+    see the module docstring's concurrency section for what that does and does
+    not cover.
     """
 
     def __init__(
@@ -221,6 +248,11 @@ class Store:
             data_dir if data_dir is not None else default_data_dir(self._seed_path)
         ) / filename
         self.data: dict[str, Any] = self._read_live_or_seed()
+        # Serialises check-then-write sequences within this process. One lock
+        # per Store instance: two Store objects over one file are two writers,
+        # and the in-process lock does not pretend to cover them (see the
+        # module docstring's concurrency section).
+        self._write_lock = threading.Lock()
 
     # -- paths -----------------------------------------------------------
 
@@ -321,6 +353,42 @@ class Store:
                 os.close(handle)
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
+
+    @contextlib.contextmanager
+    def writing(self) -> Iterator[None]:
+        """Hold the in-process write lock across a check-then-write sequence.
+
+        A mutating tool that must not write twice wraps its whole
+        read-check-mutate-save sequence in this::
+
+            with store.writing():
+                if _already_refunded(store, key):
+                    return replay(...)
+                ... mutate store.data ...
+                store.save()
+
+        The lock is what makes that sequence atomic against the *other threads
+        of this process* -- which the SDK really produces, because it runs sync
+        tool functions on worker threads. Without it, two threads can both pass
+        the idempotency scan before either saves, and the demo's one-refund
+        guarantee fails under load exactly when it matters. It is a
+        :class:`threading.Lock`, not an ``asyncio.Lock``, because the handlers
+        are sync functions running on arbitrary worker threads.
+
+        What it does not do: it is not a file lock, so two *processes* over one
+        store file are still not serialised against each other -- the boundary
+        ``docs/mcp-contracts.md`` S2 states and the two-writer tests pin. It is
+        not reentrant either: a body that called ``writing()`` again inside the
+        block would deadlock, which is fine -- a store this small has no reason
+        to nest its one write section.
+
+        Yields:
+            Nothing. The ``as`` target of the ``with`` is unused; the block
+            simply runs with the lock held, and the lock is released when the
+            block exits -- including by exception, via the context manager.
+        """
+        with self._write_lock:
+            yield
 
     def reset(self) -> None:
         """Replace the **in-memory** document with a fresh copy of the seed.

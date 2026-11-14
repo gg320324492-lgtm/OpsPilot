@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -214,3 +216,131 @@ def test_store_file_is_isolated_from_the_seed(store: Store) -> None:
     store.save()
     assert store.path != store.seed_path
     assert store.seed_path.read_text(encoding="utf-8") == seed_before
+
+
+# ---------------------------------------------------------------------------
+# The in-process write lock (``Store.writing``)
+#
+# The SDK runs sync tool functions on worker threads, so a mutating tool's
+# check-then-write needs the lock to be atomic against its own process. These
+# tests pin the lock's semantics directly, deterministically, without racing:
+# mutual exclusion (one writer inside at a time, the rest blocked), hand-off on
+# exit, and release on exception. A store without the lock fails every one of
+# them, which is exactly what makes them the C2 guarantee's contract.
+# ---------------------------------------------------------------------------
+
+
+def test_writing_admits_one_thread_at_a_time(seed_file: Path, tmp_path: Path) -> None:
+    """A second thread reaching the section waits until the first has left.
+
+    Two threads enter ``writing()`` against the same store. The first holds a
+    gate open inside the section; the second must still be blocked while the
+    gate is held, and only get through after the first releases it. With no
+    lock, both threads are inside at once and the second's check fails
+    immediately -- which is the double-write window this lock exists to close.
+    """
+    probe = Store(seed_path=seed_file, filename="probe.json", data_dir=tmp_path)
+    first_is_inside = threading.Event()
+    first_may_leave = threading.Event()
+    observations: list[str] = []
+    errors: list[BaseException] = []
+
+    def writer(name: str, hold_gate: bool) -> None:
+        try:
+            with probe.writing():
+                observations.append(f"{name}:inside")
+                if hold_gate:
+                    first_is_inside.set()
+                    assert first_may_leave.wait(30), "the gate was never released"
+                # A second thread that is correctly blocked cannot append
+                # while the first is still inside.
+                observations.append(f"{name}:done")
+        except BaseException as exc:  # pragma: no cover - only on a broken run
+            errors.append(exc)
+
+    first = threading.Thread(target=writer, args=("first", True))
+    second = threading.Thread(target=writer, args=("second", False))
+    first.start()
+    assert first_is_inside.wait(30), "the first writer never entered the section"
+
+    second.start()
+    # Give the second thread a real chance to barge in. If the lock works, it
+    # stays blocked for the whole wait; if it does not, it appends within
+    # microseconds and this catches it.
+    time.sleep(0.2)
+    assert observations == ["first:inside"], (
+        f"a second writer entered the section while the first held it: {observations}"
+    )
+
+    first_may_leave.set()
+    first.join(30)
+    second.join(30)
+    assert not first.is_alive() and not second.is_alive(), "a writer hung"
+    assert not errors, f"a writer crashed: {errors!r}"
+    assert observations == ["first:inside", "first:done", "second:inside", "second:done"], (
+        f"unexpected interleaving: {observations}"
+    )
+
+
+def test_writing_releases_the_lock_when_the_body_raises(seed_file: Path, tmp_path: Path) -> None:
+    """An exception inside the section must not poison the lock for ever.
+
+    A tool that raises mid-write must not leave every later write blocked for
+    the life of the process: the lock has to be released on the way out, or one
+    failed refund would take the whole server's write path down with it.
+    """
+    probe = Store(seed_path=seed_file, filename="probe.json", data_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="boom"), probe.writing():
+        raise RuntimeError("boom")
+
+    # The lock was released: another thread (or this one) can enter again.
+    entered = threading.Event()
+
+    def reenter() -> None:
+        with probe.writing():
+            entered.set()
+
+    thread = threading.Thread(target=reenter)
+    thread.start()
+    assert entered.wait(30), "the lock was not released after the body raised"
+    thread.join(30)
+    assert not thread.is_alive()
+
+
+def test_writing_is_per_store_not_global(seed_file: Path, tmp_path: Path) -> None:
+    """Two stores over one file do not share a lock -- and that is the boundary.
+
+    Each ``Store`` holds its own lock, so two independent stores (the
+    two-process case, modelled in one process) can both be inside their write
+    sections at once. The contract says this case is *not* covered -- the
+    atomic replace keeps one whole document and discards the other -- so the
+    test pins the boundary rather than the guarantee: one store's lock must not
+    silently become a global lock that would only flatter the cross-process
+    story.
+    """
+    store_a = Store(seed_path=seed_file, filename="live.json", data_dir=tmp_path)
+    store_b = Store(seed_path=seed_file, filename="live.json", data_dir=tmp_path)
+
+    a_inside = threading.Event()
+    both_inside = threading.Event()
+    errors: list[BaseException] = []
+
+    def writer(store: Store, announce: threading.Event, confirm: threading.Event | None) -> None:
+        try:
+            with store.writing():
+                announce.set()
+                if confirm is not None:
+                    assert confirm.wait(30), "the other store never entered"
+        except BaseException as exc:  # pragma: no cover - only on a broken run
+            errors.append(exc)
+
+    thread_a = threading.Thread(target=writer, args=(store_a, a_inside, both_inside))
+    thread_b = threading.Thread(target=writer, args=(store_b, both_inside, None))
+    thread_a.start()
+    assert a_inside.wait(30)
+    thread_b.start()
+    # Store B's lock is its own: it enters while A still holds A's.
+    assert both_inside.wait(30), "store B could not enter while store A held its own lock"
+    thread_a.join(30)
+    thread_b.join(30)
+    assert not errors, f"a writer crashed: {errors!r}"
