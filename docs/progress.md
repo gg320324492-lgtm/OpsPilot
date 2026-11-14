@@ -9588,12 +9588,9 @@ do not (bare citations, historical mentions, counts the guards do not pin).
    current line. `README.md:59` (the golden-path ticket) moved to `:179`;
    `README.md:551` (the architecture diagram) moved with the diagram's
    rearrangement.
-3. **Test names that no longer exist** — `docs/HANDOVER.md` cited
-   `tests/unit/test_the_documented_ci_jobs_exist.py` (the file is
-   `test_documented_ci_jobs_exist.py`); `docs/progress.md`'s error-vocabulary
-   paragraph cited the guard's first-commit name
-   `test_openapi_error_descriptions_name_the_codes_the_api_sends.py`, renamed
-   to `test_the_error_vocabulary_agrees_with_the_api.py` in `5563c00` — now
+3. **Test names that no longer exist** — the error-vocabulary
+   paragraph cited the guard's first-commit name (renamed
+   to `test_the_error_vocabulary_agrees_with_the_api.py` in `5563c00`) — now
    named with the rename recorded; the MAX_STEPS mutation table used
    `...`-elided names (`test_state_does_not_redefine...` and friends), now
    spelled out to the names that exist (`test_state_does_not_redefine_the_budget_from_a_literal`,
@@ -9609,11 +9606,10 @@ do not (bare citations, historical mentions, counts the guards do not pin).
    already said this correctly), and the "5 collected; grep -c test_pgvector
    -> 2" line now names what the grep actually counted (the
    `test_pgvector_store_*` group plus the citations differential). The
-   `test_probe_tmp.py` mypy note now describes the scratch file without
+   mypy note about the scratch file now describes it without
    citing a path that was never committed.
 5. **Deleted-module references kept honest** — the M5 fourth-server section
-   names `tests/integration/test_mcp_knowledge.py` and
-   `mcp_servers/knowledge/server.py`, both deleted; each mention is now
+   names the fourth server and its test module, both deleted; each mention is now
    marked *(then; since deleted)* so the record stays readable without
    pretending the paths exist.
 
