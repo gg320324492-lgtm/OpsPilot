@@ -105,13 +105,17 @@ boundary is deterministic code that enforces them whether or not you comply.\
 """
 
 
-def _tool_catalogue() -> str:
+def tool_catalogue() -> str:
     """Render the registered tools and their argument schemas for the model.
 
     Built from ``TOOL_REGISTRY``/``TOOL_ARGUMENT_SCHEMAS`` -- the same static
     source the gates read -- so the model is shown the tools that *actually*
     exist and the fields each accepts. A tool the model invents is still rejected
     at gate 2; this exists so a well-behaved model can propose valid calls.
+
+    Public (not an underscore private) because the runtime's planning prompt
+    needs the same catalogue: a model that is shown tool *names* alone invents
+    argument names ("email" for "customer_email") that gate 1 then refuses.
     """
     lines: list[str] = ["Available tools (name -- permission -- arguments):"]
     for name in sorted(TOOL_REGISTRY):
@@ -144,7 +148,7 @@ def build_system_prompt() -> str:
     own during a run, and that -- not this -- is what the model is given then.
     See the module docstring.
     """
-    return f"{_SYSTEM_RULES}\n\n{_tool_catalogue()}\n\n{UNTRUSTED_BLOCK_LABEL}"
+    return f"{_SYSTEM_RULES}\n\n{tool_catalogue()}\n\n{UNTRUSTED_BLOCK_LABEL}"
 
 
 def _render_hit(hit: SearchHit) -> str:

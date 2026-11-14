@@ -349,12 +349,29 @@ class InvalidArgumentsError(ValueError):
 
     Carries the underlying ``ValidationError`` so a test can assert *which*
     field was wrong, and a message a trace can show.
+
+    The message names the offending *fields* and what was wrong with each,
+    not just a count. Measured against MiniMax-M3.1-Flash (2026-11-14,
+    docs/progress.md B2, second run): a count-only message -- "3 problem(s)"
+    -- was the whole feedback the planning prompt could offer, and the model
+    re-proposed the identical ``{"email": ...}`` twelve times because nothing
+    told it the field it invented does not exist. Field-level detail is the
+    same information the gate already holds, made actionable.
     """
 
     def __init__(self, name: str, error: ValidationError) -> None:
         self.name = name
         self.error = error
-        super().__init__(f"invalid arguments for {name!r}: {error.error_count()} problem(s)")
+        problems: list[str] = []
+        for problem in error.errors():
+            loc = ".".join(str(part) for part in problem["loc"]) or "<arguments>"
+            kind = problem["type"]
+            if kind == "extra_forbidden":
+                detail = "not a field this tool accepts"
+            else:
+                detail = str(problem.get("msg", kind))
+            problems.append(f"{loc}: {detail}")
+        super().__init__(f"invalid arguments for {name!r}: " + "; ".join(problems))
 
 
 def get_tool_spec(name: str) -> ToolSpec | None:

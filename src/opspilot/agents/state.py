@@ -56,12 +56,21 @@ class ToolCallRecord:
     ``result`` is the gateway's returned payload when it executed. It is not an
     authority of any kind -- gate 5 re-reads the database for an approval rather
     than trusting anything here (``docs/tool-permissions.md`` §3.1).
+
+    ``rejection_reason``/``rejection_detail`` mirror the persisted row's
+    ``rejection_reason`` (the gate name) and ``error`` (the rule-level detail)
+    for a ``rejected`` call. They exist so the planning prompt can tell the
+    model *why* its last proposal was refused -- the one fact that stops it
+    re-proposing the same malformed call (``docs/progress.md``, the B2 loop) --
+    and are ``None`` for every non-rejected status.
     """
 
     tool_call_id: UUID
     tool_name: str
     status: str
     result: dict[str, object] | None = None
+    rejection_reason: str | None = None
+    rejection_detail: str | None = None
 
 
 @dataclass

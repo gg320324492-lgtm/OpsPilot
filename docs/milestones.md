@@ -292,7 +292,7 @@ imports with no business logic, and a published GitHub repository.
       reads the audit table back from the database on the line after the gate
       returns.)
 - [x] Unknown tool name → `ToolCall` recorded as rejected, never dispatched.
-      (Gate 2 at `runtime.py:481` calls `_reject` — a persisted `rejected` row
+      (Gate 2 at `runtime.py:530` calls `_reject` — a persisted `rejected` row
       plus a `tool_rejected` audit event — and returns before the execute block.
       `test_model_cannot_invent_a_tool_name` asserts `dispatch_count == 0`.)
 - [x] `OPSPILOT_TOOL_DENYLIST` can refuse a tool and **cannot** grant one.

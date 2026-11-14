@@ -26,7 +26,7 @@ the file's body was always the record, and the table contradicted it.
 | M8 — Evals and security | done | See below. 70 deterministic cases over the 12 metrics `docs/evals.md` §1 tables; `unsafe_execution_count` is the one that is zero and must stay zero |
 | M9 — CI and documentation | done | See below. CI green on every push; the documentation drift `06a57c6` audited is recorded rather than ticked over |
 | Phase 1 overall | done | See "Phase 1 closes" below — 84 of 90 acceptance criteria ticked with evidence, four real defects found and fixed, CI green |
-| Phase 2 | done, with three items only a person can close | See `docs/phase2-plan.md`'s acceptance table. A/B/C/D1/D3-artefact/F are met; **C1 is partial** (the lapsed-lease case is asserted, not prevented), **D2** and **E's Release** need a person who did not build the installer, and **B2 is deferred** on measured run-to-run variance |
+| Phase 2 | done, with one item deferred and one Release step outstanding | See `docs/phase2-plan.md`'s acceptance table. A/B/C/D1/D3-artefact/F are met; **C1 is partial** (the lapsed-lease case is asserted, not prevented), **D2 is met (2026-11-14)** — the operator walked all sixteen checks, recorded in `docs/installer-verification.md` — leaving **E's Release asset** as the only person-step left (upload the now-verifiable installer), and **B2 is deferred** on measured run-to-run variance |
 
 ---
 
@@ -5995,7 +5995,7 @@ project, and Phase 2 does not attempt it.
 | # | Criterion | Outcome |
 |---|---|---|
 | D1 | The app starts the backend if it is not running, surfaces a real error when Docker is absent rather than a silent failure, and stops what it started on quit | ✅ `desktop/src/lifecycle/` holds the six modules that do it (`compose.ts`, `errors.ts`, `probe.ts`, `session.ts`, `token.ts`, `types.ts`), and none of them imports Electron, so the behaviour is assertable without a display. `desktop/e2e/shell.spec.ts` launches a real window: "opens the dashboard, keeps the renderer untrusted, and stops what it started", and "names what is missing when Docker is not installed" |
-| D2 | Installed on a clean Windows machine with Docker Desktop and walked end to end, **by someone who did not build it** | ❌ **outstanding, and only a person can close it** — see below |
+| D2 | Installed on a clean Windows machine with Docker Desktop and walked end to end, **by someone who did not build it** | ✅ **met, with its caveat stated — 2026-11-14**: the operator walked the sixteen checks in `docs/installer-verification.md` (record sheet §"Filled: the walk of 2026-11-14"); index 17/17/98 → ticket → approval gate held → refund `REF-10091 / replayed:false` reconciled against the billing store → re-approve 409 → `/ready` ok → loopback-only, `origin_missing`, `unauthorized`, no credential → quit keeps volumes → the completed run survives a relaunch. Two environmental deviations recorded there: host 8000 held by an unrelated project (the packaged compose predates `e8e7f6a`), and stale same-name dev volumes inherited on the first attempt (cleared, walk repeated) |
 | D3 | The **packaged** app is checked against A1–A3 the same way the dev stack is | 🟡 **met for the artefact, partial for a running instance** — see below |
 
 ### Additional verification performed beyond the criteria
@@ -6301,18 +6301,21 @@ and they were the evidence for the deferral rather than a change to anything.
 
 ### Where Phase 2 ends
 
-Three items are open, and **only a person can close any of them**:
+**D2 closed on 2026-11-14** (see "D2 closed: the installer walked" below); two
+items remain open, and **only a person can close any of them**:
 
-- **D2 — the installer walk-through.** The acceptance is "on a clean Windows
-  machine with Docker Desktop, install the built package and walk the golden path
-  end to end... by someone who did not build it". The installer was built by the
-  author, so running it here is self-certification and does not meet the
-  criterion. `docs/installer-verification.md` is the script; a stranger is the
-  missing part.
-- **E's GitHub Release — no tag exists.** `git tag` returns nothing and `gh
-  release list` is empty. This is sequencing, not oversight: publishing an
-  unverified installer would put a download link ahead of the test the plan says
-  it passes first. It is held until D2 is walked.
+- ~~**D2 — the installer walk-through.**~~ **Closed 2026-11-14.** The operator
+  walked all sixteen checks in `docs/installer-verification.md` (record sheet
+  §"Filled: the walk of 2026-11-14"): index 17/17/98, ticket, approval gate
+  held, refund `REF-10091 / replayed:false` reconciled against the billing
+  store, re-approve 409, `/ready` ok, loopback-only ports, `origin_missing`,
+  `unauthorized`, no credential in the package, quit keeps the volumes, and
+  the completed run survives a relaunch.
+- **E's GitHub Release — tag and asset.** `git tag` returns nothing and `gh
+  release list` is empty. This was sequencing, not oversight: the installer was
+  held until D2 was walked, and **D2 is now walked (2026-11-14)** — so uploading
+  the verified `OpsPilot-Setup-0.1.0-x64.exe` and publishing the tag is the one
+  person-step left, tracked as P3-E's E2 in `docs/phase3-plan.md`.
 - **C1 — the two-worker guarantee is boundary-stated-and-tested, not closed.** The
   lease closes the live-worker half: the 30/30 concurrent double-claim is gone.
   The repository asserts the opposite case in the other half — a run whose lease
@@ -9241,6 +9244,94 @@ files add: when the model does send arguments, they are wrong in the four
 repeatable shapes above, which is argument-construction material for §P2-B3's
 split, not tool-selection material.
 
+## B2 executed against the real endpoint: the menu was the prompt's, and one number moved
+
+**Date:** 2026-11-14. §P2-B2 was reopened from its 2026-10-13 deferral because
+the MiniMax OpenAI-compatible endpoint (`https://api.minimaxi.com/v1`, model
+`MiniMax-M3.1-Flash`, `OPENAI_JSON_OBJECT_FALLBACK=true`, key in the local
+`.env` and committed nowhere) produced two fresh evaluation runs —
+`2026-11-14T09-37-39.json` and `2026-11-14T10-40-41.json` — that scored
+**tool selection 0.0/15** with a breakdown unlike the October runs: 98 proposed
+calls, mostly `empty_argument_proposals` and 61 rejections at
+`gate_1_schema_validation`. The fake-provider runs of the same day
+(`2026-11-14T11-32-33.json`) stayed green, so the harness, not the model
+plumbing, was exonerated first.
+
+### Root cause: the planning prompt never carried the argument schemas
+
+The runtime's `_SYSTEM_PROMPT` was one sentence of security framing; the
+planning user prompt named the tools (`with_tool_menu`) but showed **no
+argument fields**, and `prompts.py`'s tool catalogue — which renders exactly
+those fields from `TOOL_REGISTRY`/`TOOL_ARGUMENT_SCHEMAS` — was reachable only
+through `default_system`'s fallback, which a caller that always supplies a
+system prompt never hits. A direct probe of the endpoint
+(`scripts/minimax_probe.py`, this work's diagnostic; key read from `.env` into
+memory only) reproduced it: given names only, MiniMax replied with plausible
+but invented argument names — `crm.get_customer({"email": ...})` where the
+schema demands `customer_email`/`customer_id`, `issues.create` with `body`
+where the tool takes `description` — and gate 1 refused every one. A second
+loop made the score structurally unfixable by prompt content alone: after a
+rejection the planning prompt re-listed the tools with only
+`tool_name(status)`, so the model re-proposed the identical malformed call —
+24 planning rounds on tool-001, 16 tool rows from 19 model calls on tool-008.
+
+### The change (three files, no gate or metric touched)
+
+1. `agents/runtime.py` — `_SYSTEM_PROMPT` embeds the shared tool catalogue
+   (`prompts.py::tool_catalogue`, made public for this) plus a one-JSON-object
+   reply instruction; `_planning_prompt` appends the refused proposals with
+   their gate and reason so the model is told what not to repeat.
+2. `agents/state.py` — `ToolCallRecord` carries `rejection_reason` and
+   `rejection_detail`, filled by `_reject` and the gate-4 policy rejections.
+3. `domain/tools.py` — `InvalidArgumentsError`'s message names the offending
+   fields and per-field problems (e.g. `email: not a field this tool accepts`)
+   instead of a bare `3 problem(s)` count, because the count was the whole
+   feedback the loop could act on.
+
+Validation strictness is unchanged: `extra="forbid"` still forbids, gate
+order and the four invariants are untouched, and every reply still passes the
+same `_shared.parse_structured` path. The committed fake fixtures replay by
+scenario (all `request_hash: null`), so the prompt change invalidates nothing
+recorded.
+
+### Three live runs, and what each measures
+
+| run | file | tool selection | argument validity | gate-1 rejections | verdict |
+|---|---|---|---|---|---|
+| pre-fix baseline | `2026-11-14T10-40-41.json` | **0.0** (0/15) | 0.378 | 61 of 98 | the defect |
+| run 1 | `2026-11-14T12-04-22.json` | **0.133** (2/15) | **1.000** | **0** of 100 | the fix works |
+| run 2 | `2026-11-14T13-23-39.json` | 0.0 (0/15) | 0.357 | 72 of 112 | variance returns |
+| run 3 (adds field-level detail) | `2026-11-14T14-51-10.json` | **0.133** (2/15) | 0.411 | 66 of 112 | detail alone is not enough |
+
+- **What moved, twice in the same direction:** run 1 took argument validity
+  from 0.378 to **1.000** with **zero** empty and **zero** malformed
+  proposals — the catalogue tells the model the field names and it uses them.
+  Run 3, run the day's third time, still cut gate-1 rejections below run 2's
+  and scored the same 2/15 as run 1; the two hits (tool-011, tool-015) are the
+  same two cases the October baseline hit, so the headline is pinned by the
+  endpoint's tool-*set* judgement, not by argument construction.
+- **What did not move:** tool selection stays 2/15 at best. Runs 2 and 3 show
+  the same endpoint the October deferral measured — run 2 regressed to
+  0 rejections prevented nothing because the model re-invented `email` and
+  `account_id` anyway, and tool-009 failed once on
+  `StructuredOutputError: not valid JSON` before a tool was ever chosen.
+  Field-level rejection detail (run 3 vs run 2 on tool-002: 10 rejections
+  against 12) trims the loop but does not close it: the model reads the
+  feedback, tries `customer_email` once, and returns to its invented field
+  within a round or two.
+- **The honest §P2-B2 verdict.** The acceptance — "the same 15 cases, same
+  model, at least 10 hits, run at least twice" — is **not met**, and the
+  deferral's core observation survives this work: this endpoint's
+  run-to-run spread (0.133 → 0.000 → 0.133 on identical code) is still larger
+  than any plausible improvement. What this session adds is the diagnosis the
+  deferral lacked: the October scores were not "a model that answers
+  differently on a second reading" alone — part of the 0.0/0.378 was *ours*,
+  a prompt that hid the argument schemas, and that part is now measured,
+  fixed, and worth 1.000 argument validity when the endpoint cooperates.
+  The remaining gap to 10/15 is the model's tool-set judgement and loop
+  discipline against this endpoint, which is exactly the "resume when the
+  model under test answers consistently" condition §P2-B2 set.
+
 ## C4 root-cause hypotheses: what would make a worker not claim a run, and how each would announce itself
 
 **Date:** 2026-11-14. CI run 38202887580's first `web-e2e` failure left a run
@@ -9629,7 +9720,57 @@ pass; all inter-document links and anchors (including the ADR links from
 
 The historical narratives (why a decision was made, what a defect cost, the
 "M0–M9 then Phase 2" framing) are records of judgment, not checkable pointers,
-and are untouched. The known-open documentation work is the D2 clean-machine
-walk; the D3–D6 polish items from the second pass were closed the same day
-(see the "second stranger pass" record above), so what remains open is open by
-decision, not by drift.
+and are untouched. The D3–D6 polish items from the second pass were closed the
+same day (see the "second stranger pass" record above), and the D2 clean-machine
+walk was closed on 2026-11-14 (see "D2 closed: the installer walked" below), so
+what remains open is open by decision, not by drift.
+
+## D2 closed: the installer walked, on the operator's machine (2026-11-14)
+
+The last Phase 2 item that only a person could close was the installer
+walk-through: "on a clean Windows machine with Docker Desktop, install the built
+package and walk the golden path end to end, by someone who did not build it."
+The operator on this machine walked it against
+`OpsPilot-Setup-0.1.0-x64.exe` (SHA-256 `565206f7…`, 119,227,780 bytes), guided
+step by step, with the command-line checks run by Claude Code. The completed
+record sheet is `docs/installer-verification.md` §"Filled: the walk of
+2026-11-14"; all sixteen checks passed:
+
+- install → launch to the dashboard in ~2 minutes → `/ready`
+  `{"database":"ok","migrations":"ok"}` and the dashboard answering 200;
+- reindex on a fresh volume: **17 found / 17 indexed / 98 chunks** (a second,
+  idempotent run reports 0 re-indexed, which the panel itself explains);
+- the README ticket → run `e2b07c50` → **`waiting_approval`**, the HIGH_RISK_WRITE
+  `billing.issue_refund TX-88219 $129.00` parked for a human — the safety gate
+  held;
+- approve → the refund executed **once**: `REF-10091`, `replayed:false`,
+  idempotency key `refund:e2b07c50…:TX-88219`, and the billing store read back
+  independently shows TX-88219 `refunded` / TX-88218 still `charged`;
+- approve again → **409 `approval_already_decided`**;
+- security posture intact: 3210 and 8000 bound to loopback only, cross-origin
+  write refused (`origin_missing`), no-token read refused (`unauthorized`), no
+  `.env*` anywhere in the installed tree;
+- quit → zero `opspilot-` containers, both volumes kept; relaunch → the
+  completed run is still there.
+
+### Two deviations, both environmental, both recorded
+
+1. **Host port 8000 was occupied by an unrelated project**
+   (`microbubble-agent-app-1`). The packaged installer predates `e8e7f6a`, so its
+   bundled compose file still publishes literal ports and fixes the compose
+   project name; the app's first launch failed on it and showed its own
+   `Bind … port is already allocated` panel with "nothing was left running" — a
+   correct diagnosis. The walk proceeded after pausing the other project. The
+   next installer build picks up `OPSPILOT_*_HOST_PORT` and
+   `OPSPILOT_COMPOSE_PROJECT_NAME`, and this cannot arise.
+2. **The first 3.4 attempt inherited stale dev-stack volumes.** Same compose
+   project name on this machine meant `opspilot_postgres-data` /
+   `opspilot_mcp-data` already held data from earlier test runs, so the refund
+   was legitimately refused with `invalid_state` (`TX-88219` had already been
+   refunded by an earlier run). That refusal is the billing server's state guard
+   working. The two volumes were cleared (test data only) and the walk repeated
+   from 3.1; every result above is from the clean repeat.
+
+The acceptance table in `docs/phase2-plan.md` now reads **D2 met**; what remains
+of the person-steps is uploading the now-verifiable installer asset to the
+Release (P3-E's E2 in `docs/phase3-plan.md`).
