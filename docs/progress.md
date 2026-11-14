@@ -9049,3 +9049,319 @@ out of the tree: the sibling C1/B4 session's holdout run
 file scores the holdout — true for everything the repository tracks, false
 only for that session's leftover. The file was restored afterwards; it is
 data, not part of this change.
+
+---
+
+
+## Phase 2 gaps closed on the new machine: C1 on a live PostgreSQL, B4's holdout run through the harness
+
+**Date:** 2026-11-14. Both runs below were made on the machine the handover
+document addressed, from the tree at `1e4000a` (`main`), with the project's
+Python 3.12 virtual environment (`.venv/Scripts/python.exe`).
+
+### C1 — the claim guarantee executed against a real PostgreSQL
+
+The five `postgres`-marked tests in
+`tests/integration/test_worker_claim_postgres.py` and the ten tests in
+`tests/integration/test_worker_claim_lease.py` had never been run on this
+machine; on the default suite they skip for want of `OPSPILOT_DATABASE_URL`
+(ADR-0004). They were run here against the Compose PostgreSQL:
+
+```bash
+docker compose up -d postgres
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
+  tests/integration/test_worker_claim_postgres.py -m postgres -v
+# 5 passed, 2 deselected in 3.04s
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m pytest \
+  tests/integration/test_worker_claim_lease.py -v
+# 10 passed in 1.05s
+```
+
+**Result: 15/15 passed.** The `SKIP LOCKED` clause, the lease's PostgreSQL
+half and the thirty-pair lease regression now hold on the database production
+uses, not only on SQLite. `docs/limitations.md` §8 item 2 records the C1 status
+update; what stays open there is the lease-expiry boundary, which is a design
+decision, not an unrun test.
+
+### B4 — the holdout dataset run through the harness (fake provider: a plumbing check, not a model result)
+
+`evals/datasets/tool_selection_holdout.jsonl` (32 cases) had never been run.
+It was run through the harness:
+
+```bash
+OPSPILOT_DATABASE_URL="postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot" \
+  MODEL_PROVIDER=fake .venv/Scripts/python.exe -m opspilot.evals run \
+  --dataset tool_selection_holdout
+# fake provider — harness check only, not a model result
+```
+
+The run produced `evals/results/2026-11-13T23-52-14.json` (a local run;
+`evals/results/*` is gitignored by design). It records
+`provider: "fake"`, `model: "hand-written-placeholder"`, the dataset
+`tool_selection_holdout` and a `tool selection` figure of 0.21875 over 32
+cases, with the `unsafe execution count` gate at 0.
+
+**The metrics under `MODEL_PROVIDER=fake` are meaningless and are not claimed
+as a result**: the scripted provider's answers are a property of the script,
+and the harness itself suppresses the table without `--allow-fake-scores`
+(`docs/limitations.md` §5). What this run verifies is that the holdout is
+**runnable and reproducible end to end** — dataset loading, the runner, the
+results file, the gate — which is the part of §P2-B4's third clause this
+machine can satisfy. A model-backed holdout run, and the improvement judgment
+the clause asks for, remain for a machine with a model key. The B4 and C1 rows
+of `docs/phase2-plan.md`'s acceptance table are updated to say the same.
+
+## B1 deepened: the classification re-derived from every committed tool-selection run, and one reading corrected
+
+**Date:** 2026-11-14. This is the cross-check `docs/phase2-plan.md` §P2-B1's
+deliverable was asked to survive: the twelve-failure classification in
+[The twelve tool-selection failures, classified](#the-twelve-tool-selection-failures-classified-and-what-tool-argument-validity-actually-measures)
+was re-derived case by case from **each** committed `tool_selection` results
+file — the 2026-10-08 baseline (`2026-10-08T05-24-41.json`, `claude-sonnet-5-5`
+as requested), the 2026-10-11 run the section was written from
+(`2026-10-11T15-39-42.json`), and the two 2026-10-13 repeat runs
+(`2026-10-13T18-24-25.json`, `2026-10-13T18-40-10.json`) — by re-reading
+`proposed_tools` against `expected_tools` and `must_not_propose` exactly as
+`metrics.py::tool_selection_accuracy` scores them. The dataset file
+`evals/datasets/tool_selection.jsonl` was read alongside, and every case's
+`expected_tools` and `must_not_propose` in all three files match it verbatim.
+(These two runs and the baseline were read from the committed files in
+`evals/results/`; the three 2026-11-13 files in that directory are fake-provider
+plumbing runs and are not evidence about a model.)
+
+**The classification holds in every run, with no reassignment.** Set-comparing
+each case against its `expected_tools`:
+
+- **`unregistered` is 0 in all three files** — across 45 case-runs, not one
+  proposed name is absent from `TOOL_REGISTRY`
+  (`src/opspilot/domain/tools.py::TOOL_REGISTRY`, 9 tools). This was the
+  category §P2-B1 thought most likely to be "ours"; it never fires.
+- **`must_not_propose` is honoured in all three files** — 0 forbidden
+  proposals across all 45 case-runs, including the six cases that carry a
+  forbidden set. The original section's "zero violations, in both runs" extends
+  to the 2026-10-08 file unchanged.
+- The per-case labels also reproduce: the 2026-10-11 file gives the section's
+  exact counts (3 exact / 3 partial / 2 over / 4 mixed / 3 nothing), and the
+  repeat runs give 3/2/3/4/3 and 2/2/2/5/4 — the same *shape* on the same
+  fifteen tickets, three runs apart. The 2026-10-08 file gives 1/1/3/4/6,
+  which is a different proportion but the same categories, zero unregistered,
+  zero forbidden.
+
+The four cases that pass in both repeat runs are the same two-plus-one the
+original section names, and no others: tool-011 and tool-015 are hits in both
+repeat runs, tool-009 is a hit in the first repeat run only (in the second it
+proposes nothing), and every other case misses in both. The twelve misses of
+the 2026-10-11 run are therefore not a one-off reading: **the same twelve
+cases fail in both repeat runs**, seven of them with a different wrong set the
+second time.
+
+**One correction to the original section, on a point it got wrong.** The
+paragraph on the three `nothing proposed` cases says *"the first planning
+round returned `done=true` and the run replied."* The files do not support
+that reading. A planning round is a `choose_tool` call, and `choose_tool`
+returns no usage record, so its `model_called` event always carries
+`tokens_available: false` (`agents/runtime.py::_plan`; the classification and
+response calls, made through `generate_structured`, carry `true`). In all
+three runs, all three cases (tool-005, tool-006, tool-012) show exactly **two
+model calls with the pattern `T,T`** — classification, then response — and
+never a `false` in between, where tool-009's second run (a genuine
+decline-after-planning) shows `T,F,T` over three calls. **No planning round
+ran at all**, in any of the three runs. *(This paragraph first concluded that
+the cases therefore went through the retrieval-abstention path — five hits
+retrieved, all below `RETRIEVAL_MIN_SCORE`, `PLANNING -> RESPONDING` without a
+plan round. That inference was withdrawn the same evening, on re-check:
+`retrieved_documents` has length 5 and `cited_documents` is empty, which fits
+the abstention branch, but the results file records neither hit scores nor the
+`retrieval_abstained` audit event, and an immediate `done=true` decline in the
+first plan round would be indistinguishable from it in every field the file
+carries — the same two calls, the same zero citations, `escalated: true` in
+both readings. What the evidence supports is the narrower statement: **no
+planning round happened, so the twelve misses split as "9 wrong tool set +
+3 never-planned"**; whether a never-planned case was declined by the model or
+abstained by the retrieval threshold is not decidable from the committed
+files.)*
+
+**What the gate-1 rows add that the original section could not have.** The
+original section records that all 90 rejected calls in the 2026-10-11 file
+carry `arguments: {}` — unrecoverable. The two 2026-10-13 files were recorded
+after `7acea37` made `_reject` persist the proposal's own dict
+(`agents/runtime.py::_reject`: "stored verbatim -- not an empty placeholder"),
+so their 24 and 21 rejected rows carry the model's actual arguments. Re-parsed
+against the current schemas
+(`src/opspilot/domain/tools.py::TOOL_ARGUMENT_SCHEMAS`), they sort into four
+named defects, in descending frequency:
+
+| the model sent | the schema wants | cases it appears in (both repeat runs) |
+|---|---|---|
+| `email` on `crm.get_customer` | `customer_email` / `customer_id` | 9 + 5 rejections |
+| `account_id` (often with `month`) on the billing reads and `crm.get_account`/`crm.get_subscription` | `invoice_id` / `customer_id` respectively | 11 + 9 |
+| invented fields on `issues.create` (`body`, `subject`, `category`, `invoice_id`, `account_id`, …) | `title` + optional `description`/`priority`/`labels` | 8 + 7 |
+| `invoice_id` on `billing.issue_refund` | `transaction_id` + `amount` | 2 + 2 |
+
+The first row is the harness's own doing as much as the model's: the planning
+prompt renders the ticket as `From: eval@example`
+(`evals/runner.py`, `agents/runtime.py::_ticket_text`), the model echoes that
+address into a field named `email`, and the schema only accepts
+`customer_email` — the exact drift `6667e31` fixed on the schema side
+(`CustomerResolveArgs`), recorded here from the other side. The second row is
+the `account_id` habit the `TransactionListArgs` docstring documents as having
+survived four milestones. Four rejected rows in each repeat run
+(`issues.create` with only `title`/`description`) re-validate cleanly against
+the *current* schema — they were recorded before `6667e31` widened
+`IssueCreateArgs` from `title`+`body`, so the rejection was true then and the
+row's `arguments_valid: false` is now recomputed from stored arguments by
+`runner.py::_arguments_revalidate`, which is the drift the re-validation
+exists to expose rather than a contradiction.
+
+**Net effect on §P2-B1's verdict.** The four-category question is answered,
+reproducibly, in all three files: wrong-set 9, never-planned 3, unregistered
+0, wrong-arguments-on-a-right-tool 0 — and the last is empty not because the
+model's arguments were good but because tool selection and argument validity
+score different units (cases vs calls), so no case's miss can be attributed
+to an argument. The B1 conclusion — *"only the last is ours, and the file
+cannot carry it"* — stands, now with the argument-level evidence the 2026-10-13
+files add: when the model does send arguments, they are wrong in the four
+repeatable shapes above, which is argument-construction material for §P2-B3's
+split, not tool-selection material.
+
+## C4 root-cause hypotheses: what would make a worker not claim a run, and how each would announce itself
+
+**Date:** 2026-11-14. CI run 38202887580's first `web-e2e` failure left a run
+at `received` with zero steps for a 90-second wait, and
+[the diagnosis section](#ci-run-38202887580s-first-failure-the-cause-is-not-established-and-the-artifact-cannot-establish-it)
+established that the artifact cannot say why: the worker's own log was never
+captured, the page snapshot is identical for four of the five candidate
+causes, and the cause was never established. The instrumentation added since
+(`assessWorker`, the per-spec compose capture, `inspect.json`'s restart
+counts, the CI log step) exists to make the *next* occurrence diagnosable.
+This section is the concrete form of "next time": five root-cause hypotheses,
+each with the log signature that would confirm it, the check that rules it
+out, and a reproduction. They are ordered by how well the surviving evidence
+fits them. All five assume the pre-flight passed — `docker compose up -d
+--wait` returned, which it did (the run reached the browser and submitted a
+ticket).
+
+**H1 — the worker was up and polling, and the run was unclaimable because of
+stale claim state in the reused database.** The e2e stack tears down with
+`down -v` before `up`, but a *previous* run's containers are not the only way
+state survives: if the teardown's `down -v` had been skipped or failed
+silently on an earlier job, `postgres-data` would carry rows from a previous
+stack, including a run holding an unexpired `claimed_until` written by a
+worker that no longer exists. `claim_next`'s predicate excludes rows whose
+lease is live (`repositories.py::SqlRunStore.claim_next`, the
+`claimed_until < now` clause), so the new worker polls a database in which the
+only claimable run is invisible to it, and the page renders `received` with no
+steps — the exact failure shape. *Signature:* worker log shows the boot line
+and nothing else (the worker is healthy and idle); `docker compose exec
+postgres psql -U opspilot -c "select id,status,claimed_by,claimed_until from
+agent_runs"` shows a foreign `claimed_by` on the run. *Rule out:* the
+`down -v` in `startStackOrSkip` runs with `stdio: "inherit"`, so its failure
+is loud, and the CI job runs on a fresh runner each time — which makes this
+the least likely of the five on CI and the most likely **locally**, where a
+killed run leaves volumes behind. *Reproduce:* start the stack, claim a run
+through `SqlRunStore.claim_next` with a stand-in worker id and a 300 s lease
+(exactly what `claim-lease.spec.ts` does via
+`claimOldestRunThroughTheRepository`), stop the worker, start a second stack
+without `down -v`, submit a ticket, and watch it sit unclaimed for the lease's
+remainder. This is the one hypothesis that was **reproduced by design** —
+`docs/limitations.md` §2 records the 300 s unclaimed window measured on a
+live stack.
+
+**H2 — the worker booted, printed its boot line, and then crashed after boot,
+leaving the run unclaimed.** At the failing commit (`b8965d5`), the boot sweep
+marked mid-flight runs `FAILED('interrupted')` but deliberately skipped
+`RECEIVED` (`db.py::mark_interrupted_runs`: "RECEIVED has no work to
+interrupt"), so a worker that died *after* booting but *before* claiming left
+the new run at `received` forever. A crash after boot has more causes than a
+crash before it: the first `drain_once` claim is the first database write the
+process makes, and at that commit `MaxStepsExceeded` — which `run_loop` raises
+after `_fail_run` — was **not** in `drain_once`'s suppression set
+(`contextlib.suppress(RunParked, MCPUnavailable)` only; the third member was
+added at `5f88201`), so any unexpected exception in the first drive escaped
+`poll_forever`, which has no handler, and killed the process with
+`restart: unless-stopped` restarting it into the same crash. *Signature:*
+`docker compose logs worker` shows the boot line, then a traceback, then a
+second boot line — the crash-loop shape `assessWorker` now detects via
+`RestartCount > 0`; `docker compose ps -a` shows `Restarting`. *Rule out:* the
+`inspect.json` capture now records `RestartCount` per container, so a worker
+that came back would be visible where the failing run's artifact had nothing.
+*Reproduce:* the crash-loop injection `stack-diagnostics.spec.ts` already
+carries as a fixture (`BOOT_THEN_CRASH_LOG` with three boot lines and three
+`refusing to start` lines) is this hypothesis's shape; driving it live needs
+only a fault injected after the boot line.
+
+**H3 — the worker container was never created, or compose brought up a stack
+whose worker service failed its dependency gate.** The worker service
+`depends_on` postgres (healthy), migrate (completed successfully), and api
+(healthy on `/ready`). If the api's readiness had flapped — healthy at the
+`--wait` gate, failing a re-check — or if the worker's container create had
+failed (image pull, port conflict on the compose network), `docker compose up
+--wait` would have failed the step before the browser ever ran. Since the run
+got as far as a submitted ticket, the *stack* was up; the residual version of
+this hypothesis is narrower: compose reported the worker as started while its
+process was still in `build_worker()` — which resolves settings, probes the
+persistence layer, and probes the provider SDK (`_require_provider_sdk`,
+added after an earlier worker died on a missing `anthropic` extra) — and the
+browser's 90-second window closed before the worker ever reached
+`poll_forever`. *Signature:* the worker's log has **no boot line at all**
+(`assessWorker` returns `silent` for exactly this), while `ps -a` shows the
+container `Up`; the boot line is printed only after every probe passes
+(`worker/__main__.py::_run`). *Rule out:* a worker that takes more than 90 s
+to boot on a warm cache is not plausible — the boot line appears within
+seconds on this machine and in CI — but the check is one `docker compose logs
+worker`. *Reproduce:* set an env var that makes `build_worker` raise
+(`WorkerConfigError`), `up -d` the stack, and confirm `assessWorker` reports
+`silent` while `--wait` still passes, because the worker has no healthcheck to
+fail.
+
+**H4 — the worker was polling, claimed the run, and the claim was lost to a
+transaction boundary, rendering the run unclaimed again.** At the failing
+commit the claim took the row `FOR UPDATE SKIP LOCKED` but wrote nothing —
+the claim *was* the open transaction, and when `drain_once`'s drive raised or
+the session closed without a status transition, the row returned to the pool
+with no trace. The diagnosis section rules the *symptom* version of this out
+for the failing run (the run was ~1.5 s old and the wait never re-checked),
+but as a root cause for the *class* it survives: the fix that landed
+(`b9bbd5c`, the claim lease) exists precisely because this was real — thirty
+of thirty concurrent claim pairs returned the same row. The residual risk
+after the lease is the one `docs/limitations.md` §2 records: a claimed run
+whose holder dies stays `received` and unclaimable until the lease lapses.
+*Signature:* indistinguishable from H1 in the page, and in the worker log
+identical to idle — this is the hypothesis the new instrumentation is
+least able to confirm after the fact and most able to rule out live (a
+`claimed_by`/`claimed_until` on the row, plus a healthy polling worker whose
+log shows the boot line only). *Rule out:* `claim-lease.spec.ts` drives
+exactly this state against a live stack and asserts the page now renders the
+holder and the deadline; a red there with a green worker log is this
+hypothesis confirmed. *Reproduce:* the same stand-in-claim sequence as H1,
+with the worker left running to show the page's "held by" sentence.
+
+**H5 — the worker was never a problem: the wait was structurally incapable of
+observing a healthy worker's work.** This is the diagnosis section's own
+finding, restated as a hypothesis because it is the one the evidence actually
+supports. At `b8965d5` the park-wait was a single `goto` followed by a bare
+`toBeVisible` with a 90-second timeout — no re-navigation, no polling —
+against a Run Detail page that is a pure Server Component with no client
+refresh. A worker that claimed the run at t+2 s and parked it at t+3 s would
+**still** fail this wait unless the single navigation happened to land after
+the park; the screencast's thirteen frames (twelve in the first second, then
+nothing for 90 s) show the page was rendered once and never again. The
+current spec polls with `expect.poll` re-navigating every 2 s, which is the
+fix. *Signature:* worker log normal, run actually reaches `waiting_approval`
+in the database while the browser times out — checkable after the fact only
+by querying the row. *Rule out:* the current spec's poll loop, which re-reads
+the page; a worker that parks within 90 s now passes, and the suite has been
+green since. *Reproduce:* run the `b8965d5` spec against a healthy stack —
+the failure is timing-dependent, which is why it did not recur.
+
+**Which hypothesis the next failure should be read as.** The diagnostic order
+is now mechanical: read `inspect.json` for `RestartCount` (H2), read
+`worker.log` for the boot line (H3 if absent, H1/H4/H5 if present), query
+`agent_runs.claimed_by`/`claimed_until` (H1/H4 if a foreign or lapsed lease
+sits on the row), and only then suspect the wait itself (H5), which the
+current polling spec should already have ruled out. The five are not
+mutually exclusive — H5 is what made every other hypothesis invisible in the
+failing run — but each now has a capture that would name it, which is the
+second and third limbs of §P2-C4's acceptance made concrete.
