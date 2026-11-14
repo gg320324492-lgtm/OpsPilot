@@ -618,7 +618,7 @@ M9's CI gates depend on this being airtight, and M8's safety metrics measure it.
       `web/src/lib/format.ts:154-158` ("a null here is not missing data and is not
       rendered as zero … a column that showed `0` for fourteen rows would teach
       a reader that the column measures something when it does not") and
-      `web/src/app/runs/[runId]/page.tsx:492-500` ("a `0` there would be a regression
+      `web/src/app/runs/[runId]/page.tsx:495-503` ("a `0` there would be a regression
       that this component exists to make visible"). "Every step with latency"
       therefore could not be satisfied as written; it is ticked as **work** step.
       *Tool execution.* There is no tool-execution `agent_steps` row, and that is

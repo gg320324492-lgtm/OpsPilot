@@ -327,6 +327,19 @@ export interface paths {
         get: operations["export_run_api_runs__run_id__export_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/recreate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         get?: never;
         put?: never;
         /**
@@ -374,7 +387,6 @@ export interface paths {
          *             under it would risk two agents on one ticket.
          */
         post: operations["recreate_run_api_runs__run_id__recreate_post"];
-        delete?: never;
         delete?: never;
         options?: never;
         head?: never;

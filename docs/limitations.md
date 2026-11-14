@@ -407,7 +407,7 @@ is a real gap and is the reason M7 is scheduled after the workflow it displays.
 **One locale ships as a translation; there is no locale negotiation.** Corrected
 2026-10-14: this bullet previously read "No i18n infrastructure. The dashboard is
 English-only," which stopped being true at `651bcef`. What exists now: an
-English source catalogue, a `zh-CN` catalogue of **363 strings** across 19
+English source catalogue, a `zh-CN` catalogue of **375 strings** across 19
 namespaces (`web/src/i18n/dictionaries/zh-CN.json`; counted 2026-11-15, and the
 catalogues grow with the screens), an `httpOnly SameSite=Lax`
 cookie read server-side, and a switcher in the nav. English remains what a fresh
