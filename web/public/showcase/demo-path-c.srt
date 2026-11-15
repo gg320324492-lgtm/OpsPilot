@@ -1,0 +1,15 @@
+1
+00:00:00,000 --> 00:00:06,000
+Path C - the model provider fails. A throwaway HTTP container answers every model call with HTTP 429; the SDK is configured with zero retries.
+
+2
+00:00:10,000 --> 00:00:28,000
+A ticket is submitted. The first model call raises a rate-limit error - and the run fails LOUDLY: model_unavailable, with the structured diagnosis on the timeline. No silent retry, no swallowed error.
+
+3
+00:00:28,000 --> 00:00:59,000
+The 429 server is removed and a real worker is restored. The next ticket is submitted -
+
+4
+00:00:59,000 --> 00:01:13,900
+- and completes without needing an approval. The queue survived the outage; the ledger is unchanged.

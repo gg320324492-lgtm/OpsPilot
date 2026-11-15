@@ -1,0 +1,43 @@
+1
+00:00:00,000 --> 00:00:08,000
+OpsPilot - an AI operations agent for B2B billing support. This is a live dashboard over a real api + worker + Postgres stack; the model is a scripted replay, so no external AI service is called.
+
+2
+00:00:08,000 --> 00:00:16,000
+The dashboard on a freshly brought-up demo stack: nothing parked, nothing failed, knowledge indexed.
+
+3
+00:00:16,500 --> 00:00:24,500
+A customer reports a duplicate charge on invoice INV-2026-384. The ticket form is pre-filled with the README's case.
+
+4
+00:00:24,500 --> 00:00:31,500
+Submitting creates the ticket and enqueues a run in the same transaction.
+
+5
+00:00:31,500 --> 00:00:41,000
+The run is received. The worker claims it on its next poll and starts the investigation - every step lands on the timeline as it happens.
+
+6
+00:00:41,000 --> 00:00:54,000
+The agent classified the ticket as a duplicate charge (0.93), retrieved the refund policy, and proposed a $129 refund on transaction TX-88219 - then PARKED. Nothing has been sent; the money waits for a human.
+
+7
+00:00:54,000 --> 00:01:00,500
+The Approvals inbox. The card shows exactly what will execute: the arguments, the risk level, the deterministic policy explanation - and the model's own justification, labelled untrusted.
+
+8
+00:01:00,500 --> 00:01:08,500
+The human approves. The click releases the run back to the worker - it does not execute the refund inside the request.
+
+9
+00:01:08,500 --> 00:01:22,000
+The worker executes the refund exactly once, idempotency-keyed, and the run completes with the full audit trail: 21 recorded steps, 5 cited sources.
+
+10
+00:01:22,000 --> 00:01:25,400
+Back on the Runs list: one completed run, fully traceable.
+
+11
+00:01:25,400 --> 00:01:33,400
+Run it yourself: python scripts/demo_paths.py up. Paths B (reject) and C (model failure) ship with this video.

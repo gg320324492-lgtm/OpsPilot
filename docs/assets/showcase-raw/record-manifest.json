@@ -1,0 +1,181 @@
+{
+  "recordedAt": "2026-11-15T05:25:24.003Z",
+  "stack": "opspilot-demo-test",
+  "baseUrl": "http://localhost:3102",
+  "paths": [
+    {
+      "kind": "path",
+      "name": "A-approve",
+      "startedAt": "2026-11-15T05:25:26.305Z",
+      "beats": [
+        {
+          "label": "dashboard",
+          "at": 8.14
+        },
+        {
+          "label": "ticket-filled",
+          "at": 17.25
+        },
+        {
+          "label": "ticket-submitted",
+          "at": 22.41
+        },
+        {
+          "label": "parked",
+          "at": 32.62
+        },
+        {
+          "label": "approval-card",
+          "at": 46.75
+        },
+        {
+          "label": "approved",
+          "at": 53.15
+        },
+        {
+          "label": "executing",
+          "at": 61.29
+        },
+        {
+          "label": "completed",
+          "at": 75.38
+        },
+        {
+          "label": "runs-list",
+          "at": 82.51
+        }
+      ],
+      "ok": true,
+      "finishedAt": "2026-11-15T05:26:48.873Z",
+      "videoFile": "docs/assets/showcase-raw/videos/A-approve.webm"
+    },
+    {
+      "kind": "path",
+      "name": "B-reject",
+      "startedAt": "2026-11-15T05:26:49.324Z",
+      "beats": [
+        {
+          "label": "submitted",
+          "at": 13.55
+        },
+        {
+          "label": "parked",
+          "at": 21.76
+        },
+        {
+          "label": "approval-card",
+          "at": 29.91
+        },
+        {
+          "label": "rejected",
+          "at": 35.19
+        },
+        {
+          "label": "escalated",
+          "at": 45.35
+        },
+        {
+          "label": "rejected-tab",
+          "at": 51.47
+        }
+      ],
+      "ok": true,
+      "finishedAt": "2026-11-15T05:27:40.843Z",
+      "videoFile": "docs/assets/showcase-raw/videos/B-reject.webm"
+    },
+    {
+      "kind": "path",
+      "name": "C-model-failure",
+      "startedAt": "2026-11-15T05:27:41.090Z",
+      "beats": [
+        {
+          "label": "submitted",
+          "at": 22.23
+        },
+        {
+          "label": "failed",
+          "at": 34.34
+        },
+        {
+          "label": "next-submitted",
+          "at": 53.55
+        },
+        {
+          "label": "queue-recovered",
+          "at": 63.79
+        }
+      ],
+      "ok": true,
+      "finishedAt": "2026-11-15T05:28:44.908Z",
+      "videoFile": "docs/assets/showcase-raw/videos/C-model-failure.webm"
+    }
+  ],
+  "screenshots": [
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/01-dashboard.png",
+      "label": "Dashboard on a freshly brought-up demo stack"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/02-ticket-submitted.png",
+      "label": "Ticket submitted; the form names the new run"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/03-run-parked.png",
+      "label": "Run parked at the approval gate (WAITING_APPROVAL)"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/04-approval-pending.png",
+      "label": "Approvals inbox: the parked refund with its policy explanation"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/05-approval-decided.png",
+      "label": "Decision recorded; the pending inbox is empty"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/06-run-completed.png",
+      "label": "Run completed: refund executed exactly once, audit trail shown"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/07-runs-list.png",
+      "label": "Runs list after the golden path"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/08-reject-decision.png",
+      "label": "Path B: the Reject decision on the parked refund"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/09-rejected-escalated.png",
+      "label": "Path B: run completed with the escalation banner; no refund"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/10-rejected-recorded.png",
+      "label": "Path B: the rejection recorded as a human decision"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/11-model-failure.png",
+      "label": "Path C: the run fails loudly with model_unavailable"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/12-queue-recovered.png",
+      "label": "Path C: the queue keeps working; the next ticket completes"
+    },
+    {
+      "kind": "screenshot",
+      "file": "web/public/showcase/13-evidence-export.png",
+      "label": "Run detail with the evidence-export control (run b09c407d)",
+      "runId": "b09c407d-1247-4251-b902-6284f937a87b"
+    }
+  ]
+}

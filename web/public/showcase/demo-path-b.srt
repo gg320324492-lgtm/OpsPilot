@@ -1,0 +1,19 @@
+1
+00:00:00,000 --> 00:00:06,000
+Path B - the human says no. Same live stack, same scripted model, no external AI calls.
+
+2
+00:00:10,000 --> 00:00:19,500
+The same duplicate-charge ticket is submitted. The investigation is identical - the agent proposes the refund and parks.
+
+3
+00:00:19,500 --> 00:00:27,500
+This time the human REJECTS the refund on the Approvals inbox.
+
+4
+00:00:27,500 --> 00:00:41,000
+A rejection is the workflow working: the run COMPLETES with an escalation reply - and no money moves. The ledger still holds exactly one refund.
+
+5
+00:00:41,000 --> 00:00:43,400
+The rejection is recorded as a human decision on the Rejected tab.
