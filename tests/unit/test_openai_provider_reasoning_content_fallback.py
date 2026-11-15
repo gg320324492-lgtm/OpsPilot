@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -115,7 +115,13 @@ def _provider_answering(
         return real_async_openai(
             api_key=str(kwargs.get("api_key", "")),
             base_url="https://example.invalid/v1",
-            http_client=httpx.AsyncClient(transport=transport),
+            # The SDK's stubs disagree about which httpx the client is: the
+            # 2.x line typed `http_client` as `httpx.AsyncClient`, the 3.x line
+            # as `httpx2.AsyncClient`. Both are the same runtime object; the
+            # alias is an artifact of the SDK's codegen. `cast(Any, ...)` makes
+            # the call legal under either stub without a per-version ignore,
+            # which mypy would flag as unused on the other line.
+            http_client=cast(Any, httpx.AsyncClient(transport=transport)),
         )
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _build)
@@ -346,7 +352,7 @@ async def test_the_request_is_unchanged_by_the_envelope(
     reference_client = openai.AsyncOpenAI(
         api_key="test-key",
         base_url="https://example.invalid/v1",
-        http_client=httpx.AsyncClient(transport=class_transport),
+        http_client=cast(Any, httpx.AsyncClient(transport=class_transport)),
     )
 
     adapter_transport = _CannedTransport(_reply_with_valid_content)

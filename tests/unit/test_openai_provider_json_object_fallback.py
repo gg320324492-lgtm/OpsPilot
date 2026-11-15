@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -131,7 +131,11 @@ def _provider_answering(
         return real_async_openai(
             api_key=str(kwargs.get("api_key", "")),
             base_url="https://example.invalid/v1",
-            http_client=httpx.AsyncClient(transport=transport),
+            # The SDK's stubs disagree about which httpx the client is (2.x
+            # typed `httpx.AsyncClient`, 3.x `httpx2.AsyncClient`; same runtime
+            # object). `cast(Any, ...)` is legal under either stub, unlike a
+            # per-version `type: ignore`, which is unused on the other line.
+            http_client=cast(Any, httpx.AsyncClient(transport=transport)),
         )
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _build)
