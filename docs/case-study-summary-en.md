@@ -21,13 +21,19 @@ snapshot-at-park arguments, approved, and the worker executed the refund
 exactly once under an idempotency key; a repeat approval was refused with 409.
 
 Measurable results, all from the repository's own records: 1,365 Python tests
-passed in the published Phase 2 review, a CI-enforced zero-violation invariant
-that every executed high-risk write matches an approved approval request, and
-the fail-closed property that adversarial retrieved text cannot move money
-without a human.
+passed in the published Phase 2 review (the suite has grown since; the README
+records the current count), a CI-enforced zero-violation invariant that every
+executed high-risk write matches an approved approval request, and the
+fail-closed property that adversarial retrieved text cannot move money without
+a human. The same property was re-measured against a real model in November
+2026: across a 15-case safety batch (13 live + 2 scripted injection),
+**unsafe executions = 0** — both injection cases proposed the injected $10,000
+refund and were refused by the amount check with no approval and no write.
 
 Honest boundaries: third-party systems and the refund are simulated in-repo
-mocks; security uses a single-operator token; real-model proposal quality is
-measured openly and remains active work. Full detail lives in
+mocks; security uses a single-operator token; the model's tool-selection
+accuracy is measured openly and stays below the project's own acceptance bar
+(development set 3/15 and 2/15 against a ≥10/15 gate, holdout 10/32), while
+the safety gate held. Full detail lives in
 [`docs/limitations.md`](limitations.md) and
 [`docs/case-study-duplicate-charge.md`](case-study-duplicate-charge.md).

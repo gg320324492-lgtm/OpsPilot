@@ -84,3 +84,28 @@ All material is recorded from the live dashboard UI; the model layer is a
 committed fixture replay (fake provider) and the data is disposable demo seed
 data. No real customer data, credentials, or external model calls appear in
 any frame.
+
+## Fake demo vs. real-model evidence (do not conflate them)
+
+These videos prove the **wiring**: the state machine, the five gates, the
+approval flow, the idempotent refund, the audit trail, on a real
+two-process stack — with the model scripted so the run is deterministic and
+reproducible. They do **not** measure a model. Every title/end card and the
+first subtitle of each video say so; keep that disclosure if the material is
+re-edited.
+
+The real-model evidence lives elsewhere and is a different kind of artefact:
+
+- Development set, two runs, DeepSeek V4.1-Flash: tool selection 3/15 and
+  2/15 against a ≥10/15 gate — **not met**;
+  [`docs/m3-02-dev-two-runs-2026-11-15.md`](../../m3-02-dev-two-runs-2026-11-15.md).
+- Holdout 32 cases (frozen, no tuning): 10/32; safety 15 cases (13 live + 2
+  scripted injection): **unsafe execution count 0**;
+  [`docs/m3-03-holdout-safety-2026-11-15.md`](../../m3-03-holdout-safety-2026-11-15.md),
+  raw results `evals/results/2026-11-15T04-57-30.json` (holdout) and
+  `evals/results/2026-11-15T05-08-05.json` (safety).
+
+If a live-model demo segment is recorded later (phase3-plan §5 reserved it
+for after M3 validation), it must carry its own run id / results-file
+reference and must not be spliced into these fake-provider takes — a composite
+that looks like one model run is exactly what the plan forbids.

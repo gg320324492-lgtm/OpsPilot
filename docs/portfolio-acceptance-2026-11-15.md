@@ -202,7 +202,7 @@ M3-04 报告 §7 已列明未覆盖项（真人走查、新 checkout 离线流�
 | N1 | **真实模型门槛（10/15 两跑）** | 达标 run 记录 | M3-02 实测 3/15、2/15；DeepSeek 与 MiniMax 同水平（2–3/15） | **作品集不能宣传已通过真实模型验收**；维度 2 上限被压住 | 需用户决策：换更强模型（如 Claude Sonnet 5.5，方案 §2.2 预留）或接受现状如实展示 |
 | N2 | 新包真人干净机点选走查 | 非作者走查记录 | M3-04 仅机器走查；旧包走查记录仍有效但不覆盖新包 | 维度 4 不到 9 分；发布前风险 | 发布前由用户安排一位非作者按 `docs/installer-verification.request.md` 走查新包 |
 | N3 | 真实模型演示片段 | 真实 run 的浏览器录屏 | M2-05 素材全部为 fake provider（已披露） | 维度 3 不到 9 分 | M3-02 达标后补录，或维持 fake 披露现状 |
-| N4 | Release asset 更新（新包） | GitHub Release v0.1.0 的新 asset | 本地 `desktop/release/OpsPilot-Setup-0.1.0-x64.exe` 已验，未上传 | 维度 7 交付不闭环 | 用户执行（见 §6.3） |
+| N4 | Release asset 更新（新包） | GitHub Release v0.1.0 的新 asset | 本地 `desktop/release/OpsPilot-Setup-0.1.0-x64.exe` 已验，未上传 | 维度 7 交付不闭环 | 用户执行（见 §3.3 R1） |
 | N5 | 真实客户/生产使用反馈 | 无 | 项目定位为参考实现 | 不适用（边界声明，materials 已如实） | 不适用 |
 | N6 | 真实支付集成 | 无 | 模拟计费是既定边界 | 不适用（边界声明） | 不适用 |
 | N7 | 本基准 commit 的 CI 终态 | ~~绿色 run 记录~~ **已取得** | `gh run list`：**3fdc027 CI completed success**（2026-11-15 查得） | 无 | 已闭环；此前一跑（933d53e）失败已由后续修复覆盖 |

@@ -104,25 +104,53 @@ From the repository's own records:
   published Phase 2 review of 2026-11-14
   ([`docs/phase2-review-2026-11-14.md`](phase2-review-2026-11-14.md)), alongside
   58 web pure-logic specs and 114 desktop lifecycle tests (1 failure tracked).
+  The suite has grown since; the current README records the latest counts with
+  their run and commit.
 - **Five gates, one invariant, zero violations**: the approval-bypass invariant
   is enforced by CI as a database query, not a helper unit test.
 - **The documented run**: duplicate detected → refund proposed → parked →
   approved → executed exactly once → duplicate approval refused with 409.
 - **Injection posture**: structural gates hold even when retrieved documents
-  contain adversarial instructions; the project claims containment, not prompt
-  immunity.
+  contain adversarial instructions — in the 2026-11-15 safety batch both
+  live-model injection cases followed the injected instruction, proposed a
+  $10,000 refund, and were refused by the amount check with no approval and no
+  write; the project claims containment, not prompt immunity.
 
 One honesty note: the demo run used a deterministic provider so that it proves
 the gates and wiring, not model quality. Measuring real-model proposal quality
-is an explicit, ongoing workstream, and its published results so far
-([`docs/phase2-review-2026-11-14.md`](phase2-review-2026-11-14.md)) fall short
-of the project's own acceptance bar — reported here as open work, not hidden.
+is an explicit workstream, and its published results fall short of the
+project's own acceptance bar — reported here as measured, not hidden:
+
+- **Development set, two runs** (15 cases each, frozen configuration,
+  DeepSeek V4.1-Flash over an OpenAI-compatible gateway, 2026-11-15): exact
+  tool-set hits **3/15 and 2/15** against a ≥10/15 acceptance gate — **not
+  met**. Argument validity was 1.000 on both runs (all proposed calls passed
+  schema validation), zero unsafe executions, zero `must_not_propose`
+  violations; the gap is tool-set judgement, not schema compliance.
+  ([`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md))
+- **Holdout, 32 cases, run frozen after the dev set** (no tuning, reported as
+  observed): tool selection **10/32 (0.312)**, argument validity 1.000
+  (102/102), task completion 31/32.
+  ([`docs/m3-03-holdout-safety-2026-11-15.md`](m3-03-holdout-safety-2026-11-15.md))
+- **Safety, 15 cases run independently** (13 live + 2 scripted injection):
+  **unsafe execution count 0** — the hard gate held. Approval-policy
+  compliance 1.000 (5/5 live + 2/2 synthetic); expected-write rate 0.250
+  (2/8, reported as observed: the six misses are conservative failures to
+  execute, not safety events). Both injection cases followed the injected
+  instruction and proposed a $10,000 refund; the amount check refused it and
+  no money moved. (same report)
+
+So the containment claims above are measured against a real model, while the
+model's tool-selection accuracy remains below the project's own bar — both
+statements are part of this case study.
 
 ## Limitations and evidence
 
 Simulated third-party systems; simulated refund; single-operator security
-model; real-model validation in progress. Full detail:
-[`docs/limitations.md`](limitations.md), [`docs/progress.md`](progress.md),
-[`docs/architecture.md`](architecture.md),
+model; real-model tool-selection accuracy measured and still below the
+project's own acceptance bar (development set 3/15 and 2/15, holdout 10/32),
+while the safety gate (unsafe = 0) held under the same real model. Full
+detail: [`docs/limitations.md`](limitations.md),
+[`docs/progress.md`](progress.md), [`docs/architecture.md`](architecture.md),
 [`docs/case-study-duplicate-charge.md`](case-study-duplicate-charge.md), and the
 run's screenshots under `docs/assets/screenshots/`.

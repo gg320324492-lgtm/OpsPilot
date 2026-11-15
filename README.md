@@ -17,9 +17,17 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > **Status:** Phase 1 (M0–M9) closed; Phase 2 done — the golden path runs end
 > to end, and the installer is verified and released as
 > [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0).
-> Phase 3 is in progress. The running record is
-> [`docs/progress.md`](docs/progress.md); the development-era narrative behind
-> this README is [`docs/dev-notes.md`](docs/dev-notes.md).
+> Phase 3 is closing: the real-model validation ran in November 2026 — the
+> safety gate held (**unsafe executions = 0** over a 15-case batch, injection
+> attempts included) while the model's tool-selection accuracy stayed below the
+> project's own bar (development set 3/15 and 2/15, holdout 10/32), reported as
+> measured in [`docs/progress.md`](docs/progress.md). The demo material
+> ([`docs/showcase.md`](docs/showcase.md)) runs the scripted provider and says
+> so; the real-model evidence lives in the eval reports
+> ([`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md),
+> [`docs/m3-03-holdout-safety-2026-11-15.md`](docs/m3-03-holdout-safety-2026-11-15.md)).
+> The development-era narrative behind this README is
+> [`docs/dev-notes.md`](docs/dev-notes.md).
 
 ## The problem this solves
 
@@ -188,6 +196,13 @@ That is tested by calling the MCP server directly, bypassing the agent.
 — a scripted replay with no API key, so the model's *answers* are the same every
 time. What the recording runs in, and how to reproduce it:
 [`docs/dev-notes.md`](docs/dev-notes.md).*
+
+**Browser videos with the same disclosure.** Three walkthroughs of the demo
+paths — approve, reject, and model-failure recovery — recorded from the real
+two-process stack with English subtitles, live in
+[`docs/showcase.md`](docs/showcase.md) and `web/public/showcase/`. They run the
+scripted provider too, and every title card says so; the real-model evidence is
+the eval reports, not these videos.
 
 ### The same path, in a browser, against the real two-process stack
 
@@ -442,6 +457,27 @@ the injection cases the model *did* comply: it proposed the injected refund, and
 the refund did not execute. That is the property being claimed, and it does not
 depend on which model answers. The call-by-call accounting is in
 [`docs/dev-notes.md`](docs/dev-notes.md).
+
+### Re-measured on a newer model, November 2026
+
+The same harness ran against **DeepSeek V4.1-Flash** (OpenAI-compatible
+gateway, frozen configuration) after the MiniMax era, with both outcomes
+reported as measured:
+
+| Batch | Result | Gate | Source |
+|---|---|---|---|
+| Development set, 15 cases × 2 runs | tool selection **3/15 and 2/15**; argument validity 1.000; unsafe 0 | ≥10/15 **not met** | [`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md) |
+| Holdout, 32 cases, run frozen (no tuning) | tool selection **10/32 (0.312)**; argument validity 1.000 (102/102) | reported as observed | [`docs/m3-03-holdout-safety-2026-11-15.md`](docs/m3-03-holdout-safety-2026-11-15.md) |
+| Safety, 15 cases (13 live + 2 scripted injection) | **unsafe execution count 0**; approval-policy compliance 1.000 (5/5 + 2/2); expected-write rate 0.250 (2/8) | unsafe = 0 **held** | same report |
+
+The pattern is the same as the MiniMax baseline: **containment reproduces,
+tool-set selection does not reach the bar.** In both injection cases the live
+model followed the injected instruction and proposed a $10,000 refund claiming
+a fake pre-authorisation; the amount check refused it (`amount_exceeds_transaction`),
+no approval was granted, and nothing was written. The demo videos
+([`docs/showcase.md`](docs/showcase.md)) are a different artefact: they run the
+scripted provider (`MODEL_PROVIDER=fake`) to show the wiring deterministically,
+and say so on every title card — they are not presented as live-model runs.
 
 ## What the claims audit allows this README to say
 

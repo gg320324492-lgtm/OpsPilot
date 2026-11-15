@@ -9958,3 +9958,79 @@ dimensions of `docs/phase3-plan.md` §2, evidence-only.
   first-screen improvements recorded for M3-05. Six cross-document
   number-drift items (D1–D6) are tabulated in the report for M3-05 to backfill;
   nothing was edited outside this report and this entry.
+
+## M3-05 closed: the real numbers are in the materials, and the release is a checklist (2026-11-15)
+
+Phase 3 M3-05 (finalisation and release handover) executed on `main` on top of
+the M3-06 acceptance commit. The November real-model results are now in every
+portfolio surface, stated as measured, with the demo/real-model boundary made
+explicit. New: [`docs/release-checklist.md`](release-checklist.md) — every
+outward-facing step (remote CI, human installer walkthrough, Release/tag,
+video upload, Upwork publish) is listed with materials and marked
+**for the user to execute**; nothing outward was performed.
+
+### Backfilled (the D1–D6 list from the M3-06 report)
+
+- `docs/case-study-duplicate-charge-en.md` (D1): the "honesty note" now cites
+  the November batches instead of "ongoing workstream" — dev set 3/15 and 2/15
+  against ≥10/15 (**not met**), holdout 10/32, safety unsafe=0 with the
+  injection cases refusing at the amount check; injection-posture bullet and
+  the limitations paragraph updated to the same measured wording; the frozen
+  1,365-test figure now points at the README for the current count.
+- `docs/case-study-summary-en.md` (D2): measurable-results paragraph now
+  carries the real-model safety result (unsafe = 0, both injections refused)
+  and the tool-selection shortfall; "remains active work" became the measured
+  statement.
+- `docs/case-study-duplicate-charge.md` (D2's Chinese counterpart): the
+  "live measurement, for contrast" section gained a dated 2026-11-15 block —
+  DeepSeek V4.1-Flash 3/15 and 2/15, holdout 10/32, safety gate held, with
+  links to both reports.
+- `README.md` (D3): the status banner now states Phase 3 is closing with the
+  real-model outcome in one place; a new "Re-measured on a newer model,
+  November 2026" table in the Evaluation section separates the three batches
+  and names the demo videos as scripted-provider artefacts; the "Watch it
+  run" section links the browser videos (`docs/showcase.md`) with the same
+  disclosure.
+- `docs/upwork-profile-entry-en.md` (D4): the description now carries the
+  real-model line ("safety gate held: 0 unsafe executions, injections
+  included; tool-selection accuracy is an open metric"); character counts
+  made explicit — original wording is 748 chars (over the 600 limit), a
+  trimmed 646-char variant, and a **recommended compliant 595-char variant**;
+  honesty notes gained the M3-02/M3-03 provenance and the fake-video rule.
+- `docs/portfolio-scorecard.md` (D6): a banner marks it as the frozen
+  skeleton (baseline `51a99ab`) and points to
+  [`docs/portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md)
+  as the current rescore; its stale "M3 未开始" estimates are no longer
+  presented as current.
+- `docs/assets/showcase-raw/showcase-video-script.md`: new closing section —
+  what the fake demo proves (wiring) vs. where the real-model evidence lives
+  (the two eval reports and their committed results files), and the rule that
+  a future live-model segment must carry its own run evidence and must not be
+  spliced into these takes.
+
+### Consistency notes
+
+- Model identity across all surfaces: **DeepSeek V4.1-Flash** via the local
+  magpie gateway, route `workbuddy/deepseek-v4.1-flash`, config frozen
+  (`OPENAI_JSON_OBJECT_FALLBACK=true`, `MAX_STEPS=24`, `max_retries=0`) —
+  matching both eval reports.
+- The four committed MiniMax-era result files and the two committed
+  2026-11-15 files (holdout `…T04-57-30.json`, safety `…T05-08-05.json`) are
+  untouched; the M3-02 raw files (`…T05-08-14.json`, `…T05-19-05.json`) stay
+  gitignored per the results README.
+- The version/commit story is unchanged and now stated in the checklist:
+  released `v0.1.0` asset = old package (`565206f7…`, D2 walk of 2026-11-14);
+  new candidate = `71ac5ac0…` built from `81a0278` (M3-04). Choosing how to
+  publish the new package (new tag vs. `--clobber`) is the user's call, and
+  the checklist prices both.
+
+### Left open (honest)
+
+- Remote CI for this commit (needs the push), the human clean-machine
+  walkthrough of the new installer, the Release/tag action, the video
+  platform upload, and the Upwork publish — all user steps, listed in
+  [`docs/release-checklist.md`](release-checklist.md).
+- The real-model acceptance gate remains **not met** (3/15, 2/15 vs ≥10/15):
+  the materials claim containment and engineering, not model competence.
+  Retesting with a stronger model or accepting the current result is a
+  decision recorded for the user in the checklist's closing section.

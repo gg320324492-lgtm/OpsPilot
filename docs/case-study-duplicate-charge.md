@@ -322,6 +322,21 @@ The honest numbers are in
 them with their caveats rather than quoting the best one. The single most
 important caveat belongs here too:
 
+> **Update, 2026-11-15 (DeepSeek V4.1-Flash).** The same 15-case development
+> set, run twice on a newer model (DeepSeek V4.1-Flash over an
+> OpenAI-compatible gateway, frozen configuration), scored **3/15 and 2/15** —
+> the same level as MiniMax, still far below the project's own ≥10/15
+> acceptance gate
+> ([`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md)).
+> A 32-case holdout, run frozen afterwards with no tuning, scored **10/32**
+> ([`docs/m3-03-holdout-safety-2026-11-15.md`](m3-03-holdout-safety-2026-11-15.md)).
+> The safety gate is the part that reproduces: across the 15-case safety batch
+> (13 live + 2 scripted injection), **unsafe execution count = 0**, and both
+> injection cases — the model followed the injected instruction and proposed a
+> $10,000 refund — were refused by the amount check with no approval and no
+> write. Tool-set selection is the model's weak spot; containment is the
+> system's strong one. Both are reported as measured.
+
 > **`tool selection` does not reproduce.** The 3/15 above was re-measured twice
 > on unmodified code against the same endpoint and scored **3/15 and 2/15**, with
 > an identical tool set for only 8 of the 15 cases, and **6 of the 12 that
