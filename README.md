@@ -385,7 +385,8 @@ rather than re-planning.
 
 Evaluation is a Phase 1 feature, not a promise. 70+ deterministic cases across
 classification, retrieval, tool selection and safety; fourteen metrics; no
-LLM-as-a-judge.
+LLM-as-a-judge. Every committed results file is grouped and read in
+[`docs/evals-baseline.md`](docs/evals-baseline.md).
 
 Four of the metrics are **gates**, not scores — each must be exactly zero:
 
@@ -608,6 +609,10 @@ The specification was written before the code, and it is the artifact to review:
 | [milestones.md](docs/milestones.md) | M0–M9 with acceptance criteria per milestone |
 | [phase2-plan.md](docs/phase2-plan.md) | Phase 2's work packages and their acceptance conditions |
 | [phase3-plan.md](docs/phase3-plan.md) | Phase 3's portfolio milestones and the real-model validation plan |
+| [phase4-draft.md](docs/phase4-draft.md) | v0.3.0 direction draft: three candidate directions, effort, score deltas, what needs a decision |
+| [evals-baseline.md](docs/evals-baseline.md) | Every committed eval results file, grouped and read — the index behind the numbers above |
+| [dependency-audit-2026-11-15.md](docs/dependency-audit-2026-11-15.md) | The read-only dependency audit (pip-audit, npm audit, workflows): zero known vulnerabilities |
+| [one-pager-en.md](docs/one-pager-en.md) | A one-page English summary of the project, claims scoped to evidence |
 | [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
 | [installer-verification.zh-CN.md](docs/installer-verification.zh-CN.md) | The same procedure in Chinese, for the person running it (the English file is authoritative) |
 | [progress.md](docs/progress.md) | The running record, including the measurements that disagree |
