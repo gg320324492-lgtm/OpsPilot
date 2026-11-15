@@ -241,6 +241,26 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 ---
 
+## DBC-07 升级场景的镜像版本一致性（**新发现**，2026-11-16）
+
+**目标：** 安装版 compose 用固定镜像 tag（`opspilot-api`、`opspilot-worker`、
+`opspilot-migrate`），`docker compose up` 在镜像已存在时不重建。在装过旧版本
+（或用源码构建过同名镜像）的机器上升级，会静默复用旧镜像、跑旧 API——2026-11-15/16
+真人走查实测：新装 v0.2.0 后「导出摘要」返回 404，因为本机残留 2026-11-14 构建的
+`opspilot-api`（缺 export 路由）。干净机器首次安装不受影响。
+
+**建议做法：**
+
+1. compose 镜像 tag 带版本号（如 `opspilot-api:0.2.0`），或在首次启动时 `build`；
+2. 启动/升级时校验镜像版本与安装包版本一致，不一致则重建；
+3. 失败路径给出可读提示（镜像陈旧），不要静默降级。
+
+**证据：** [installer-verification.md](installer-verification.md) 的
+「Interactive walk on the published v0.2.0 installer」节。
+**优先级：** 与 DBC-05 同级；发布补丁版前处理。
+
+---
+
 ## 建议执行顺序
 
 ```

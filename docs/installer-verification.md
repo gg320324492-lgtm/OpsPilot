@@ -777,3 +777,46 @@ the token-bearing `preexisting-opspilot.env.bak` was excluded) and
 [`docs/evidence/port-recheck-2026-11-15/`](evidence/port-recheck-2026-11-15/)
 (recheck record + stderr log); the original scratch workspaces were removed
 after archiving.
+
+### Interactive walk on the published v0.2.0 installer (2026-11-15/16, owner-performed)
+
+An interactive, double-click walk of the published artifact was performed on
+the build machine by the repository owner — **owner-performed, not the
+independent walker the sections above record**. Read it as the interaction
+evidence it is (installer wizard, SmartScreen, menu, quit, warm start), not as
+a second independent verification. Artifact:
+`OpsPilot-Setup-0.2.0-x64.exe`, 130,075,633 bytes, SHA-256
+`2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`
+(checked before installing). Environment: Windows 11 x64, Docker 29.9.2
+running, port 8000 held by an unrelated container.
+
+| Area | Result |
+|---|---|
+| Interactive install (NSIS wizard, defaults) | ✅ wizard appears, completes, shortcuts created, version 0.2.0 |
+| SmartScreen | not shown — the local build carries no Mark-of-the-Web; a downloaded copy's behaviour was not tested |
+| First launch, 8000 held, no `OPSPILOT_API_HOST_PORT` | ❌ `docker compose up` exits 1: `Bind for 127.0.0.1:8000 failed: port is already allocated`; the failure page only echoes the compose output. The headless recheck's case A — the documented default, not a regression |
+| Recovery: `OPSPILOT_API_HOST_PORT=18002`, relaunch | ✅ dashboard in ~2 minutes (images cached) |
+| Dashboard, navigation, language switch | ✅ all pages switch; English/中文 control present |
+| Golden path (ticket → approval → approve) | ✅ run `05bbea7b…` completed; approval `7df88aab…` approved 18:09:52 |
+| Double-decision protection | ✅ `POST /api/approvals/{id}/approve` on the decided approval → `409 approval_already_decided`; the UI has no second click, as designed |
+| Audit page | ✅ 21-step timeline, 5 citation sources, the failed tool highlighted |
+| Export | ❌ first attempt “Not Found”: the installer reused a stale local `opspilot-api` image (built 2026-11-14, before the export route existed) because `docker compose up` does not rebuild an existing tag. After rebuilding from the installer's own stack sources: API `200`, UI export downloads in ~10–15 s |
+| Quit | ✅ all processes exit; containers are removed (compose down), both volumes survive |
+| Warm start | ✅ 10–15 s to dashboard; the desktop shortcut also inherits `OPSPILOT_API_HOST_PORT` from the user environment |
+| Data survives the restart | ✅ 5 runs / 4 approvals / 5 tickets still present |
+
+**Two product gaps this walk adds to the record** (neither affects a clean
+machine's first install; both matter for upgrades and for a machine that
+already runs other Docker stacks):
+
+1. **Stale local images are reused on upgrade.** The compose file uses fixed
+   image tags (`opspilot-api`, …); `docker compose up` reuses them when they
+   exist, so reinstalling a new version over a machine that built an older one
+   silently runs the old API — here it cost the export route. A versioned
+   image tag (or a build on first launch) closes it. Tracked as DBC-07.
+2. **The 8000-conflict failure page gives no recovery hint.** It shows the raw
+   compose error; it does not say “set `OPSPILOT_API_HOST_PORT` and relaunch”.
+   The behaviour itself is documented; the message is not.
+
+Full sheet with per-step records:
+[`docs/installer-interactive-walk-2026-11-15.md`](installer-interactive-walk-2026-11-15.md).

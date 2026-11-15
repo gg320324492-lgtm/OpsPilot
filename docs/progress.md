@@ -10305,3 +10305,21 @@ the one hit, `3b20b07`, is the deliberately committed M3-03 safety evidence
 read-only review applied: the recommended description now says *simulated*
 refund at exactly 600 chars, and the honesty note drops the stronger-tier
 figures per the external-materials decision.
+
+## Interactive walk on the published v0.2.0 installer (2026-11-15/16)
+
+Owner-performed interactive walk of the published artifact on the build
+machine (owner-performed, not a second independent verification): NSIS
+wizard, no SmartScreen (the local build carries no Mark-of-the-Web), golden
+path with approval, API-level double-decision 409, audit page, quit, warm
+start in 10–15 s, data survives the restart. Two findings entered the record:
+
+1. the 8000-conflict failure page gives no recovery hint — the headless
+   recheck's case A, a documented default rather than a regression; and
+2. the installer reused a stale local `opspilot-api` image (built 2026-11-14,
+   before the export route existed) because `docker compose up` does not
+   rebuild an existing tag, so “export summary” returned 404 until the image
+   was rebuilt from the installer's own stack sources — tracked as DBC-07.
+
+Full sheet: [`docs/installer-interactive-walk-2026-11-15.md`](installer-interactive-walk-2026-11-15.md),
+archived into [`docs/installer-verification.md`](installer-verification.md).
