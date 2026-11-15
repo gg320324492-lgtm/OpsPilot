@@ -10360,6 +10360,16 @@ future work; the versioned tags are what close the upgrade hole. Test
 containers were removed; the data volumes and the unrelated 8000 stack were
 left untouched.
 
+## v0.2.1 released (2026-11-16)
+
+One CI fix on the way (`bb4ae85`: the `/health` assertion pinned 0.2.0 and
+failed on the version bump; it now reads `opspilot.__version__`). Tag
+`v0.2.1` @ `bb4ae85`, Release created with the installer and blockmap
+(130,567,926 B, SHA-256 `567bec190d0a05d27c9aa29f99db68b3e1b96b32be0ef4a2ef924ee665f676c5`,
+verified against the local build), notes in
+[`docs/release-notes-v0.2.1-draft.md`](release-notes-v0.2.1-draft.md):
+<https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.1>
+
 ## DBC-05 done: a demo compose profile (2026-11-16)
 
 [`docker-compose.demo.yml`](docker-compose.demo.yml) is a second Compose file,
