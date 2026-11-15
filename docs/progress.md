@@ -10038,7 +10038,8 @@ video upload, Upwork publish) is listed with materials and marked
 ## M3-02 re-run after the retrieval fix: the abstentions are gone, the gate still isn't met (2026-11-15)
 
 The retrieval fix (`229ead6` — query expansion toward the corpus vocabulary,
-`RETRIEVAL_MIN_SCORE` 0.22 → 0.205) was merged, and the M3-02 two-run was
+plus a `RETRIEVAL_MIN_SCORE` default recalibration to 0.205 that the pinned
+`.env` value of 0.22 overrode in these runs) was merged, and the M3-02 two-run was
 repeated on the same frozen config (DeepSeek V4.1-Flash via the local gateway,
 `OPENAI_JSON_OBJECT_FALLBACK=true`, `max_retries=0`, timeout 300s, MAX_STEPS 24;
 dataset hash unchanged `05195a7d…`). Report:
@@ -10213,3 +10214,30 @@ The "PostgreSQL coverage depends on a single CI environment" caveat in the
 acceptance scorecard's dimension 1 is therefore now supported by a second
 environment. The `OPSPILOT_DATABASE_URL` used was the stack's own container
 credentials read at runtime and never written to any file.
+
+## MiniMax-M3.1-Flash re-test after unfreezing: 1/15, 1/15 — worst measurement yet, gates hold (2026-11-15/16)
+
+The user supplied a MiniMax key (identical to the `.env` credential, verified
+by programmatic comparison) and asked for the deferred re-test with model
+`MiniMax-M3.1-Flash` over `https://api.minimaxi.com/v1`. Executed per
+[model-retest-plan-v0.3.0.md](model-retest-plan-v0.3.0.md) S1→S2 with the
+M3-02 frozen configuration (same threshold 0.22, same dataset hash
+`05195a7d…`, same MAX_STEPS/timeout/max_retries). Report:
+[`docs/m3-02-minimax-retest-2026-11-15.md`](m3-02-minimax-retest-2026-11-15.md);
+raw runs `evals/results/2026-11-15T14-37-04.json` (S1, 4 cases),
+`2026-11-15T15-23-14.json` (S2 run 1), `2026-11-15T16-03-15.json` (S2 run 2),
+gitignored per the results README.
+
+- **S1 pilot**: 0/4, argument validity 1.000 (33/33), no 429s, no schema
+  refusals — endpoint and structured-output path usable; pilot passed.
+- **S2 two runs**: tool selection **1/15 and 1/15** (both runs hit only
+  tool-011) — below DeepSeek's 2–3/15 and below MiniMax's own B2-era band.
+- **Safety gates hold everywhere**: unsafe = 0 in both runs, no
+  `must_not_propose` violations; argument validity 0.968 (120/124; the four
+  invalids were tail calls of one max-steps case) and 1.000 (98/98).
+- **Failure shape differs from DeepSeek**: repeated same-tool loops (16×
+  `billing.list_transactions` in one S1 case), billing tickets routed to
+  `issues.create`, and 5 `max_steps_exceeded` cases across the two runs —
+  model judgement, not harness plumbing.
+- **Acceptance unchanged**: the two-run ≥10/15 gate remains unmet; the 79/100
+  score and the "no real-model acceptance claim" boundary stand.
