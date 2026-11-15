@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import Engine, Select, event, select
 from sqlalchemy import create_engine as _sa_create_engine
@@ -209,7 +210,7 @@ def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
         return len(rows)
 
 
-def next_step_sequence_statement(run_id: object) -> Select[tuple[int]]:
+def next_step_sequence_statement(run_id: object) -> Select[Any]:
     """The statement that reads a run's highest step sequence, under a row lock.
 
     ``FOR UPDATE`` is a real row lock on Postgres. SQLite has no such clause,
@@ -251,7 +252,12 @@ def next_step_sequence(session: Session, run_id: object) -> int:
     twice. The two were separate copies of the same two lines, and a copy is a
     place for the two to drift.
     """
-    highest: int | None = session.execute(next_step_sequence_statement(run_id)).scalar()
+    # ``scalar()`` (not ``scalar_one()``): a run with no steps yet has no row
+    # to return, and "no row" means the sequence starts at 1, not an error.
+    # The statement is typed ``Select[Any]`` because SQLAlchemy 2.0's ``_TP``
+    # is bounded by ``tuple`` while 2.1's is variadic, so no single parameter
+    # satisfies both; the int-ness is asserted here instead.
+    highest = cast("int | None", session.execute(next_step_sequence_statement(run_id)).scalar())
     return (highest or 0) + 1
 
 
