@@ -10190,3 +10190,26 @@ named, and the checklist's Release step is ticked off.
   well-formed results file under `evals/results/` (gitignored). The real-model
   re-test (S1) is now unblocked pending only a provider key and budget sign
   off, per [`docs/model-retest-plan-v0.3.0.md`](model-retest-plan-v0.3.0.md).
+
+## Two-worker claim tests exercised against a live local PostgreSQL (2026-11-15)
+
+limitations.md §2/§8 records the long-standing gap honestly: the
+`FOR UPDATE SKIP LOCKED` clause behind the two-worker claim guarantee had only
+ever been exercised on the CI `verify` job's throwaway container — never on a
+second environment, and never with a local walk. Closed tonight on this
+machine, against the running `opspilot` stack's PostgreSQL (15434), using a
+disposable scratch database (`opspilot_scratch`, created and dropped; the
+guard in `tests/_pgvector_target.py` refused the application database because
+it holds rows, exactly as designed):
+
+- `tests/integration/test_worker_claim_postgres.py` — **7 passed** (the two
+  claimants racing one locked row never share it; a held lease withholds the
+  run from a second worker; a `WAITING_APPROVAL` run is not claimable).
+- The other postgres-marked suites — `test_citations.py`,
+  `test_migration_schema.py`, `test_ticket_external_id_dedupe.py` — **35
+  passed** against the same live instance.
+
+The "PostgreSQL coverage depends on a single CI environment" caveat in the
+acceptance scorecard's dimension 1 is therefore now supported by a second
+environment. The `OPSPILOT_DATABASE_URL` used was the stack's own container
+credentials read at runtime and never written to any file.
