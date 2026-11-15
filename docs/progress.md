@@ -9826,7 +9826,6 @@ caller (the planning loop), which can see failures and budget steps.
 - `docs/progress.md`'s earlier statement that "neither adapter passes
   `max_retries`" was true of that sweep; it now points here.
 
-<<<<<<< HEAD
 ## M3-04 机器可验证部分完成：从 81a0278 重建可发布包（2026-11-15）
 
 从固定提交 `81a0278`（`m3-04-repackage` worktree，工作区干净）重新构建
