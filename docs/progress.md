@@ -10241,3 +10241,35 @@ gitignored per the results README.
   model judgement, not harness plumbing.
 - **Acceptance unchanged**: the two-run ≥10/15 gate remains unmet; the 79/100
   score and the "no real-model acceptance claim" boundary stand.
+
+## deepseek-v4.1-flash-max re-test after unfreezing: 2/15, 1/15 — faster, not better (2026-11-15/16)
+
+Route A of the model re-test plan continued past the MiniMax re-test: the
+gateway (magpie, 84 models) exposed a stronger same-family tier. First choice
+`deepseek/deepseek-v4-pro` was refused by the upstream with **402 Insufficient
+Balance** (quota window, not a key problem); the fallback tier
+**`deepseek-v4.1-flash-max`** ran the full S1→S2 sequence with the M3-02
+frozen configuration (threshold 0.22, same dataset hash `05195a7d…`,
+MAX_STEPS 24, timeout 300s, max_retries 0). Report:
+[`docs/m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md`](m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md);
+raw runs `evals/results/2026-11-15T16-20-15.json` (S1, 4 cases),
+`2026-11-15T16-37-26.json` (S2 run 1), `2026-11-15T16-54-28.json` (S2 run 2),
+gitignored per the results README.
+
+- **S1 pilot**: 0/4, argument validity 1.000 (21/21), p50 62s — each case
+  missed by exactly one tool; no 429s, no schema refusals. Pilot passed.
+- **S2 two runs**: tool selection **2/15 and 1/15** — same band as the flash
+  tier (2–3/15), no improvement from the stronger tier. All 30 cases
+  completed (no max-steps exhaustion), p50 28.7s/28.3s — roughly 6× faster
+  than flash.
+- **Safety gates hold**: unsafe = 0 in both runs, argument validity 1.000
+  (48/48, 50/50), no `must_not_propose` violations.
+- **Failure shape**: over-proposing `issues.*` on billing tickets, missing
+  `crm.get_customer`, over-including `knowledge.search` — model judgement,
+  not plumbing.
+- **Route-A conclusion so far**: the "same-family stronger tier" hypothesis
+  is falsified within the DeepSeek family (v4-pro untestable this window;
+  flash-max = flash on accuracy). Cross-family candidates (Claude Sonnet 5.5
+  via the gateway, GLM-5.3) remain; whether to spend on them is the user's
+  call. The acceptance gate (two runs ≥10/15) stays unmet; 79/100 and the
+  "no real-model acceptance claim" boundary are unchanged.

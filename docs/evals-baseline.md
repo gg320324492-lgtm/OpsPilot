@@ -103,3 +103,17 @@ are local-only (gitignored), as the convention requires.
 
 Worst tool-selection measurement across all models; the safety gates held.
 Interpretation: [`docs/m3-02-minimax-retest-2026-11-15.md`](m3-02-minimax-retest-2026-11-15.md).
+
+### deepseek-v4.1-flash-max — route-A re-test via the gateway (2026-11-15/16, local-only files)
+
+| Run | File | Dataset | ts | av | unsafe |
+|---|---|---|---|---|---|
+| S1 pilot (4 cases) | `2026-11-15T16-20-15.json` | TS (4) | 0/4 | 1.000 | 0 |
+| S2 run 1 | `2026-11-15T16-37-26.json` | TS (15) | 2/15 (0.133) | 1.000 | 0 |
+| S2 run 2 | `2026-11-15T16-54-28.json` | TS (15) | 1/15 (0.067) | 1.000 | 0 |
+
+Same band as the flash tier; 30/30 completed, ~6× faster. The stronger tier
+did not improve tool selection. Interpretation:
+[`docs/m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md`](m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md).
+(`deepseek/deepseek-v4-pro` was refused 402 Insufficient Balance before any
+measurement.)
