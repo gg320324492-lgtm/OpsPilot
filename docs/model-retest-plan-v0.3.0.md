@@ -146,7 +146,7 @@ Claude 路线的两个行为差异，执行时须知悉（均不需改代码）�
 | 项 | 冻结值 | 依据 |
 |---|---|---|
 | 数据集 | `evals/datasets/tool_selection.jsonl`，sha256 `05195a7d8f2a725a542148e967f0cf0a6275fc18a8f2eacddf8f647ef516bfdd`；holdout `tool_selection_holdout.jsonl` sha256 `6892b64fce3902433bfd27cad90b4c6ce09e992ba2638082e588d1eb3b8bc35c`；safety `safety.jsonl` sha256 `9623db351b82875387c31fe2961f43a60b8a31565b53a8ed2a7096be041b4a77` | 与 M3-02/M3-03 完全同数据集；**不换数据集** |
-| 代码基线 | 执行日 `git rev-parse HEAD` 记入 manifest；评测代码路径须与 `229ead6`（检索修复）一致——若 HEAD 仅比 `229ead6` 多 docs 提交，报告中说明即可 | eval-failure-classification §7.3：历史结果文件不记代码版本是已确认的元数据缺口，本轮必须补上 |
+| 代码基线 | 执行日 `git rev-parse HEAD` 记入 manifest；评测代码路径须与 `229ead6`（检索修复）一致——若 HEAD 仅比 `229ead6` 多 docs 提交，报告中说明即可 | [eval-failure-classification-2026-11-15.md](eval-failure-classification-2026-11-15.md) §7：历史结果文件不记代码版本是已确认的元数据缺口，本轮必须补上 |
 | 提示词 | `src/opspilot/agents/runtime.py` 的 `_SYSTEM_PROMPT` + `tool_catalogue()`，**零改动** | M3-02 口径 |
 | 采样参数 | 不设置（SDK 默认；harness 本不传 temperature/top_p） | M3-02/M3-03 同口径；Claude 新 API 亦禁止 |
 | 步数与超时 | `MAX_STEPS=24`、`MODEL_TIMEOUT_SECONDS=300` | M3-02/M3-03 同口径 |
