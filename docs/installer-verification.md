@@ -746,3 +746,25 @@ replaced by the app's own first-launch generation, as designed.
 path plus the whole security posture behave as documented — with the
 8000-hard-coded shell as the one caveat a publishing decision must weigh
 (same prerequisite as the 2026-11-14 walk: "port 8000 must be free").
+### Recheck: the port fix, walked independently (2026-11-15, after the fix commit)
+
+The one gap the walk above found — the shell hard-coding the API at
+`127.0.0.1:8000` — was fixed (the shell now reads `OPSPILOT_API_HOST_PORT`
+from the environment, the repository `.env`, or an installed copy's app-data
+`opspilot.env`), the installer was rebuilt, and a second independent walker
+re-checked exactly that scenario on the fixed artifact
+(`130,075,633 bytes, SHA-256 2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`,
+verified before installing). Full record: `E:\OpsPilot-portrecheck\recheck-port-fix.md`;
+summary:
+
+| Check | Result |
+|---|---|
+| Install (NSIS `/S`), FileVersion | ✅ 0.2.0 |
+| A: no variable set, port 8000 held by an unrelated service | ⚠️ reproduces the old behaviour — the shell neither adopts the foreign listener (`/ready` → 404) nor can start its own stack (`Bind for 127.0.0.1:8000 failed: port is already allocated`) and waits; the dashboard never appears. This is the documented default, not a regression |
+| B: `OPSPILOT_API_HOST_PORT=18001`, `OPSPILOT_DESKTOP_PORT=33210` | ✅ the fix works — the shell's `/ready` probe hits `http://127.0.0.1:18001` (200), the dashboard opens on 33210 (200) in ~5 s, and the existing stack is adopted rather than rebuilt |
+| Existing `opspilot` stack & data | ✅ left running; data volumes intact (17 documents / 98 chunks) |
+
+**Verdict:** the shell now follows the published API port, so the
+"port 8000 must be free" prerequisite from the 2026-11-14 and 2026-11-15
+walks is gone — one environment variable (or `.env` entry) moves the stack
+and the shell together.
