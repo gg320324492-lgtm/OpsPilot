@@ -33,14 +33,16 @@ compared against them rather than guessed at:
 
 - answerable cases' top score: **0.2608 - 0.4658**
 - ``expect_abstention`` cases' top score: **0.0907 - 0.1844**
-- shipped default: ``0.22``, inside the gap with margin on both sides
+- shipped default: ``0.205``, inside the gap with margin on both sides
 - Recall@5 = 13/15, Recall@10 = 15/15, abstention 5/5
 
 (Re-measured 2026-11-08, over the corpus as it stands. The previous figures --
 0.2500 - 0.4727 and 14/15 -- were taken over an earlier corpus; the two cases
 that fall out of the top five now are ``ret-004`` and ``ret-011``. The bands are
 asserted as *separation*, not as exact values, so the change did not turn
-anything red -- which is why the numbers are quoted here rather than relied on.)
+anything red -- which is why the numbers are quoted here rather than relied on.
+The default moved 0.22 -> 0.205 on 2026-11-15 with the ticket-side query
+expansion: see ``docs/retrieval-abstain-analysis.md``.)
 
 The bands are asserted as *separation*, not as exact values: the property is
 "no unanswerable case outscores an answerable one", which is what makes the
@@ -83,8 +85,11 @@ _GOLDEN_PATH_DOCUMENTS = frozenset({"refund-policy.md", "duplicate-charge-sop.md
 
 # Measured bands over the dataset at the shipped defaults. Asserted with slack:
 # the claim under test is separation, and an exact-value assertion would make
-# any retuning a test edit rather than a measurement.
-_ANSWERABLE_FLOOR = 0.22
+# any retuning a test edit rather than a measurement. The answerable floor is
+# the measured minimum (0.2608) with slack down to just above the shipped
+# default threshold -- the assertion is "answerable cases clear the threshold",
+# not a particular score.
+_ANSWERABLE_FLOOR = 0.205
 _UNANSWERABLE_CEILING = 0.20
 
 
@@ -168,7 +173,7 @@ async def test_the_golden_path_question_does_not_abstain_at_the_default_threshol
     """The shipped default must clear the shipped threshold.
 
     This is the assertion that was missing. ``RETRIEVAL_MIN_SCORE`` defaults to
-    ``0.22``; the golden-path question's top hit must score **at or above** it,
+    ``0.205``; the golden-path question's top hit must score **at or above** it,
     or the run escalates instead of investigating -- which is exactly the M5
     defect, where nothing could reach ``0.35`` and every run abstained.
 

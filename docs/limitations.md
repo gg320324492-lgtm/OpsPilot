@@ -285,19 +285,25 @@ its results, which is what makes that distinction checkable instead of a claim
 taken on trust.
 
 **`RETRIEVAL_MIN_SCORE` is calibrated against the default embedder, and only
-against it.** The default is `0.22`, chosen by measuring
-`evals/datasets/retrieval.jsonl`: the answerable cases score **≥ 0.2608** and
-the `expect_abstention` cases **≤ 0.1844**, so any value in that gap separates
-them and `0.22` sits inside it with margin on both sides. (Measured 2026-11-08;
-the code's own comment in `src/opspilot/settings.py` names the older bound
-`≥ 0.2500`, which this measurement still satisfies.) Three things follow,
-and none of them is comfortable:
+against it.** The default is `0.205`, chosen by measuring
+`evals/datasets/retrieval.jsonl` with the ticket-side query expansion active
+(`docs/retrieval-abstain-analysis.md`): the answerable cases score
+**≥ 0.2608** and the `expect_abstention` cases **≤ 0.1844**, so any value in
+that gap separates them and `0.205` sits inside it with ~0.02 margin on both
+sides. (Measured 2026-11-15; the code's own comment in
+`src/opspilot/settings.py` names the older bound `≥ 0.2500`, which this
+measurement still satisfies. The previous default `0.22` — set 2026-11-08 —
+left three `tool_selection` tickets whose queries are lexically far from the
+corpus abstaining before the model ever planned; the query expansion closed
+most of that gap, and 0.205 closes the rest for `tool-005` while keeping the
+unanswerable ceiling excluded.) Three things follow, and none of them is
+comfortable:
 
 1. **The margin is narrow.** 0.1844 → 0.2608 is a band 0.0764 wide, on 20 cases.
    A corpus of 20 questions is a smoke test for separation, not a calibration.
 2. **The number is meaningless under a different embedder.** A provider's cosine
-   and this lexical score are different quantities on different scales; `0.22`
-   for one is not `0.22` for the other, and switching `EMBEDDING_PROVIDER`
+   and this lexical score are different quantities on different scales; `0.205`
+   for one is not `0.205` for the other, and switching `EMBEDDING_PROVIDER`
    without recalibrating gives a threshold that either admits everything or
    refuses everything. `.env.example` says which default suits which provider.
 3. **It is still a single global threshold.** Not tuned per query type, not

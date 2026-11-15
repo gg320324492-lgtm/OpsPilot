@@ -29,7 +29,7 @@ uses words the question never uses.
 The concrete shape, measured against this corpus: an answerable question's top
 hit scores between **0.2500** and **0.4727**, an unanswerable one's between
 **0.0907** and **0.1844**, and the two bands **do not overlap**. The
-``RETRIEVAL_MIN_SCORE`` default of **0.22** sits in the gap between them,
+``RETRIEVAL_MIN_SCORE`` default of **0.205** sits in the gap between them,
 which is the whole reason a threshold works here at all. The assertions below
 therefore ask for both halves of the property: the **ranking**, by *recall*, and
 the **abstention flag** at the configured threshold, which is the documented
@@ -38,10 +38,11 @@ escalation condition.
 (The previous version of this paragraph said the scores sat in a ~0.04-0.09 band
 that the ``0.35`` default never admitted, that the bands overlapped, and that
 every query abstained at the default threshold. None of that was true: the
-default is 0.22, and ``test_retrieval_threshold.py`` -- the other file, next to
-this one, over the same corpus -- asserts that the two bands do not overlap. Two
-files describing one corpus in opposite terms is the failure this paragraph was
-part of.)
+default is 0.205 -- moved from 0.22 on 2026-11-15, see
+``docs/retrieval-abstain-analysis.md`` -- and ``test_retrieval_threshold.py`` --
+the other file, next to this one, over the same corpus -- asserts that the two
+bands do not overlap. Two files describing one corpus in opposite terms is the
+failure this paragraph was part of.)
 
 And the README's retrieval numbers **do** come from this embedder: the
 committed results file records ``config.embedding_provider = "local"``

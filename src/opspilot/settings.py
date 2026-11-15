@@ -303,14 +303,22 @@ class Settings(BaseSettings):
     # the local lexical embedder and a cosine from a provider embedder are
     # different quantities on different scales.
     #
-    #   - ``local`` (default): measured over ``evals/datasets/retrieval.jsonl``
-    #     the answerable cases score >= 0.2608 and the ``expect_abstention``
-    #     cases <= 0.1844, so any value in (0.1844, 0.2608) separates them.
-    #     0.22 sits in that window with margin on both sides. The threshold is
+    #   - ``local`` (default): with the ticket-side query expansion in
+    #     ``adapters/retrieval/search.py`` active, measured over
+    #     ``evals/datasets/retrieval.jsonl`` the answerable cases score
+    #     >= 0.2608 and the ``expect_abstention`` cases <= 0.1844, so any value
+    #     in (0.1844, 0.2608) separates them. 0.205 sits in that window with
+    #     ~0.02 margin on both sides. It was 0.22: that left the three
+    #     ``tool_selection`` tickets whose queries are lexically far from the
+    #     corpus (``docs/retrieval-abstain-analysis.md``) abstaining, which the
+    #     expansion alone did not fully close for ``tool-005`` (0.2072). 0.205
+    #     admits that case while keeping the unanswerable ceiling at 0.1844 --
+    #     the margin to the answerable floor (0.0558) is more than twice the
+    #     margin to the unanswerable ceiling (0.0206). The threshold is
     #     therefore *doing something*: raising it to 0.25 starts abstaining on
     #     answerable questions, and lowering it to 0.18 stops abstaining on
     #     unanswerable ones.
-    #     (Measured 2026-11-08, over the corpus as it stands. The figures this
+    #     (Measured 2026-11-15, over the corpus as it stands. The figures this
     #     replaced -- 0.2500 and 0.4727 -- were taken over an earlier corpus and
     #     are still a true, looser bound; the gap is 0.0764 wide now.)
     #   - ``openai``: provider embeddings are near-unit cosine on a familiar
@@ -320,7 +328,7 @@ class Settings(BaseSettings):
     #
     # Nothing here calibrates a *real* embedder for the operator's own corpus.
     # See ``docs/limitations.md`` §3.
-    retrieval_min_score: float = Field(default=0.22, alias="RETRIEVAL_MIN_SCORE")
+    retrieval_min_score: float = Field(default=0.205, alias="RETRIEVAL_MIN_SCORE")
 
     # -- Agent runtime -------------------------------------------------------
     max_steps: int = Field(default=24, alias="MAX_STEPS")

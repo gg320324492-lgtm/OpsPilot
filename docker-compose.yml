@@ -198,7 +198,7 @@ services:
       # retrieval stack it builds shares these two with the worker
       # (adapters/wiring.py::build_retrieval_stack).
       RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
-      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.205}
       MAX_STEPS: ${MAX_STEPS:-24}
       # Phase 3 M2-02: the consecutive-identical-invalid-proposal stop. Inert in
       # the api -- it never drives a run -- but passed so both halves agree on
@@ -383,7 +383,7 @@ services:
       # reads; both services build the same retrieval stack
       # (adapters/wiring.py::build_retrieval_stack).
       RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
-      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.22}
+      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.205}
       # Plan/execute rounds before the run is failed with `max_steps_exceeded`
       # (agents/runtime.py). Also unset-but-silent before this line existed: a
       # budget set in .env did not reach the loop that spends it.

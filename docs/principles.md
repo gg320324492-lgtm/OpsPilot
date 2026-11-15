@@ -75,7 +75,7 @@ justification is never an input to them.
   documented vocabulary, and `tests/unit/test_the_failure_reasons_are_documented.py`
   keeps the documentation and the code from drifting apart.
 - The denylist can only remove capability: `OPSPILOT_TOOL_DENYLIST`
-  (`src/opspilot/settings.py:448`, parsed at `:524`) is consulted by
+  (`src/opspilot/settings.py:456`, parsed at `:530`) is consulted by
   `_denied_by_denylist` and there is no configuration path that adds or
   widens a permission — ADR-0003 is the argument for why that asymmetry is
   structural, not incidental.
