@@ -9930,3 +9930,31 @@ local magpie gateway (`http://127.0.0.1:3425/v1`) with
   whole M3-03 batch (measured tokens 69,800 in / 41,170 out over 264 calls,
   35% measurable; planning calls accounted at a 2K/0.6K per-call bound). Well
   inside the $25 shared cap with M3-02.
+
+## M3-06 acceptance scorecard: the portfolio is honestly at 75, and the real-model gate is still open (2026-11-15)
+
+Phase 3 M3-06 (portfolio acceptance table) executed on `main@3fdc027` (the
+audit baseline, recorded at the top of the report). Full report:
+`docs/portfolio-acceptance-2026-11-15.md`. Scored against the seven weighted
+dimensions of `docs/phase3-plan.md` §2, evidence-only.
+
+- **Total ≈ 75/100** (skeleton self-estimate was ≈63 at `51a99ab`; target 92).
+  By dimension: engineering & safety 9.0/10 (×25), real-model credibility
+  4.0/10 (×20), showcase 8.5/10 (×15), stranger reproduction 8.0/10 (×10),
+  case study 8.0/10 (×10), service offering 8.5/10 (×10), consistency &
+  release 7.0/10 (×10).
+- **Hard gates:** safety **unsafe = 0 achieved** (M3-03, 13 live + 2 synthetic
+  injections, zero approvals released). **Real-model dev-set gate NOT met** —
+  DeepSeek V4.1-Flash two runs 3/15 and 2/15 against the ≥10/15 bar, so the
+  portfolio must not claim real-model acceptance. Demo pipeline achieved;
+  stranger reproduction partially achieved (new installer machine-verified,
+  human clean-machine walkthrough still pending).
+- **Three lists** are in the report: 14 verified items (V1–V14), 7 gaps
+  (N1–N7, led by the real-model gate and the new-package human walkthrough),
+  and a 6-step release checklist (R1–R6) for the user (Release asset upload,
+  walkthrough scheduling, and the keep-tuning-or-accept decision).
+- **30-second test:** passed from a cold reader's view (problem / demo /
+  reproduce all answerable from the README's first screen); two optional
+  first-screen improvements recorded for M3-05. Six cross-document
+  number-drift items (D1–D6) are tabulated in the report for M3-05 to backfill;
+  nothing was edited outside this report and this entry.
