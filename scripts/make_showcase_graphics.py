@@ -38,7 +38,7 @@ FONT_CANDIDATES = [
 ]
 
 
-def font(size: int, bold: bool = False):
+def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     names = (
         ["C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"]
         if bold

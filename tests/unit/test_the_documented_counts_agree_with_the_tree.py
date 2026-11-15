@@ -214,7 +214,7 @@ def test_the_phase2_holdout_counts_are_current() -> None:
     # naming it, and that run must exist and be the holdout's -- so the
     # "tuning never consults it" claim is pinned to a real, checkable file
     # rather than to a sentence.
-    cited = re.search(r"producing `evals/results/([^`]+\.json)`", row)
+    cited = re.search(r"producing (?:the committed )?`evals/results/([^`]+\.json)`", row)
     assert cited is not None, (
         "the B4 row no longer names the results file that closed its third clause"
     )
@@ -241,11 +241,17 @@ def test_the_phase2_holdout_counts_are_current() -> None:
 def test_no_committed_result_file_touches_the_holdout() -> None:
     """The B4 row's load-bearing claim: tuning never consulted the holdout.
 
-    The committed results are the ones a reader can check, so *those* must
-    carry no holdout run. A local (gitignored) run of the holdout is the
-    clause's own instrument -- it exists to be run once at the end -- and is
-    asserted by :func:`test_the_phase2_holdout_counts_are_current` through the
-    file the row cites; this guard keeps the *tracked* directory honest.
+    The claim is about *tuning*, not about the directory's contents: B4's
+    third clause is "the holdout is run once at the end and its result
+    reported whether or not it improves" -- a verification instrument, run
+    after every tuning decision was already frozen. One such instrument run
+    is now committed (the Phase 3 M3-03 real-model holdout,
+    ``2026-11-15T04-57-30.json``, cited by the row itself); a bare "no
+    tracked file names the holdout" would contradict the very clause the row
+    records. What this guard pins instead is that the holdout appears only
+    in the file the row names as the instrument -- any *other* tracked
+    results file scoring the holdout would mean the holdout leaked into
+    ordinary evaluation, which is the failure the claim rules out.
     """
     tracked = subprocess.run(
         ["git", "ls-files", "evals/results/"],  # noqa: S607
@@ -254,12 +260,18 @@ def test_no_committed_result_file_touches_the_holdout() -> None:
         text=True,
         check=True,
     ).stdout.split()
+    row = _row(_text(PHASE2), "B4")
+    cited = re.search(r"producing the committed `evals/results/([^`]+\.json)`", row)
+    assert cited is not None, "the B4 row no longer names the committed holdout run"
+    instrument = f"evals/results/{cited.group(1)}"
     for name in tracked:
-        if not name.endswith(".json"):
+        if not name.endswith(".json") or name == instrument:
             continue
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "tool_selection_holdout" not in text, (
-            f"{name} is committed and scores the holdout; the B4 row says tuning never consulted it"
+            f"{name} is committed and scores the holdout outside the instrument "
+            f"run the B4 row names ({instrument}); the holdout must not leak "
+            "into ordinary evaluation"
         )
 
 

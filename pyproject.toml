@@ -372,6 +372,12 @@ ignore = [
 # reader. T201 is the reason; the tool is invoked by hand from a terminal and
 # has no application whose log stream the output could be routed into.
 "scripts/make_assets.py" = ["T20"]
+# The showcase generators are the same shape of command-line tool: their stdout
+# reports the files they wrote (screenshots, cover, subtitles), and that report
+# is how the person running them knows the recording pipeline produced what was
+# asked for. T20 for the same reason as the demo and the artwork builder above.
+"scripts/make_showcase_graphics.py" = ["T20"]
+"scripts/make_showcase_subtitles.py" = ["T20"]
 # The gateway guard drives the real adapter over a double server, and the
 # double has to speak the protocol's own types -- `dict[str, Any]` in, a
 # `CallToolReturn` out -- because that is what the adapter dispatches on.

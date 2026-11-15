@@ -17,6 +17,7 @@ Run:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -153,7 +154,7 @@ def fmt(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def write_srt(path: Path, cues) -> None:
+def write_srt(path: Path, cues: Sequence[tuple[float, float, str]]) -> None:
     lines = []
     for i, (start, end, text) in enumerate(cues, 1):
         text = " ".join(text.split())
