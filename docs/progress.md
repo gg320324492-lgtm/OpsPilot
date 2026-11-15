@@ -9825,3 +9825,22 @@ caller (the planning loop), which can see failures and budget steps.
   `external_id`** — a different layer, still true, untouched.
 - `docs/progress.md`'s earlier statement that "neither adapter passes
   `max_retries`" was true of that sweep; it now points here.
+
+## M3-04 机器可验证部分完成：从 81a0278 重建可发布包（2026-11-15）
+
+从固定提交 `81a0278`（`m3-04-repackage` worktree，工作区干净）重新构建
+installer：`desktop/release/OpsPilot-Setup-0.1.0-x64.exe`，126,045,189 字节，
+SHA-256 `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`。
+完整记录见 [m3-04-repackage-verification.md](m3-04-repackage-verification.md)。
+
+- 打包 compose 与源码逐字节一致（diff 零差异）；包内无 `.env`，无 `sk-…` 字面
+  key，`OPSPILOT_OPERATOR_TOKEN` 仅有 `:?` 环境变量形态，asar 内亦无凭据字面量。
+- 一次性 compose 项目名 `opspilot-m304-cold`（端口偏移 18000/15432/13000）走查：
+  冷启动（构建三镜像 + 四服务就绪）约 3.5–4 分钟（本机有依赖缓存；陌生人机器按
+  文档预告 5–15 分钟）；热启动（down 不带 `-v` → up 不带 `--build`）18.3 秒；
+  `/ready` 两次均返回 `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`。
+  全程零模型 API 调用。
+- 旧 v0.1.0 包（SHA `565206f7…`，对应 2026-11-14 D2 走查）保留不撤；本包是面向
+  M3-05 发布交接的新候选，完成真人走查并由用户安排发布前不产生 Release/链接。
+- 未覆盖（如实）：真人干净机点选走查（对旧包已有 2026-11-14 记录，新包未做）；
+  "新 checkout 验离线流程"；SmartScreen 行为复验；可复现构建承诺。

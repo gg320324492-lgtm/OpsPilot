@@ -587,6 +587,18 @@ which ran the command-line checks) **Date:** 2026-11-14
 **Windows version:** Windows 11 Pro 10.0.26300 **Docker version:** 29.9.2
 **Installer's SHA256 (first 16):** `565206f73b3ef924`
 
+> **A newer candidate exists (2026-11-15, Phase 3 M3-04).** The installer was
+> rebuilt from commit `81a0278`:
+> `OpsPilot-Setup-0.1.0-x64.exe`, 126,045,189 bytes, SHA-256
+> `71ac5ac0adcb543f…`. The mechanical half of its verification — packaged
+> compose identical to the repository's, no credential in the package, and a
+> cold/warm Docker start of the packaged stack — is recorded in
+> [`m3-04-repackage-verification.md`](m3-04-repackage-verification.md). The
+> person-steps below have **not** been re-run against that build yet; the
+> 2026-11-14 record applies to the older file (`565206f7…`), which is kept.
+> When this walk is repeated for the new build, fill a fresh sheet — do not
+> overwrite this one.
+
 **The caveat this walk carries, stated plainly.** The criterion asks for a
 *clean machine* and *someone who did not build it*. This walk was run on the
 machine that built the installer, by the operator who directed its development
