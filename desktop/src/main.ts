@@ -61,7 +61,14 @@ import { StartupError, toUserFacing } from "./lifecycle/errors";
 import { dashboardUrl, startApplication, type Application } from "./lifecycle/session";
 import { resolveOperatorToken } from "./lifecycle/token";
 import type { Progress, SessionDeps, UserFacing } from "./lifecycle/types";
-import { buildDependencies, readEnvValue, resolveDashboardPort, resolveStackRoot } from "./runtime/dependencies";
+import {
+  API_HOST_PORT_ENV_KEY,
+  buildDependencies,
+  readEnvValue,
+  resolveApiUrl,
+  resolveDashboardPort,
+  resolveStackRoot,
+} from "./runtime/dependencies";
 import { ensureOperatorToken, TOKEN_ENV_FILENAME, TOKEN_ENV_KEY } from "./runtime/operator-token";
 
 // Before `app.whenReady()`: scheme privileges are fixed at registration, and
@@ -299,15 +306,37 @@ async function launch(): Promise<void> {
   // when it does not. `resolveStackRoot` checks the marker in both cases, so a
   // launch that cannot find either fails here with a message naming which of
   // the two was missing — not three steps later inside Compose.
-  const deps = buildDependencies({
-    repoRoot: resolveStackRoot({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+  const stackRoot = resolveStackRoot({
     packaged: app.isPackaged,
-    // Only a packaged launch has an env file of its own to name. In a checkout
-    // Compose reads the repository's `.env` from beside the compose file, so
-    // naming one there would point the remedy at a file that does not exist.
-    composeEnvFile: app.isPackaged
-      ? path.join(app.getPath("userData"), TOKEN_ENV_FILENAME)
-      : undefined,
+    resourcesPath: process.resourcesPath,
+  });
+  // Only a packaged launch has an env file of its own to name. In a checkout
+  // Compose reads the repository's `.env` from beside the compose file, so
+  // naming one there would point the remedy at a file that does not exist.
+  const appDataEnvFile = app.isPackaged
+    ? path.join(app.getPath("userData"), TOKEN_ENV_FILENAME)
+    : undefined;
+
+  // `docker-compose.yml` reads `OPSPILOT_API_HOST_PORT` from its own process
+  // environment (and, packaged, from the env file above). The shell has to read
+  // *the same sources* to probe the same address: when it did not, moving the
+  // stack off a taken 8000 left the shell polling a port nothing answers, and
+  // the dashboard step never completed. Environment first, so an operator who
+  // exports the variable overrides a file; the file fallbacks are exactly the
+  // ones Compose itself uses in the two deployment shapes.
+  const apiUrl = resolveApiUrl(
+    process.env[API_HOST_PORT_ENV_KEY] ??
+      readEnvValue(path.join(stackRoot, ".env"), API_HOST_PORT_ENV_KEY) ??
+      (appDataEnvFile === undefined
+        ? undefined
+        : readEnvValue(appDataEnvFile, API_HOST_PORT_ENV_KEY)),
+  );
+
+  const deps = buildDependencies({
+    repoRoot: stackRoot,
+    packaged: app.isPackaged,
+    composeEnvFile: appDataEnvFile,
+    apiUrl,
     dashboardPort: resolveDashboardPort(process.env.OPSPILOT_DESKTOP_PORT),
   });
 

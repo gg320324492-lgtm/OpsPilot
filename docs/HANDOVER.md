@@ -144,7 +144,10 @@ as optional overrides (defaults 5432 / 8000 / 3000) for when one of those is
 already taken on the machine -- the `127.0.0.1` binding stays fixed either
 way. An occupied port is the one failure a fresh clone can hit without doing
 anything wrong; setting the matching variable in `.env` moves the host side
-without touching the Compose network.
+without touching the Compose network. The desktop shell follows
+`OPSPILOT_API_HOST_PORT` too (environment, the repository `.env`, or the
+installed copy's app-data `opspilot.env`), so one setting moves the stack and
+the shell's `/ready` probe together.
 
 **The old machine's token is not in the cloud.** It was never committed
 (`.env` is gitignored) and it was a local development value, not a secret

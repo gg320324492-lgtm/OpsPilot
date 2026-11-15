@@ -257,8 +257,47 @@ export function resolveDashboardPort(raw: string | undefined): number {
 /** See the module docstring: neither 3000 nor 3100 is free in this repository. */
 export const DEFAULT_DASHBOARD_PORT = 3210;
 
+/** The environment variable `docker-compose.yml` already reads for this port. */
+export const API_HOST_PORT_ENV_KEY = "OPSPILOT_API_HOST_PORT";
+
+/** The port `docker-compose.yml` publishes the API on when nothing overrides it. */
+export const DEFAULT_API_PORT = 8000;
+
 /** The API's published URL. Loopback, matching the ports `docker-compose.yml` binds. */
-export const DEFAULT_API_URL = "http://127.0.0.1:8000";
+export const DEFAULT_API_URL = `http://127.0.0.1:${DEFAULT_API_PORT}`;
+
+/**
+ * The host port the API is published on, `OPSPILOT_API_HOST_PORT`.
+ *
+ * `docker-compose.yml` has read this variable since the ports became
+ * configurable (`127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000`) — but the
+ * shell did not, so a machine that moved the stack off a taken 8000 left the
+ * shell probing the old address: `/ready` never answered, and the dashboard
+ * step could not complete. Reading the same variable here is what makes one
+ * setting move both halves together.
+ *
+ * Parsed as strictly as `resolveDashboardPort`, and for the same reason: a
+ * mistyped value should fail at start-up with a message naming the variable,
+ * not surface three minutes later as a probe that never succeeds.
+ */
+export function resolveApiHostPort(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") {
+    return DEFAULT_API_PORT;
+  }
+  const port = Number(raw.trim());
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `${API_HOST_PORT_ENV_KEY}="${raw}" is not a TCP port between 1 and 65535. Set it to the ` +
+        `port docker-compose.yml should publish the API on, or unset it to use ${DEFAULT_API_PORT}.`,
+    );
+  }
+  return port;
+}
+
+/** The URL the shell probes and the dashboard proxies to, from the same variable. */
+export function resolveApiUrl(raw: string | undefined): string {
+  return `http://127.0.0.1:${resolveApiHostPort(raw)}`;
+}
 
 /** The default `docker` executable, overridable for a non-standard install. */
 export const DEFAULT_DOCKER = "docker";

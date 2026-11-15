@@ -492,7 +492,10 @@ What to do when it fails:
    one of those is already taken on your machine, set `OPSPILOT_API_HOST_PORT`,
    `OPSPILOT_WEB_HOST_PORT` or `OPSPILOT_PG_HOST_PORT` in `.env` to move the
    host side (see `.env.example`); the services inside the Compose network do
-   not change. That override is verified end to end by
+   not change. The desktop shell reads `OPSPILOT_API_HOST_PORT` from the same
+   places (`process.env`, the repository's `.env`, or the app-data `opspilot.env`
+   of an installed copy), so a moved API does not leave the shell probing 8000.
+   That override is verified end to end by
    `tests/integration/test_host_port_overrides.py`, which stands the stack up
    on high host ports and asserts reachability there; it skips cleanly on a
    machine without Docker.
