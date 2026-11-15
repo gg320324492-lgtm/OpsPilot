@@ -23,6 +23,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+import opspilot
 from opspilot.api.app import create_app
 from opspilot.api.auth import MissingOperatorToken
 from opspilot.domain.runs import RunStatus
@@ -177,7 +178,11 @@ def test_health_needs_no_token(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.2.0"
+    # The literal the router pins, not a second copy of the version: the
+    # version-consistency guard keeps the three declarations in step, and this
+    # assertion follows the package's own report so a bump cannot pass here
+    # while /health answers the wrong build.
+    assert body["version"] == opspilot.__version__
 
 
 def test_app_refuses_to_start_without_a_token(
