@@ -10356,4 +10356,5 @@ provider stays `fake`; the dashboard's scripted-provider disclosure is
 untouched. README gains "A demo stack beside the development one"; the
 `.env.example` scenario note names both scripts. Verified by rendering both
 files (baseline unchanged; demo values as designed) and by the offline
-suites: compose tests 25 passed, doc guards 14 passed.
+suites: compose tests 25 passed, doc guards 14 passed. CI on `ed73e56`:
+success (run 43749390768).
