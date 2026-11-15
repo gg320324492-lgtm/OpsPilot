@@ -10340,6 +10340,26 @@ being dropped. Lifecycle tests 121 passed, web typecheck clean, compose
 python tests green. Rebuild-package verification of the upgrade path is
 pending the next build.
 
+## v0.2.1 packaged; upgrade path verified (2026-11-16)
+
+Version bumped to 0.2.1 in all four declarations (the version guard passes),
+the installer rebuilt (`OpsPilot-Setup-0.2.1-x64.exe`, 130,567,926 B, SHA-256
+`567bec190d0a05d27c9aa29f99db68b3e1b96b32be0ef4a2ef924ee665f676c5`), and the
+upgrade path walked live on the machine that still had 0.2.0 installed:
+override install → registry reports 0.2.1, the packaged compose carries
+`on-failure` and the versioned image tags, cold start 70 s, and every
+container ran `opspilot-*:0.2.1` — the stale-image reuse that cost the export
+route in the first walk is gone (export 200). The README's reference ticket
+walked the golden path (approval → completed, second approve 409, no-token
+401), and `docker stop` leaves the containers Exited without resurrection
+(on-failure semantics, verified live). One honest correction recorded: a
+restart policy acts on container exit, not on an external process's death, so
+`on-failure` alone does not reclaim a killed app's healthy containers —
+DBC-08's remaining gap (automatic reclamation on abnormal termination) is
+future work; the versioned tags are what close the upgrade hole. Test
+containers were removed; the data volumes and the unrelated 8000 stack were
+left untouched.
+
 ## DBC-05 done: a demo compose profile (2026-11-16)
 
 [`docker-compose.demo.yml`](docker-compose.demo.yml) is a second Compose file,

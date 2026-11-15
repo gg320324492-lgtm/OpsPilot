@@ -858,12 +858,16 @@ to a machine without them.
    but a killed process (`Stop-Process`) skips it, and the containers'
    `unless-stopped` restart policy keeps them running. Recovery for an
    operator: `docker compose -p opspilot down` from the installed
-   `resources/stack` directory. **Fixed 2026-11-16 (DBC-08):** the four
-   long-running services now use `restart: on-failure`, so a healthy container
-   whose supervising app process was killed is not a failure and is left
-   stopped; a crashed container still restarts. Takes effect with the next
-   packaged build — the shipped v0.2.0 installer still carries the old
-   policy.
+   `resources/stack` directory. **Addressed 2026-11-16 (DBC-07/DBC-08):** the
+   four long-running services now use `restart: on-failure` (a crashed
+   container still restarts), and — the part that actually closes the
+   upgrade hole — image tags are versioned, so a new installer no longer
+   reuses a previous build's images (verified live: after the 0.2.0 → 0.2.1
+   override install every container ran `opspilot-*:0.2.1`). A killed
+   process's healthy containers still keep running until the operator runs
+   `compose down` — restart policies act on container exit, not on an
+   external process's death (verified with a control container); automatic
+   reclamation on abnormal termination remains future work.
 2. **One unexplained self-restart**: ~40 s after the first `Stop-Process`, a
    fresh OpsPilot process tree appeared (parent `explorer.exe`, bare
    `OpsPilot.exe` command line) and had to be stopped again. Recorded as

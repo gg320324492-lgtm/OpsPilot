@@ -313,12 +313,24 @@ worker / web 四个长期运行服务从 `restart: unless-stopped` 改为
 `restart: on-failure`（migrate 保持 `"no"` 不变——它本就是一次性任务）。
 效果：正常退出路径不变（壳的 `compose down` 照旧）；应用进程被杀后，健康
 运行的容器不再是「失败」，Docker 引擎不会把它们无限拉起——这正是走查实测
-的缺口。崩溃的容器仍会重启，保留原 policy 的本意。注意：**已安装的旧版
-（含 v0.2.0 安装包内打包的 compose）仍是旧 policy**，此项修复随下一次打包
-生效；对已装机器，手动 `docker compose -p opspilot down` 仍是回收方式。
+的缺口。崩溃的容器仍会重启，保留原 policy 的本意。
 
-**验证：** `docker compose config` 渲染确认四个服务均为 `on-failure`、
-migrate 为 `no`；compose 相关 python 测试 25 passed。
+**修复有效范围（升级路径实测后修正）：** on-failure 修复的是「容器自身
+崩溃后的重启语义」，它**不能**回收「应用进程被杀后仍在健康运行」的容器
+——restart policy 只在容器退出时生效，外部进程死亡不影响运行中的容器
+（已用 `docker run --restart on-failure alpine sleep 120` 对照验证）。
+真正闭环该缺口的是 **DBC-07 的版本化镜像 tag**：升级后新版本 compose 用
+新镜像 tag，旧镜像不再被复用，配合「升级先卸旧版」的发布口径，残留风险
+收敛到单版本内。对已装机器，手动 `docker compose -p opspilot down` 仍是
+回收方式。剩余缺口（进程被杀后的自动回收）记录在案，属未来增强（方案 2
+的看护进程），不再阻塞发布。
+
+**验证（升级路径实测，0.2.0 → 0.2.1）：** 覆盖安装后注册表版本 0.2.1、
+包内 compose 含 on-failure 与版本化 tag；冷启动 70 秒；容器全部使用
+`opspilot-*:0.2.1` 新镜像（旧 `latest` 不再被复用——DBC-07 的原始缺口
+消除，export 路由 200）；golden path 走通（批准 → completed、重复批准
+409、无 token 401）；`docker stop` 后容器保持 Exited 不复活（on-failure
+语义实证）。
 
 ---
 
