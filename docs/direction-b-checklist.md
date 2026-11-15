@@ -289,6 +289,28 @@ README.md（"A demo stack beside the development one" 小节）。
 
 ---
 
+## DBC-08 被杀进程后的容器回收（**新发现**，2026-11-16，待修复）
+
+**目标：** 第三方走查（[`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md)）
+发现的唯一功能性缺陷：应用进程被杀（`Stop-Process`，非正常退出路径）后，
+opspilot 容器因 `restart: unless-stopped` 持续运行 10 分钟以上不回收，需手动
+`docker compose -p opspilot down`。正常退出路径的 `compose down` 是好的
+（owner 走查 4.1 已验证）；缺口只在异常终止路径。
+
+**建议做法（任选其一或组合）：**
+
+1. 容器 restart policy 从 `unless-stopped` 改为 `on-failure`（容器随宿主
+   Docker 守护进程存活，但应用被杀后不会无限重启）；
+2. 安装版附带一个轻量看护（计划任务/托盘退出钩子），检测 OpsPilot 进程
+   消失后执行 `docker compose -p opspilot down`；
+3. 至少在文档/失败页提示回收命令。
+
+**证据：** [installer-verification.md](installer-verification.md) 的
+「Third-party interactive walk of the published v0.2.0 installer」节。
+**优先级：** 中；影响「装完即用」的收尾体验，建议下个补丁版处理。
+
+---
+
 ## 建议执行顺序
 
 ```

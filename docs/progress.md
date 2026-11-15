@@ -10358,3 +10358,16 @@ untouched. README gains "A demo stack beside the development one"; the
 files (baseline unchanged; demo values as designed) and by the offline
 suites: compose tests 25 passed, doc guards 14 passed. CI on `ed73e56`:
 success (run 43749390768).
+
+## Third-party interactive walk complete (2026-11-16)
+
+The context-free tester (an agent with none of this project's history, working
+from a written brief only) repeated the interactive walk: hash check, clean
+reinstall, cold start at port 18002, ticket → run → completed, audit/trace,
+401 on unauthenticated writes, warm start in ~15 s, data intact after the
+restart. One functional FAIL: after a killed process the containers stayed up
+(restart policy `unless-stopped`) and needed a manual `compose down` — tracked
+as DBC-08. Cold start read 21–24 s only because stale images and volumes were
+already on the machine; the 2–15-minute expectation stands for a clean one.
+Report: [`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md),
+archived into [`docs/installer-verification.md`](installer-verification.md).

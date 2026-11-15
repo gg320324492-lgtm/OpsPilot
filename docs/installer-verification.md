@@ -820,3 +820,59 @@ already runs other Docker stacks):
 
 Full sheet with per-step records:
 [`docs/installer-interactive-walk-2026-11-15.md`](installer-interactive-walk-2026-11-15.md).
+
+### Third-party interactive walk of the published v0.2.0 installer (2026-11-16)
+
+A context-free tester (an agent run with none of this project's history, working
+from a written brief only) repeated the interactive walk on the build machine:
+verify the artifact hash, uninstall whatever was installed, install silently,
+cold-start, drive the pipeline through the API, quit, warm-start, check the
+data survived, then clean up. Artifact: 130,075,633 bytes, SHA-256
+`2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332` — checked
+before installing, matches.
+
+| Check | Result |
+|---|---|
+| Hash & size verified before install | ✅ |
+| Pre-existing install removed first (uninstall /S) | ✅ directory + registry gone |
+| Silent install (`/S`), exit 0 | ✅ exe, shortcuts, registry `0.2.0` |
+| Cold start (port 18002 via `OPSPILOT_API_HOST_PORT`) | ✅ /ready=200 in ~21–24 s **(stale local images + existing volumes — see caveat)** |
+| Ticket → run → completed | ✅ ticket `55737037…`, run `aae4f22f…`, classification 0.93, 5 chunks, reply generated |
+| Audit / trace records | ✅ 3 audit events, 8-step trace |
+| No-token write refused | ✅ 401 `unauthorized` |
+| Warm start | ✅ /ready=200 in ~15 s |
+| Data survives the restart | ✅ the walkthrough ticket is still first in `GET /api/tickets` |
+| Quit removes the containers | ❌ **containers stayed up 10 minutes after `Stop-Process`** (restart policy `unless-stopped`); manual `docker compose -p opspilot down` was needed; volumes survived |
+| Cleanup (processes, volumes, 8000/microbubble untouched) | ✅ |
+
+**Caveat on the cold-start number:** images `opspilot-api/worker/migrate`
+already existed locally (built 2026-11-15/16 during earlier walks) and the
+`opspilot_postgres-data` volume predates the walk, so this "first install" did
+no image build or pull; the 2–15-minute expectation in the walk sheet applies
+to a machine without them.
+
+**Findings this walk adds to the record:**
+
+1. **Quit does not reclaim the Docker stack** (functional gap, the walk's one
+   FAIL): the shell's `stop()` runs `compose down` on the normal quit path,
+   but a killed process (`Stop-Process`) skips it, and the containers'
+   `unless-stopped` restart policy keeps them running. Recovery for an
+   operator: `docker compose -p opspilot down` from the installed
+   `resources/stack` directory. Candidate fixes: a `stop_grace_period`-based
+   container label + external watchdog, `on-failure` restart policy instead of
+   `unless-stopped`, or a tray/exit hook that survives abnormal termination.
+   Tracked as DBC-08.
+2. **One unexplained self-restart**: ~40 s after the first `Stop-Process`, a
+   fresh OpsPilot process tree appeared (parent `explorer.exe`, bare
+   `OpsPilot.exe` command line) and had to be stopped again. Recorded as
+   observed, cause unknown.
+3. **The dashboard exposes no host port in this setup**: neither 13001 nor
+   3000 listened; the Electron process loads the UI through its
+   `opspilot://` custom scheme. The API-level checks stand in for the
+   dashboard click-through, as the brief allowed.
+4. **The packaged run reports `model_provider=fake`** — consistent with the
+   shipped default and the dashboard's disclosure; recorded so nobody reads
+   the walkthrough run as a real-model result.
+
+Full per-step report with every command and observation:
+[`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md).
