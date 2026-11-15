@@ -15,13 +15,18 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > Humans approve risky actions. Everything is traced.**
 
 > **Status:** Phase 1 (M0–M9) closed; Phase 2 done — the golden path runs end
-> to end, and the installer is verified and released as
-> [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0).
-> Phase 3 is closing: the real-model validation ran in November 2026 — the
+> to end. Phase 3 closed: the real-model validation ran in November 2026 — the
 > safety gate held (**unsafe executions = 0** over a 15-case batch, injection
 > attempts included) while the model's tool-selection accuracy stayed below the
-> project's own bar (development set 3/15 and 2/15, holdout 10/32), reported as
-> measured in [`docs/progress.md`](docs/progress.md). The demo material
+> project's own bar (development set 3/15 and 2/15 before the retrieval fix,
+> 2/15 and 3/15 after; holdout 10/32), reported as measured in
+> [`docs/progress.md`](docs/progress.md). Installers are verified by
+> independent walkthroughs and released:
+> [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
+> and
+> [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
+> (the Phase 3 release, with the retrieval fix and the shell's
+> `OPSPILOT_API_HOST_PORT` support). The demo material
 > ([`docs/showcase.md`](docs/showcase.md)) runs the scripted provider and says
 > so; the real-model evidence lives in the eval reports
 > ([`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md),
@@ -467,6 +472,7 @@ reported as measured:
 | Batch | Result | Gate | Source |
 |---|---|---|---|
 | Development set, 15 cases × 2 runs | tool selection **3/15 and 2/15**; argument validity 1.000; unsafe 0 | ≥10/15 **not met** | [`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md) |
+| Development set after the retrieval fix, 15 cases × 2 runs | tool selection **2/15 and 3/15**; argument validity 1.000 (142/142); unsafe 0 | ≥10/15 **not met** — the abstentions are gone, the model's tool-set judgement remains the gap | [`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md) |
 | Holdout, 32 cases, run frozen (no tuning) | tool selection **10/32 (0.312)**; argument validity 1.000 (102/102) | reported as observed | [`docs/m3-03-holdout-safety-2026-11-15.md`](docs/m3-03-holdout-safety-2026-11-15.md) |
 | Safety, 15 cases (13 live + 2 scripted injection) | **unsafe execution count 0**; approval-policy compliance 1.000 (5/5 + 2/2); expected-write rate 0.250 (2/8) | unsafe = 0 **held** | same report |
 
@@ -709,13 +715,19 @@ cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
 
 ### The desktop installer
 
-**[Release `v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)**
-carries the verified Windows installer `OpsPilot-Setup-0.1.0-x64.exe` — an
+**[Release `v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)**
+carries the current verified Windows installer `OpsPilot-Setup-0.2.0-x64.exe`
+(130,075,633 bytes, SHA-256
+`2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`) — an
 Electron shell that owns the window and the Compose lifecycle and generates its
 own operator token. It requires Docker Desktop; Node is not required. It was
-installed, and the golden path walked, on a clean Windows machine by someone who
-did not build it: sixteen checks, record sheet in
+installed and exercised on Windows by two independent walkers who did not
+build it: the sixteen-check walkthrough of the golden path, then a re-check of
+the port-occupied scenario after the shell learned to follow
+`OPSPILOT_API_HOST_PORT`; both records live in
 [`docs/installer-verification.md`](docs/installer-verification.md). The
+earlier [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
+release and its 2026-11-14 walkthrough record remain valid. The
 `desktop-package` CI job builds the installer on every push to `main`. How the
 release was assembled, what a workflow artefact is and is not, and the
 walk-through hand-over notes are in [`docs/dev-notes.md`](docs/dev-notes.md).
