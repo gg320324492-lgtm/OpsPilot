@@ -9844,3 +9844,58 @@ SHA-256 `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`。
   M3-05 发布交接的新候选，完成真人走查并由用户安排发布前不产生 Release/链接。
 - 未覆盖（如实）：真人干净机点选走查（对旧包已有 2026-11-14 记录，新包未做）；
   "新 checkout 验离线流程"；SmartScreen 行为复验；可复现构建承诺。
+
+## M3-02 executed against a real endpoint: the dev-set two-run (2026-11-15)
+
+Task M3-02 part 1 (phase3-plan §6): the 15-case development set
+(`evals/datasets/tool_selection.jsonl`, sha256 `05195a7d…`), same frozen
+config, two full runs, gate ≥ 10/15 tool-set hits. Report:
+[docs/m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md).
+
+### Result: not met — 3/15 and 2/15
+
+Both runs completed all 15 cases, zero case failures, argument validity
+1.000 (44/44 and 40/40 calls), zero `must_not_propose` violations, unsafe
+execution gate 0. Exact-set hits: run 1 **3/15**, run 2 **2/15**; identical
+tool sets across runs on only 8/15 cases. The gap is tool-set judgement, the
+same attribution the B2 analysis reached for MiniMax — not the prompt, not
+schema compliance.
+
+### Endpoint deviation, recorded
+
+The plan's primary route (`https://api.deepseek.com`, `deepseek-flash`) is
+unreachable from this machine: the only key on hand is the MiniMax-era
+`sk-cp-…`, which that endpoint rejects with 401. The runs went through the
+local magpie gateway (`127.0.0.1:3425/v1`), route
+`workbuddy/deepseek-v4.1-flash` — same model generation, different access
+path. One finding worth keeping: the gateway accepts the strict `json_schema`
+envelope but does not enforce it (200 with free-text content), so the runs
+used the repo's own `OPENAI_JSON_OBJECT_FALLBACK=true` — the same fallback the
+MiniMax era validated. The `sensenova-token-plan/deepseek-flash` route was
+tried first and dropped: its upstream answered 429 ("usage limit reached") on
+the first real case.
+
+### Attribution details
+
+- tool-005/006/012 produced empty proposals on both runs: the harness's
+  retrieval-abstention path, not a model fault. Measured directly with the
+  runner's own stack: top retrieval scores 0.171 / 0.172 / 0.215, all below
+  `RETRIEVAL_MIN_SCORE=0.22`, so PLANNING never ran (2 model calls,
+  `escalated=true` each). The reachable ceiling on this dataset is 12/15.
+- The 12 competitive cases all missed on set equality: extra `knowledge.search`
+  / `issues.search` / `issues.create`, missing `crm.get_customer`, repeated
+  `billing.list_transactions` (16 surplus calls across the two runs).
+- No pathological looping: no case approached `MAX_STEPS=24`, no
+  StructuredOutputError. DeepSeek V4.1-Flash behaves measurably better than
+  MiniMax on argument validity (1.000 vs 0.378) and loop hygiene, but lands at
+  the same 2–3/15 tool-selection level.
+
+### Cost and bookkeeping
+
+The gateway bills a pre-existing consumer subscription, not per-token API
+credit: measured cost of both runs is $0, and the $25/model cap is untouched.
+Raw result files `evals/results/2026-11-15T05-08-14.json` and
+`2026-11-15T05-19-05.json` stay uncommitted per the results README (local
+only). Failed starts (two 429s, one json_schema mismatch) were debugging runs,
+kept out of the official pair. Per plan §4.1, S2 failing stops the train: S3/S4
+freeze acceptance does not proceed on these numbers.
