@@ -244,7 +244,7 @@ claude-sonnet-5-5 走 `basalt-iq3-xxs`），不同路由的上游配额、限速
   Claude Sonnet 5.5 历史 **1/15**（2026-10-08 基线，旧配置，不可与当前冻结配置直接
   比较）。**尚无任何模型接近 10/15 门槛**；holdout 10/32，safety unsafe=0 持续成立。
 - "A 达标"仍是开放问题（Q1）：同族升级假设已在 DeepSeek 族内证伪，跨家族候选
-  仅剩 GLM-5.3-Flash（S1 运行中，结果未出，本文不预填数字）与 claude-sonnet-5-5
+  GLM-5.3-Flash 已测毕淘汰（S1 0/4，[报告](m3-02-glm-5.3-flash-s1-2026-11-15.md)）；仅剩 claude-sonnet-5-5
   （需当前配置下重测）。
 - MIN_SCORE 口径勘误：检索修复（`229ead6`）实际生效机制是查询扩展，`RETRIEVAL_MIN_SCORE`
   仍为 0.22；早前"阈值降到 0.205 生效"的表述不准确。
