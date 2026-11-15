@@ -39,19 +39,21 @@ variant:**
 I build AI ops agents: the model does the legwork, a human keeps the final say. My open-source OpsPilot (FastAPI, Next.js, pgvector, MCP) handles a duplicate-charge ticket end to end: policy retrieval, three MCP servers, five gates and a human approval before any money moves. The refund executes exactly once under an idempotency key; CI enforces zero unapproved high-risk writes across 1,365 tests. Measured on a real model, the safety gate held (0 unsafe executions, injection included); tool-selection accuracy is an open metric. Systems are mocks. I take on such prototypes, cited RAG assistants, and MCP integrations with approval backends.
 ```
 
-**Length: 646 characters — still 46 over. The "Measured on a real model…"
-sentence costs 155 characters; dropping it returns to the original compliant
-593 (the first block above). Both variants are provided so the choice is
-explicit at paste time — do not exceed the limit silently.**
+**Length: 646 characters — still 46 over. In the first block the "Measured
+against a real model…" sentence costs 155 characters and dropping it returns
+593; in this block the shorter "Measured on a real model…" sentence costs 133
+characters and dropping it returns 513. Both variants are provided so the
+choice is explicit at paste time — do not exceed the limit silently.**
 
 **Recommended compliant variant with the real-model line kept** (rewritten to
-fit, 599 characters):
+fit, 600 characters — the refund is labelled *simulated* as the honesty notes
+require):
 
 ```
-I build AI ops agents: the model does the legwork, a human keeps the final say. My OpsPilot (FastAPI, Next.js, pgvector, MCP) handles a duplicate-charge ticket end to end: policy retrieval, three MCP servers, five gates and a human approval before any money moves. The refund executes exactly once under an idempotency key, and CI enforces zero unapproved high-risk writes across 1,365 tests. Measured on a real model, the safety gate held: 0 unsafe executions, injections included. Systems are mocks. I take on such prototypes, cited RAG assistants, and MCP integrations with approval backends.
+I build AI ops agents: the model does the legwork, a human keeps the final say. My OpsPilot (FastAPI, Next.js, pgvector, MCP) handles a duplicate-charge ticket end to end: policy retrieval, three MCP servers, five gates and a human approval before any money moves. The simulated refund executes exactly once under an idempotency key, and CI enforces zero unapproved high-risk writes across 1,365 tests. Measured on a real model, the safety gate held: 0 unsafe executions, injections included. Systems are mocks. I take on prototypes, cited RAG assistants, and MCP integrations with approval backends.
 ```
 
-**Length: 595 characters.**
+**Length: 600 characters.**
 
 ## Skill tags (≤ 5)
 
@@ -82,9 +84,8 @@ Suggested safe set without overclaiming: **Python · FastAPI · Next.js · RAG �
   "open metric" wording for tool selection reflects the M3-02 two-run result
   (3/15 and 2/15 against a ≥10/15 gate,
   [`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md));
-  later re-tests with MiniMax-M3.1-Flash (1/15 twice) and a stronger DeepSeek
-  tier (2/15, 1/15) did not approach the gate either —
-  do not upgrade it to a success claim.
+  a later MiniMax-M3.1-Flash re-test scored 1/15 twice and did not approach
+  the gate either — do not upgrade it to a success claim.
 - The videos in `web/public/showcase/` are fake-provider walkthroughs with the
   disclosure on their title cards; do not present them as live-model runs.
 - The capability wording here follows the bounded claims fixed in
