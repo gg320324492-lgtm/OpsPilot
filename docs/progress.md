@@ -10168,3 +10168,25 @@ swept for the last inconsistencies the read-only audit found — the argument
 validity figures now read per run (44/44, 40/40, 38/38, 56/56; holdout
 102/102), the Release notes are marked published with the tag's build commit
 named, and the checklist's Release step is ticked off.
+
+## Follow-up batch: lifecycle flake fixed, dependency audit clean, S0 dry-run passed (2026-11-15)
+
+- **Lifecycle flake fixed (`b4ca2f9`).** The packaged-vs-repository compose
+  comparison no longer fails a developer's `test:lifecycle` because
+  `desktop/release/` still holds the previous (gitignored) package output: a
+  mismatch now fails hard only under `OPSPILOT_PACKAGED_REQUIRED=1` — the CI
+  desktop-package job, which builds the artefact from the same checkout — and
+  skips locally with the rebuild instruction. Verified: the target spec runs
+  5 passed / 1 skipped locally, and the CI protection still trips under the
+  required flag.
+- **Dependency audit (read-only): zero known vulnerabilities.** pip-audit on
+  the project `.venv` (95 packages), `npm audit` on web (472) and desktop
+  (360) — all clean; GitHub Actions use current official majors with least
+  privilege. The one actionable improvement is a Python lockfile (the
+  project is deliberately lockfile-free; low severity, reproducibility).
+  Full report: `dep-audit-2026-11-15.md` (session notes).
+- **S0 dry-run passed.** The eval harness ran end to end on the fake
+  provider (`--limit 2`, ~5 s, $0, no external calls), producing a
+  well-formed results file under `evals/results/` (gitignored). The real-model
+  re-test (S1) is now unblocked pending only a provider key and budget sign
+  off, per [`docs/model-retest-plan-v0.3.0.md`](model-retest-plan-v0.3.0.md).
