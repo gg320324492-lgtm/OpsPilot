@@ -159,20 +159,30 @@ ruff check && ruff format --check
 4. 素材中**不含联系方式**（合成的客户邮箱仅是示例）；如平台需要联系信息，用
    平台私信功能，不要把个人邮箱写进公开文案。
 
-## 7. 发布后核验（10 分钟）【待用户执行；DBD-03 将由 Claude 预核】
+## 7. 发布后核验 ✅ 已完成（Claude 预核，2026-11-15；真人点击复核见 DBC-03）
 
-- [ ] Release 页：tag、asset 名、字节数、SHA-256 三者与本地记录一致。
-- [ ] README 中所有外链（Release、CI run、视频）逐一点击可访问。
-- [ ] README / 案例研究 / Upwork 条目 / showcase.md 四处的模型标识
+- [x] Release 页：tag、asset 名、字节数、SHA-256 三者与本地记录一致。
+      `gh api .../releases/tags/v0.2.0` 返回 asset
+      `OpsPilot-Setup-0.2.0-x64.exe`，130,075,633 B，digest
+      `sha256:2461f146…`，state `uploaded`；`.blockmap`（136,145 B）在线上；
+      与本地构建产物逐项一致。
+- [x] README 中所有外链（Release、CI run、视频）逐一点击可访问。
+      CI run `39439825308` 存在且 success；`v0.1.0`、`v0.2.0` 两个 Release
+      均存在；仓库页 HTTP 200；`web/public/showcase/` 三个 mp4 与三个 srt
+      均在。三条外部链接经 `gh api` / `curl` 实取通过。
+- [x] README / 案例研究 / Upwork 条目 / showcase.md 四处的模型标识
       （DeepSeek V4.1-Flash via magpie 网关 `workbuddy/deepseek-v4.1-flash`）、
-      评测数字（3/15、2/15、10/32、unsafe=0）与"fake 演示 vs 真实证据"的区分
-      表述一致。
-- [ ] `.env`、`evals/results/2026-11-15T05-08-14.json`、
-      `2026-11-15T05-19-05.json`（M3-02 原始结果，gitignored）等未入库文件
-      仍不在 git 历史中：`git log --all --oneline -- .env evals/results/2026-11-15T05-0*.json`
-      应为空。
-- [ ] 把实际 Release 链接、视频链接、走查记录位置追加到 `docs/progress.md`
-      当日条目（一行即可），闭环 M3-05。
+      评测数字（3/15、2/15、2/15、3/15、10/32、unsafe=0，另 README 单列
+      MiniMax 重测 1/15×2）与"fake 演示 vs 真实证据"的区分表述一致。
+      showcase.md 只做 fake/live 区分、不写具体分数，与其余三处不冲突。
+- [x] git 历史：`.env`、M3-02 原始结果
+      `2026-11-15T05-08-14.json` / `05-19-05.json` 均不在历史（`git log --all`
+      为空）；真实 key 前缀全历史扫描（`git log --all -S 'sk-cp-Ahlz'`）为空。
+      注：清单原命令会命中 `3b20b07` 有意入库的 M3-03 证据
+      `evals/results/2026-11-15T05-08-05.json`——该文件 config 仅含数据集与
+      检索参数，无凭据（已开箱核对），不属泄漏。
+- [x] Release 链接、视频位置、走查记录已追加到 `docs/progress.md`
+      （2026-11-15 闭环条目）。
 
 ---
 

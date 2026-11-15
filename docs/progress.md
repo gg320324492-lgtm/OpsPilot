@@ -10288,3 +10288,20 @@ none approaches the 10/15 two-run gate. Report:
 raw run `evals/results/2026-11-15T17-20-13.json` (gitignored). The Phase 4
 draft's direction-A section and candidate table were updated the same night;
 the mainline moves to direction B (productisation/demo hardening).
+
+## M3-05 post-release check closed (2026-11-15/16)
+
+Release [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
+asset matches the local build exactly (130,075,633 B, SHA-256
+`2461f146…`; blockmap online). README's three external links resolve (CI run
+`39439825308` success, both Release tags, repo page 200) and the three
+showcase mp4/srt pairs are in the tree. Numbers agree across README, the
+case study, the Upwork entry and showcase.md (3/15, 2/15, 2/15, 3/15,
+10/32, unsafe=0; MiniMax re-test 1/15×2 only in README). History scan is
+clean: `.env`, the M3-02 raw runs and the live key prefix never entered git;
+the one hit, `3b20b07`, is the deliberately committed M3-03 safety evidence
+(config only, no credentials). Checklist §7 ticked in
+[`docs/release-checklist.md`](release-checklist.md). The Upwork draft got its
+read-only review applied: the recommended description now says *simulated*
+refund at exactly 600 chars, and the honesty note drops the stronger-tier
+figures per the external-materials decision.
