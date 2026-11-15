@@ -98,10 +98,12 @@ ruff check && ruff format --check
    token 时无可搜索内容，与 M3-04 行为一致）。冷/热启动时间沿用
    [m3-04-repackage-verification.md](m3-04-repackage-verification.md) 的记录，
    本次未重新计时。
-4. **【待用户执行，建议在真人走查完成后】** 创建 Release 并上传：
+4. ✅ **已完成（2026-11-15）**：创建 Release 并上传：
    `gh release create v0.2.0 desktop/release/OpsPilot-Setup-0.2.0-x64.exe --title "v0.2.0" --notes-file docs/release-notes-v0.2.0-draft.md`
-   （`--notes-file` 直接用草稿正文；`.blockmap` 同目录可选上传）。走查已完成
-   （2026-11-15，含端口占用场景复核），Release 由仓库所有者确认后创建。
+   （`.blockmap` 已同目录上传）。线上地址
+   <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0>；
+   asset 的 SHA-256 已在上传后于 release 对象上核对，与本地构建一致
+   （`2461f146…`，130,075,633 B）。
 
 **方案 B：把新包作为 asset 挂到现有 `v0.1.0`**
 

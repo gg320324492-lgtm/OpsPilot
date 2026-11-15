@@ -10147,3 +10147,24 @@ and its stderr log (2 files). The one token-bearing file —
 `preexisting-opspilot.env.bak` — was excluded, and all archived files were
 grepped for token literals before copying. The installer builds
 (`E:\OpsPilot-release-v020`) were not part of this cleanup.
+
+## Third-round portfolio re-score: 79/100, still short of the gate (2026-11-15)
+
+Read-only re-score on top of the published release (baseline: tag `v0.2.0` =
+`656bbd3`, `main` = `ac04c82`). The seven-dimension total moves **76.75 → 79.25
+(≈79/100)**: version delivery 7.0 → 9.0 (the v0.2.0 Release exists, its asset
+hash was verified on the release object, and the tag's CI is green) and
+stranger-reproduction 8.5 → 9.0 (the port fix was independently re-checked on
+the shipped artifact, evidence archived under `docs/evidence/`). Dimensions 1,
+2, 3, 5, 6 are unchanged; **the acceptance is still not passed** — the
+real-model development-set gate (≥10/15 across two runs) remains unmet at
+2–3/15, and a real-model demo segment is still missing. Full table and the
+remaining-gap ordering: [`docs/portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md) §7.
+
+Same night, two follow-ups landed: the desktop shell's sandbox assertion now
+polls for a real renderer pid (the one intermittently failing `test:shell`
+spec; the isolated suite then passed 3/3), and the release documents were
+swept for the last inconsistencies the read-only audit found — the argument
+validity figures now read per run (44/44, 40/40, 38/38, 56/56; holdout
+102/102), the Release notes are marked published with the tag's build commit
+named, and the checklist's Release step is ticked off.

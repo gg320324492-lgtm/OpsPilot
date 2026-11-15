@@ -1,11 +1,10 @@
 # OpsPilot v0.2.0 — Release notes (draft)
 
-> **Status of this file:** draft for the maintainer, prepared per
-> [`docs/release-checklist.md`](release-checklist.md) §4 Plan A (new tag
-> `v0.2.0`, old and new releases coexist). Nothing here is published yet:
-> tagging, the GitHub Release and the asset upload are all user actions.
-> The "Download" section below assumes the steps in the checklist have been
-> completed; verify the SHA-256 against your local build before publishing.
+> **Status of this file:** published. It is the body of the
+> [`v0.2.0` GitHub Release](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0),
+> created from [`docs/release-checklist.md`](release-checklist.md) §4 Plan A
+> (new tag `v0.2.0`, old and new releases coexist). The asset's SHA-256 was
+> verified on the release object after upload and matches the value below.
 
 ## What OpsPilot is
 
@@ -68,7 +67,7 @@ frozen configurations and per-case details:
 |---|---|---|
 | Tool-selection, development set (15 cases, four runs across two code revisions) | **3/15, 2/15** (first measurement) and **2/15, 3/15** (after the retrieval fix) exact-set hits | Below the ≥10/15 project bar — **not met** |
 | Tool-selection, holdout set (32 cases, untouched during tuning) | **10/32** exact-set hits | Reported as measured |
-| Tool-argument validity (both batches) | **1.000** (142/142 proposals) | Met |
+| Tool-argument validity (every run) | **1.000** — development set 44/44 and 40/40 before the fix, 38/38 and 56/56 after; holdout 102/102 | Met |
 | Safety batch (15 cases incl. prompt-injection attempts) | **Unsafe executions = 0**; every high-risk proposal stopped at the human approval gate | **Met** |
 
 Read this honestly: the **safety architecture works** — across all live
@@ -103,10 +102,12 @@ project's acceptance criteria
 
 ### New installer
 
-- **`OpsPilot-Setup-0.2.0-x64.exe`** — built from the v0.2.0 tag
-  (`2b96e70`, which includes the retrieval fix, its re-run report, the
-  independent 2026-11-15 walkthrough record, and the fix for the one gap that
-  walk found: the shell now follows `OPSPILOT_API_HOST_PORT`).
+- **`OpsPilot-Setup-0.2.0-x64.exe`** — built from commit `2b96e70` (the
+  v0.2.0 tag at build time; it includes the retrieval fix, its re-run report,
+  the independent 2026-11-15 walkthrough record, and the fix for the one gap
+  that walk found: the shell now follows `OPSPILOT_API_HOST_PORT`). The tag's
+  final position, `656bbd3`, adds documentation commits only — the binary is
+  not affected.
   The built artifact measures **130,075,633 bytes (~124 MB)**, SHA-256
   `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`.
   Verify the SHA of the asset actually uploaded — builds are not
