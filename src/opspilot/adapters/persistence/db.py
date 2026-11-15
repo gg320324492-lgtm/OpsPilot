@@ -209,7 +209,7 @@ def mark_interrupted_runs(factory: sessionmaker[Session]) -> int:
         return len(rows)
 
 
-def next_step_sequence_statement(run_id: object) -> Select[int]:
+def next_step_sequence_statement(run_id: object) -> Select[tuple[int]]:
     """The statement that reads a run's highest step sequence, under a row lock.
 
     ``FOR UPDATE`` is a real row lock on Postgres. SQLite has no such clause,

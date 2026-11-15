@@ -123,6 +123,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # The field names (``worker_id``) and the environment aliases
+        # (``WORKER_ID``) are both legitimate constructor arguments: tests and
+        # tooling construct ``Settings(worker_id="...")`` by field name while
+        # the environment populates by alias. pydantic 2.13 stopped accepting
+        # the field name at call time unless this is set, which silently
+        # reverted every explicit ``worker_id=`` to the ``.env`` value.
+        populate_by_name=True,
     )
 
     # -- Database ------------------------------------------------------------

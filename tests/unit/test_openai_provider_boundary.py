@@ -100,10 +100,7 @@ def _provider_recording_into(
         return real_async_openai(
             api_key=str(kwargs.get("api_key", "")),
             base_url=str(kwargs.get("base_url") or "https://example.invalid/v1"),
-            # The SDK's stubs are generated against `httpx2`, while the installed
-            # httpx is `httpx1`; they are the same runtime object, and the stub
-            # alias is an artifact of the SDK's codegen.
-            http_client=httpx.AsyncClient(transport=transport),  # type: ignore[arg-type]
+            http_client=httpx.AsyncClient(transport=transport),
         )
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _build)
@@ -222,7 +219,7 @@ async def test_a_bare_json_schema_is_not_a_valid_response_format() -> None:
     client = openai.AsyncOpenAI(
         api_key="test-key",
         base_url="https://example.invalid/v1",
-        http_client=httpx.AsyncClient(transport=transport),  # type: ignore[arg-type]
+        http_client=httpx.AsyncClient(transport=transport),
     )
 
     # The SDK does not police this. It forwards the dict as-is, so the invalid

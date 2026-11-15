@@ -115,10 +115,7 @@ def _provider_answering(
         return real_async_openai(
             api_key=str(kwargs.get("api_key", "")),
             base_url="https://example.invalid/v1",
-            # The SDK's stubs are generated against `httpx2`, while the installed
-            # httpx is `httpx1`; they are the same runtime object, and the stub
-            # alias is an artifact of the SDK's codegen.
-            http_client=httpx.AsyncClient(transport=transport),  # type: ignore[arg-type]
+            http_client=httpx.AsyncClient(transport=transport),
         )
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _build)
@@ -349,7 +346,7 @@ async def test_the_request_is_unchanged_by_the_envelope(
     reference_client = openai.AsyncOpenAI(
         api_key="test-key",
         base_url="https://example.invalid/v1",
-        http_client=httpx.AsyncClient(transport=class_transport),  # type: ignore[arg-type]
+        http_client=httpx.AsyncClient(transport=class_transport),
     )
 
     adapter_transport = _CannedTransport(_reply_with_valid_content)
