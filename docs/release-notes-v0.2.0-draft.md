@@ -39,7 +39,12 @@ hardening, demonstrable UX, and honest real-model measurement.
 - **Configurable ports and compose project name.** The bundled Docker stack
   no longer hard-codes `localhost` ports or the `opspilot` project name, so it
   can coexist with other stacks (this fixes the two deviations recorded in
-  the v0.1.0 installer walkthrough).
+  the v0.1.0 installer walkthrough). The desktop shell follows
+  `OPSPILOT_API_HOST_PORT` too — from its environment, the repository `.env`,
+  or an installed copy's app-data `opspilot.env` — so moving the API off a
+  taken 8000 moves the shell's `/ready` probe with it. That last half was the
+  one substantive gap the independent 2026-11-15 walkthrough found; it is
+  fixed in the commit this release is built from.
 
 ### Interface and demonstration material
 
@@ -99,9 +104,11 @@ project's acceptance criteria
 ### New installer
 
 - **`OpsPilot-Setup-0.2.0-x64.exe`** — built from the v0.2.0 tag
-  (`8133a89`, which includes the retrieval fix and its re-run report).
-  The built artifact measures **130,075,040 bytes (~124 MB)**, SHA-256
-  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`.
+  (`2b96e70`, which includes the retrieval fix, its re-run report, the
+  independent 2026-11-15 walkthrough record, and the fix for the one gap that
+  walk found: the shell now follows `OPSPILOT_API_HOST_PORT`).
+  The built artifact measures **130,075,633 bytes (~124 MB)**, SHA-256
+  `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`.
   Verify the SHA of the asset actually uploaded — builds are not
   byte-reproducible across machines.
 - Machine verification passed on this build: packaged `docker-compose.yml` is
@@ -122,7 +129,7 @@ project's acceptance criteria
 
 - **v0.2.0:** `OpsPilot-Setup-0.2.0-x64.exe` — attached to this release
   (verify SHA-256 after upload; expected:
-  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`).
+  `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`).
 - **v0.1.0:** remains available at the
   [v0.1.0 release](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
   (old installer, SHA-256 `565206f7…`, verified 2026-11-14).
@@ -147,10 +154,15 @@ project's acceptance criteria
   ("More info" → "Run anyway"), consistent with v0.1.0.
 - The demo videos are scripted-provider recordings, disclosed as such; they
   are not evidence of live model performance.
-- One-time walkthrough of the new installer on a clean machine by a person
-  who did not build it is recorded as pending in
-  [`docs/release-checklist.md`](release-checklist.md) §3 at the time this
-  draft was written; update the status when it completes.
+- The installer was walked on 2026-11-15 by a person who did not build it;
+  the filled sixteen-item record is the last section of
+  [`docs/installer-verification.md`](installer-verification.md). The walk
+  passed every step it could drive headlessly and found one substantive gap:
+  the shell hard-coded the API at `127.0.0.1:8000`, so on a machine where
+  that port is taken the dashboard step never completed. The shell now
+  follows `OPSPILOT_API_HOST_PORT`; the artifact this release attaches is
+  rebuilt from that fix, and the port-occupied scenario was re-checked on it
+  before publication.
 
 ## Upgrade notes
 

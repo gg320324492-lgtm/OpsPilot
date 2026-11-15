@@ -16,7 +16,7 @@
 |---|---|---|
 | 代码与材料定稿 | ✅ `main` @ `8133a89`；tag `v0.2.0` 已指向该提交（本地+远端） | `git log --oneline -1 v0.2.0` |
 | 真实模型结果 | ✅ 已如实回填（开发集首测 3/15、2/15；检索修复后重跑 2/15、3/15——四跑均未达 10/15；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
-| 新 installer 候选 | ✅ 已从 v0.2.0 tag 干净 checkout 构建并机器校验；**真人走查未做** | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,040 B，SHA-256 `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
+| 新 installer 候选 | ✅ 已从 v0.2.0 tag（`2b96e70`，含 2026-11-15 走查记录与壳跟随 API 端口的修复）干净 checkout 构建并机器校验；独立走查已完成，端口占用场景复核通过 | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,633 B，SHA-256 `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
 | 线上 Release | ✅ `v0.1.0` 已存在，asset 为**旧包**（SHA-256 `565206f7…`，对应 2026-11-14 D2 走查）；**v0.2.0 Release 未创建**（按用户决定等真人走查后发布） | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
 | 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
@@ -79,13 +79,15 @@ ruff check && ruff format --check
 
 1. ✅ 版本号已统一提升为 `0.2.0`（`pyproject.toml`、`desktop/package.json`、
    `web/package.json`；守卫测试通过），独立 commit 在 tag 祖先里。
-2. ✅ `v0.2.0` 已创建并推送，指向 `8133a89`（含检索弃答修复与重跑报告）。
-   旧 tag 位置 `e6d9f69` 仅在尚未创建 Release 时被移动——没有发布物受影响。
+2. ✅ `v0.2.0` 已创建并推送，指向 `2b96e70`（含检索弃答修复、重跑报告、
+   2026-11-15 独立走查记录，以及走查唯一缺口的修复：壳跟随
+   `OPSPILOT_API_HOST_PORT`）。旧 tag 位置 `e6d9f69`→`8133a89`→`2b96e70`
+   的每次移动都发生在创建 Release 之前——没有发布物受影响。
 3. ✅ 在该 tag 的干净 checkout（`E:/OpsPilot-release-v020`）上构建完成：
    `cd web && npm ci && npm run build && cd ../desktop && npm ci && npm run package`。
    产物 `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`，
-   **130,075,040 B，SHA-256
-   `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`**。
+   **130,075,633 B，SHA-256
+   `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`**。
    机器校验：打包 compose 与源码逐字节一致；包内无 `.env`/凭据字面量；
    packaged-posture 门禁在 tag checkout 上重跑 =
    `npx playwright test e2e/packaged-posture.spec.ts e2e/packaged-posture-icon.spec.ts --project lifecycle`
@@ -95,8 +97,8 @@ ruff check && ruff format --check
    本次未重新计时。
 4. **【待用户执行，建议在真人走查完成后】** 创建 Release 并上传：
    `gh release create v0.2.0 desktop/release/OpsPilot-Setup-0.2.0-x64.exe --title "v0.2.0" --notes-file docs/release-notes-v0.2.0-draft.md`
-   （`--notes-file` 直接用草稿正文；`.blockmap` 同目录可选上传）。按用户决定，
-   Release 在走查完成后创建。
+   （`--notes-file` 直接用草稿正文；`.blockmap` 同目录可选上传）。走查已完成
+   （2026-11-15，含端口占用场景复核），Release 由仓库所有者确认后创建。
 
 **方案 B：把新包作为 asset 挂到现有 `v0.1.0`**
 

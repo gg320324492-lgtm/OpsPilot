@@ -10071,13 +10071,16 @@ the demo videos stay GitHub-only (no external platform upload); and the
 GitHub Release is created only after a non-author walkthrough of the new
 package.
 
-- **Tag:** `v0.2.0` -> `8133a89`, local and remote. The old position had no
-  Release object, so the move publishes nothing that did not exist.
+- **Tag:** `v0.2.0` -> `2b96e70`, local and remote. The old positions
+  (`e6d9f69`, then `8133a89`) had no Release object, so the moves published
+  nothing that did not exist. The final move adds the 2026-11-15 independent
+  walkthrough record and the fix for its one gap: the desktop shell now
+  follows `OPSPILOT_API_HOST_PORT` (commit `5320ef5`).
 - **Build** from a clean checkout at the tag
   (`E:/OpsPilot-release-v020`): `web` npm ci + build, `desktop` npm ci +
   package -> `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`,
-  **130,075,040 bytes, SHA-256
-  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`**.
+  **130,075,633 bytes, SHA-256
+  `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`**.
 - **Verification on that checkout:** packaged `docker-compose.yml`
   byte-identical to the repo's; no `.env` or credential literals inside the
   package; packaged-posture specs (`packaged-posture.spec.ts` +
@@ -10090,3 +10093,29 @@ package.
   before the fix; 2/15, 3/15 after; gate still not met) and the new artifact
   hash. Release creation and the asset upload stay user steps, gated on the
   walkthrough (`docs/release-checklist.md` §3-4).
+
+## Walkthrough gap fixed: the shell follows OPSPILOT_API_HOST_PORT (2026-11-15)
+
+The independent 2026-11-15 walkthrough (recorded in
+[`docs/installer-verification.md`](installer-verification.md)) found one
+substantive gap: `docker-compose.yml` publishes the API on
+`127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000`, but the desktop shell probed
+a hard-coded `http://127.0.0.1:8000` — so on the walker's machine, where 8000
+is held by an unrelated service, the stack came up healthy on a moved port
+while the shell's `/ready` probe never answered and the dashboard step never
+completed.
+
+- **Fix (`5320ef5`):** `resolveApiHostPort`/`resolveApiUrl` parse the same
+  variable strictly, and the shell reads it from `process.env`, the
+  repository `.env`, or an installed copy's app-data `opspilot.env` — the same
+  sources Compose itself uses in the two deployment shapes. A new lifecycle
+  spec (`desktop/e2e/api-port.spec.ts`) pins the parsing and compares the
+  shell's default against the compose literal so the two cannot drift again.
+- **Re-built and re-verified** on the tag checkout: new artifact
+  130,075,633 B, SHA-256
+  `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`;
+  packaged-posture gates 5 passed / 1 skipped; CI on `2b96e70` green
+  (run 43707783395).
+- The walker re-checked the port-occupied scenario against the fixed build;
+  the record is appended to
+  [`docs/installer-verification.md`](installer-verification.md).
