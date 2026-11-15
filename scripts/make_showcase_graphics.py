@@ -27,7 +27,9 @@ W, H = 1440, 900
 COVER_W, COVER_H = 1000, 750
 
 #: The live/fake disclosure every artefact carries (M2-05 requirement).
-DISCLOSURE = "Live dashboard UI - scripted fake model provider - disposable demo data - no external AI calls"
+DISCLOSURE = (
+    "Live dashboard UI - scripted fake model provider - disposable demo data - no external AI calls"
+)
 
 FONT_CANDIDATES = [
     "C:/Windows/Fonts/segoeui.ttf",
@@ -140,7 +142,9 @@ def end_card() -> Image.Image:
 def cover() -> Image.Image:
     cover = Image.new("RGB", (COVER_W, COVER_H), (15, 18, 25))
     d = ImageDraw.Draw(cover)
-    d.text((COVER_W // 2, 92), "OpsPilot", font=font(64, bold=True), fill=(245, 247, 250), anchor="mm")
+    d.text(
+        (COVER_W // 2, 92), "OpsPilot", font=font(64, bold=True), fill=(245, 247, 250), anchor="mm"
+    )
     d.text(
         (COVER_W // 2, 150),
         "A reliable AI operations agent for B2B billing support",
