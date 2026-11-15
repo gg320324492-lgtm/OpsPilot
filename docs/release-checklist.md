@@ -20,11 +20,11 @@
 | 线上 Release | ✅ `v0.1.0` 与 `v0.2.0` 均已发布；v0.2.0 asset 为新包（130,075,633 B，SHA-256 `2461f146…`），2026-11-15 走查+复核通过 | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
 | 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
-| CI | ✅ tag 提交 `656bbd3` 远端 CI success（run 43710760626）；发布记录 `43fde58` CI success（run 43711752333） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
+| CI | ✅ tag 提交 `656bbd3` success（run 43710760626）；`43fde58` success（43711752333）；发布后 docs 提交至 `fcbf618` 均绿（最新 `b1504ad` success） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
 
 ### 决策记录（2026-11-15，用户确认）
 
-1. **Release 方案 A**：新 tag `v0.2.0`，新旧 Release 并存；tag 指向含检索修复的 `8133a89`。
+1. **Release 方案 A**：新 tag `v0.2.0`，新旧 Release 并存（最终 tag 指向 `656bbd3`，构建基线为 `2b96e70`）。
 2. **真实模型门槛**：接受现状，按 open metric 如实展示；不换模型重跑（后续可随时重测）。
 3. **演示视频**：仅 GitHub 仓库内展示，不上传 YouTube/B 站/Upwork 媒体库。
 4. **新包真人走查**：发布前安排；**v0.2.0 Release 在走查完成后创建上传**（清单第 3、4 节顺序不变）。
@@ -45,16 +45,13 @@ ruff check && ruff format --check
 - 通过标准：两个守卫测试 + 全量 pytest 绿；ruff 零报告；mypy 零错误。
 - 以上是**本地检查**；它不能替代下面的**远端 CI**。
 
-## 2. 远端 CI（推送后）【待用户执行】
+## 2. 远端 CI（推送后）✅ 已完成
 
-1. `git push origin main`（本 commit 所在分支）。
-2. `gh run watch` 或打开
-   <https://github.com/gg320324492-lgtm/OpsPilot/actions> 等待本次 push 的
-   workflow 结束。
-3. 记录 run id 与结论（绿/红）。**红则先修复再发布**；绿则把 run 链接回填到
-   本清单第 0 节，并继续。
+1. ✅ `git push origin main` — v0.2.0 发布前后的全部推送均已完成。
+2. ✅ 各次 push 的 workflow 均已跑完（见第 0 节 CI 行的 run id）。
+3. ✅ 结论全绿；run 链接已回填到第 0 节。
 
-## 3. 新 installer 的真人走查（建议在发布前完成）【待用户执行】
+## 3. 新 installer 的真人走查 ✅ 已完成（headless 独立走查 + 端口复核，2026-11-15；真人点选走查见方向 B 清单 DBC-01）
 
 材料三件套（发给走查人）：
 
@@ -73,7 +70,7 @@ ruff check && ruff format --check
 2026-11-14 旧记录，该文件末尾已有此要求）。未走查就发布属可接受但需自担风险
 的决定——如实记录"新包未经真人走查"。
 
-## 4. Release 与 tag【待用户执行，二选一】
+## 4. Release 与 tag ✅ 方案 A 已执行
 
 > 旧 `v0.1.0` Release 与其 asset 对应 2026-11-14 的 D2 走查记录，**不建议静默
 > 替换**。两个方案都要求第 2 节 CI 绿。
@@ -146,7 +143,7 @@ ruff check && ruff format --check
 5. 如实标注：这些视频是**管线演示（fake model）**；真实模型证据是两份评测报告，
    不是这些视频。不要把视频描述写成"AI 真实运行"。
 
-## 6. Upwork / 服务页更新【待用户执行】
+## 6. Upwork / 服务页更新【材料已定稿；平台发布待用户执行】
 
 1. 作品条目：按 [upwork-profile-entry-en.md](upwork-profile-entry-en.md) 粘贴
    —— title 66/70 字符、role 99/100 字符；description 用该文档中标好字符数的
@@ -162,7 +159,7 @@ ruff check && ruff format --check
 4. 素材中**不含联系方式**（合成的客户邮箱仅是示例）；如平台需要联系信息，用
    平台私信功能，不要把个人邮箱写进公开文案。
 
-## 7. 发布后核验（10 分钟）【待用户执行】
+## 7. 发布后核验（10 分钟）【待用户执行；DBD-03 将由 Claude 预核】
 
 - [ ] Release 页：tag、asset 名、字节数、SHA-256 三者与本地记录一致。
 - [ ] README 中所有外链（Release、CI run、视频）逐一点击可访问。
