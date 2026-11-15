@@ -112,17 +112,25 @@ the commit behind it are named on that run's page. **Ask the person who sent
 it which run and which commit they took it from** — §7 asks you to report
 that, and it is what lets somebody else check your result afterwards.
 
-**There is no GitHub Release.** Do not go looking for one: this repository has
-no tag and no release page, and the README links to no download. The artifact
-is a build product attached to one run: it expires, and it is indexed nowhere.
+**A GitHub Release exists, but it holds the older installer.** Release
+`v0.1.0` (published 2026-11-13) carries an installer built 2026-11-14 —
+`OpsPilot-Setup-0.1.0-x64.exe`, 119,227,780 bytes, SHA-256
+`565206f73b3ef924…` — the one the 2026-11-14 record below was walked with.
+**Do not install it for this walk.** The file you are asked to verify is the
+newer candidate, whose SHA-256 begins `71ac5ac0…`; its size (126,045,189
+bytes) differs, so the two files are easy to tell apart. The short-cut of
+grabbing the Release page does not apply; get the file the person who sent
+you this kit points you at (the kit's *Which file* section names it by hash
+and size).
 
 **If the file you were given was built on somebody's own machine, know what
-you are holding.** It is a build of a **working tree**, not of a **commit**:
-the build output is gitignored, no commit in the repository records it, and
-nothing inside the file says which source tree produced it. It is a perfectly
-installable file with no traceable provenance behind it, where the CI artifact
-has a run and a commit behind it. **Prefer the CI artifact** — and if you are
-not sure which of the two you have been given, ask.
+you are holding.** The build output is gitignored, so such a file carries no
+traceable provenance by itself — which is why this kit states the build's
+provenance alongside it: **commit `81a0278`** (full hash
+`81a02783a3034838cc79fc366e6602611a3ab4f3`) of this repository, built on
+2026-11-15 from a clean worktree on the build machine. Check that hash
+against the file you received, and record in your report where you got the
+file from; that is what lets somebody else check your result afterwards.
 
 ### Record the walk-through
 
@@ -597,7 +605,10 @@ which ran the command-line checks) **Date:** 2026-11-14
 > person-steps below have **not** been re-run against that build yet; the
 > 2026-11-14 record applies to the older file (`565206f7…`), which is kept.
 > When this walk is repeated for the new build, fill a fresh sheet — do not
-> overwrite this one.
+> overwrite this one. A blank sheet to copy is in
+> [`installer-verification-new-package-template.md`](installer-verification-new-package-template.md),
+> and the hand-over kit that goes with the new file is
+> [`walkthrough-kit.md`](walkthrough-kit.md).
 
 **The caveat this walk carries, stated plainly.** The criterion asks for a
 *clean machine* and *someone who did not build it*. This walk was run on the
@@ -682,4 +693,6 @@ buries.
 
 **Done by:** ______________  **Date:** ____________
 **Windows version:** ______________  **Docker version:** ______________
-**Installer's SHA256 (first 16):** ______________
+**Installer's SHA256 (first 16):** ______________ (for the new-package walk
+this is expected to read `71ac5ac0adcb543f` — a first-16 that starts
+`565206f7…` means the older, already-verified file was installed by mistake)
