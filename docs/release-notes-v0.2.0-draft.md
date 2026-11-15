@@ -61,7 +61,7 @@ frozen configurations and per-case details:
 
 | Batch | Result | Gate |
 |---|---|---|
-| Tool-selection, development set (15 cases, two runs) | **3/15 and 2/15** exact-set hits | Below the ≥10/15 project bar — **not met** |
+| Tool-selection, development set (15 cases, four runs across two code revisions) | **3/15, 2/15** (first measurement) and **2/15, 3/15** (after the retrieval fix) exact-set hits | Below the ≥10/15 project bar — **not met** |
 | Tool-selection, holdout set (32 cases, untouched during tuning) | **10/32** exact-set hits | Reported as measured |
 | Tool-argument validity (both batches) | **1.000** (142/142 proposals) | Met |
 | Safety batch (15 cases incl. prompt-injection attempts) | **Unsafe executions = 0**; every high-risk proposal stopped at the human approval gate | **Met** |
@@ -76,6 +76,19 @@ attribute to the model's judgement rather than to prompt or schema problems.
 We publish these numbers because an agent that touches money must be
 judged on measured safety behaviour, not on a scripted demo.
 
+**A fix between the two measurements, and an honest non-improvement.** The
+first pair of runs surfaced three cases (tool-005/006/012) that never reached
+the planner at all: their retrieval scores sat just below the abstention
+threshold — a deterministic harness failure any model would have hit. A
+curated query-expansion fix plus a recalibrated threshold
+(`RETRIEVAL_MIN_SCORE` 0.22 → 0.205, calibrated between the answerable floor
+and the unanswerable ceiling) removed those abstentions, and the development
+set was re-run on the same frozen configuration
+([`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](m3-02-rerun-after-retrieval-fix-2026-11-15.md)).
+The headline did not move: **2/15 and 3/15**. What the fix proves is where the
+remaining gap is *not* — it is the model's tool-set judgement, not retrieval
+or prompt plumbing. Both measurements are reported in full; neither is hidden.
+
 **Fake demo vs. real evidence.** The showcase videos prove the wiring (UI,
 gates, trace, recovery) on scripted data. The real-model claims above rest
 only on the two eval reports and their committed results files. Do not
@@ -85,17 +98,22 @@ project's acceptance criteria
 
 ### New installer
 
-- **`OpsPilot-Setup-0.2.0-x64.exe`** — rebuilt from the Phase 3 final state.
-  The pre-bump candidate measured **126,045,189 bytes (~120 MB)**,
-  SHA-256 `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`
-  (built from commit `81a0278`; the v0.2.0 tag adds only version-number and
-  documentation commits — verify the SHA of the asset you upload, since
-  builds are not byte-reproducible).
-- Machine verification passed: packaged `docker-compose.yml` is byte-identical
-  to the repo; no `.env`, no API-key literals, no private keys inside the
-  package; all six packaged-posture gates green. Cold start of the bundled
-  stack took 3.5–4 min on a cache-warm machine (budget **5–15 min** on a
-  cold machine), warm restart 18 s, `/ready` healthy in both cases.
+- **`OpsPilot-Setup-0.2.0-x64.exe`** — built from the v0.2.0 tag
+  (`8133a89`, which includes the retrieval fix and its re-run report).
+  The built artifact measures **130,075,040 bytes (~124 MB)**, SHA-256
+  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`.
+  Verify the SHA of the asset actually uploaded — builds are not
+  byte-reproducible across machines.
+- Machine verification passed on this build: packaged `docker-compose.yml` is
+  byte-identical to the repo; no `.env`, no API-key literals, no private keys
+  inside the package; the packaged-posture gates ran **5 passed, 1 skipped**
+  (the skipped one searches for the operator-token literal and has nothing
+  to search for when no token is configured in the build environment —
+  the same behaviour as the M3-04 build). Cold/warm start timings measured on
+  the pre-bump candidate (3.5–4 min cache-warm, 18 s warm restart; budget
+  **5–15 min** on a cold machine) were not re-timed for this artifact; the
+  bundled stack is unchanged by the commits since `81a0278` except the
+  retrieval code path, which does not run at container start.
 - The v0.1.0 installer and its 2026-11-14 walkthrough record remain valid;
   the old release stays up. Details:
   [`docs/m3-04-repackage-verification.md`](m3-04-repackage-verification.md).
@@ -103,8 +121,8 @@ project's acceptance criteria
 ## Download
 
 - **v0.2.0:** `OpsPilot-Setup-0.2.0-x64.exe` — attached to this release
-  (verify SHA-256 after upload; expected pre-bump candidate:
-  `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`).
+  (verify SHA-256 after upload; expected:
+  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`).
 - **v0.1.0:** remains available at the
   [v0.1.0 release](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
   (old installer, SHA-256 `565206f7…`, verified 2026-11-14).
@@ -121,9 +139,10 @@ project's acceptance criteria
 ## Known limitations
 
 - Tool-selection accuracy with the evaluated model is below the project's own
-  10/15 bar (3/15, 2/15 dev; 10/32 holdout). The safety gates held in all
-  measured batches, but do not expect the agent to pick the right tool set
-  unaided on unfamiliar workflows.
+  10/15 bar (2–3/15 across four development-set runs, before and after the
+  retrieval fix; 10/32 holdout). The safety gates held in all measured
+  batches, but do not expect the agent to pick the right tool set unaided on
+  unfamiliar workflows.
 - The installer is not code-signed; SmartScreen may show a warning
   ("More info" → "Run anyway"), consistent with v0.1.0.
 - The demo videos are scripted-provider recordings, disclosed as such; they

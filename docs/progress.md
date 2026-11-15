@@ -10061,3 +10061,32 @@ raw runs `evals/results/2026-11-15T08-56-37.json` (run 1) and
 - Next-step options (stronger model re-run vs. accepting the open metric)
   remain the user's decision, recorded in
   [`docs/portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md) §N1.
+
+## v0.2.0 moves to the retrieval-fix commit, and the release candidate is built and verified (2026-11-15)
+
+Per the user's decisions: the v0.2.0 tag moves from `e6d9f69` to `8133a89` so
+the release contains the retrieval fix and its re-run report; the real-model
+gate is accepted as an open metric and shown as measured (no model switch);
+the demo videos stay GitHub-only (no external platform upload); and the
+GitHub Release is created only after a non-author walkthrough of the new
+package.
+
+- **Tag:** `v0.2.0` -> `8133a89`, local and remote. The old position had no
+  Release object, so the move publishes nothing that did not exist.
+- **Build** from a clean checkout at the tag
+  (`E:/OpsPilot-release-v020`): `web` npm ci + build, `desktop` npm ci +
+  package -> `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`,
+  **130,075,040 bytes, SHA-256
+  `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`**.
+- **Verification on that checkout:** packaged `docker-compose.yml`
+  byte-identical to the repo's; no `.env` or credential literals inside the
+  package; packaged-posture specs (`packaged-posture.spec.ts` +
+  `packaged-posture-icon.spec.ts`, lifecycle project) = **5 passed,
+  1 skipped** — the skip is the operator-token literal scan, which has
+  nothing to search for when no token is configured in the build environment
+  (same behaviour as the M3-04 build). Cold/warm start timings were not
+  re-measured; the M3-04 numbers remain the reference.
+- **Release notes draft** updated to the four-run evaluation band (3/15, 2/15
+  before the fix; 2/15, 3/15 after; gate still not met) and the new artifact
+  hash. Release creation and the asset upload stay user steps, gated on the
+  walkthrough (`docs/release-checklist.md` §3-4).

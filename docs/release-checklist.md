@@ -5,22 +5,29 @@
 动作，由仓库所有者决定时机并亲手操作。所有密钥只存在于 gitignored 的 `.env`，
 本清单不含任何凭据。
 
-**定稿基线：** 本文件所在 commit（M3-05 回填定稿，见 `docs/progress.md` 当日
-条目）。推送后请把下方"远端 CI"一节的实际 run 链接回填进来。
+**定稿基线：** v0.2.0 tag @ `8133a89`（含检索弃答修复与修复后重跑报告）。
+推送后请把下方"远端 CI"一节的实际 run 链接回填进来。
 
 ---
 
-## 0. 当前状态一览（写清单时的事实）
+## 0. 当前状态一览（2026-11-15 更新）
 
 | 项 | 状态 | 位置/证据 |
 |---|---|---|
-| 代码与材料定稿 | ✅ 已提交 main（本 commit） | `docs/progress.md` M3-05 条目 |
-| 真实模型结果 | ✅ 已如实回填（开发集 3/15、2/15 未达标；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
-| 新 installer 候选 | ✅ 机器校验完成；**真人走查未做** | `desktop/release/OpsPilot-Setup-0.1.0-x64.exe`（126,045,189 B，SHA-256 `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`）；[m3-04-repackage-verification.md](m3-04-repackage-verification.md) |
-| 线上 Release | ✅ `v0.1.0` 已存在，asset 为**旧包**（SHA-256 `565206f7…`，对应 2026-11-14 D2 走查） | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
-| 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**对外平台上传未做** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
+| 代码与材料定稿 | ✅ `main` @ `8133a89`；tag `v0.2.0` 已指向该提交（本地+远端） | `git log --oneline -1 v0.2.0` |
+| 真实模型结果 | ✅ 已如实回填（开发集首测 3/15、2/15；检索修复后重跑 2/15、3/15——四跑均未达 10/15；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
+| 新 installer 候选 | ✅ 已从 v0.2.0 tag 干净 checkout 构建并机器校验；**真人走查未做** | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,040 B，SHA-256 `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
+| 线上 Release | ✅ `v0.1.0` 已存在，asset 为**旧包**（SHA-256 `565206f7…`，对应 2026-11-14 D2 走查）；**v0.2.0 Release 未创建**（按用户决定等真人走查后发布） | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
+| 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
-| CI | ✅ `3fdc027`（M3-06 基准）远端 CI success；本 commit 的 CI **待推送后确认** | `gh run list --repo gg320324492-lgtm/OpsPilot` |
+| CI | ✅ `8133a89` 远端 CI success | `gh run list --repo gg320324492-lgtm/OpsPilot` |
+
+### 决策记录（2026-11-15，用户确认）
+
+1. **Release 方案 A**：新 tag `v0.2.0`，新旧 Release 并存；tag 指向含检索修复的 `8133a89`。
+2. **真实模型门槛**：接受现状，按 open metric 如实展示；不换模型重跑（后续可随时重测）。
+3. **演示视频**：仅 GitHub 仓库内展示，不上传 YouTube/B 站/Upwork 媒体库。
+4. **新包真人走查**：发布前安排；**v0.2.0 Release 在走查完成后创建上传**（清单第 3、4 节顺序不变）。
 
 ---
 
@@ -31,12 +38,11 @@
 ```bash
 py -3.12 -m pytest tests/unit/test_doc_line_citations_point_at_the_code.py tests/unit/test_the_documented_counts_agree_with_the_tree.py -q
 py -3.12 -m pytest -q            # 全量离线套件（SQLite 内存库，无需服务/Docker）
-py -3.12 -m mypy src             # 既有基线：openai/anthropic SDK 漂移相关 8 个错误为已知
+py -3.12 -m mypy                  # 全仓 strict；当前基线 275 文件零错误
 ruff check && ruff format --check
 ```
 
-- 通过标准：两个守卫测试 + 全量 pytest 绿；ruff 零报告；mypy 只允许既有 8 个
-  SDK 漂移错误（见 `docs/progress.md` 既有记录），不得新增。
+- 通过标准：两个守卫测试 + 全量 pytest 绿；ruff 零报告；mypy 零错误。
 - 以上是**本地检查**；它不能替代下面的**远端 CI**。
 
 ## 2. 远端 CI（推送后）【待用户执行】
@@ -69,22 +75,28 @@ ruff check && ruff format --check
 > 旧 `v0.1.0` Release 与其 asset 对应 2026-11-14 的 D2 走查记录，**不建议静默
 > 替换**。两个方案都要求第 2 节 CI 绿。
 
-**方案 A（推荐）：新 tag `v0.2.0`，新旧 Release 并存**
+**方案 A（已确认采用）：新 tag `v0.2.0`，新旧 Release 并存**
 
-1. 版本号统一提升为 `0.2.0`：`pyproject.toml`、`desktop/package.json`、
-   `web/package.json`（守卫 `tests/unit/test_the_version_is_one_number.py`
-   会核对三者一致）；提交为独立 commit。
-2. `git tag v0.2.0 && git push origin v0.2.0`。
-3. 在**该 tag 的干净 checkout** 上构建：
+1. ✅ 版本号已统一提升为 `0.2.0`（`pyproject.toml`、`desktop/package.json`、
+   `web/package.json`；守卫测试通过），独立 commit 在 tag 祖先里。
+2. ✅ `v0.2.0` 已创建并推送，指向 `8133a89`（含检索弃答修复与重跑报告）。
+   旧 tag 位置 `e6d9f69` 仅在尚未创建 Release 时被移动——没有发布物受影响。
+3. ✅ 在该 tag 的干净 checkout（`E:/OpsPilot-release-v020`）上构建完成：
    `cd web && npm ci && npm run build && cd ../desktop && npm ci && npm run package`。
-   构建产物记 SHA-256，与本地候选包比对（不同机器字节不同属正常，记录即可）。
-   注：M3-04 的机器校验（compose 一致、无凭据、六项门禁）是在 `81a0278` 上做的，
-   严格做法是在新 tag 上重跑 `py -3.12 -m pytest tests/desktop -q`（packaged-posture
-   六项）。
-4. 创建 Release 并上传：
-   `gh release create v0.2.0 desktop/release/OpsPilot-Setup-0.2.0-x64.exe --title "v0.2.0" --notes "…"`
-   （notes 可引用 [m3-04-repackage-verification.md](m3-04-repackage-verification.md)
-   与本清单第 0 节）。`.blockmap` 同目录可选上传。
+   产物 `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`，
+   **130,075,040 B，SHA-256
+   `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`**。
+   机器校验：打包 compose 与源码逐字节一致；包内无 `.env`/凭据字面量；
+   packaged-posture 门禁在 tag checkout 上重跑 =
+   `npx playwright test e2e/packaged-posture.spec.ts e2e/packaged-posture-icon.spec.ts --project lifecycle`
+   → **5 passed, 1 skipped**（跳过项为 operator-token 字面量扫描，构建环境未配置
+   token 时无可搜索内容，与 M3-04 行为一致）。冷/热启动时间沿用
+   [m3-04-repackage-verification.md](m3-04-repackage-verification.md) 的记录，
+   本次未重新计时。
+4. **【待用户执行，建议在真人走查完成后】** 创建 Release 并上传：
+   `gh release create v0.2.0 desktop/release/OpsPilot-Setup-0.2.0-x64.exe --title "v0.2.0" --notes-file docs/release-notes-v0.2.0-draft.md`
+   （`--notes-file` 直接用草稿正文；`.blockmap` 同目录可选上传）。按用户决定，
+   Release 在走查完成后创建。
 
 **方案 B：把新包作为 asset 挂到现有 `v0.1.0`**
 
@@ -97,7 +109,11 @@ ruff check && ruff format --check
 旧记录（`565206f7…`）在方案 A 下继续有效，在方案 B 下需在
 [installer-verification.md](installer-verification.md) 注记"asset 已替换"。
 
-## 5. 演示视频上传【待用户执行】
+## 5. 演示视频上传（按用户决定：仅 GitHub 展示，不上传外部平台）
+
+**决策：** 2026-11-15 用户确认演示视频仅保留在仓库内（`web/public/showcase/`
+与 `docs/showcase.md` 入口），不制作 YouTube/B 站/Upwork 媒体库外链。下述步骤
+保留备查，不再作为发布待办。
 
 材料（均在仓库内，无需再加工）：
 
