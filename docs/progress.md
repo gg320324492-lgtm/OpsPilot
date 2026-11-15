@@ -10034,3 +10034,30 @@ video upload, Upwork publish) is listed with materials and marked
   the materials claim containment and engineering, not model competence.
   Retesting with a stronger model or accepting the current result is a
   decision recorded for the user in the checklist's closing section.
+
+## M3-02 re-run after the retrieval fix: the abstentions are gone, the gate still isn't met (2026-11-15)
+
+The retrieval fix (`229ead6` — query expansion toward the corpus vocabulary,
+`RETRIEVAL_MIN_SCORE` 0.22 → 0.205) was merged, and the M3-02 two-run was
+repeated on the same frozen config (DeepSeek V4.1-Flash via the local gateway,
+`OPENAI_JSON_OBJECT_FALLBACK=true`, `max_retries=0`, timeout 300s, MAX_STEPS 24;
+dataset hash unchanged `05195a7d…`). Report:
+[`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](m3-02-rerun-after-retrieval-fix-2026-11-15.md);
+raw runs `evals/results/2026-11-15T08-56-37.json` (run 1) and
+`2026-11-15T09-12-41.json` (run 2), gitignored per the results README.
+
+- **Result: still not met.** Run 1 **2/15**, run 2 **3/15** — the same 2–3/15
+  band as before the fix (the two runs swapped scores). Argument validity
+  1.000 both runs, unsafe execution 0, all 15 cases completed.
+- **The abstentions are gone.** tool-005/006/012 no longer abstain before
+  planning (run 1: all three complete with proposals or a deliberate no-tool
+  answer; run 2: tool-006/012 propose tools, tool-005 completes with none).
+  The competitive ceiling is back to 15/15.
+- **The remaining gap is the model's tool-set judgement**, not retrieval:
+  the newly unblocked cases still do not hit, and run-to-run agreement stays
+  low. The retrieval fix is kept — it removes a *deterministic* failure mode
+  (any model would have missed those three) with zero leakage into the
+  abstention controls — but it does not move the headline.
+- Next-step options (stronger model re-run vs. accepting the open metric)
+  remain the user's decision, recorded in
+  [`docs/portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md) §N1.
