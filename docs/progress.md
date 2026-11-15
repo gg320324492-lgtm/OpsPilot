@@ -10372,3 +10372,16 @@ already on the machine; the 2–15-minute expectation stands for a clean one.
 Report: [`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md),
 archived into [`docs/installer-verification.md`](installer-verification.md).
 CI on `0c47176`: success.
+
+## DBC-08 fixed: on-failure restart policy (2026-11-16)
+
+The third-party walk's one functional FAIL — a killed app process leaving the
+containers running under `restart: unless-stopped` — is fixed in
+`docker-compose.yml`: postgres, api, worker and web now use
+`restart: on-failure`, so a healthy container whose supervisor died is left
+stopped while a genuinely crashed container still restarts; migrate keeps its
+deliberate `"no"`. Normal-quit behaviour is unchanged (the shell's
+`compose down` still runs). Verified by rendering the compose file (all four
+services `on-failure`) and the compose python tests (25 passed). The shipped
+v0.2.0 installer still carries the old policy; this lands with the next
+package.

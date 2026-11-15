@@ -289,7 +289,7 @@ README.md（"A demo stack beside the development one" 小节）。
 
 ---
 
-## DBC-08 被杀进程后的容器回收（**新发现**，2026-11-16，待修复）
+## DBC-08 被杀进程后的容器回收（**已修复（方案 1）**，2026-11-16）
 
 **目标：** 第三方走查（[`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md)）
 发现的唯一功能性缺陷：应用进程被杀（`Stop-Process`，非正常退出路径）后，
@@ -307,7 +307,18 @@ opspilot 容器因 `restart: unless-stopped` 持续运行 10 分钟以上不回�
 
 **证据：** [installer-verification.md](installer-verification.md) 的
 「Third-party interactive walk of the published v0.2.0 installer」节。
-**优先级：** 中；影响「装完即用」的收尾体验，建议下个补丁版处理。
+
+**修复（2026-11-16，方案 1）：** `docker-compose.yml` 的 postgres / api /
+worker / web 四个长期运行服务从 `restart: unless-stopped` 改为
+`restart: on-failure`（migrate 保持 `"no"` 不变——它本就是一次性任务）。
+效果：正常退出路径不变（壳的 `compose down` 照旧）；应用进程被杀后，健康
+运行的容器不再是「失败」，Docker 引擎不会把它们无限拉起——这正是走查实测
+的缺口。崩溃的容器仍会重启，保留原 policy 的本意。注意：**已安装的旧版
+（含 v0.2.0 安装包内打包的 compose）仍是旧 policy**，此项修复随下一次打包
+生效；对已装机器，手动 `docker compose -p opspilot down` 仍是回收方式。
+
+**验证：** `docker compose config` 渲染确认四个服务均为 `on-failure`、
+migrate 为 `no`；compose 相关 python 测试 25 passed。
 
 ---
 

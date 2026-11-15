@@ -38,7 +38,7 @@ future edit cannot silently un-bind one.
 host sides now templated (`127.0.0.1:${OPSPILOT_PG_HOST_PORT:-5432}:5432`,
 `127.0.0.1:${OPSPILOT_API_HOST_PORT:-8000}:8000`,
 `127.0.0.1:${OPSPILOT_WEB_HOST_PORT:-3000}:3000` — `docker-compose.yml:99`,
-`:306`, `:567`; the `127.0.0.1` prefix is fixed and the host port defaults are
+`:314`, `:581`; the `127.0.0.1` prefix is fixed and the host port defaults are
 the shipped ones). The A1 row of the acceptance table below carries the
 evidence.
 
@@ -87,8 +87,8 @@ the documented local-dev case, or the README's run instructions state plainly th
 the credential is local-only and what to change before exposing anything.
 
 **Status: closed.** `POSTGRES_PASSWORD` is now `${POSTGRES_PASSWORD:-opspilot}`
-(`docker-compose.yml:79`) and every service's `DATABASE_URL` is written from
-that same variable (`:142`, `:166`, `:363`), so setting it once changes both
+(`docker-compose.yml:82`) and every service's `DATABASE_URL` is written from
+that same variable (`:153`, `:177`, `:378`), so setting it once changes both
 sides. `POSTGRES_USER` and `POSTGRES_DB` are still the literal `opspilot`; the
 A3 row of the acceptance table below carries the evidence and its own history.
 
@@ -460,7 +460,7 @@ complete the code looks**, so this is the table that decides.
 
 | | Acceptance | State | Evidence |
 |---|---|---|---|
-| **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all bound to `127.0.0.1` with the host side templated over the shipped defaults: 5432 (`:99`), 8000 (`:306`), 3000 (`:567`); `tests/unit/test_compose_settings_are_wired.py` pins it |
+| **A1** | Nothing is reachable off the host | **met** | `docker-compose.yml` publishes three ports, all bound to `127.0.0.1` with the host side templated over the shipped defaults: 5432 (`:99`), 8000 (`:314`), 3000 (`:581`); `tests/unit/test_compose_settings_are_wired.py` pins it |
 | **A2** | A privileged write is refused unless it came from the dashboard | **met** | all three write routes call `foreignOriginRefusal`: `web/src/app/api/tickets/route.ts`, `web/src/app/api/knowledge/reindex/route.ts`, `web/src/app/api/approvals/[approvalId]/[decision]/route.ts`; `web/e2e/write-origin.spec.ts` holds each to a test |
 | **A3** | The database password is configurable and the default is named as one | **met — and it was half-true until the 2026-10-20 review** | `${POSTGRES_PASSWORD:-opspilot}` with the argument in situ; the password in every service's `DATABASE_URL` is written from that same variable, so setting it once changes both sides. It did not, at first: the URL carried its own literal `opspilot` password, so `POSTGRES_PASSWORD` could be set and the stack would fail every `migrate`/`api`/`worker` authentication — and the README's remedy ("change the password in `DATABASE_URL` to match") meant hand-editing a committed file. The URL's *host* is still deliberately fixed. `test_compose_postgres_password_is_configurable.py` |
 | **A4** | "No document describes the browser as calling the API directly, and none describes a capability `docs/limitations.md` §8 records as absent" | **met** | the two sentences §P2-A4 names are gone: `web/README.md` no longer says the browser "talks to the API on `:8000` directly from the browser process" nor that the screens are "routing stubs"; `docker-compose.yml` carries neither either |

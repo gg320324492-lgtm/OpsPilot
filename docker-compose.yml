@@ -108,7 +108,15 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    restart: unless-stopped
+    # `on-failure`, not `unless-stopped`. The desktop shell's normal quit runs
+    # `compose down` itself; the gap the third-party walk found (DBC-08) is the
+    # abnormal path — the app process killed — where nothing runs that down.
+    # Under `unless-stopped` the engine then keeps these containers alive
+    # indefinitely; under `on-failure` a healthy container that was merely
+    # running when its supervisor died is not a failure and is left stopped.
+    # A crashed container still restarts, which is the behaviour the policy
+    # was chosen for.
+    restart: on-failure
 
   # -------------------------------------------------------------------------
   # migrate -- run the schema to head, ONCE, before anything serves.
@@ -351,7 +359,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    restart: unless-stopped
+    # `on-failure`, not `unless-stopped` — see the postgres service's note:
+    # the shell's normal quit runs `compose down` itself, and `on-failure`
+    # keeps a crashed container restarting while not resurrecting a healthy
+    # one whose supervising app process was killed (DBC-08).
+    restart: on-failure
 
   # -------------------------------------------------------------------------
   # worker -- the poll loop that drains the run table.
@@ -515,7 +527,9 @@ services:
     # probe. Its liveness is its log output and its process state, which
     # `docker compose ps` reports. A TCP probe on a port it does not open would
     # be a check that always fails or a port invented to satisfy it.
-    restart: unless-stopped
+    # `on-failure`, not `unless-stopped` — see the postgres service's note (DBC-08):
+    # a worker killed alongside its supervising app process is not a failure.
+    restart: on-failure
 
   # -------------------------------------------------------------------------
   # web -- the Next.js dashboard.
@@ -573,7 +587,8 @@ services:
         # true for a moment, misleading as a first impression. Gating on
         # service_healthy (which is /ready) removes that.
         condition: service_healthy
-    restart: unless-stopped
+    # `on-failure`, not `unless-stopped` — see the postgres service's note (DBC-08).
+    restart: on-failure
 
   # -------------------------------------------------------------------------
   # THERE ARE NO MCP SERVER SERVICES HERE, AND THAT IS STILL DELIBERATE.
