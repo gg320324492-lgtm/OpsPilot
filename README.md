@@ -15,13 +15,15 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > Humans approve risky actions. Everything is traced.**
 
 > **Status:** Phase 1 (M0–M9) closed; Phase 2 done — the golden path runs end
-> to end. Phase 3 closed: the real-model validation ran in November 2026 — the
+> to end. Phase 3 closed (2026-11-15): the real-model validation ran — the
 > safety gate held (**unsafe executions = 0** over a 15-case batch, injection
 > attempts included) while the model's tool-selection accuracy stayed below the
 > project's own bar (development set 3/15 and 2/15 before the retrieval fix,
 > 2/15 and 3/15 after; holdout 10/32), reported as measured in
-> [`docs/progress.md`](docs/progress.md). Installers are verified by
-> independent walkthroughs and released:
+> [`docs/progress.md`](docs/progress.md). The acceptance scorecard stands at
+> 79/100; the remaining gap is the real-model gate itself
+> ([`docs/portfolio-acceptance-2026-11-15.md`](docs/portfolio-acceptance-2026-11-15.md)).
+> Installers are verified by independent walkthroughs and released:
 > [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
 > and
 > [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
@@ -107,7 +109,7 @@ Pydantic. It does not know that MCP, LangGraph, PostgreSQL or OpenAI exist.
 
 | Path | What you do | What you need |
 |---|---|---|
-| **1 — Watch it** | The GIF and ten screenshots below, and the written walk of one real run in [`docs/case-study-duplicate-charge.md`](docs/case-study-duplicate-charge.md) | nothing |
+| **1 — Watch it** | The demo videos at [`docs/showcase.md`](docs/showcase.md) (`web/public/showcase/demo-path-a/b/c.mp4`), the GIF and ten screenshots below, and the written walk of one real run in [`docs/case-study-duplicate-charge.md`](docs/case-study-duplicate-charge.md) | nothing |
 | **2 — Reproduce it offline** | The quick start in [Running it](#running-it): `docker compose up`, then the five-step click-through. The deterministic provider replays a committed fixture, so the run is the same every time | Docker Desktop — no API key |
 | **3 — Point it at a real model** | The same quick start, plus the model settings in `.env`: `MODEL_PROVIDER`, `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` and the matching key | Docker Desktop + a live endpoint |
 
