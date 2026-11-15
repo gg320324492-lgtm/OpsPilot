@@ -1,0 +1,75 @@
+# Demo profile:
+#
+#   OPSPILOT_OPERATOR_TOKEN=<any non-empty string> \
+#   OPSPILOT_API_HOST_PORT=18001 OPSPILOT_WEB_HOST_PORT=13001 OPSPILOT_PG_HOST_PORT=15433 \
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up
+#
+# A second Compose file, not a silent replacement of the defaults: with it
+# absent, every launch keeps today's exact behaviour (the completion
+# criterion in docs/direction-b-checklist.md DBC-05). With it present the
+# stack is shaped for **watching by somebody who is not operating it**:
+#
+#   * **A separate project name.** Its containers, network and image tags sit
+#     beside a default stack instead of fighting it for ports and names. The
+#     image tag prefix follows the project name (see the tag note at the top
+#     of `docker-compose.yml`), so the demo build does not reuse the default
+#     stack's images either.
+#   * **Its own host ports** (API 18001, dashboard 13001, PostgreSQL 15433),
+#     passed as shell variables because Compose interpolates `ports:` from the
+#     shell environment before merging these files -- an `environment:` block
+#     here cannot move a published port. The browser's API address
+#     (`NEXT_PUBLIC_API_BASE_URL`) is a **build arg** inlined into the bundle,
+#     so it is set here too -- without it the demo dashboard would point the
+#     browser at the default stack's :8000.
+#   * **The `already_refunded` script.** The default script
+#     (`duplicate_charge`) parks a run and issues a refund; the demo script's
+#     agent detects the transaction was already refunded and finishes with a
+#     reply and **no write proposed at all** -- no approval stop, no refund.
+#     For an audience, "the gate never had to fire" is the better ending. The
+#     same knob ships in `.env.example` with both names documented.
+#   * **`LOG_LEVEL=WARNING`.** Demo logs are for reading, not for scanning;
+#     errors still print.
+#   * **No credentials and no real model.** The operator token stays in the
+#     environment (compose refuses to render without it), the provider stays
+#     `fake`, and the scripted-provider disclosure stays as shipped. A demo
+#     that must not run a real model is a demo that cannot leak one.
+#
+# This file changes no image, no dependency and no default anywhere. It is a
+# profile, and the development stack it sits beside is untouched.
+name: ${OPSPILOT_COMPOSE_PROJECT_NAME:-opspilot-demo}
+
+# The image prefix that follows the project name -- see the tag note at the
+# top of `docker-compose.yml`. Compose interpolates `image:` before resolving
+# `name:`, so this variable has to be set here as well; both files carry the
+# same fallback, and the prefix matches whichever file wins the `name:` field.
+x-demo-image-env: &demo-image-env
+  OPSPILOT_IMAGE_PREFIX: ${OPSPILOT_COMPOSE_PROJECT_NAME:-opspilot-demo}
+
+services:
+  api:
+    environment:
+      <<: *demo-image-env
+      OPSPILOT_API_HOST_PORT: "18001"
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+
+  worker:
+    environment:
+      <<: *demo-image-env
+      OPSPILOT_FAKE_SCENARIO: ${OPSPILOT_FAKE_SCENARIO:-already_refunded}
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+
+  migrate:
+    environment:
+      <<: *demo-image-env
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:18001}
+    environment:
+      <<: *demo-image-env
+      OPSPILOT_WEB_HOST_PORT: "13001"
+
+  postgres:
+    environment:
+      OPSPILOT_PG_HOST_PORT: "15433"

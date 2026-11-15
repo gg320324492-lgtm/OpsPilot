@@ -659,6 +659,26 @@ OpenAI-protocol or Anthropic-protocol endpoint works — the protocol is the
 integration, not the vendor. Every key stays in the gitignored `.env`; nothing
 is sent anywhere but the endpoint you name.
 
+### A demo stack beside the development one
+
+`docker-compose.demo.yml` is a second Compose file for **showing** the project
+rather than developing it — same images, same defaults, different posture:
+
+```bash
+OPSPILOT_OPERATOR_TOKEN=<any non-empty string> OPSPILOT_API_HOST_PORT=18001 OPSPILOT_WEB_HOST_PORT=13001 OPSPILOT_PG_HOST_PORT=15433 docker compose -f docker-compose.yml -f docker-compose.demo.yml up
+```
+
+What it changes: its own project name and ports (API `18001`, dashboard
+`13001`, PostgreSQL `15433`), so it can run beside a development stack instead
+of against it; the fake provider's `already_refunded` script, whose agent
+detects the duplicate was already refunded and finishes with a reply and no
+write proposed — no approval stop, no refund; and `LOG_LEVEL=WARNING`. It
+never sets a credential and never switches the provider away from `fake` —
+the disclosure the dashboard carries stays on. Without the second `-f`, every
+launch behaves exactly as the section above describes. The model knob
+(`OPSPILOT_FAKE_SCENARIO`, both script names) and the other overrides are
+documented in `.env.example`.
+
 ### Network requirements
 
 The first `docker compose up` builds two images on your machine, and building

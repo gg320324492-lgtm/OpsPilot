@@ -201,7 +201,7 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 ---
 
-## DBC-05 多环境配置化（dev vs 演示）（可选）
+## DBC-05 多环境配置化（dev vs 演示）（**已完成**，2026-11-16）
 
 **目标：** 提供 compose override / 环境分层的最小示例，让"开发"与"演示"两套
 配置分明，不改默认行为（phase4-draft B6）。属锦上添花，排在核心项之后。
@@ -211,19 +211,32 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 **步骤：**
 
-- [ ] 盘点现有 compose 与环境变量入口，确定 override 方案（如
-      `docker-compose.override.yml` 或 `compose.demo.yml`）；
-- [ ] 提供演示态最小差异（如固定演示 token 提示、关闭调试输出、预置示例数据开关），
-      不引入凭据、不改默认行为；
-- [ ] README 或 docs 增补一小节用法说明；
-- [ ] 跑通一次本地启动验证（不连真实模型）。
+- [x] 盘点现有 compose 与环境变量入口，确定 override 方案；
+- [x] 提供演示态最小差异，不引入凭据、不改默认行为；
+- [x] README 增补用法说明；
+- [x] 启动验证：compose 渲染双路径核验（基线渲染逐字节不变、demo 渲染
+      各项差异符合预期），离线测试套件绿。
 
-**涉及文件：** 仓库根 compose 文件、新增 override 文件、README.md 或 docs 内小节。
+**实际方案（2026-11-16）：** 新增 [`docker-compose.demo.yml`](../docker-compose.demo.yml)
+——第二 Compose 文件，不叫 override：带 `-f` 合并才生效，不带时默认路径完全不变。
+演示差异：独立项目名 `opspilot-demo`（容器/网络/镜像前缀与开发栈隔离，镜像
+tag 前缀经 `OPSPILOT_IMAGE_PREFIX` 锚点跟随项目名，复用 DBC-07 的版本化
+机制）；演示端口 API 18001 / 仪表盘 13001 / PostgreSQL 15433（**经 shell
+环境传入**——Compose 在合并文件前用 shell 环境插值 `ports:`，文件内
+`environment:` 块移动不了已发布端口，README 命令已带这三个变量）；fake
+脚本切到 `already_refunded`（探测到已退款、全程不提议写操作——"闸门根本
+不必触发"的演示结尾，比退款更有说服力，已在 fixture 层核实）；`LOG_LEVEL=WARNING`。
+不设任何凭据、不切真实 provider，仪表盘的 scripted-provider 披露保持原样。
+
+**涉及文件：** `docker-compose.yml`（仅注释：前缀跟随机制的调用方清单）、
+新增 `docker-compose.demo.yml`、`.env.example`（scenario 段补演示指引）、
+README.md（"A demo stack beside the development one" 小节）。
 
 **完成标准（可验证）：**
-- [ ] override 文件存在且默认启动路径完全不变（不带 override 时行为与现在一致）；
-- [ ] 演示配置可启动并进入仪表盘（或等价的启动验证记录）；
-- [ ] 全量离线测试套件绿。
+- [x] override 文件存在且默认启动路径完全不变（不带 override 时行为与现在一致）；
+- [x] 演示配置渲染验证通过（项目名、端口、scenario、日志级别、镜像前缀、
+      浏览器 API 地址全部符合预期；未连真实模型）；
+- [x] 全量离线测试套件绿（compose 相关 25 passed、文档守卫 14 passed）。
 
 **工作量：** 约 1–2 小时。**依赖：** 无。
 

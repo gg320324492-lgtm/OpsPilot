@@ -10339,3 +10339,21 @@ the compose file in `desktop/e2e/compose-commands.spec.ts` keep the tag from
 being dropped. Lifecycle tests 121 passed, web typecheck clean, compose
 python tests green. Rebuild-package verification of the upgrade path is
 pending the next build.
+
+## DBC-05 done: a demo compose profile (2026-11-16)
+
+[`docker-compose.demo.yml`](docker-compose.demo.yml) is a second Compose file,
+not a default override: merged only when both `-f` flags are passed, so the
+development path is byte-identical without it. It gives the demo its own
+project name (`opspilot-demo` — containers, network and, through the
+`OPSPILOT_IMAGE_PREFIX` anchor, image tags separate from the development
+stack), its own ports (API 18001, dashboard 13001, PostgreSQL 15433, passed as
+shell variables because Compose interpolates `ports:` from the environment
+before merging), the `already_refunded` fake script — whose agent detects the
+earlier refund and proposes no write at all, so the demo ends at "the gate
+never had to fire" — and `LOG_LEVEL=WARNING`. No credential is set and the
+provider stays `fake`; the dashboard's scripted-provider disclosure is
+untouched. README gains "A demo stack beside the development one"; the
+`.env.example` scenario note names both scripts. Verified by rendering both
+files (baseline unchanged; demo values as designed) and by the offline
+suites: compose tests 25 passed, doc guards 14 passed.

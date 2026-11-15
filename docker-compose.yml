@@ -35,10 +35,13 @@ name: ${OPSPILOT_COMPOSE_PROJECT_NAME:-opspilot}
 # its own image instead of colliding with an installed copy.
 #
 # The prefix follows the project name so a second copy of the stack (see the
-# `name:` note above) builds separately named images. `${COMPOSE_PROJECT_NAME}`
-# cannot be interpolated here -- the `name:` field is resolved after
-# interpolation -- so the shell and the e2e harness set OPSPILOT_IMAGE_PREFIX
-# explicitly when they set a project name.
+# `name:` note above) builds separately named images. Compose interpolates
+# `image:` before resolving `name:`, and there is no interpolation variable
+# for the resolved project name, so each caller that sets a project name also
+# sets OPSPILOT_IMAGE_PREFIX explicitly: the desktop shell (`main.ts`), the e2e
+# harness (`web/e2e/stack.ts`) and `docker-compose.demo.yml` (via
+# `OPSPILOT_COMPOSE_PROJECT_NAME` in both files, read by whichever wins).
+# An unset prefix keeps the shipped `opspilot-` images.
 
 services:
   # -------------------------------------------------------------------------
