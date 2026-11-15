@@ -5,8 +5,8 @@
 动作，由仓库所有者决定时机并亲手操作。所有密钥只存在于 gitignored 的 `.env`，
 本清单不含任何凭据。
 
-**定稿基线：** v0.2.0 tag @ `8133a89`（含检索弃答修复与修复后重跑报告）。
-推送后请把下方"远端 CI"一节的实际 run 链接回填进来。
+**定稿基线：** v0.2.0 tag @ `656bbd3`（检索弃答修复、重跑报告、2026-11-15
+走查与端口复核记录；发布后 main 已前移到 `43fde58` 的闭环记录）。
 
 ---
 
@@ -14,13 +14,13 @@
 
 | 项 | 状态 | 位置/证据 |
 |---|---|---|
-| 代码与材料定稿 | ✅ `main` @ `8133a89`；tag `v0.2.0` 已指向该提交（本地+远端） | `git log --oneline -1 v0.2.0` |
+| 代码与材料定稿 | ✅ tag `v0.2.0` @ `656bbd3`（本地+远端；发布后 main 前移到 `43fde58`） | `git log --oneline -1 v0.2.0` |
 | 真实模型结果 | ✅ 已如实回填（开发集首测 3/15、2/15；检索修复后重跑 2/15、3/15——四跑均未达 10/15；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
 | 新 installer 候选 | ✅ 已从 v0.2.0 tag（`2b96e70`，含 2026-11-15 走查记录与壳跟随 API 端口的修复）干净 checkout 构建并机器校验；独立走查已完成，端口占用场景复核通过 | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,633 B，SHA-256 `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
 | 线上 Release | ✅ `v0.1.0` 与 `v0.2.0` 均已发布；v0.2.0 asset 为新包（130,075,633 B，SHA-256 `2461f146…`），2026-11-15 走查+复核通过 | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
 | 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
-| CI | ✅ `8133a89` 远端 CI success | `gh run list --repo gg320324492-lgtm/OpsPilot` |
+| CI | ✅ tag 提交 `656bbd3` 远端 CI success（run 43710760626）；发布记录 `43fde58` CI success（run 43711752333） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
 
 ### 决策记录（2026-11-15，用户确认）
 
@@ -59,8 +59,11 @@ ruff check && ruff format --check
 材料三件套（发给走查人）：
 
 1. [installer-verification.request.md](installer-verification.request.md) — 说明信；
-2. 新包 `desktop/release/OpsPilot-Setup-0.1.0-x64.exe`
-   （SHA-256 `71ac5ac0adcb543fc96810c96085fbb66bbb73260c92d85325a6927997ee9a7b`）；
+2. 新包 `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`
+   （130,075,633 B，SHA-256
+   `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`；即
+   [v0.2.0 Release](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
+   的 asset）；
 3. [installer-verification.md](installer-verification.md)（中文对照
    [installer-verification.zh-CN.md](installer-verification.zh-CN.md)）— 十六项
    检查脚本。
