@@ -10119,3 +10119,19 @@ completed.
 - The walker re-checked the port-occupied scenario against the fixed build;
   the record is appended to
   [`docs/installer-verification.md`](installer-verification.md).
+
+## v0.2.0 Release published (2026-11-15)
+
+The GitHub Release is live: tag `v0.2.0` → `656bbd3` (the docs-pointing fix
+on top of the walkthrough record; CI run 43710760626 green). Assets:
+`OpsPilot-Setup-0.2.0-x64.exe` (130,075,633 B, SHA-256
+`2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`, digest
+verified on the release object) and its `.blockmap`.
+<https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0>
+
+Gate evidence behind it: the 2026-11-15 independent walkthrough
+([installer-verification.md](installer-verification.md)) plus the port-fix
+recheck that confirmed the shell follows `OPSPILOT_API_HOST_PORT`
+(dashboard up in ~5 s with the API on a moved port). M3-05's Release step is
+closed; §7 post-release checks (README links, model-identifier consistency)
+remain to be clicked through.

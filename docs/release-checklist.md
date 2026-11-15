@@ -17,7 +17,7 @@
 | 代码与材料定稿 | ✅ `main` @ `8133a89`；tag `v0.2.0` 已指向该提交（本地+远端） | `git log --oneline -1 v0.2.0` |
 | 真实模型结果 | ✅ 已如实回填（开发集首测 3/15、2/15；检索修复后重跑 2/15、3/15——四跑均未达 10/15；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
 | 新 installer 候选 | ✅ 已从 v0.2.0 tag（`2b96e70`，含 2026-11-15 走查记录与壳跟随 API 端口的修复）干净 checkout 构建并机器校验；独立走查已完成，端口占用场景复核通过 | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,633 B，SHA-256 `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
-| 线上 Release | ✅ `v0.1.0` 已存在，asset 为**旧包**（SHA-256 `565206f7…`，对应 2026-11-14 D2 走查）；**v0.2.0 Release 未创建**（按用户决定等真人走查后发布） | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
+| 线上 Release | ✅ `v0.1.0` 与 `v0.2.0` 均已发布；v0.2.0 asset 为新包（130,075,633 B，SHA-256 `2461f146…`），2026-11-15 走查+复核通过 | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
 | 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
 | CI | ✅ `8133a89` 远端 CI success | `gh run list --repo gg320324492-lgtm/OpsPilot` |
