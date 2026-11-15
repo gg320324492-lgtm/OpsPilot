@@ -23,6 +23,23 @@
 # both are given. The default keeps the shipped behaviour unchanged.
 name: ${OPSPILOT_COMPOSE_PROJECT_NAME:-opspilot}
 
+# Every built service names its image with a **version tag**, and that is the
+# upgrade-safety decision in this file. `docker compose up` reuses an image
+# whose tag already exists and does not rebuild it; with a bare fixed tag
+# (`opspilot-api`) a machine that ever built an older checkout silently runs
+# that older code after a reinstall. The desktop shell therefore passes
+# OPSPILOT_IMAGE_TAG = its own version, so a new installer version is a new
+# tag, which Compose builds on first use. A tag that does exist is the same
+# version built from the same tree, which is exactly when reuse is correct.
+# `local` is the default so a hand-run `docker compose up` in a checkout keeps
+# its own image instead of colliding with an installed copy.
+#
+# The prefix follows the project name so a second copy of the stack (see the
+# `name:` note above) builds separately named images. `${COMPOSE_PROJECT_NAME}`
+# cannot be interpolated here -- the `name:` field is resolved after
+# interpolation -- so the shell and the e2e harness set OPSPILOT_IMAGE_PREFIX
+# explicitly when they set a project name.
+
 services:
   # -------------------------------------------------------------------------
   # postgres -- the store the API and worker share.
@@ -112,6 +129,7 @@ services:
   # `service_completed_successfully` is the condition that gives this its
   # meaning: api and worker do not start until this exits 0.
   migrate:
+    image: ${OPSPILOT_IMAGE_PREFIX:-opspilot}-migrate:${OPSPILOT_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -139,6 +157,7 @@ services:
   # api -- the FastAPI app under uvicorn.
   # -------------------------------------------------------------------------
   api:
+    image: ${OPSPILOT_IMAGE_PREFIX:-opspilot}-api:${OPSPILOT_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -335,6 +354,7 @@ services:
   # worker -- the poll loop that drains the run table.
   # -------------------------------------------------------------------------
   worker:
+    image: ${OPSPILOT_IMAGE_PREFIX:-opspilot}-worker:${OPSPILOT_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -498,6 +518,7 @@ services:
   # web -- the Next.js dashboard.
   # -------------------------------------------------------------------------
   web:
+    image: ${OPSPILOT_IMAGE_PREFIX:-opspilot}-web:${OPSPILOT_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: web/Dockerfile

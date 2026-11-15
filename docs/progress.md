@@ -10323,3 +10323,19 @@ start in 10–15 s, data survives the restart. Two findings entered the record:
 
 Full sheet: [`docs/installer-interactive-walk-2026-11-15.md`](installer-interactive-walk-2026-11-15.md),
 archived into [`docs/installer-verification.md`](installer-verification.md).
+
+## DBC-07 fixed: versioned image tags (2026-11-16)
+
+The upgrade-path finding from the interactive walk is fixed in code. Every
+built service in `docker-compose.yml` now names its image
+`${OPSPILOT_IMAGE_PREFIX:-opspilot}-<service>:${OPSPILOT_IMAGE_TAG:-local}`,
+and the desktop shell passes `OPSPILOT_IMAGE_TAG` = the app's own version
+(`desktop/src/main.ts`). A reinstall of a new version therefore asks Compose
+for a tag it has never built, which forces the build that the fixed name used
+to skip; the same version reuses the same tree's image, which is the case
+where reuse is correct. The e2e harness sets `OPSPILOT_IMAGE_PREFIX` alongside
+its compose project name so named stacks do not share images. Two reads
+the compose file in `desktop/e2e/compose-commands.spec.ts` keep the tag from
+being dropped. Lifecycle tests 121 passed, web typecheck clean, compose
+python tests green. Rebuild-package verification of the upgrade path is
+pending the next build.

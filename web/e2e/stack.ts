@@ -452,6 +452,12 @@ export async function startStackOrSkip(
 
   const env = stackEnvFor({
     COMPOSE_PROJECT_NAME: config.composeProject,
+    // The image prefix, not the tag: `docker-compose.yml` names every built
+    // image `${OPSPILOT_IMAGE_PREFIX}-<service>:${OPSPILOT_IMAGE_TAG}`, and a
+    // named project must not share images with the default `opspilot` stack.
+    // The tag stays `local` here (the compose default) because this harness
+    // passes `--build` and therefore never reuses an image by accident.
+    OPSPILOT_IMAGE_PREFIX: config.composeProject,
     OPSPILOT_API_HOST_PORT: config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
     OPSPILOT_PG_HOST_PORT:
       config.postgresHostPort === undefined ? undefined : String(config.postgresHostPort),
@@ -468,6 +474,7 @@ export async function startStackOrSkip(
   activeStackOverrides = Object.fromEntries(
     Object.entries({
       COMPOSE_PROJECT_NAME: config.composeProject,
+      OPSPILOT_IMAGE_PREFIX: config.composeProject,
       OPSPILOT_API_HOST_PORT:
         config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
       OPSPILOT_PG_HOST_PORT:

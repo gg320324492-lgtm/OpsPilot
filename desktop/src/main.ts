@@ -332,12 +332,28 @@ async function launch(): Promise<void> {
         : readEnvValue(appDataEnvFile, API_HOST_PORT_ENV_KEY)),
   );
 
+  // Image versions for Compose. `docker-compose.yml` names every built image
+  // `${OPSPILOT_IMAGE_PREFIX}-<service>:${OPSPILOT_IMAGE_TAG}`, and these are
+  // the two values. The app's own version is the tag: `docker compose up`
+  // reuses an image whose tag already exists, so a reinstall of a new version
+  // must arrive as a tag Compose has never seen and therefore builds -- a
+  // fixed tag would silently run a previous checkout's code (the interactive
+  // walk of 2026-11-15 hit exactly that: the export route was missing). The
+  // prefix follows the compose project name so a second copy
+  // (`OPSPILOT_COMPOSE_PROJECT_NAME`) builds its own images instead of sharing
+  // the first copy's.
+  const composeImageEnv = {
+    OPSPILOT_IMAGE_TAG: app.getVersion(),
+    OPSPILOT_IMAGE_PREFIX: process.env.OPSPILOT_COMPOSE_PROJECT_NAME ?? "opspilot",
+  };
+
   const deps = buildDependencies({
     repoRoot: stackRoot,
     packaged: app.isPackaged,
     composeEnvFile: appDataEnvFile,
     apiUrl,
     dashboardPort: resolveDashboardPort(process.env.OPSPILOT_DESKTOP_PORT),
+    env: { ...process.env, ...composeImageEnv },
   });
 
   // The dashboard's origin, learned here and read by the navigation guard

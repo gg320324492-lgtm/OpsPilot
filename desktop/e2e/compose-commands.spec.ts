@@ -30,6 +30,8 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { assessDocker, COMPOSE_SERVICES, composeDownArgs, composeUpArgs } from "../src/lifecycle/compose";
 import { fakeDeps, fakeRunner, outcome } from "./fakes";
@@ -124,6 +126,33 @@ test.describe("Docker absent", () => {
       "docker info",
       "docker compose version",
     ]);
+  });
+});
+
+/**
+ * The upgrade-safety tag.
+ *
+ * `composeUpArgs` deliberately has no `--build`: a desktop launch reuses the
+ * images it has. What makes that reuse safe is the **tag** — every built image
+ * is named `${OPSPILOT_IMAGE_PREFIX}-<service>:${OPSPILOT_IMAGE_TAG}`, and
+ * `main.ts` passes the app's own version as the tag, so a new installer
+ * version is a tag Compose has never built and therefore must build. A fixed
+ * name (the shape before 2026-11-16) made every reinstall above an older
+ * checkout run that older image; the interactive walk of 2026-11-15 lost the
+ * export route to exactly that. This test reads the compose file, because the
+ * guarantee lives in that file and not in any TypeScript call.
+ */
+test.describe("image versioning in docker-compose.yml", () => {
+  const compose = readFileSync(join(process.cwd(), "..", "docker-compose.yml"), "utf8");
+
+  test("every built service names its image with the version tag", () => {
+    for (const service of ["migrate", "api", "worker", "web"]) {
+      expect(compose).toContain(`-${service}:\${OPSPILOT_IMAGE_TAG:-local}`);
+    }
+  });
+
+  test("the image prefix defaults to the default project name", () => {
+    expect(compose).toContain("${OPSPILOT_IMAGE_PREFIX:-opspilot}");
   });
 });
 

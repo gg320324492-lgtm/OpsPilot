@@ -241,7 +241,7 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 ---
 
-## DBC-07 升级场景的镜像版本一致性（**新发现**，2026-11-16）
+## DBC-07 升级场景的镜像版本一致性（**已修复（代码侧）**，2026-11-16）
 
 **目标：** 安装版 compose 用固定镜像 tag（`opspilot-api`、`opspilot-worker`、
 `opspilot-migrate`），`docker compose up` 在镜像已存在时不重建。在装过旧版本
@@ -257,7 +257,22 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 **证据：** [installer-verification.md](installer-verification.md) 的
 「Interactive walk on the published v0.2.0 installer」节。
-**优先级：** 与 DBC-05 同级；发布补丁版前处理。
+
+**修复（2026-11-16，方案 1 的版本化 tag）：**
+
+- `docker-compose.yml` 的四个构建服务（migrate/api/worker/web）显式命名镜像
+  `${OPSPILOT_IMAGE_PREFIX:-opspilot}-<service>:${OPSPILOT_IMAGE_TAG:-local}`；
+- 桌面壳（`desktop/src/main.ts`）注入 `OPSPILOT_IMAGE_TAG=<app 版本>` 与
+  `OPSPILOT_IMAGE_PREFIX=<compose 项目名>`，升级后是新 tag → Compose 必构建，
+  同版本才是可复用的同树镜像；
+- `web/e2e/stack.ts` 为具名项目同步设置 `OPSPILOT_IMAGE_PREFIX`，e2e 栈与
+  默认栈不共享镜像；
+- 回归测试：`desktop/e2e/compose-commands.spec.ts` 新增两条断言（读
+  compose 文件，防止有人删掉版本 tag）；`desktop` lifecycle 121 passed /
+  `web` typecheck / compose 相关 python 测试全绿。
+
+**待办：** 下一次打包后用升级路径实测（先装旧版再装新版，确认镜像重建）；
+在那之前本项标「代码已修复、待构建验证」。
 
 ---
 

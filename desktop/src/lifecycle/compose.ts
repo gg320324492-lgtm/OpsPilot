@@ -48,6 +48,16 @@ export const COMPOSE_UP_TIMEOUT_SECONDS = 300;
  * images it already has, on a schedule an operator can predict. Rebuilding
  * Python and Next images on every launch would turn a ten-second start into an
  * open-ended one and make "the app started" untestable as a claim.
+ *
+ * What keeps a reused image from being an *old* image is the tag, not a
+ * rebuild. `docker-compose.yml` names every built image
+ * `${OPSPILOT_IMAGE_PREFIX}-<service>:${OPSPILOT_IMAGE_TAG}`, and `main.ts`
+ * sets the tag to the app's own version. A reinstall of a new version asks
+ * Compose for a tag it has never built, so it builds; the same version asks
+ * for the tag built from the same tree, which is the case where reuse is
+ * correct. Before the tag existed the name was fixed, so every upgrade above
+ * an older checkout reused that checkout's image — the 2026-11-15 interactive
+ * walk lost the export route to exactly that.
  */
 export function composeUpArgs(
   services: readonly string[] = COMPOSE_SERVICES,
