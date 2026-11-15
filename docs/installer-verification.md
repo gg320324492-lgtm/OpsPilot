@@ -696,3 +696,53 @@ buries.
 **Installer's SHA256 (first 16):** ______________ (for the new-package walk
 this is expected to read `71ac5ac0adcb543f` — a first-16 that starts
 `565206f7…` means the older, already-verified file was installed by mistake)
+
+### Filled: the walk of 2026-11-15 — the v0.2.0 candidate (new record; the 2026-11-14 sheet above is kept unchanged)
+
+**Done by:** an independent acceptance walker who did not build OpsPilot (the
+release gate in `docs/release-checklist.md` §0 asks for exactly this).
+**Date:** 2026-11-15. **Windows version:** Windows 11 Pro 10.0.26300.
+**Docker version:** 29.9.2. **Install method:** NSIS `/S` silent install (a
+headless walker cannot click the UI; the interactive-only parts are marked
+unchecked rather than assumed).
+**Installer:** `OpsPilot-Setup-0.2.0-x64.exe`, 130,075,040 bytes,
+SHA-256 `3feb12939db05de50982331945b04c7e90c9bfcb844bdc34db0052facffb6315`
+(built from commit `8133a89`, per `docs/progress.md`); hash and size verified
+on a copy in the walker's own workspace `E:\OpsPilot-walkthrough-alice\`
+before installing.
+
+| Step | Result | Notes |
+|---|---|---|
+| 0 environment (Docker started) | ✅ pass | Docker Desktop up, Engine 29.9.2 |
+| 0b obtain the installer | ✅ pass | copied from `desktop/release/` per the coordinator's brief; hash + byte count matched before install |
+| 1 install | ✅ pass (via `/S`) | installs to the per-user folder (`…\Programs\OpsPilot\`, on D: on this machine); `OpsPilot.exe` FileVersion **0.2.0**; desktop + Start-Menu shortcuts present. Icon colour: **not checked** (headless) |
+| 2 launch to the dashboard | ⚠️ partial | the Compose stack cold-starts fine (~5 min to `/ready`, all services healthy, migrate exit 0); **the shell's own dashboard never came up on 3210**: the packaged shell hard-codes the API at `http://127.0.0.1:8000` (`desktop/src/runtime/dependencies.ts` `DEFAULT_API_URL`; the shell reads only `OPSPILOT_DESKTOP_PORT`/`OPSPILOT_OPERATOR_TOKEN`/`OPSPILOT_USER_DATA_DIR`), and port 8000 on this machine is held by an unrelated service that the brief forbids touching. The shell polls 8000 `/ready` (404) forever and never reaches the dashboard step. The packaged dashboard itself is fine: launched by hand from the install's own `web/.next/standalone/server.js` (same args the shell uses) it serves 200 on 3210 with the full nav. **Gap for a future build: let the shell follow `OPSPILOT_API_HOST_PORT`/`OPSPILOT_API_URL`.** |
+| 3.1 index 17/17/98 | ✅ pass | DB counts: 17 documents / 98 chunks; a second reindex returns `17 seen / 0 indexed / 0 chunks` (idempotent, as §9 promises), via the dashboard proxy too |
+| 3.2 submit the ticket | ✅ pass (via API) | run `cbda2aa7…`, ticket `1c48e9de…`, HTTP 201 |
+| 3.3 **stops at the approval gate** | ✅ pass | `waiting_approval` within ~2 s; approval `a5279924…`, "This moves 129.00 out of the account, refunding transaction TX-88219…", `high_risk_write`. The gate held — no straight-to-completed |
+| 3.4 approve → one refund | ✅ pass, with a data caveat | approve → 200, run completes in ~16 s. The refund tool call itself returns `invalid_state` because the ledger volume still holds the 2026-11-14 walk's refund (`REF-10091`, TX-88219 already `refunded`) — refusing a second refund is the billing server's guard working, and the run ends `COMPLETED` with an `escalated: true` reply, exactly as `docs/agent-state-machine.md` prescribes for a refused write. Idempotency verified three ways: same-key replay → `replayed: true`; different key on the refunded transaction → `invalid_state`; a second golden-path ticket/run through its own approval → same refusal. Ledger holds exactly **1 refund** throughout. A first-refund-succeeds demonstration needs a machine without the leftover volume |
+| 3.5 approve again → 409 | ✅ pass | HTTP 409, `{"error":{"code":"approval_already_decided",…}}` |
+| 4 `/ready` answers 200 + ok | ✅ pass (on :18001) | `{"status":"ready","checks":{"database":"ok","migrations":"ok"}}`. Port 8000 could not carry this app's `/ready` (occupied by the unrelated service; see step 2) |
+| 5.1 the ports bind loopback only | ✅ pass | 127.0.0.1 only for 15434 / 18001 / 3210; no `0.0.0.0`/`[::]` |
+| 5.2 a cross-origin write is refused | ✅ pass | no-Origin POST → 403 `origin_missing`; with the dashboard's Origin → 200 |
+| 5.3 a request with no token is refused | ✅ pass | `{"error":{"code":"unauthorized",…}}` |
+| 5.4 no credential in the package | ✅ pass | no `.env*` under the install dir; no hardcoded long-secret literals in `stack/src`, `web/src`, compose, or the asar main; the compose token is `${OPSPILOT_OPERATOR_TOKEN:?…}` (injected, per-machine) |
+| 6 the containers stop, the volumes stay | ✅ pass | a force-kill bypasses the shell's graceful teardown (expected), so the teardown was exercised with the shell's own command semantics: `docker compose down --remove-orphans` from the packaged stack with the same project/env — containers gone, exactly `opspilot_postgres-data` + `opspilot_mcp-data` remain; the unrelated 8000 service untouched throughout |
+| 6b the run is still there after a restart | ✅ pass | warm start (same controlled ports) to `/ready` 200 in **16 s**; after restart: 4 tickets, 3 approved approvals, 11 audit events for the first run, 1 refund, TX-88219 `refunded` — all equal to the pre-quit baseline; the dashboard's run page still renders REF-10091/TX-88219/approved/refunded |
+
+**Deviations, stated plainly.** (1) The shell's hard-coded `127.0.0.1:8000` API
+address is the one real gap found: on a machine whose 8000 is busy the packaged
+app cannot reach its own dashboard step, so this walk ran the backend on
+`OPSPILOT_API_HOST_PORT=18001` (and PG 15434) — ports the packaged compose
+supports since `e8e7f6a` but the shell does not follow. The interactive UI
+path, icon colour, and a screen recording are unchecked (headless walker);
+everything above is command-level evidence, kept in
+`E:\OpsPilot-walkthrough-alice\` (ticket/approval/audit JSON, ledger snapshot,
+container/volume finals). The leftover 2026-11-14 volumes and `%APPDATA%`
+token were left in place per the brief; the pre-existing token file was
+replaced by the app's own first-launch generation, as designed.
+
+**Verdict:** the installer installs, cold- and warm-starts, and the golden
+path plus the whole security posture behave as documented — with the
+8000-hard-coded shell as the one caveat a publishing decision must weigh
+(same prerequisite as the 2026-11-14 walk: "port 8000 must be free").
