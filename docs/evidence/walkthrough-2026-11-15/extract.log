@@ -1,0 +1,22 @@
+
+7-Zip 26.02 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-06-25
+
+Scanning the drive for archives:
+1 file, 130075040 bytes (125 MiB)
+
+Extracting archive: OpsPilot-Setup-0.2.0-x64.exe
+--
+Path = OpsPilot-Setup-0.2.0-x64.exe
+Type = Nsis
+Physical Size = 130075040
+Method = Deflate
+Solid = -
+Headers Size = 214420
+Embedded Stub Size = 184832
+SubType = NSIS-3 Unicode
+
+Everything is Ok
+
+Files: 13
+Size:       130511615
+Compressed: 130075040

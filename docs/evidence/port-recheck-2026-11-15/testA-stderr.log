@@ -1,0 +1,16 @@
+
+[32228:1115/192910.388:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[32228:1115/192910.405:ERROR:net\disk_cache\disk_cache.cc:290] Unable to create cache
+[32228:1115/192910.405:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+[32228:1115/192910.405:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[32228:1115/192910.405:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[32228:1115/192910.406:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[32228:1115/192910.409:ERROR:net\disk_cache\disk_cache.cc:290] Unable to create cache
+[32228:1115/192910.410:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+[32228:1115/192910.410:ERROR:net\disk_cache\disk_cache.cc:290] Unable to create cache
+[32228:1115/192910.410:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+[32228:1115/192910.410:ERROR:net\disk_cache\disk_cache.cc:290] Unable to create cache
+[32228:1115/192910.410:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+[32228:1115/192911.165:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[32228:1115/192911.166:ERROR:net\disk_cache\disk_cache.cc:290] Unable to create cache
+[32228:1115/192911.166:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2

@@ -10135,3 +10135,15 @@ recheck that confirmed the shell follows `OPSPILOT_API_HOST_PORT`
 (dashboard up in ~5 s with the API on a moved port). M3-05's Release step is
 closed; §7 post-release checks (README links, model-identifier consistency)
 remain to be clicked through.
+
+## Walk-through evidence archived into the repo (2026-11-15)
+
+The two 2026-11-15 scratch workspaces were removed after their evidence was
+copied into the repository: `docs/evidence/walkthrough-2026-11-15/` holds the
+walk record plus the ticket/approval/audit JSON, billing snapshot, trace,
+container/volume finals and install logs (16 files), and
+`docs/evidence/port-recheck-2026-11-15/` holds the port-fix recheck record
+and its stderr log (2 files). The one token-bearing file —
+`preexisting-opspilot.env.bak` — was excluded, and all archived files were
+grepped for token literals before copying. The installer builds
+(`E:\OpsPilot-release-v020`) were not part of this cleanup.

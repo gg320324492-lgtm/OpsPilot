@@ -295,8 +295,17 @@ async function firstDashboardWindow(app: ElectronApplication): Promise<Page> {
  * skipped with the reason rather than quietly passing.
  */
 async function assertRendererIsSandboxed(app: ElectronApplication): Promise<void> {
-  const pid = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId());
-  expect(pid).toBeGreaterThan(0);
+  // `getOSProcessId()` returns 0 until Chromium has finished launching the
+  // process and assigned a real OS pid, so a window still mid-load yields 0
+  // (and `undefined` when no window exists at all). Rather than assert once
+  // and race the launcher, poll until a real pid shows up.
+  let pid: number | undefined;
+  await expect
+    .poll(async () => {
+      pid = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getOSProcessId());
+      return pid ?? 0;
+    })
+    .toBeGreaterThan(0);
 
   const commandLine = await new Promise<string>((resolve, reject) => {
     execFile(
@@ -304,7 +313,7 @@ async function assertRendererIsSandboxed(app: ElectronApplication): Promise<void
       [
         "-NoProfile",
         "-Command",
-        `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(pid)}").CommandLine`,
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(pid!)}").CommandLine`,
       ],
       { encoding: "utf-8" },
       (error, stdout) =>

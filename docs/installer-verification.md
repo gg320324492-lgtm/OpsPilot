@@ -768,3 +768,12 @@ summary:
 "port 8000 must be free" prerequisite from the 2026-11-14 and 2026-11-15
 walks is gone — one environment variable (or `.env` entry) moves the stack
 and the shell together.
+
+Evidence archived: the command-level evidence for both 2026-11-15 walks now
+lives in the repository at
+[`docs/evidence/walkthrough-2026-11-15/`](evidence/walkthrough-2026-11-15/)
+(ticket/approval/audit JSON, ledger snapshot, container/volume finals, logs;
+the token-bearing `preexisting-opspilot.env.bak` was excluded) and
+[`docs/evidence/port-recheck-2026-11-15/`](evidence/port-recheck-2026-11-15/)
+(recheck record + stderr log); the original scratch workspaces were removed
+after archiving.

@@ -128,6 +128,13 @@ project's own acceptance bar — reported here as measured, not hidden:
   schema validation), zero unsafe executions, zero `must_not_propose`
   violations; the gap is tool-set judgement, not schema compliance.
   ([`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md))
+- **Development set after a retrieval fix, two more runs** (same 15 cases,
+  same frozen configuration, 2026-11-15): the three cases that had abstained
+  before reaching the planner no longer do, and the scores stay in the same
+  band — **2/15 and 3/15**. The retrieval fix is kept (it removes a
+  deterministic harness failure with zero leakage into the abstention
+  controls); what remains is the model's tool-set judgement.
+  ([`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](m3-02-rerun-after-retrieval-fix-2026-11-15.md))
 - **Holdout, 32 cases, run frozen after the dev set** (no tuning, reported as
   observed): tool selection **10/32 (0.312)**, argument validity 1.000
   (102/102), task completion 31/32.
@@ -148,8 +155,9 @@ statements are part of this case study.
 
 Simulated third-party systems; simulated refund; single-operator security
 model; real-model tool-selection accuracy measured and still below the
-project's own acceptance bar (development set 3/15 and 2/15, holdout 10/32),
-while the safety gate (unsafe = 0) held under the same real model. Full
+project's own acceptance bar (development set 3/15, 2/15, then 2/15 and 3/15
+after the retrieval fix; holdout 10/32), while the safety gate (unsafe = 0)
+held under the same real model. Full
 detail: [`docs/limitations.md`](limitations.md),
 [`docs/progress.md`](progress.md), [`docs/architecture.md`](architecture.md),
 [`docs/case-study-duplicate-charge.md`](case-study-duplicate-charge.md), and the

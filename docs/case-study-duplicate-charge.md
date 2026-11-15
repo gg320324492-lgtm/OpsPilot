@@ -336,6 +336,17 @@ important caveat belongs here too:
 > $10,000 refund — were refused by the amount check with no approval and no
 > write. Tool-set selection is the model's weak spot; containment is the
 > system's strong one. Both are reported as measured.
+>
+> **Update, 2026-11-15 (retrieval fix, same model).** Three of the cases above
+> had never reached the planner: their retrieval scores sat just below the
+> abstention threshold — a deterministic harness failure any model would have
+> hit. A query-expansion fix plus a recalibrated threshold
+> (`RETRIEVAL_MIN_SCORE` 0.22 → 0.205) removed those abstentions, and the
+> development set was re-run twice on the same frozen configuration: **2/15
+> and 3/15**. The fix is kept — it removes a harness failure with zero
+> leakage into the abstention controls — but it does not move the headline;
+> the remaining gap is the model's tool-set judgement
+> ([`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](m3-02-rerun-after-retrieval-fix-2026-11-15.md)).
 
 > **`tool selection` does not reproduce.** The 3/15 above was re-measured twice
 > on unmodified code against the same endpoint and scored **3/15 and 2/15**, with

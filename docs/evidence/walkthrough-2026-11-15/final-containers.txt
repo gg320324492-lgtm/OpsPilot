@@ -1,0 +1,4 @@
+opspilot-worker-1	Up 5 minutes
+opspilot-api-1	Up 5 minutes (healthy)
+opspilot-migrate-1	Exited (0) 5 minutes ago
+opspilot-postgres-1	Up 5 minutes (healthy)

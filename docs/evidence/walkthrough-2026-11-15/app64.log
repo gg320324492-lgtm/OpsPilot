@@ -1,0 +1,22 @@
+
+7-Zip 26.02 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-06-25
+
+Scanning the drive for archives:
+1 file, 126046370 bytes (121 MiB)
+
+Extracting archive: extracted\$PLUGINSDIR\app-64.7z
+--
+Path = extracted\$PLUGINSDIR\app-64.7z
+Type = 7z
+Physical Size = 126046370
+Headers Size = 29428
+Method = LZMA2:20 BCJ
+Solid = -
+Blocks = 1821
+
+Everything is Ok
+
+Folders: 348
+Files: 1823
+Size:       409797346
+Compressed: 126046370
