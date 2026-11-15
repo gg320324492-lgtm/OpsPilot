@@ -10371,3 +10371,4 @@ as DBC-08. Cold start read 21–24 s only because stale images and volumes were
 already on the machine; the 2–15-minute expectation stands for a clean one.
 Report: [`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md),
 archived into [`docs/installer-verification.md`](installer-verification.md).
+CI on `0c47176`: success.
