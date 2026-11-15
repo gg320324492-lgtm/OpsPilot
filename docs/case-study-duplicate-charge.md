@@ -340,8 +340,9 @@ important caveat belongs here too:
 > **Update, 2026-11-15 (retrieval fix, same model).** Three of the cases above
 > had never reached the planner: their retrieval scores sat just below the
 > abstention threshold — a deterministic harness failure any model would have
-> hit. A query-expansion fix plus a recalibrated threshold
-> (`RETRIEVAL_MIN_SCORE` 0.22 → 0.205) removed those abstentions, and the
+> hit. A curated query-expansion fix removed those abstentions (the threshold
+> default was also recalibrated to 0.205, though the evaluation environment's
+> pinned 0.22 remained in effect for the re-runs), and the
 > development set was re-run twice on the same frozen configuration: **2/15
 > and 3/15**. The fix is kept — it removes a harness failure with zero
 > leakage into the abstention controls — but it does not move the headline;

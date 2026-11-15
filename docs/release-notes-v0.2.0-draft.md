@@ -84,9 +84,9 @@ judged on measured safety behaviour, not on a scripted demo.
 first pair of runs surfaced three cases (tool-005/006/012) that never reached
 the planner at all: their retrieval scores sat just below the abstention
 threshold — a deterministic harness failure any model would have hit. A
-curated query-expansion fix plus a recalibrated threshold
-(`RETRIEVAL_MIN_SCORE` 0.22 → 0.205, calibrated between the answerable floor
-and the unanswerable ceiling) removed those abstentions, and the development
+curated query-expansion fix removed those abstentions (the threshold default
+was also recalibrated to 0.205, though the evaluation environment's pinned
+0.22 remained in effect for the re-runs), and the development
 set was re-run on the same frozen configuration
 ([`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](m3-02-rerun-after-retrieval-fix-2026-11-15.md)).
 The headline did not move: **2/15 and 3/15**. What the fix proves is where the
