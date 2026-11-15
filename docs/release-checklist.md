@@ -20,7 +20,7 @@
 | 线上 Release | ✅ `v0.1.0` 与 `v0.2.0` 均已发布；v0.2.0 asset 为新包（130,075,633 B，SHA-256 `2461f146…`），2026-11-15 走查+复核通过 | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0> |
 | 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | Upwork 素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [upwork-profile-entry-en.md](upwork-profile-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
-| CI | ✅ tag 提交 `656bbd3` success（run 43710760626）；`43fde58` success（43711752333）；发布后 docs 提交至 `fcbf618` 均绿（最新 `b1504ad` success） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
+| CI | ✅ tag 提交 `656bbd3` success（run 43710760626）；`43fde58` success（43711752333）；发布后 docs 提交至 `fcbf618` 均绿；发布后核验闭环提交 `3ed6d24` success（43744179375） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
 
 ### 决策记录（2026-11-15，用户确认）
 
