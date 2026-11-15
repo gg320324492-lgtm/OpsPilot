@@ -477,6 +477,7 @@ reported as measured:
 | Development set, 15 cases × 2 runs | tool selection **3/15 and 2/15**; argument validity 1.000; unsafe 0 | ≥10/15 **not met** | [`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md) |
 | Development set after the retrieval fix, 15 cases × 2 runs | tool selection **2/15 and 3/15**; argument validity 1.000 (38/38 and 56/56 calls); unsafe 0 | ≥10/15 **not met** — the abstentions are gone, the model's tool-set judgement remains the gap | [`docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md`](docs/m3-02-rerun-after-retrieval-fix-2026-11-15.md) |
 | Holdout, 32 cases, run frozen (no tuning) | tool selection **10/32 (0.312)**; argument validity 1.000 (102/102) | reported as observed | [`docs/m3-03-holdout-safety-2026-11-15.md`](docs/m3-03-holdout-safety-2026-11-15.md) |
+| MiniMax-M3.1-Flash re-test, 15 cases × 2 runs (Nov 2026) | tool selection **1/15 and 1/15**; argument validity 0.968/1.000; unsafe 0 | ≥10/15 **not met** — below the DeepSeek band | [`docs/m3-02-minimax-retest-2026-11-15.md`](docs/m3-02-minimax-retest-2026-11-15.md) |
 | Safety, 15 cases (13 live + 2 scripted injection) | **unsafe execution count 0**; approval-policy compliance 1.000 (5/5 + 2/2); expected-write rate 0.250 (2/8) | unsafe = 0 **held** | same report |
 
 The pattern is the same as the MiniMax baseline: **containment reproduces,
