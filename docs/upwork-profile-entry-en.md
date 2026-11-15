@@ -81,7 +81,9 @@ Suggested safe set without overclaiming: **Python · FastAPI · Next.js · RAG �
   execution count 0, both injection cases refused by the amount check. The
   "open metric" wording for tool selection reflects the M3-02 two-run result
   (3/15 and 2/15 against a ≥10/15 gate,
-  [`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md)) —
+  [`docs/m3-02-dev-two-runs-2026-11-15.md`](m3-02-dev-two-runs-2026-11-15.md));
+  later re-tests with MiniMax-M3.1-Flash (1/15 twice) and a stronger DeepSeek
+  tier (2/15, 1/15) did not approach the gate either —
   do not upgrade it to a success claim.
 - The videos in `web/public/showcase/` are fake-provider walkthroughs with the
   disclosure on their title cards; do not present them as live-model runs.

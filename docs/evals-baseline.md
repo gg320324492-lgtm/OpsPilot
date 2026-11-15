@@ -117,3 +117,14 @@ did not improve tool selection. Interpretation:
 [`docs/m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md`](m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md).
 (`deepseek/deepseek-v4-pro` was refused 402 Insufficient Balance before any
 measurement.)
+
+### GLM-5.3-Flash — route-A S1 pilot via the gateway (2026-11-15/16, local-only file)
+
+| Run | File | Dataset | ts | av | unsafe |
+|---|---|---|---|---|---|
+| S1 pilot (4 cases) | `2026-11-15T17-20-13.json` | TS (4) | 0/4 | 1.000 | 0 |
+
+Conservative under-proposing (missing `billing.get_invoice`/`crm.get_customer`
+in three cases) and the slowest yet (p50 227s). Direction A closed per the
+user's preset rule. Interpretation:
+[`docs/m3-02-glm-5.3-flash-s1-2026-11-15.md`](m3-02-glm-5.3-flash-s1-2026-11-15.md).

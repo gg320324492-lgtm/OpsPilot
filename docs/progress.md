@@ -10273,3 +10273,18 @@ gitignored per the results README.
   via the gateway, GLM-5.3) remain; whether to spend on them is the user's
   call. The acceptance gate (two runs ≥10/15) stays unmet; 79/100 and the
   "no real-model acceptance claim" boundary are unchanged.
+
+## GLM-5.3-Flash S1 pilot: 0/4 — direction A closed (2026-11-15/16)
+
+The last cross-family candidate ran the S1 pilot (first 4 development-set
+cases) through the gateway route `zcode/GLM-5.3-Flash`: **0/4**, argument
+validity 1.000 (13/13), unsafe 0, p50 227s (slowest of all tested models).
+Failure shape: conservative *under*-proposing — three cases missing
+`billing.get_invoice` and/or `crm.get_customer`, one over-proposing
+`issues.*`. Per the user's preset rule ("GLM 不达标即关闭方向 A"),
+**direction A is closed**: five model families have now been measured and
+none approaches the 10/15 two-run gate. Report:
+[`docs/m3-02-glm-5.3-flash-s1-2026-11-15.md`](m3-02-glm-5.3-flash-s1-2026-11-15.md);
+raw run `evals/results/2026-11-15T17-20-13.json` (gitignored). The Phase 4
+draft's direction-A section and candidate table were updated the same night;
+the mainline moves to direction B (productisation/demo hardening).

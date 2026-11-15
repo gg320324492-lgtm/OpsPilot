@@ -49,9 +49,10 @@ verifiable authority over money-moving steps.
 ## Honest status
 
 Tool-selection accuracy with a real model is the open gap: four
-development-set runs scored 3/15, 2/15, 2/15 and 3/15 against the project's
-own ≥10/15 acceptance gate — not met, and the project does not claim real-model
-acceptance. The demo video and screenshots run a **scripted fake model
+development-set runs with DeepSeek V4.1-Flash scored 3/15, 2/15, 2/15 and
+3/15, and a MiniMax-M3.1-Flash re-test scored 1/15 twice — all against the
+project's own ≥10/15 acceptance gate, none met; the project does not claim
+real-model acceptance. The demo video and screenshots run a **scripted fake model
 provider, disclosed on screen**; the dashboard, API, worker, database, approval
 gate, idempotent execution and audit trail in that material are real. All
 systems are in-repo mocks, the refund is simulated, and no money moves. The

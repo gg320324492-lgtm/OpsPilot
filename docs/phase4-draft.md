@@ -54,7 +54,7 @@ MiniMax 与 DeepSeek flash-max 两轮解冻重测均已完成（数据集哈希 
 | MiniMax-M3.1-Flash | **1/15、1/15** | 低于其 B2 时代 0–2/15 区间上沿，也为目前最差测量 | 更差 |
 | deepseek-v4.1-flash-max（同族更强档） | **2/15、1/15** | 与 flash 档 2–3/15 同区间；v4-pro 因上游 402 Insufficient Balance 未测成 | 无提升 |
 | （对照）DeepSeek V4.1-Flash | 2/15、3/15（修复后重跑） | 检索修复消除了弃答，但分数未变 | 瓶颈不在检索 |
-| GLM-5.3-Flash（网关 `zcode/GLM-5.3-Flash`） | **S1 运行中，结果待回填** | — | 用户已定：不达标即关闭方向 A |
+| GLM-5.3-Flash（网关 `zcode/GLM-5.3-Flash`） | **S1 0/4**（arg validity 1.000，p50 227s；保守少提关键工具） | 未达 | 用户已定：不达标即关闭方向 A —— **已关闭** |
 
 - **"同族升级"假设在 DeepSeek 族内证伪**：flash→flash-max 准确率不变，pro 档因配额
   402 未能实测。若继续投入，必须换家族。
@@ -64,23 +64,24 @@ MiniMax 与 DeepSeek flash-max 两轮解冻重测均已完成（数据集哈希 
 - **MIN_SCORE 勘误**：检索修复实际生效的是**查询扩展**（`229ead6`）；
   `RETRIEVAL_MIN_SCORE` 阈值仍为 0.22（代码默认 0.205 被 `.env` pin 覆盖），并非
   "阈值调到 0.205 生效"。此前口径以本条为准。
-- **方向 A 的存续条件（用户已定）**：当前唯一在途候选 **GLM-5.3-Flash**
-  （网关路由 `zcode/GLM-5.3-Flash`）S1 试点运行中、结果未出。**GLM 不达标即关闭
-  方向 A**，资源转投方向 B。GLM 一栏为待回填占位，禁止预填数字。
+- **方向 A 已关闭（用户预案执行）**：GLM-5.3-Flash S1 试点 **0/4**
+  （[报告](m3-02-glm-5.3-flash-s1-2026-11-15.md)），触发"不达标即关闭"预案。
+  五个模型家族（Claude 1/15、MiniMax 1–3/15、DeepSeek flash 2–3/15、
+  DeepSeek flash-max 1–2/15、GLM S1 0/4）均远离 10/15 门槛，方向 A 不再续投。
 
 ### 2.1 工作分解（WBS，候选顺序已改为跨家族优先）
 
 | # | 工作 | 说明 | 验收证据 |
 |---|---|---|---|
 | A1 | 冻结与预检 | 固定基线 commit、三份 jsonl 哈希核对、harness 配置快照；S0 干跑复核一次（已通过，作回归锚点） | manifest（commit、哈希、配置） |
-| A2 | 候选清单与执行日核价 | **跨家族优先**：① **GLM-5.3-Flash**（S1 运行中，结果待回填；用户已定"GLM 失败即关闭方向 A"）；② **claude-sonnet-5-5**（经网关 `basalt-iq3-xxs` 路由；历史 1/15 为旧配置基线，需在当前冻结配置下重测才有可比性）；③ 其它 84 模型中按家族再筛。执行日以网关模型列表与官方页复核路由与模型 id | 候选清单 + 核价/路由记录 |
+| A2 | 候选清单与执行日核价 | **跨家族优先**：① **GLM-5.3-Flash**（S1 0/4，已淘汰）；② **claude-sonnet-5-5**（经网关 `basalt-iq3-xxs` 路由；历史 1/15 为旧配置基线，需在当前冻结配置下重测才有可比性）；③ 其它 84 模型中按家族再筛。执行日以网关模型列表与官方页复核路由与模型 id | 候选清单 + 核价/路由记录 |
 | A3 | S1 试点 | 开发集前 4 例 ×1 跑：实测 json_schema 信封兼容性、per-call token、p95 延迟；不设通过门槛 | S1 结果文件 |
 | A4 | S2 首跑 + 决策点 | 开发集 15 例完整跑；**≥8/15 立即补第二跑；≤4/15 且失败形态与 DeepSeek/MiniMax 相同则止损换档或关闭方向** | 首跑 run id |
 | A5 | S2 第二跑 | 同命令原样重跑，判定"每跑 ≥10/15"门槛 | 两个 run id |
-| A6 | 换档迭代 | 按 §6.4 决策树换下一候选（GLM→Claude→其它家族）；每候选遵守单候选 $25 上限 | 各候选 run 记录 |
+| A6 | 换档迭代 | 按 §6.4 决策树换下一候选（GLM 已淘汰；Claude 为最后候选，用户未要求继续）；每候选遵守单候选 $25 上限 | 各候选 run 记录 |
 | A7 | S3 holdout + S4 safety | 仅 S2 达标并冻结后：holdout 32 例跑一次（不调参、好坏均报），safety 15 例复验 unsafe=0 | holdout/safety run id |
 | A8 | 证据回填 | README、limitations、验收表 §N1/维度 2、案例、release notes 草稿、progress.md 六处回填，数字均可从 run 文件复算 | 各文档 diff |
-| A9 | 失败收尾（若全部候选未达标） | open metric 结论已获 DeepSeek/MiniMax 双家族数据，GLM/Claude 重测后可定稿；按 R5 把归因转向 harness/任务接口，另行立项（本方案内不改提示词、不改 harness） | 归因备忘 |
+| A9 | 失败收尾（若全部候选未达标） | open metric 结论已获 DeepSeek/MiniMax/GLM 三家族数据（Claude 为 2026-10 旧配置基线）；方向 A 已关闭；按 R5 把归因转向 harness/任务接口，另行立项（本方案内不改提示词、不改 harness） | 归因备忘 |
 
 **网关路由风险（新增）**：本机 magpie 网关（`127.0.0.1:3425/v1`，84 个模型）对同一模型
 可能存在多条路由（如 GLM-5.3-Flash 走 `zcode`、deepseek-v4.1-flash-max 走 `trae-cn`、
