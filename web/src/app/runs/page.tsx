@@ -86,7 +86,7 @@ export default async function RunsPage({
              ticket" and "the API is down" are different problems, and an empty
              table would say neither. */
           <div className="space-y-4">
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground">
               <p className="font-medium">{t("runs.notFoundTitle")}</p>
               <p className="mt-1">{t("runs.notFoundBody", { id: ticketId.slice(0, 8) })}</p>
             </div>
@@ -100,7 +100,7 @@ export default async function RunsPage({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                <tr className="border-b border-separator text-left text-xs uppercase tracking-wide text-muted">
                   <th className="py-2 pr-4 font-medium">{t("runs.colRun")}</th>
                   <th className="py-2 pr-4 font-medium">{t("runs.colTicket")}</th>
                   <th className="py-2 pr-4 font-medium">{t("runs.colStatus")}</th>
@@ -115,7 +115,7 @@ export default async function RunsPage({
                 {rows.map((run) => (
                   <tr
                     key={run.id}
-                    className="border-b border-neutral-100 align-top last:border-0 dark:border-neutral-800"
+                    className="border-b border-separator align-top last:border-0 dark:border-separator"
                   >
                     <td className="py-2 pr-4">
                       <Link
@@ -136,24 +136,24 @@ export default async function RunsPage({
                     <td className="py-2 pr-4">
                       <StatusBadge status={run.status} t={t} />
                     </td>
-                    <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                    <td className="py-2 pr-4 text-xs text-muted">
                       {run.model_provider}/{run.model_name}
                     </td>
-                    <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                    <td className="py-2 pr-4 text-xs text-muted">
                       <Time value={run.created_at}>{formatTimestamp(run.created_at)}</Time>
                     </td>
-                    <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                    <td className="py-2 pr-4 text-xs text-muted">
                       {run.started_at ? formatTimestamp(run.started_at) : "—"}
                     </td>
-                    <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                    <td className="py-2 pr-4 text-xs text-muted">
                       {run.completed_at ? formatTimestamp(run.completed_at) : "—"}
                     </td>
                     {/* `failure_reason` verbatim: a contract enum. */}
                     <td className="py-2 text-xs">
                       {run.failure_reason ? (
-                        <span className="text-red-700 dark:text-red-300">{run.failure_reason}</span>
+                        <span className="text-danger">{run.failure_reason}</span>
                       ) : (
-                        <span className="text-neutral-400">—</span>
+                        <span className="text-muted">—</span>
                       )}
                     </td>
                   </tr>
@@ -226,7 +226,7 @@ function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
   return (
     <nav aria-label={t("runs.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
       <FilterLink href="/runs" label={t("runs.filterAll")} active={current === undefined} />
-      <span className="px-1 text-neutral-400" aria-hidden="true">
+      <span className="px-1 text-muted" aria-hidden="true">
         |
       </span>
       {(
@@ -247,7 +247,7 @@ function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
           active={current === status}
         />
       ))}
-      <span className="px-1 text-neutral-400" aria-hidden="true">
+      <span className="px-1 text-muted" aria-hidden="true">
         |
       </span>
       {(["failed", "completed"] as const).map((status) => (
@@ -269,8 +269,8 @@ function FilterLink({ href, label, active }: { href: string; label: string; acti
       aria-current={active ? "page" : undefined}
       className={
         active
-          ? "rounded-full bg-neutral-900 px-2.5 py-1 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-          : "rounded-full px-2.5 py-1 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          ? "rounded-full bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+          : "rounded-full px-2.5 py-1 text-muted hover:bg-surface-secondary"
       }
     >
       {label}

@@ -76,8 +76,8 @@ export function LocaleSwitcher({
             aria-current={active ? "true" : undefined}
             className={
               active
-                ? "rounded-full bg-neutral-900 px-2.5 py-1 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-                : "rounded-full px-2.5 py-1 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                ? "rounded-full bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+                : "rounded-full px-2.5 py-1 text-muted hover:bg-surface-secondary"
             }
           >
             {labels[locale] ?? locale}

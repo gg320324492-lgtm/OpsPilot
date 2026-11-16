@@ -71,7 +71,7 @@ export default async function KnowledgePage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      <tr className="border-b border-separator text-left text-xs uppercase tracking-wide text-muted">
                         <th className="py-2 pr-4 font-medium">{t("knowledge.colDocument")}</th>
                         <th className="py-2 pr-4 font-medium">{t("knowledge.colSource")}</th>
                         <th className="py-2 pr-4 font-medium text-right">
@@ -85,18 +85,18 @@ export default async function KnowledgePage() {
                       {docs.map((doc) => (
                         <tr
                           key={doc.source}
-                          className="border-b border-neutral-100 align-top last:border-0 dark:border-neutral-800"
+                          className="border-b border-separator align-top last:border-0 dark:border-separator"
                         >
                           {/* `title`, `source` and `content_hash` verbatim: they
                               are the corpus's own strings and a path. */}
                           <td className="py-2 pr-4 font-medium">{doc.title}</td>
-                          <td className="py-2 pr-4 font-mono text-xs text-neutral-600 dark:text-neutral-400">
+                          <td className="py-2 pr-4 font-mono text-xs text-muted">
                             {doc.source}
                           </td>
                           <td className="py-2 pr-4 text-right tabular-nums">
                             {doc.chunk_count === 0 ? (
                               <span
-                                className="text-amber-700 dark:text-amber-300"
+                                className="text-warning"
                                 title={t("knowledge.zeroChunkTitle")}
                               >
                                 0
@@ -105,12 +105,12 @@ export default async function KnowledgePage() {
                               doc.chunk_count
                             )}
                           </td>
-                          <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                          <td className="py-2 pr-4 text-xs text-muted">
                             <Time value={doc.indexed_at}>
                               {formatTimestamp(doc.indexed_at)}
                             </Time>
                           </td>
-                          <td className="py-2 font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                          <td className="py-2 font-mono text-xs text-muted">
                             {doc.content_hash.slice(0, 12)}
                           </td>
                         </tr>
@@ -136,7 +136,7 @@ export default async function KnowledgePage() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+                <p className="mt-2 text-xs text-muted">
                   {t("knowledge.noChunksBody")}
                 </p>
               </Panel>

@@ -72,7 +72,7 @@ export default async function TicketsPage({
                  such ticket" and "the API is down" are different problems, and
                  an empty list would say neither. */
               <div className="space-y-4">
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground">
                   <p className="font-medium">{t("tickets.notFoundTitle")}</p>
                   <p className="mt-1">{t("tickets.notFoundBody", { id: ticketId.slice(0, 8) })}</p>
                 </div>
@@ -83,19 +83,19 @@ export default async function TicketsPage({
             ) : tickets.error ? (
               <ErrorPanel error={tickets.error} title={t("tickets.couldNotLoad")} />
             ) : tickets.data && tickets.data.items.length > 0 ? (
-              <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              <ul className="divide-y divide-separator">
                 {tickets.data.items.map((ticket) => (
                   <li key={ticket.id} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <p className="font-medium">{ticket.subject}</p>
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      <span className="text-xs text-muted">
                         <Time value={ticket.created_at}>{formatTimestamp(ticket.created_at)}</Time>
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+                    <p className="mt-1 text-sm text-muted">
                       {ticket.body}
                     </p>
-                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    <p className="mt-1 text-xs text-muted">
                       <span className="font-mono">{ticket.id.slice(0, 8)}</span> &middot;{" "}
                       {ticket.customer_email}
                       {ticket.external_id ? (
