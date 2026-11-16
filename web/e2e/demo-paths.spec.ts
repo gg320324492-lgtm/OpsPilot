@@ -109,7 +109,7 @@ test.use({ baseURL: DEMO_BASE_URL });
 test.beforeAll(async ({ browser }) => {
   // The stack start includes a Docker build and a `next build`; the budget is
   // the build's, for the same reason every other browser spec sets this.
-  test.setTimeout(900_000);
+  test.setTimeout(1_800_000);
   stack = await startStackOrSkip("demo-paths", DEMO_CONFIG);
   if (stack.skip) {
     return;

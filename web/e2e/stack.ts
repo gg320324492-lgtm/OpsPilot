@@ -514,7 +514,7 @@ export async function startStackOrSkip(
       "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
       "postgres", "migrate", "api", "worker",
     ],
-    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 900000 },
+    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 1_800_000 },
   );
   if (up.error || up.status !== 0) {
     // NOT a skip: Docker was reachable and the stack did not come up. A skip
@@ -710,7 +710,7 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
       "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
       "postgres", "migrate", "api", "web",
     ],
-    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 900000 },
+    { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 1_800_000 },
   );
   if (up.error || up.status !== 0) {
     spawnSync("docker", ["compose", "down", "-v"], {

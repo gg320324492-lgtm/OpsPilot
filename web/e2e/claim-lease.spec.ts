@@ -109,7 +109,7 @@ test.beforeAll(async ({ browser }) => {
   // exceed -- and when it does, the hook is killed and the run reports a
   // teardown artefact ("browserContext.close: ENOENT") instead of the thing
   // that actually happened. The budget below is the build's.
-  test.setTimeout(900_000);
+  test.setTimeout(1_800_000);
   stack = await startStackOrSkip("claim-lease");
   if (stack.skip) {
     return;
