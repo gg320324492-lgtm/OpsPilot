@@ -296,3 +296,19 @@ HeroUI 用法方面：`Alert`、`Chip`、`Card`、`I18nProvider`、`ToastProvide
 3. **第三批（P2）**：字号阶梯、组件双轨归并、滚动提示、busy 指示等打磨项。
 
 > 排序理由：P0-1 影响全部页面且是后续一切颜色类修复的前置；P0-2/3/4 是明文验收项或硬性可访问性缺陷；P1 的 accent/token 化依赖 P0-1 完成后的 token 体系稳定，故排后。
+
+---
+
+## 6. 修复状态（2026-11-16/17 更新）
+
+| 项 | 状态 | 提交 |
+|---|---|---|
+| P0-1 色 token 统一 | ✅ 已修复：`statusTone()` 与全部状态面板改用语义 token（`bg-success/15`、`text-warning`、`bg-danger/10`、`text-link` 等），旧 Tailwind 原生色清零 | `d055cb8` |
+| P0-2 Recreate 模态框 | ✅ 已修复：换 HeroUI Modal，自带焦点陷阱/Esc/初始聚焦/还焦点；busy 时禁用关闭 | `c0bdf24` |
+| P0-3 审批卡窄屏置顶 | ✅ 已修复：卡片列 `order-first lg:order-none`，仅动布局 | `65c06e6` |
+| P0-4 导航当前页高亮 | ✅ 已修复：`nav-links.tsx` client 组件 + `usePathname` + `aria-current="page"`，labels 由服务端传入 | `d055cb8` |
+| ToastProvider SSR 空页（web-e2e 静默根因） | ✅ 已修复：children 移到 ToastProvider 之外，SSR 恢复真实页面 | `4f67a99` |
+| CI 镜像构建慢 | ✅ 已缓解：CI buildx `--load` 预构建两种前缀镜像 + `E2E_SKIP_BUILD=1` 复用；e2e 预算 30 分钟兜底 | `f0f9bf7`、`dd7b56b`、`5f75025` |
+| web-e2e 回归验证 | ✅ `4f67a99` 与 `65c06e6` 两次 CI 全绿（含 web-e2e golden path） | — |
+
+P1/P2 项仍待后续处理；本节随修复推进更新。
