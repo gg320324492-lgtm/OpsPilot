@@ -32,3 +32,19 @@ each archive keeps its own chronological entries.
 * Current plan and direction: [`phase4-draft.md`](phase4-draft.md), [`direction-b-checklist.md`](direction-b-checklist.md)
 * Release state: [`release-checklist.md`](release-checklist.md)
 * Acceptance: [`portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md), [`portfolio-scorecard.md`](portfolio-scorecard.md)
+
+## Phase 4 CI incident: the silent web-e2e, root-caused (2026-11-16/17)
+
+The HeroUI adoption's first CI runs failed with a 25-minute silent web-e2e. A
+dedicated diagnosis session (e2e-root-cause) ruled out the image-prefix,
+classic-builder, worker-polling and readiness-fetch hypotheses one by one and
+found the real cause in `heroui-providers.tsx`: HeroUI's `ToastProvider`
+renders `null` during SSR when no toast is queued, so wrapping `children`
+inside it made the entire server-rendered page an empty React shell that
+never hydrates -- every spec then waited for buttons that would never mount.
+The fix renders the provider as a sibling of `children` (`4f67a99`), and both
+follow-up CI runs are green, including the browser golden path. The slow
+Docker image builds that initially masked this were addressed separately:
+CI now pre-builds both image prefixes with buildx `--load` and the specs run
+with `E2E_SKIP_BUILD=1` (`f0f9bf7`), with the e2e budget at 30 minutes as a
+backstop (`ff6b7cf`). Full diagnosis: the e2e-root-cause session report.
