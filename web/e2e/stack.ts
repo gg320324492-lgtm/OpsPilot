@@ -1722,7 +1722,21 @@ export async function waitForHttp(
       );
     }
     try {
-      const res = await fetch(url, { redirect: "manual" });
+      // A deadline around the whole loop is not enough: Node's fetch has no
+      // default per-request timeout, so one SSR request that never answers
+      // would hang here forever and the deadline below would never be
+      // re-checked. Bound every attempt as well, and abort it explicitly so
+      // a stuck socket cannot pin the runner (this is the shape of the
+      // 25-minute silence seen on 2026-11-16 where the build, containers and
+      // Next's own startup log had all completed).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      let res: Response;
+      try {
+        res = await fetch(url, { redirect: "manual", signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (res.status >= 200 && res.status < 400) {
         return;
       }
