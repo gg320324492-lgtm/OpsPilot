@@ -50,16 +50,16 @@ import type { TFunction } from "@/i18n/format";
 
 export function TrustedExplanation({ text, t }: { text: string; t: TFunction }) {
   return (
-    <div className="rounded-md border border-emerald-300 bg-emerald-50/70 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+    <div className="rounded-md border border-success/30 bg-success/10 p-3">
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <Badge tone="trusted">{t("explanation.deterministic")}</Badge>
-        <span className="text-xs font-medium text-emerald-900 dark:text-emerald-200">
+        <span className="text-xs font-medium text-success">
           {t("explanation.trustedAttribution")}
         </span>
       </div>
       {/* The policy engine's own sentence, verbatim and untranslated. */}
-      <p className="text-sm text-emerald-950 dark:text-emerald-50">{text}</p>
-      <p className="mt-2 text-xs text-emerald-800/80 dark:text-emerald-300/80">
+      <p className="text-sm text-foreground">{text}</p>
+      <p className="mt-2 text-xs text-muted">
         {t("explanation.trustedFooter")}
       </p>
     </div>
@@ -68,20 +68,20 @@ export function TrustedExplanation({ text, t }: { text: string; t: TFunction }) 
 
 export function UntrustedExplanation({ text, t }: { text: string; t: TFunction }) {
   return (
-    <div className="rounded-md border-l-4 border-neutral-400 bg-neutral-100 p-3 dark:border-neutral-600 dark:bg-neutral-800/60">
+    <div className="rounded-md border-l-4 border-border bg-surface-secondary p-3">
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <Badge tone="untrusted">{t("explanation.untrusted")}</Badge>
-        <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
+        <span className="text-xs font-medium text-foreground">
           {t("explanation.untrustedAttribution")}
         </span>
       </div>
       {/* Monospace and quotation marks, together, are what make this read as a
           quotation of external text rather than as the interface reporting a
           fact. The policy engine's text above is in the body font. */}
-      <blockquote className="border-l-2 border-neutral-300 pl-3 font-mono text-sm text-neutral-800 dark:border-neutral-500 dark:text-neutral-100">
+      <blockquote className="border-l-2 border-border pl-3 font-mono text-sm text-foreground">
         &ldquo;{text}&rdquo;
       </blockquote>
-      <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+      <p className="mt-2 text-xs text-muted">
         {t("explanation.untrustedFooter_before")}{" "}
         <span className="font-medium">{t("explanation.untrustedFooter_emphasis")}</span>{" "}
         {t("explanation.untrustedFooter_after")}
@@ -93,8 +93,8 @@ export function UntrustedExplanation({ text, t }: { text: string; t: TFunction }
 function Badge({ tone, children }: { tone: "trusted" | "untrusted"; children: React.ReactNode }) {
   const classes =
     tone === "trusted"
-      ? "bg-emerald-600 text-white"
-      : "bg-neutral-600 text-white dark:bg-neutral-400 dark:text-neutral-900";
+      ? "bg-success text-success-foreground"
+      : "bg-muted text-background";
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${classes}`}

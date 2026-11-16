@@ -43,8 +43,8 @@ export function DecisionPanel({
       role="alert"
       className={
         conflict
-          ? "rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
-          : "rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          ? "rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
+          : "rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-foreground"
       }
     >
       <div className="flex items-start justify-between gap-3">

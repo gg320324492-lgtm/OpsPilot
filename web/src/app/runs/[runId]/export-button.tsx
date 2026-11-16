@@ -99,12 +99,12 @@ export function ExportButton({
         onClick={() => void download()}
         disabled={busy}
         aria-label={t("runExport.ariaLabel")}
-        className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-neutral-700"
+        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50 "
       >
         {busy ? t("runExport.exporting") : t("runExport.button")}
       </button>
       {failure ? (
-        <p role="alert" className="max-w-xs text-xs text-red-700 dark:text-red-300">
+        <p role="alert" className="max-w-xs text-xs text-danger">
           {failure}
         </p>
       ) : null}

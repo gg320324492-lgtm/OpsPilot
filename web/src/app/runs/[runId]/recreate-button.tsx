@@ -175,7 +175,7 @@ export function RecreateRunButton({
           setOpen(true);
         }}
         disabled={busy}
-        className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-neutral-700"
+        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
       >
         {busy ? t("run.recreateWorking") : t("run.recreateButton")}
       </button>
@@ -185,8 +185,8 @@ export function RecreateRunButton({
           role="alert"
           className={
             failure.status === 409
-              ? "rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
-              : "rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+              ? "rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm "
+              : "rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm "
           }
         >
           <p className="font-semibold">{t("run.recreateFailedTitle")}</p>
@@ -207,7 +207,7 @@ export function RecreateRunButton({
 
       {open ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-backdrop p-4"
           onClick={
             busy
               ? undefined
@@ -220,12 +220,12 @@ export function RecreateRunButton({
             role="dialog"
             aria-modal="true"
             aria-label={t("run.recreateDialogTitle")}
-            className="w-full max-w-md space-y-3 rounded-lg border border-neutral-200 bg-white p-4 shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+            className="w-full max-w-md space-y-3 rounded-lg border border-separator bg-white p-4 shadow-lg  "
             onClick={(event) => event.stopPropagation()}
           >
             <p className="font-semibold">{t("run.recreateDialogTitle")}</p>
             <p className="text-sm">{t("run.recreateDialogBody")}</p>
-            <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs dark:border-neutral-800 dark:bg-neutral-900">
+            <p className="rounded-md border border-separator bg-surface-secondary px-3 py-2 text-xs  ">
               {writeStatusLine}
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -233,7 +233,7 @@ export function RecreateRunButton({
                 type="button"
                 onClick={() => recreate()}
                 disabled={busy}
-                className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground disabled:opacity-50"
               >
                 {busy ? t("run.recreateWorking") : t("run.recreateConfirm")}
               </button>
@@ -241,7 +241,7 @@ export function RecreateRunButton({
                 type="button"
                 onClick={() => setOpen(false)}
                 disabled={busy}
-                className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-neutral-700"
+                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
                 {t("run.recreateCancel")}
               </button>

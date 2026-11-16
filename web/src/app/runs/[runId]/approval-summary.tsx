@@ -80,8 +80,8 @@ export async function ApprovalSummaryCard({
   return (
     <Panel
       title={t("approvalSummary.title")}
-      aside={<span className="text-amber-700 dark:text-amber-300">{t("approvalSummary.aside")}</span>}
-      className="border-amber-400 dark:border-amber-600"
+      aside={<span className="text-warning">{t("approvalSummary.aside")}</span>}
+      className="border-warning/50"
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -95,7 +95,7 @@ export async function ApprovalSummaryCard({
             <Pill tone="warn">{t("risk.level_unknown")}</Pill>
           )}
           {toolCall ? <Pill>{permissionLabel(toolCall.permission, t)}</Pill> : null}
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="text-xs text-muted">
             {t("approvalSummary.parked")} {formatTimestamp(approval.created_at)}
           </span>
         </div>
@@ -110,7 +110,7 @@ export async function ApprovalSummaryCard({
         <TrustedExplanation text={approval.risk_explanation} t={t} />
         <UntrustedExplanation text={approval.reason} t={t} />
 
-        <p className="text-xs text-neutral-600 dark:text-neutral-400">
+        <p className="text-xs text-muted">
           {riskProvenance(risk.source, t)}
         </p>
 
@@ -175,10 +175,10 @@ export function ToolAndArguments({
   return (
     <div>
       {toolName ? <p className="font-mono text-sm font-semibold">{toolName}</p> : null}
-      <p className="mt-2 text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+      <p className="mt-2 text-xs uppercase tracking-wide text-muted">
         {t("approvalSummary.argumentsLabel")}
       </p>
-      <pre className="mt-0.5 overflow-x-auto rounded bg-neutral-50 p-2 font-mono text-xs dark:bg-neutral-950">
+      <pre className="mt-0.5 overflow-x-auto rounded bg-surface-secondary p-2 font-mono text-xs ">
         {JSON.stringify(args, null, 2)}
       </pre>
     </div>

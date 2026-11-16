@@ -183,20 +183,20 @@ export function formatLatency(ms: number | null | undefined): string {
 export function statusTone(status: string): string {
   switch (status) {
     case "completed":
-      return "bg-emerald-100 text-emerald-900 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-400/30";
+      return "bg-success/15 text-success ring-success/30";
     case "failed":
-      return "bg-red-100 text-red-900 ring-red-600/20 dark:bg-red-950 dark:text-red-200 dark:ring-red-400/30";
+      return "bg-danger/15 text-danger ring-danger/30";
     case "waiting_approval":
-      return "bg-amber-100 text-amber-900 ring-amber-600/30 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-400/40";
+      return "bg-warning/15 text-warning ring-warning/30";
     case "received":
     case "classifying":
     case "retrieving":
     case "planning":
     case "executing":
     case "responding":
-      return "bg-sky-100 text-sky-900 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-400/30";
+      return "bg-accent/15 text-link ring-accent/30";
     default:
-      return "bg-neutral-100 text-neutral-800 ring-neutral-500/20 dark:bg-neutral-800 dark:text-neutral-200 dark:ring-neutral-400/30";
+      return "bg-surface-secondary text-foreground ring-border";
   }
 }
 

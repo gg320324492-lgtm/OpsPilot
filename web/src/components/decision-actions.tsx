@@ -165,7 +165,7 @@ export function DecisionActions({
           type="button"
           onClick={() => decide("approve")}
           disabled={busy !== null}
-          className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground disabled:opacity-50"
         >
           {busy === "approve" ? t("decision.approving") : t("decision.approve")}
         </button>
@@ -173,11 +173,11 @@ export function DecisionActions({
           type="button"
           onClick={() => decide("reject")}
           disabled={busy !== null}
-          className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-neutral-700"
+          className="rounded-md border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         >
           {busy === "reject" ? t("decision.rejecting") : t("decision.reject")}
         </button>
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+        <span className="text-xs text-muted">
           {t("decision.approveNote")}
         </span>
       </div>
@@ -204,9 +204,9 @@ function DecidedLine({
   t: TFunction;
 }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="rounded-md border border-border bg-surface-secondary px-3 py-2 text-sm">
       <p className="font-medium">{approvalStatusLabel(decided.status, t)}</p>
-      <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+      <p className="mt-0.5 text-xs text-muted">
         {decided.decidedBy
           ? t("decision.decidedBy", { who: decided.decidedBy })
           : t("decision.decidedByUnknown")}

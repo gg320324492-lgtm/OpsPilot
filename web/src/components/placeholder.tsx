@@ -21,7 +21,7 @@ export function Placeholder({ title }: { title: string }) {
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
       <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="mt-2 text-sm text-muted">
         This screen is not built yet. The API client it will use is in place and
         type-checked against the live schema.
       </p>

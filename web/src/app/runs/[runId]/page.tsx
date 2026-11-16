@@ -566,7 +566,7 @@ function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
               <p className="mt-2 text-xs text-muted">
                 {t("run.argumentsLabel")}
               </p>
-              <pre className="mt-0.5 overflow-x-auto rounded bg-surface-secondary p-2 font-mono text-xs dark:bg-neutral-950">
+              <pre className="mt-0.5 overflow-x-auto rounded bg-surface-secondary p-2 font-mono text-xs">
                 {JSON.stringify(call.arguments, null, 2)}
               </pre>
               {call.idempotency_key ? (
@@ -582,7 +582,7 @@ function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
                   <p className="mt-2 text-xs text-muted">
                     {t("run.resultLabel")}
                   </p>
-                  <pre className="mt-0.5 max-h-64 overflow-auto rounded bg-surface-secondary p-2 font-mono text-xs dark:bg-neutral-950">
+                  <pre className="mt-0.5 max-h-64 overflow-auto rounded bg-surface-secondary p-2 font-mono text-xs">
                     {JSON.stringify(call.result, null, 2)}
                   </pre>
                 </>

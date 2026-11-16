@@ -87,11 +87,11 @@ export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: str
           type="button"
           onClick={reindex}
           disabled={busy}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
         >
           {busy ? t("knowledge.reindex.reindexing") : t("knowledge.reindex.button")}
         </button>
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+        <span className="text-xs text-muted">
           {t("knowledge.reindex.hint_before")} <code>{t("knowledge.reindex.glob")}</code>{" "}
           {t("knowledge.reindex.hint_middle")} <code>{t("knowledge.reindex.dir")}</code>{" "}
           {t("knowledge.reindex.hint_after")}
@@ -103,7 +103,7 @@ export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: str
       {failure ? (
         <div
           role="alert"
-          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-foreground  dark:bg-red-950/40 "
         >
           {failure}
         </div>
@@ -128,8 +128,8 @@ function ResultPanel({ result, t }: { result: Result; t: ReturnType<typeof creat
     <div
       className={`rounded-md border px-3 py-2 text-sm ${
         unchanged
-          ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-          : "border-neutral-200 bg-neutral-50 text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+          ? "border-success/40 bg-success/10 text-success  dark:bg-emerald-950/40 "
+          : "border-separator bg-surface-secondary text-foreground"
       }`}
     >
       <p className="font-medium">

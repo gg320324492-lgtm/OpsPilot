@@ -119,7 +119,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
             onChange={(e) => setSubject(e.target.value)}
             required
             maxLength={200}
-            className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm  "
             placeholder={t("ticketForm.subjectPlaceholder")}
           />
         </Field>
@@ -129,7 +129,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm  "
             placeholder={t("ticketForm.emailPlaceholder")}
           />
         </Field>
@@ -141,7 +141,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
           onChange={(e) => setBody(e.target.value)}
           required
           rows={3}
-          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+          className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm  "
           placeholder={t("ticketForm.bodyPlaceholder")}
         />
       </Field>
@@ -150,7 +150,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
         <input
           value={externalId}
           onChange={(e) => setExternalId(e.target.value)}
-          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+          className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm  "
           placeholder={t("ticketForm.externalIdPlaceholder")}
         />
       </Field>
@@ -159,7 +159,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
         >
           {busy ? t("ticketForm.submitting") : t("ticketForm.submit")}
         </button>
@@ -171,14 +171,14 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
             setEmail(GOLDEN_PATH.customer_email);
             setExternalId("");
           }}
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700"
+          className="rounded-md border border-border px-3 py-2 text-sm "
         >
           {t("ticketForm.fillExample")}
         </button>
       </div>
 
       {submitted ? (
-        <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+        <div className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success ">
           <p>
             {t("ticketForm.createdTitle", { ticket: submitted.ticketId.slice(0, 8) })}{" "}
             <a
@@ -203,7 +203,7 @@ export function TicketForm({ copy, locale }: { copy: TicketFormCopy; locale: str
       {failure ? (
         <div
           role="alert"
-          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-foreground  dark:bg-red-950/40 "
         >
           {failure}
         </div>
@@ -225,13 +225,13 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted">
         {label}
-        {required ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+        {required ? <span className="text-danger "> *</span> : null}
       </span>
       <span className="mt-1 block">{children}</span>
       {hint ? (
-        <span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">{hint}</span>
+        <span className="mt-1 block text-xs text-muted">{hint}</span>
       ) : null}
     </label>
   );

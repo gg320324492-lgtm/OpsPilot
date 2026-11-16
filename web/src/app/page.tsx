@@ -195,7 +195,7 @@ export default async function DashboardPage() {
                 t={t}
               />
             </dl>
-            <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+            <p className="mt-4 text-xs text-muted">
               {t("dashboard.tallyNote_before")}{" "}
               <Link href="/runs" className="underline underline-offset-2">
                 {t("nav.runs")}
@@ -274,11 +274,11 @@ export default async function DashboardPage() {
           {knowledge.error ? (
             <ErrorPanel error={knowledge.error} title={t("dashboard.couldNotReadIndex")} />
           ) : (
-            <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            <p className="text-sm text-foreground">
               {t("dashboard.indexed", { count: docs.length })}, {chunks}{" "}
               {t("dashboard.chunksSuffix")}.{" "}
               {zeroChunks > 0 ? (
-                <span className="text-amber-700 dark:text-amber-300">
+                <span className="text-warning">
                   {t("dashboard.zeroChunks", { count: zeroChunks })}
                 </span>
               ) : (

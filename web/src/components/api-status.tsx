@@ -27,8 +27,8 @@ export async function ApiStatus() {
       role="status"
       className={
         isAuthProblem
-          ? "border-b border-amber-300 bg-amber-50 px-6 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-          : "border-b border-red-300 bg-red-50 px-6 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          ? "border-b border-warning/40 bg-warning/10 px-6 py-3 text-sm text-foreground"
+          : "border-b border-danger/40 bg-danger/10 px-6 py-3 text-sm text-foreground"
       }
     >
       <div className="mx-auto max-w-7xl">
