@@ -36,6 +36,16 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > The development-era narrative behind this README is
 > [`docs/dev-notes.md`](docs/dev-notes.md).
 
+> **UI, Phase 4 (in progress):** the dashboard is being re-skinned on
+> [HeroUI](https://heroui.dev/) 3.2.7 — the same Next.js 16 + React 19 +
+> Tailwind CSS 4 stack, now with one semantic design-token palette
+> ("audit-workbench": graphite surfaces, accent reserved for the action that
+> needs a person, amber/red/green status colours) shared by every screen.
+> No route, API call, permission check or state machine changed. The GIF and
+> screenshots below still show the pre-Phase-4 UI; they are being re-captured
+> on the new one and will be replaced in place (same paths, same scenario).
+> Progress is tracked in [`docs/phase4-plan.md`](docs/phase4-plan.md).
+
 ## The problem this solves
 
 An enterprise can give a language model the ability to refund customers. The
@@ -196,6 +206,12 @@ Re-running the same refund produces `replayed: true` and **no second refund**.
 That is tested by calling the MCP server directly, bypassing the agent.
 
 ### Watch it run
+
+> **Screenshot note (Phase 4):** the GIF and the ten screenshots below were
+> captured on the pre-HeroUI UI. They still show the correct behaviour and
+> data; the chrome around them (colors, cards, navigation) is being re-captured
+> on the new token set. Do not treat the styling in them as current. They will
+> be replaced in place at these same paths.
 
 ![The golden path end to end on the deterministic provider: the API certifies /ready against the database, the duplicate-charge ticket is submitted and parks at WAITING_APPROVAL, a human approves, and the worker executes the refund exactly once](docs/assets/golden-path.gif)
 
