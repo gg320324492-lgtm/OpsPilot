@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ApiStatus } from "@/components/api-status";
+import { HeroUIProviders } from "@/components/heroui-providers";
 import { Nav } from "@/components/nav";
 import { getLocale, getT } from "@/i18n/server";
 import "./globals.css";
@@ -60,12 +61,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang={locale} className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <Nav />
-        {/* Rendered above every screen so a misconfigured token is stated in
-            words wherever the operator happens to be, rather than only on the
-            page that first happens to fetch something. */}
-        <ApiStatus />
-        <main className="flex-1">{children}</main>
+        <HeroUIProviders locale={locale}>
+          <Nav />
+          {/* Rendered above every screen so a misconfigured token is stated in
+              words wherever the operator happens to be, rather than only on the
+              page that first happens to fetch something. */}
+          <ApiStatus />
+          <main className="flex-1">{children}</main>
+        </HeroUIProviders>
       </body>
     </html>
   );

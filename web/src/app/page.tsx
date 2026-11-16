@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Alert, Card } from "@heroui/react";
 import { EmptyState, ErrorPanel, Page, Panel, StatusBadge, Time } from "@/components/ui";
 import { formatRelative } from "@/lib/format";
 import {
@@ -128,28 +129,30 @@ export default async function DashboardPage() {
 
         {/* -- the thing a reader must not have to discover themselves ------ */}
         {replayGroups.length > 0 ? (
-          <div className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500 dark:bg-amber-950/50 dark:text-amber-100">
-            <p className="font-semibold">
-              {t("dashboard.replay", { count: replayGroups.length })}
-            </p>
-            <p className="mt-1">
-              {t("dashboard.replayBody_before")} <strong>{t("dashboard.replayEmphasis")}</strong>{" "}
-              {t("dashboard.replayBody_after")}
-            </p>
-            <ul className="mt-2 space-y-1">
-              {replayGroups.map((group) => (
-                <li key={group.runId}>
-                  <Link
-                    href={`/runs/${group.runId}`}
-                    className="font-mono underline underline-offset-2"
-                  >
-                    {t("dashboard.replayRunPrefix")} {group.runId.slice(0, 8)}
-                  </Link>{" "}
-                  {t("dashboard.replayRunSuffix", { count: group.approvals.length })}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <Alert status="warning">
+            <Alert.Content>
+              <Alert.Title>{t("dashboard.replay", { count: replayGroups.length })}</Alert.Title>
+              <Alert.Description>
+                <p className="mt-1">
+                  {t("dashboard.replayBody_before")} <strong>{t("dashboard.replayEmphasis")}</strong>{" "}
+                  {t("dashboard.replayBody_after")}
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {replayGroups.map((group) => (
+                    <li key={group.runId}>
+                      <Link
+                        href={`/runs/${group.runId}`}
+                        className="font-mono underline underline-offset-2"
+                      >
+                        {t("dashboard.replayRunPrefix")} {group.runId.slice(0, 8)}
+                      </Link>{" "}
+                      {t("dashboard.replayRunSuffix", { count: group.approvals.length })}
+                    </li>
+                  ))}
+                </ul>
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
         ) : null}
 
         {/* -- activity ----------------------------------------------------- */}
@@ -212,7 +215,7 @@ export default async function DashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      <tr className="border-b border-separator text-left text-xs uppercase tracking-wide text-muted">
                         <th className="py-2 pr-4 font-medium">{t("dashboard.colRun")}</th>
                         <th className="py-2 pr-4 font-medium">{t("dashboard.colStatus")}</th>
                         <th className="py-2 pr-4 font-medium">{t("dashboard.colModel")}</th>
@@ -224,12 +227,12 @@ export default async function DashboardPage() {
                       {recent.data.items.map((run) => (
                         <tr
                           key={run.id}
-                          className="border-b border-neutral-100 last:border-0 dark:border-neutral-800"
+                          className="border-b border-separator last:border-0"
                         >
                           <td className="py-2 pr-4">
                             <Link
                               href={`/runs/${run.id}`}
-                              className="font-mono text-xs underline underline-offset-2"
+                              className="font-mono text-xs text-link underline underline-offset-2"
                             >
                               {run.id.slice(0, 8)}
                             </Link>
@@ -237,10 +240,10 @@ export default async function DashboardPage() {
                           <td className="py-2 pr-4">
                             <StatusBadge status={run.status} t={t} />
                           </td>
-                          <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                          <td className="py-2 pr-4 text-xs text-muted">
                             {run.model_provider}/{run.model_name}
                           </td>
-                          <td className="py-2 pr-4 text-xs text-neutral-600 dark:text-neutral-400">
+                          <td className="py-2 pr-4 text-xs text-muted">
                             <Time value={run.created_at}>
                               {formatRelative(run.created_at, t)}
                             </Time>
@@ -249,9 +252,9 @@ export default async function DashboardPage() {
                               verbatim. See the module docstring. */}
                           <td className="py-2 text-xs">
                             {run.failure_reason ? (
-                              <span className="text-red-700 dark:text-red-300">{run.failure_reason}</span>
+                              <span className="text-danger">{run.failure_reason}</span>
                             ) : (
-                              <span className="text-neutral-400">&mdash;</span>
+                              <span className="text-muted">&mdash;</span>
                             )}
                           </td>
                         </tr>
@@ -333,40 +336,39 @@ function Headline({
 }) {
   if (value === null) {
     return (
-      <div className="rounded-lg border border-red-300 bg-white px-5 py-4 dark:border-neutral-900 dark:border-red-800">
-        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          {label}
-        </p>
-        <p className="mt-1 text-sm text-red-700 dark:text-red-300">{hint}</p>
+      <Card className="px-5 py-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+        <p className="mt-1 text-sm text-danger">{hint}</p>
         <div className="mt-2">
           <ErrorPanel error={error} />
         </div>
-      </div>
+      </Card>
     );
   }
-  const ring =
+  const accent =
     tone === "danger"
-      ? "border-red-300 dark:border-red-800"
+      ? "text-danger"
       : tone === "warn"
-        ? "border-amber-300 dark:border-amber-700"
-        : "border-emerald-300 dark:border-emerald-800";
-  const number =
+        ? "text-warning"
+        : "text-success";
+  const border =
     tone === "danger"
-      ? "text-red-700 dark:text-red-300"
+      ? "border-t-2 border-t-danger"
       : tone === "warn"
-        ? "text-amber-700 dark:text-amber-300"
-        : "text-emerald-700 dark:text-emerald-300";
+        ? "border-t-2 border-t-warning"
+        : "border-t-2 border-t-success";
   return (
-    <div className={`rounded-lg border bg-white px-5 py-4 dark:bg-neutral-900 ${ring}`}>
-      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-        {label}
-      </p>
-      <p className={`mt-1 text-4xl font-semibold tabular-nums ${number}`}>{value}</p>
-      <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">{hint}</p>
-      <Link href={href} className="mt-3 inline-block text-xs font-medium underline underline-offset-2">
+    <Card className={`px-5 py-4 ${border}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className={`mt-1 text-4xl font-semibold tabular-nums ${accent}`}>{value}</p>
+      <p className="mt-2 text-xs text-muted">{hint}</p>
+      <Link
+        href={href}
+        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-link underline underline-offset-2"
+      >
         {cta} &rarr;
       </Link>
-    </div>
+    </Card>
   );
 }
 
@@ -392,10 +394,10 @@ function Row({
 }) {
   if (value === null) {
     return (
-      <div className="border-b border-neutral-100 pb-2 last:border-0 dark:border-neutral-800">
+      <div className="border-b border-separator pb-2 last:border-0">
         <dt className="font-medium">{label}</dt>
         <dd className="mt-0.5">
-          <p className="text-xs text-red-700 dark:text-red-300">{t("dashboard.couldNotCount")}</p>
+          <p className="text-xs text-danger">{t("dashboard.couldNotCount")}</p>
           <div className="mt-1">
             <ErrorPanel error={error} />
           </div>
@@ -404,10 +406,10 @@ function Row({
     );
   }
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-neutral-100 pb-2 last:border-0 dark:border-neutral-800">
+    <div className="flex items-start justify-between gap-4 border-b border-separator pb-2 last:border-0">
       <div>
         <dt className="font-medium">{label}</dt>
-        <dd className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{hint}</dd>
+        <dd className="mt-0.5 text-xs text-muted">{hint}</dd>
       </div>
       <dd className="text-lg font-semibold tabular-nums">{value}</dd>
     </div>

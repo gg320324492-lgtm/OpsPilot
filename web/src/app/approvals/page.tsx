@@ -100,7 +100,7 @@ export default async function ApprovalsPage({
       actions={<StatusFilter current={filter} t={t} />}
     >
       <div className="space-y-4">
-        <div className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3 text-sm text-foreground">
           <p>
             {t("approvals.evidenceNote_before")} <strong>{t("approvals.evidenceEmphasis")}</strong>{" "}
             {t("approvals.evidenceNote_after")}
@@ -198,8 +198,8 @@ function StatusFilter({ current, t }: { current: ApprovalStatus; t: TFunction })
           title={t(`approvals.filterHint.${filter.key}`)}
           className={
             current === filter.value
-              ? "rounded-full bg-neutral-900 px-2.5 py-1 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-              : "rounded-full px-2.5 py-1 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              ? "rounded-full bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+              : "rounded-full px-2.5 py-1 text-muted hover:bg-surface-secondary"
           }
         >
           {approvalStatusLabel(filter.value, t)}

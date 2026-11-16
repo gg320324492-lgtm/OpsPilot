@@ -92,10 +92,10 @@ export function ApprovalCard({
 
   return (
     <li
-      className={`rounded-lg border bg-white p-4 dark:bg-neutral-900 ${
+      className={`rounded-lg border bg-surface p-4 ${
         pending
-          ? "border-amber-300 dark:border-amber-700"
-          : "border-neutral-200 dark:border-neutral-800"
+          ? "border-warning/60"
+          : "border-border"
       }`}
     >
       {/* Gated on `pending` as well as on the group's flag. `groupApprovals`
@@ -120,7 +120,7 @@ export function ApprovalCard({
             {approvalStatusLabel(approval.status, t)}
           </Pill>
         </div>
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+        <span className="text-xs text-muted">
           {t("approvalCard.parked")}{" "}
           <Time value={approval.created_at}>
             {formatTimestamp(approval.created_at)}
@@ -134,7 +134,7 @@ export function ApprovalCard({
           {toolCall?.tool_name ?? t("approvalCard.toolUnknown")}
         </p>
         {!toolCall ? (
-          <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+          <p className="mt-0.5 text-xs text-muted">
             {t("approvalCard.toolCallUnavailable")}
           </p>
         ) : null}
@@ -150,19 +150,19 @@ export function ApprovalCard({
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
           {/* A contract field name, verbatim. See the module docstring. */}
-          <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          <p className="text-xs uppercase tracking-wide text-muted">
             {t("approvalCard.argumentsLabel")}
           </p>
-          <pre className="mt-1 overflow-x-auto rounded bg-neutral-50 p-2 font-mono text-xs dark:bg-neutral-950">
+          <pre className="mt-1 overflow-x-auto rounded bg-surface-secondary p-2 font-mono text-xs">
             {JSON.stringify(approval.arguments_snapshot, null, 2)}
           </pre>
-          <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+          <p className="mt-1 text-xs text-muted">
             {t("approvalCard.toolCallIdLabel")}{" "}
             <span className="font-mono">{approval.tool_call_id}</span>
           </p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          <p className="text-xs uppercase tracking-wide text-muted">
             {t("approvalCard.riskLevelLabel")}
           </p>
           <p className="mt-1 text-sm">
@@ -171,12 +171,12 @@ export function ApprovalCard({
           {/* The provenance is on the card, not behind a tooltip: a derived level
               presented as though the API had sent it is the dashboard inventing
               evidence. See lib/risk.ts. */}
-          <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+          <p className="mt-1 text-xs text-muted">
             {riskProvenance(risk.source, t)}
           </p>
           {approval.context ? (
             <div className="mt-3">
-              <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              <p className="text-xs uppercase tracking-wide text-muted">
                 {t("approvalCard.contextLabel")}
               </p>
               <p className="mt-1 text-sm">
@@ -184,7 +184,7 @@ export function ApprovalCard({
                   <span className="font-medium">{approval.context.company}</span>
                 ) : null}
                 {approval.context.ticket_subject ? (
-                  <span className="block text-neutral-600 dark:text-neutral-400">
+                  <span className="block text-muted">
                     {approval.context.ticket_subject}
                   </span>
                 ) : null}
@@ -194,7 +194,7 @@ export function ApprovalCard({
         </div>
       </div>
 
-      <div className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+      <div className="mt-4 border-t border-separator pt-3">
         {pending ? (
           <DecisionActions
             approvalId={approval.id}
@@ -214,7 +214,7 @@ export function ApprovalCard({
             locale={locale}
           />
         )}
-        <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <p className="mt-2 text-xs text-muted">
           <Link href={`/runs/${approval.run_id}`} className="underline underline-offset-2">
             {t("approvalCard.openRun")} {approval.run_id.slice(0, 8)}
           </Link>{" "}
@@ -233,7 +233,7 @@ export function ApprovalCard({
         */}
         {approval.note ? (
           <div className="mt-3">
-            <p className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            <p className="text-xs uppercase tracking-wide text-muted">
               {t("approvalCard.noteLabel")}
             </p>
             <p className="mt-1 text-sm">{approval.note}</p>
@@ -282,7 +282,7 @@ function DuplicateNotice({
   t: TFunction;
 }) {
   return (
-    <div className="mb-3 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100">
+    <div className="mb-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-foreground">
       <p className="font-semibold">
         {identicalArguments
           ? t("approvalCard.duplicateIdenticalTitle")

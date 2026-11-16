@@ -1,13 +1,84 @@
 @import "tailwindcss";
+/* HeroUI v3 sits on top of Tailwind 4; tailwindcss must be imported first. */
+@import "@heroui/styles";
 
+/*
+ * OpsPilot semantic tokens — the "audit workbench" direction.
+ *
+ * One place for the visual language the plan (docs/phase4-plan.md §1.1, §5)
+ * fixes: a neutral graphite surface, an accent reserved for the action that
+ * needs a person, and the three state colours (amber = waiting, red = failed,
+ * green = done). HeroUI's own components read the same variables through
+ * @heroui/styles' theme layer, so restyling a component and restyling the
+ * page cannot drift apart.
+ *
+ * Everything is a plain CSS variable under :root / .dark (the theme layer's
+ * selector); no Tailwind utility in the components may hard-code a colour.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces: page < panel < raised. */
+  --background: #f6f7f9;
+  --foreground: #1a1d21;
+  --surface: #ffffff;
+  --surface-foreground: #1a1d21;
+  --surface-secondary: #f0f2f5;
+  --border: #d8dce1;
+  --separator: #e4e7eb;
+
+  /* The approval accent: only where a person must act. */
+  --accent: #3b5bdb;
+  --accent-foreground: #ffffff;
+
+  /* States (plan §1.1: amber=waiting, red=failed, green=done). */
+  --success: #2f9e63;
+  --warning: #b7791f;
+  --danger: #d64545;
+
+  /* Focus ring. */
+  --focus: #3b5bdb;
+
+  /* HeroUI's own muted/link tokens follow the same hues. */
+  --muted: #5c636b;
+  --link: #3b5bdb;
+}
+
+.dark {
+  --background: #121417;
+  --foreground: #e6e8eb;
+  --surface: #1a1d21;
+  --surface-foreground: #e6e8eb;
+  --surface-secondary: #22262b;
+  --border: #343a40;
+  --separator: #2c3136;
+
+  --accent: #748ffc;
+  --accent-foreground: #0f1115;
+
+  --success: #4caf7d;
+  --warning: #d9a441;
+  --danger: #e4756b;
+
+  --focus: #748ffc;
+  --muted: #9aa1a9;
+  --link: #748ffc;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-border: var(--border);
+  --color-separator: var(--separator);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-focus: var(--focus);
+  --color-muted: var(--muted);
+  --color-link: var(--link);
   /* System stacks rather than a downloaded webfont. The create-next-app default
      fetches Geist from Google at build time, which makes `next build` fail on
      any machine that cannot reach fonts.googleapis.com -- and fail with a font
@@ -19,13 +90,6 @@
     "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -33,3 +97,14 @@ body {
      duplicated here -- one definition, one place to change it. */
   font-family: var(--font-sans);
 }
+
+/*
+ * Focus is a first-class state in an approval tool: the ring uses the accent
+ * and is visible for keyboard users on every interactive element HeroUI does
+ * not already style.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+

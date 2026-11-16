@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Alert } from "@heroui/react";
 import {
   EmptyState,
   ErrorPanel,
@@ -84,10 +85,12 @@ export default async function RunDetailPage({
       <Page title={t("run.title")}>
         {isNotFound(run.error) ? (
           <div className="space-y-4">
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-              <p className="font-medium">{t("run.notFoundTitle", { id: runId })}</p>
-              <p className="mt-1">{t("run.notFoundBody")}</p>
-            </div>
+            <Alert status="warning" className="text-sm">
+              <Alert.Content>
+                <Alert.Title>{t("run.notFoundTitle", { id: runId })}</Alert.Title>
+                <Alert.Description>{t("run.notFoundBody")}</Alert.Description>
+              </Alert.Content>
+            </Alert>
             <Link href="/runs" className="text-sm underline underline-offset-2">
               {t("run.backToRuns")}
             </Link>
@@ -187,16 +190,20 @@ export default async function RunDetailPage({
         ) : null}
 
         {isParked && pending ? (
-          <div className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500 dark:bg-amber-950/50 dark:text-amber-100">
-            <p className="font-semibold">{t("run.parkedTitle")}</p>
-            <p className="mt-1">
-              {t("run.parkedBody_before")}{" "}
-              <Link href="/approvals" className="underline underline-offset-2">
-                {t("run.parkedBody_link")}
-              </Link>{" "}
-              {t("run.parkedBody_after")}
-            </p>
-          </div>
+          <Alert status="warning">
+            <Alert.Content>
+              <Alert.Title>{t("run.parkedTitle")}</Alert.Title>
+              <Alert.Description>
+                <p className="mt-1">
+                  {t("run.parkedBody_before")}{" "}
+                  <Link href="/approvals" className="underline underline-offset-2">
+                    {t("run.parkedBody_link")}
+                  </Link>{" "}
+                  {t("run.parkedBody_after")}
+                </p>
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
         ) : null}
 
         {/* M2-01: "approved but not executing" is its own state, not a flavour
@@ -207,10 +214,12 @@ export default async function RunDetailPage({
             (it was given), and nothing else on the page says the run is one
             worker poll away from continuing. */}
         {approvedAwaitingExecution ? (
-          <div className="rounded-lg border border-sky-400 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-100">
-            <p className="font-semibold">{t("run.approvedTitle")}</p>
-            <p className="mt-1">{t("run.approvedBody")}</p>
-          </div>
+          <Alert status="accent">
+            <Alert.Content>
+              <Alert.Title>{t("run.approvedTitle")}</Alert.Title>
+              <Alert.Description>{t("run.approvedBody")}</Alert.Description>
+            </Alert.Content>
+          </Alert>
         ) : null}
 
         {/* -- the human follow-up path (Phase 3 M2-03) ---------------------- */}
@@ -247,7 +256,7 @@ export default async function RunDetailPage({
               {lastUpdated ? (
                 <Time value={lastUpdated}>
                   {formatTimestamp(lastUpdated)}{" "}
-                  <span className="text-neutral-500 dark:text-neutral-400">
+                  <span className="text-muted">
                     ({formatRelative(lastUpdated, t)})
                   </span>
                 </Time>
@@ -260,7 +269,7 @@ export default async function RunDetailPage({
             </Field>
             {detail.failure_reason ? (
               <Field label={t("run.fieldFailureReason")}>
-                <span className="text-red-700 dark:text-red-300">{detail.failure_reason}</span>
+                <span className="text-danger">{detail.failure_reason}</span>
               </Field>
             ) : null}
           </dl>
@@ -273,7 +282,7 @@ export default async function RunDetailPage({
         {replayBlocked ? (
           <div
             role="status"
-            className="rounded-md border border-neutral-300 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+            className="rounded-md border border-border bg-surface-secondary p-4 text-sm text-foreground"
           >
             <p className="font-semibold">{t("run.replayTitle")}</p>
             <p className="mt-1">{t("run.replayBody")}</p>
@@ -283,7 +292,7 @@ export default async function RunDetailPage({
         {failedCalls.length > 0 ? (
           <div
             role="alert"
-            className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+            className="rounded-md border border-danger/40 bg-danger/10 p-4 text-sm text-foreground"
           >
             <p className="font-semibold">
               {t("run.failedCalls", { count: failedCalls.length })}
@@ -374,21 +383,21 @@ function Timeline({
           {(trace.data.steps ?? []).map((step, index) => (
             <li key={step.sequence} className="flex gap-3">
               <div className="flex flex-col items-center">
-                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-neutral-400 dark:bg-neutral-500" />
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-muted" />
                 {index < (trace.data?.steps?.length ?? 0) - 1 ? (
-                  <span className="w-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                  <span className="w-px flex-1 bg-separator" />
                 ) : null}
               </div>
               <div className="min-w-0 flex-1 pb-4">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="font-mono text-xs text-muted">
                     {step.sequence}
                   </span>
                   <span className="text-sm font-medium">{step.label}</span>
                   {/* `step_type` verbatim, through `humanise` and never a label
                       table. See the module docstring. */}
                   <Pill>{humanise(step.step_type)}</Pill>
-                  <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="text-xs text-muted">
                     <Time value={step.at}>{formatClock(step.at)}</Time>
                   </span>
                   <LatencyCell ms={step.latency_ms} stepType={step.step_type} t={t} />
@@ -396,11 +405,11 @@ function Timeline({
                 {/* An empty detail is rendered, visibly, rather than skipped.
                     See this component's docstring. */}
                 {step.detail ? (
-                  <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">
+                  <p className="mt-0.5 text-sm text-muted">
                     {step.detail}
                   </p>
                 ) : (
-                  <p className="mt-0.5 text-sm italic text-amber-700 dark:text-amber-400">
+                  <p className="mt-0.5 text-sm italic text-warning">
                     {t("run.noStepDetail")}
                   </p>
                 )}
@@ -484,12 +493,12 @@ function ClaimCell({ lease, t }: { lease: ClaimLease | undefined; t: TFunction }
   }
   if (lease?.state === "expired") {
     return (
-      <span className="text-amber-700 dark:text-amber-300">
+      <span className="text-warning">
         {t("run.claimExpired", { until: formatTimestamp(lease.claimed_until) })}
       </span>
     );
   }
-  return <span className="text-neutral-500 dark:text-neutral-400">{t("run.claimUnclaimed")}</span>;
+  return <span className="text-muted">{t("run.claimUnclaimed")}</span>;
 }
 
 /**
@@ -519,7 +528,7 @@ function LatencyCell({
   if (ms === null || ms === undefined) {
     return (
       <span
-        className="text-xs text-neutral-400"
+        className="text-xs text-muted"
         title={
           stepType === "state_change"
             ? t("run.latencyNotMeasured")
@@ -530,7 +539,7 @@ function LatencyCell({
       </span>
     );
   }
-  return <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{formatLatency(ms)}</span>;
+  return <span className="text-xs tabular-nums text-muted">{formatLatency(ms)}</span>;
 }
 
 function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
@@ -541,7 +550,7 @@ function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
       ) : (
         <ul className="space-y-3">
           {calls.map((call) => (
-            <li key={call.id} className="rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+            <li key={call.id} className="rounded-md border border-separator p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm font-medium">{call.tool_name}</span>
                 <Pill tone={permissionTone(call.permission)}>{permissionLabel(call.permission, t)}</Pill>
@@ -554,32 +563,32 @@ function ToolCalls({ calls, t }: { calls: ToolCall[]; t: TFunction }) {
                 ) : null}
                 <LatencyCell ms={call.latency_ms} stepType="tool_call" t={t} />
               </div>
-              <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="mt-2 text-xs text-muted">
                 {t("run.argumentsLabel")}
               </p>
-              <pre className="mt-0.5 overflow-x-auto rounded bg-neutral-50 p-2 font-mono text-xs dark:bg-neutral-950">
+              <pre className="mt-0.5 overflow-x-auto rounded bg-surface-secondary p-2 font-mono text-xs dark:bg-neutral-950">
                 {JSON.stringify(call.arguments, null, 2)}
               </pre>
               {call.idempotency_key ? (
-                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                <p className="mt-2 text-xs text-muted">
                   {t("run.idempotencyKeyLabel")}{" "}
-                  <span className="font-mono text-neutral-700 dark:text-neutral-300">
+                  <span className="font-mono text-foreground">
                     {call.idempotency_key}
                   </span>
                 </p>
               ) : null}
               {call.result ? (
                 <>
-                  <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  <p className="mt-2 text-xs text-muted">
                     {t("run.resultLabel")}
                   </p>
-                  <pre className="mt-0.5 max-h-64 overflow-auto rounded bg-neutral-50 p-2 font-mono text-xs dark:bg-neutral-950">
+                  <pre className="mt-0.5 max-h-64 overflow-auto rounded bg-surface-secondary p-2 font-mono text-xs dark:bg-neutral-950">
                     {JSON.stringify(call.result, null, 2)}
                   </pre>
                 </>
               ) : null}
               {call.error ? (
-                <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+                <p className="mt-2 text-xs text-danger">
                   {t("run.errorLabel")} {call.error}
                 </p>
               ) : null}
@@ -617,18 +626,18 @@ function Citations({ citations, t }: { citations: Citation[]; t: TFunction }) {
           {citations.map((citation) => (
             <li key={`${citation.rank}-${citation.chunk}`} className="text-sm">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="font-mono text-xs text-muted">
                   #{citation.rank}
                 </span>
                 <span
-                  className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400"
+                  className="text-xs tabular-nums text-muted"
                   title={t("run.similarityTitle")}
                 >
                   {citation.score.toFixed(4)}
                 </span>
               </div>
               <p className="font-medium">{citation.document}</p>
-              <p className="break-all font-mono text-xs text-neutral-600 dark:text-neutral-400">
+              <p className="break-all font-mono text-xs text-muted">
                 {citation.chunk}
               </p>
             </li>
@@ -687,7 +696,7 @@ function CustomerReply({
   return (
     <Panel title={t("run.replyTitle")}>
       {reply.escalated ? (
-        <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        <p className="mb-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-medium text-foreground">
           {t("run.replyEscalated")}
         </p>
       ) : null}
@@ -706,7 +715,7 @@ function CustomerReply({
  */
 function FailureBanner({ reason, t }: { reason: string; t: TFunction }) {
   return (
-    <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+    <div className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
       <p className="font-semibold">
         {t("run.failureBanner_before")} {reason}
       </p>
@@ -718,7 +727,7 @@ function FailureBanner({ reason, t }: { reason: string; t: TFunction }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+      <dt className="text-xs uppercase tracking-wide text-muted">
         {label}
       </dt>
       <dd className="mt-0.5">{children}</dd>
@@ -783,27 +792,27 @@ function ModelFailurePanel({
           {failures.map((failure, index) => (
             <li
               key={`${failure.at}-${index}`}
-              className="rounded-md border border-red-200 bg-red-50/60 p-3 text-sm dark:border-red-900 dark:bg-red-950/30"
+              className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm"
             >
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-mono text-xs text-red-700 dark:text-red-300">
+                <span className="font-mono text-xs text-danger">
                   {failure.category}
                 </span>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   {t("run.modelErrorsStage_before")} {failure.stage}
                   {t("run.modelErrorsStage_after")}
                 </span>
                 <Time value={failure.at}>{formatClock(failure.at)}</Time>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   {formatRelative(failure.at, t)}
                 </span>
               </div>
               {failure.summary ? (
-                <p className="mt-1 break-words text-sm text-neutral-700 dark:text-neutral-300">
+                <p className="mt-1 break-words text-sm text-foreground">
                   {failure.summary}
                 </p>
               ) : null}
-              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="mt-1 text-xs text-muted">
                 {t("run.modelErrorsMeta", {
                   attempt: failure.attempt ?? t("run.modelErrorsUnknown"),
                   status: failure.httpStatus ?? t("run.modelErrorsUnknown"),

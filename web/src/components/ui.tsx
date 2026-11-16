@@ -10,6 +10,7 @@
  */
 
 import type { ReactNode } from "react";
+import { Alert, Chip } from "@heroui/react";
 import { ApiError } from "@/lib/api/client";
 import { statusTone } from "@/lib/format";
 import { runStatusLabel } from "@/i18n/enums";
@@ -32,11 +33,9 @@ export function Page({
     <div className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
           {description ? (
-            <div className="mt-1 max-w-3xl text-sm text-neutral-600 dark:text-neutral-400">
-              {description}
-            </div>
+            <div className="mt-1 max-w-3xl text-sm text-muted">{description}</div>
           ) : null}
         </div>
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
@@ -60,13 +59,11 @@ export function Panel({
 }) {
   return (
     <section
-      className={`rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${className ?? ""}`}
+      className={`rounded-md border border-border bg-surface shadow-[0_1px_2px_rgba(16,18,20,0.04)] ${className ?? ""}`}
     >
-      <header className="flex items-baseline justify-between gap-4 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {aside ? (
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">{aside}</span>
-        ) : null}
+      <header className="flex items-baseline justify-between gap-4 border-b border-separator px-4 py-3">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        {aside ? <span className="text-xs text-muted">{aside}</span> : null}
       </header>
       <div className="p-4">{children}</div>
     </section>
@@ -90,11 +87,9 @@ export function Panel({
  */
 export function StatusBadge({ status, t }: { status: string; t: TFunction }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${statusTone(status)}`}
-    >
+    <Chip size="sm" variant="soft" className={`border-transparent ${statusTone(status)}`}>
       {runStatusLabel(status, t)}
-    </span>
+    </Chip>
   );
 }
 
@@ -112,16 +107,14 @@ export function Pill({
   tone?: "neutral" | "warn" | "danger" | "ok";
 }) {
   const tones: Record<string, string> = {
-    neutral:
-      "bg-neutral-100 text-neutral-800 ring-neutral-500/20 dark:bg-neutral-800 dark:text-neutral-200 dark:ring-neutral-400/30",
-    warn: "bg-amber-100 text-amber-900 ring-amber-600/30 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-400/40",
-    danger:
-      "bg-red-100 text-red-900 ring-red-600/20 dark:bg-red-950 dark:text-red-200 dark:ring-red-400/30",
-    ok: "bg-emerald-100 text-emerald-900 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-400/30",
+    neutral: "bg-surface-secondary text-foreground",
+    warn: "bg-warning/15 text-warning",
+    danger: "bg-danger/15 text-danger",
+    ok: "bg-success/15 text-success",
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${tones[tone]}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}
     >
       {children}
     </span>
@@ -137,13 +130,9 @@ export function Pill({
  */
 export function EmptyState({ title, hint }: { title: string; hint?: ReactNode }) {
   return (
-    <div className="rounded-md border border-dashed border-neutral-300 px-4 py-8 text-center dark:border-neutral-700">
-      <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{title}</p>
-      {hint ? (
-        <p className="mx-auto mt-1 max-w-md text-xs text-neutral-500 dark:text-neutral-400">
-          {hint}
-        </p>
-      ) : null}
+    <div className="rounded-md border border-dashed border-border px-4 py-8 text-center">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      {hint ? <p className="mx-auto mt-1 max-w-md text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -177,53 +166,63 @@ export async function ErrorPanel({ error, title }: { error: unknown; title?: str
   if (error instanceof ApiError) {
     if (error.isAuthFailure) {
       return (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-          <p className="font-medium">
-            {heading}
-            {t("common.apiRejectedToken")}
-          </p>
-          <p className="mt-1">
-            {t("common.apiRejectedTokenDetail_before")}{" "}
-            <code>{t("common.envOperatorToken")}</code>{" "}
-            {t("common.apiRejectedTokenDetail_after")}
-          </p>
-        </div>
+        <Alert status="warning" className="text-sm">
+          <Alert.Content>
+            <Alert.Title>
+              {heading}
+              {t("common.apiRejectedToken")}
+            </Alert.Title>
+            <Alert.Description>
+              {t("common.apiRejectedTokenDetail_before")}{" "}
+              <code>{t("common.envOperatorToken")}</code>{" "}
+              {t("common.apiRejectedTokenDetail_after")}
+            </Alert.Description>
+          </Alert.Content>
+        </Alert>
       );
     }
     return (
-      <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-        <p className="font-medium">
-          {heading}
-          {t("common.apiReturned", { status: error.status })}
-        </p>
-        {/* The API's own message, verbatim and untranslated. See the docstring. */}
-        <p className="mt-1">{error.message}</p>
-        {/* And the contract's stable branch key. Untranslated in every locale --
-            `docs/api-contract.md` §6 fixes it, and so does every consumer. */}
-        <p className="mt-1 font-mono text-xs opacity-80">code: {error.code}</p>
-      </div>
+      <Alert status="danger" className="text-sm">
+        <Alert.Content>
+          <Alert.Title>
+            {heading}
+            {t("common.apiReturned", { status: error.status })}
+          </Alert.Title>
+          <Alert.Description>
+            {/* The API's own message, verbatim and untranslated. See the docstring. */}
+            <p>{error.message}</p>
+            {/* And the contract's stable branch key. Untranslated in every locale --
+                `docs/api-contract.md` §6 fixes it, and so does every consumer. */}
+            <p className="mt-1 font-mono text-xs opacity-80">code: {error.code}</p>
+          </Alert.Description>
+        </Alert.Content>
+      </Alert>
     );
   }
 
   if (error instanceof Error) {
     return (
-      <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-        <p className="font-medium">
-          {heading}
-          {t("common.unknownError")}
-        </p>
-        <p className="mt-1">{error.message}</p>
-      </div>
+      <Alert status="danger" className="text-sm">
+        <Alert.Content>
+          <Alert.Title>
+            {heading}
+            {t("common.unknownError")}
+          </Alert.Title>
+          <Alert.Description>{error.message}</Alert.Description>
+        </Alert.Content>
+      </Alert>
     );
   }
 
   return (
-    <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-      <p className="font-medium">
-        {heading}
-        {t("common.unknownError")}
-      </p>
-    </div>
+    <Alert status="danger" className="text-sm">
+      <Alert.Content>
+        <Alert.Title>
+          {heading}
+          {t("common.unknownError")}
+        </Alert.Title>
+      </Alert.Content>
+    </Alert>
   );
 }
 
