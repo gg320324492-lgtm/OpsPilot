@@ -182,6 +182,23 @@ export const WEB_DIR = path.join(REPO_ROOT, "web");
 export const WEB_SERVICE_URL = process.env.E2E_WEB_SERVICE_URL ?? "http://localhost:3000";
 
 /**
+ * Build the images once per runner, when `E2E_SKIP_BUILD=1` is set.
+ *
+ * CI pre-builds every image the specs use into the runner's local Docker
+ * daemon before Playwright starts (see the "Warm the Docker image cache"
+ * step in .github/workflows/ci.yml). With that done, each spec's default
+ * `docker compose up --build` would still walk the Dockerfile against the
+ * classic builder and lose the buildx/GHA cache -- which on 2026-11-16 grew
+ * into a 30-minute-to-2-hour wait before a single assertion ran. The flag
+ * keeps the local-developer default exactly as it was (always `--build`,
+ * so a source edit is tested), while letting CI reuse the images it already
+ * built. The tag stays `local` for both paths, so the images are identical
+ * apart from which builder produced them.
+ */
+const E2E_SKIP_BUILD = process.env.E2E_SKIP_BUILD === "1";
+const BUILD_FLAG = E2E_SKIP_BUILD ? [] : ["--build"];
+
+/**
  * The port Compose must publish for the containerised dashboard.
  *
  * Read out of `WEB_SERVICE_URL` rather than assumed, so the URL this module
@@ -515,7 +532,8 @@ export async function startStackOrSkip(
   const up = spawnSync(
     "docker",
     [
-      "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
+      "compose", "up", "-d", "--wait", "--wait-timeout", "300",
+      ...BUILD_FLAG,
       "postgres", "migrate", "api", "worker",
     ],
     { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 1_800_000 },
@@ -711,7 +729,8 @@ export async function startContainerisedWebOrSkip(label: DiagnosticLabel): Promi
   const up = spawnSync(
     "docker",
     [
-      "compose", "up", "-d", "--wait", "--wait-timeout", "300", "--build",
+      "compose", "up", "-d", "--wait", "--wait-timeout", "300",
+      ...BUILD_FLAG,
       "postgres", "migrate", "api", "web",
     ],
     { cwd: REPO_ROOT, stdio: "inherit", env, timeout: 1_800_000 },
