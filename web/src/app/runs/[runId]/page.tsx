@@ -313,7 +313,9 @@ export default async function RunDetailPage({
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
+          {/* Narrow screens read the approval first (plan §1.1), so the card is
+              placed before the timeline and only re-ordered on large screens. */}
+          <div className="order-first space-y-6 lg:order-none lg:col-span-2">
             <Timeline trace={trace} lease={lease} t={t} />
             <ToolCalls calls={toolCalls} t={t} />
           </div>
