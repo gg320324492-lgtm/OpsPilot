@@ -616,10 +616,14 @@ The specification was written before the code, and it is the artifact to review:
 | [one-pager-en.md](docs/one-pager-en.md) | A one-page English summary of the project, claims scoped to evidence |
 | [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
 | [installer-verification.zh-CN.md](docs/installer-verification.zh-CN.md) | The same procedure in Chinese, for the person running it (the English file is authoritative) |
-| [progress.md](docs/progress.md) | The running record, including the measurements that disagree |
+| [progress.md](docs/progress.md) | The development-log index; the full log lives in [docs/history/](docs/history/) |
 | [dev-notes.md](docs/dev-notes.md) | **The development-era narrative**: status history, recording debates, eval caveats, build troubleshooting, release reasoning |
 | [HANDOVER.md](docs/HANDOVER.md) | **Continuing on another machine**: what is where, and how to wipe the old one |
 | [adr/](docs/adr/) | Five architecture decision records |
+
+The full documentation index — every document grouped by role, including the
+evaluation reports, the installer walks, the portfolio materials and the
+process records — is [docs/README.md](docs/README.md).
 
 ## Running it
 
