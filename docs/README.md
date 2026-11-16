@@ -63,6 +63,8 @@ and [`progress.md`](progress.md) for the index of the development log.
 | [`release-checklist.md`](release-checklist.md) | The release checklist and its state |
 | [`release-notes-v0.2.0-draft.md`](release-notes-v0.2.0-draft.md) / [`release-notes-v0.2.1-draft.md`](release-notes-v0.2.1-draft.md) | The published release notes |
 | [`phase4-draft.md`](phase4-draft.md) | The Phase 4 direction draft |
+| [`phase4-plan.md`](phase4-plan.md) | The Phase 4 execution plan: UI selection, milestones, visual direction, non-goals |
+| [`ui-selection-2026-11-16.md`](ui-selection-2026-11-16.md) | The UI library selection record and candidate comparison |
 | [`direction-b-checklist.md`](direction-b-checklist.md) | The direction-B execution checklist |
 
 ## Process records
