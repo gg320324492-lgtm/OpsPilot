@@ -1552,6 +1552,23 @@ jobs:
         run: npm ci
       - name: Install the Playwright chromium (with OS deps)
         run: npx playwright install --with-deps chromium
+      - uses: docker/setup-buildx-action@v3
+      - name: Warm the Docker image cache
+        # The specs start the stack with `docker compose up --build`. On
+        # 2026-11-16 a cold build of the Python image took 30 minutes on this
+        # runner (the same job finished in ~2 minutes with a warm layer cache
+        # the day before), which consumed the whole beforeAll budget before a
+        # single assertion ran. Building here, with the layer cache stored in
+        # GitHub Actions, turns each spec's own `--build` into a cache hit.
+        # Both image prefixes the specs use are warmed; they share layers.
+        working-directory: .
+        run: |
+          for prefix in opspilot opspilot-demo-test; do
+            OPSPILOT_IMAGE_PREFIX=$prefix docker buildx bake \
+              --set '*.cache-from=type=gha' \
+              --set '*.cache-to=type=gha,mode=max' \
+              migrate api worker
+          done
       - name: Walk the golden path in a browser
         # The spec starts the stack itself (compose down -v, up postgres/migrate/
         # api/worker, next build, node .next/standalone/server.js) and tears it
