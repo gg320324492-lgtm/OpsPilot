@@ -85,7 +85,7 @@ holdout + safety 独立批），失败证据完整（检索弃答 3 例的确定
 **safety unsafe=0 是达标项**（13 live + 2 synthetic 注入全部拦截，审批门零放行），
 但这按 M1-05 口径是"safety gate 的证据"，不能折算成模型能力分。
 
-**影响声明：** 在门槛达成前，README、案例、Upwork 材料均不得宣称
+**影响声明：** 在门槛达成前，README、案例、作品集材料均不得宣称
 "passed real-model acceptance""10/15 tool-selection accuracy" 或任何推断的自主处理率。
 当前材料已符合此约束（见 §4 不一致表）。
 
@@ -148,7 +148,7 @@ M3-04 报告 §7 已列明未覆盖项（真人走查、新 checkout 离线流�
 
 | 证据 | 要点 | 位置 |
 |---|---|---|
-| Upwork 作品条目 | title 66/70、role 99/100、description 593/600 字符，5 技能标签，无联系方式 | [upwork-profile-entry-en.md](upwork-profile-entry-en.md) |
+| 作品集条目 | title 66/70、role 99/100、description 593/600 字符，5 技能标签，无联系方式 | [portfolio-entry-en.md](portfolio-entry-en.md) |
 | 三类服务说明 | 每类含客户输入/交付物/验收方式/排除项（985 词） | [service-offerings-en.md](service-offerings-en.md) |
 | 边界一致性 | 不声称付费客户/收入/未测量节省；退款为模拟 | 两份材料开头声明 + claims-audit 呼应 |
 
@@ -220,7 +220,7 @@ M3-04 报告 §7 已列明未覆盖项（真人走查、新 checkout 离线流�
 | R3 | （决策）真实模型门槛是否继续追求：换模型重跑 M3-02 口径两跑，或接受"未达标"并保持材料现状 | M3-02 报告 §5 | 预算与 API key |
 | R4 | （若 R3 换模型且达标）回填 §4 不一致表所列数字，并补录真实模型演示片段 | 新 run 记录 | R3 完成 |
 | R5 | （若 R3 维持现状）在 README/案例的相应位置把 "in progress" 表述改为 "attempted, below our own bar"（数字已如实） | 本报告 §4 | — |
-| R6 | Upwork 条目发布（素材已就绪） | `docs/upwork-profile-entry-en.md`、`docs/service-offerings-en.md` | R1/R2 完成后 |
+| R6 | 作品集条目发布（素材已就绪） | `docs/portfolio-entry-en.md`、`docs/service-offerings-en.md` | R1/R2 完成后 |
 
 ---
 
@@ -339,7 +339,7 @@ M3-04 报告 §7 已列明未覆盖项（真人走查、新 checkout 离线流�
 | 3 | 展示体验 | 15 | 8.5 | 8.5 | 12.75 | 0 | 真实模型片段随 A 关闭冻结；fake 披露现状维持且如实 |
 | 4 | 陌生人复现 | 10 | 9.0 | 9.0 | 9.00 | 0 | 严格口径（真人点选走查）仍未执行 |
 | 5 | 案例与个人贡献 | 10 | 9.0 | 9.0 | 9.00 | 0 | 案例数字已回填且口径如实 |
-| 6 | 接单说明 | 10 | 9.0 | 9.0 | 9.00 | 0 | Upwork 条目已同步新数字，边界一致 |
+| 6 | 接单说明 | 10 | 9.0 | 9.0 | 9.00 | 0 | 作品集条目已同步新数字，边界一致 |
 | 7 | 材料一致性与版本交付 | 10 | 9.0 | 9.0 | 9.00 | 0 | v0.2.0 交付闭环维持；MIN_SCORE 勘误已同步 |
 | | **合计** | **100** | 79.25 | **80.25 ≈ 80** | | **+1.0** | |
 
@@ -361,5 +361,5 @@ M3-04 报告 §7 已列明未覆盖项（真人走查、新 checkout 离线流�
 
 **过时条目清单（本轮已同步）：** phase4-draft §2.4 的「GLM S1 运行中」、
 §5 的候选顺序与推荐组合、§7 的数字；README 评测表补 MiniMax 行；
-one-pager/Upwork 补 MiniMax 1/15；MIN_SCORE 勘误同步 m3-02-rerun/两份案例/
+one-pager/作品集条目补 MiniMax 1/15；MIN_SCORE 勘误同步 m3-02-rerun/两份案例/
 release-notes/progress。

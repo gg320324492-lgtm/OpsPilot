@@ -1,6 +1,6 @@
-# Upwork profile entry — English draft (Phase 3 M2-09)
+# Portfolio entry — English draft (Phase 3 M2-09)
 
-A ready-to-paste portfolio entry for an Upwork profile. Field limits follow the
+A ready-to-paste portfolio entry for a freelance profile. Field limits follow the
 task spec: title ≤ 70 characters, role ≤ 100 characters, description ≤ 600
 characters, at most 5 skill tags. All facts and figures are drawn from this
 repository's own documents: [`docs/case-study-duplicate-charge-en.md`](case-study-duplicate-charge-en.md),

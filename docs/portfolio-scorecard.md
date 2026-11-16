@@ -165,7 +165,7 @@ M2-02 引入的重复无效提案停止机制补充了"模型循环"这一失效
 
 | 证据 | 文件 |
 |---|---|
-| M2-09 Upwork 作品条目（title 66/70、role 99/100、description 593/600 字符，5 技能标签） | [upwork-profile-entry-en.md](upwork-profile-entry-en.md) |
+| M2-09 作品集条目（title 66/70、role 99/100、description 593/600 字符，5 技能标签） | [portfolio-entry-en.md](portfolio-entry-en.md) |
 | M2-09 三类服务与输入/交付/验收/排除项（985 词） | [service-offerings-en.md](service-offerings-en.md) |
 
 **当前自估 7.5/10**：材料齐备且口径受控；扣分点——真实模型价格区间与交付工期表述待 M3-01/03 结果回填后才能给出。
@@ -188,7 +188,7 @@ M2-02 引入的重复无效提案停止机制补充了"模型循环"这一失效
 | README 数字守卫测试 | 已合并 main | `tests/unit/test_the_readme_figures_match_the_tree.py` |
 | 环境变量示例守卫 | 已合并 main | `tests/unit/test_the_env_example_matches_the_settings.py` |
 | CI 任务存在性守卫 | 已合并 main | `tests/unit/test_documented_ci_jobs_exist.py` |
-| M3-05 定稿回填（案例/README/Upwork/字幕的版本与数字） | 未开始 | — |
+| M3-05 定稿回填（案例/README/作品集/字幕的版本与数字） | 未开始 | — |
 | M3-04 重打包与 SHA-256 | 未开始 | — |
 
 **当前自估 6/10**：守卫体系已建立；扣分点——M3-05 未做，模型标识与版本数字尚未定稿，安装包未重验。
@@ -294,7 +294,7 @@ M3-06 验收时逐项填写。三张清单分别回答：哪些主张有证据�
 |---|---|---|---|---|
 | B1 | docs/case-study-duplicate-charge-en.md 模型表现段 | 历史单次运行数字 | M3-02 两跑统计（命中率/完成率/延迟） | M3-02 |
 | B2 | README 评测表格 | 2026-10-11 基线 | M3-03 holdout/safety 结果 | M3-03 |
-| B3 | docs/upwork-profile-entry-en.md 能力表述 | 定性描述 | 可引用的真实批次数字 | M3-02/03 |
+| B3 | docs/portfolio-entry-en.md 能力表述 | 定性描述 | 可引用的真实批次数字 | M3-02/03 |
 | B4 | docs/service-offerings-en.md 周期/费用表述 | 不承诺 | 依 M3-01 预算方案给出区间或维持不承诺 | M3-01 |
 | B5 | docs/assets/ 截图与封面 | 旧版界面截图 | 当前版本真实 UI 重截 | M2-05 |
 | B6 | 演示视频 | 无 | 真实模型浏览器录屏 + run 证据对应 | M3-05 |

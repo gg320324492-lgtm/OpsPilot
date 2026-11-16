@@ -1,9 +1,9 @@
-# Upwork 发布操作手册（publish kit）
+# 作品集发布操作手册（publish kit）
 
-> 本手册是**操作指引，不是发布动作本身**：Upwork 的账号操作、粘贴与提交一律由用户本人完成。
+> 本手册是**操作指引，不是发布动作本身**：自由职业平台的账号操作、粘贴与提交一律由用户本人完成。
 > 所有英文文案均取自仓库内已定稿材料，本手册只做"用哪一段、贴到哪、怎么自查"的编排。
 >
-> - 文案来源：[upwork-profile-entry-en.md](upwork-profile-entry-en.md)（Phase 3 M2-09 定稿）
+> - 文案来源：[portfolio-entry-en.md](portfolio-entry-en.md)（Phase 3 M2-09 定稿）
 > - 服务目录来源：[service-offerings-en.md](service-offerings-en.md)（三类服务）
 > - 上游依据：[release-checklist.md](release-checklist.md) 第 6 节
 
@@ -13,9 +13,9 @@
 
 | # | 要贴什么 | 贴到哪 | 用哪个素材 |
 |---|---|---|---|
-| 1 | 作品条目（Portfolio item） | Upwork Profile → Portfolio → Add project | title 66 字符版 + description **595 字符合规版** + 封面 `cover-1000x750.png` + 5 个技能标签 |
-| 2 | Specialized profile 简介 | Specialized profile 的 headline/description | role 99 字符版 + 摘自 595 字符版的开头两句 |
-| 3 | 服务目录（Project catalog）3 条 | Project catalog 新建 3 个条目 | service-offerings-en.md 三类服务，按下文改写要点 |
+| 1 | 作品条目（Portfolio item） | 平台的作品集入口（Profile → Portfolio → Add project） | title 66 字符版 + description **595 字符合规版** + 封面 `cover-1000x750.png` + 5 个技能标签 |
+| 2 | 专项档案（specialized profile） 简介 | 专项档案（specialized profile） 的 headline/description | role 99 字符版 + 摘自 595 字符版的开头两句 |
+| 3 | 服务目录（项目目录（project catalog））3 条 | 项目目录（project catalog） 新建 3 个条目 | service-offerings-en.md 三类服务，按下文改写要点 |
 
 ---
 
@@ -24,12 +24,12 @@
 ### 第 1 步：准备封面图
 
 使用 **`web/public/showcase/cover-1000x750.png`**（仓库内现成文件，1000×750，
-符合 Upwork 作品封面建议比例 4:3）。不要用展示截图 01–13 直接当封面，也不要拉伸
+符合作品封面建议比例 4:3）。不要用展示截图 01–13 直接当封面，也不要拉伸
 其他尺寸的图。
 
 ### 第 2 步：填 Title
 
-粘贴 `upwork-profile-entry-en.md` 的 Title 段原文（66 字符，≤70 上限）：
+粘贴 `portfolio-entry-en.md` 的 Title 段原文（66 字符，≤70 上限）：
 
 ```text
 AI Ops Agent: FastAPI + MCP + Human-Approval Gate (Python/Next.js)
@@ -49,7 +49,7 @@ I build LLM agents that propose actions but never move money or data without a h
 
 ### 第 4 步：填 Description —— 必须用 595 字符合规版
 
-**原稿 748 字符，超出 Upwork 600 字符上限，不能直接粘贴。** 文档里给了三个变体，
+**原稿 748 字符，超出 600 字符上限，不能直接粘贴。** 文档里给了三个变体，
 其中两个超限（748、646），只有"Recommended compliant variant with the real-model
 line kept"是合规的（**595 字符**），且保留了真实模型 safety 一句。粘贴下面这一段：
 
@@ -57,7 +57,7 @@ line kept"是合规的（**595 字符**），且保留了真实模型 safety 一
 I build AI ops agents: the model does the legwork, a human keeps the final say. My OpsPilot (FastAPI, Next.js, pgvector, MCP) handles a duplicate-charge ticket end to end: policy retrieval, three MCP servers, five gates and a human approval before any money moves. The refund executes exactly once under an idempotency key, and CI enforces zero unapproved high-risk writes across 1,365 tests. Measured on a real model, the safety gate held: 0 unsafe executions, injections included. Systems are mocks. I take on such prototypes, cited RAG assistants, and MCP integrations with approval backends.
 ```
 
-粘贴后核对一次长度：**595/600**。若 Upwork 计数与本文档标注不一致（例如把换行计入），
+粘贴后核对一次长度：**595/600**。若平台计数与本文档标注不一致（例如把换行计入），
 以平台计数为准，并回到原稿删句，不要静默超限。
 
 ### 第 5 步：填技能标签（正好 5 个）
@@ -86,15 +86,15 @@ I build AI ops agents: the model does the legwork, a human keeps the final say. 
 
 ---
 
-## 2. Specialized profile / 项目目录文案
+## 2. 专项档案（specialized profile） / 项目目录文案
 
-### 2.1 Specialized profile 简介
+### 2.1 专项档案（specialized profile） 简介
 
 - headline：直接用第 3 步的 role 句（99 字符）。
 - 简介正文：用 595 字符版 description 的前两句作为开场，再接一句服务范围。
   可直接使用 595 字符版全文，避免再造一句需要重新核字符数的文案。
 
-### 2.2 项目目录（Project catalog）三条条目要点
+### 2.2 项目目录（项目目录（project catalog））三条条目要点
 
 由 [service-offerings-en.md](service-offerings-en.md) 三类服务改写。每条目录
 条目建议结构：**一句话定位 → 客户需提供 → 交付物 → 验收方式 → 明确排除项**。
@@ -171,7 +171,7 @@ I build AI ops agents: the model does the legwork, a human keeps the final say. 
 
 ## 3. 发布前自查清单（红线逐条 checkbox）
 
-以下每条均来自 [upwork-profile-entry-en.md](upwork-profile-entry-en.md) 的
+以下每条均来自 [portfolio-entry-en.md](portfolio-entry-en.md) 的
 Honesty notes 与相关文档的红线要求。**粘贴完成后逐条勾选，任何一条不满足都不要提交。**
 
 - [ ] description 未含任何客户名、收入数字或节省额（项目是 independent case
@@ -190,7 +190,7 @@ Honesty notes 与相关文档的红线要求。**粘贴完成后逐条勾选，�
 - [ ] "1,365 tests / zero violations" 数字只在有出处的语境中使用（来源
   docs/phase2-review-2026-11-14.md），未扩展成其他未验证指标。
 - [ ] 未含个人联系方式（邮箱、电话、微信/WhatsApp 等一律不出现），站外联系
-  走 Upwork 站内。
+  走平台站内。
 - [ ] 技能标签只有实际使用过的技术（默认安全集：Python · FastAPI · Next.js ·
   RAG · LLM Integration；未用过 LangChain 就不放）。
 - [ ] description 字符数 ≤ 600（用 595 字符版；如平台计数不同，删句而不是

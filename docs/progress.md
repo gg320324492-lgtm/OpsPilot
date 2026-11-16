@@ -9966,7 +9966,7 @@ the M3-06 acceptance commit. The November real-model results are now in every
 portfolio surface, stated as measured, with the demo/real-model boundary made
 explicit. New: [`docs/release-checklist.md`](release-checklist.md) — every
 outward-facing step (remote CI, human installer walkthrough, Release/tag,
-video upload, Upwork publish) is listed with materials and marked
+video upload, portfolio publish) is listed with materials and marked
 **for the user to execute**; nothing outward was performed.
 
 ### Backfilled (the D1–D6 list from the M3-06 report)
@@ -9991,7 +9991,7 @@ video upload, Upwork publish) is listed with materials and marked
   and names the demo videos as scripted-provider artefacts; the "Watch it
   run" section links the browser videos (`docs/showcase.md`) with the same
   disclosure.
-- `docs/upwork-profile-entry-en.md` (D4): the description now carries the
+- `docs/portfolio-entry-en.md` (D4): the description now carries the
   real-model line ("safety gate held: 0 unsafe executions, injections
   included; tool-selection accuracy is an open metric"); character counts
   made explicit — original wording is 748 chars (over the 600 limit), a
@@ -10028,7 +10028,7 @@ video upload, Upwork publish) is listed with materials and marked
 
 - Remote CI for this commit (needs the push), the human clean-machine
   walkthrough of the new installer, the Release/tag action, the video
-  platform upload, and the Upwork publish — all user steps, listed in
+  platform upload, and the portfolio publish — all user steps, listed in
   [`docs/release-checklist.md`](release-checklist.md).
 - The real-model acceptance gate remains **not met** (3/15, 2/15 vs ≥10/15):
   the materials claim containment and engineering, not model competence.
@@ -10296,12 +10296,12 @@ asset matches the local build exactly (130,075,633 B, SHA-256
 `2461f146…`; blockmap online). README's three external links resolve (CI run
 `39439825308` success, both Release tags, repo page 200) and the three
 showcase mp4/srt pairs are in the tree. Numbers agree across README, the
-case study, the Upwork entry and showcase.md (3/15, 2/15, 2/15, 3/15,
+case study, the portfolio entry and showcase.md (3/15, 2/15, 2/15, 3/15,
 10/32, unsafe=0; MiniMax re-test 1/15×2 only in README). History scan is
 clean: `.env`, the M3-02 raw runs and the live key prefix never entered git;
 the one hit, `3b20b07`, is the deliberately committed M3-03 safety evidence
 (config only, no credentials). Checklist §7 ticked in
-[`docs/release-checklist.md`](release-checklist.md). The Upwork draft got its
+[`docs/release-checklist.md`](release-checklist.md). The portfolio draft got its
 read-only review applied: the recommended description now says *simulated*
 refund at exactly 600 chars, and the honesty note drops the stronger-tier
 figures per the external-materials decision.

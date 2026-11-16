@@ -4,7 +4,7 @@
 [portfolio-acceptance-2026-11-15.md](portfolio-acceptance-2026-11-15.md) §7（第三轮复评 79/100）、
 [installer-interactive-walk-2026-11-15.md](installer-interactive-walk-2026-11-15.md)（真人走查脚本）、
 [release-checklist.md](release-checklist.md)（发布清单与 §7 发布后核验）、
-[upwork-profile-entry-en.md](upwork-profile-entry-en.md)（Upwork 素材与合规红线）。
+[portfolio-entry-en.md](portfolio-entry-en.md)（作品集素材与合规红线）。
 
 **前提状态（2026-11-16）：** 方向 A 已按用户预案关闭（五个模型家族均远离 10/15，
 GLM-5.3-Flash S1 0/4 触发关闭条件）；v0.2.0 已发布（tag `656bbd3`，CI 绿）；
@@ -12,7 +12,7 @@ GLM-5.3-Flash S1 0/4 触发关闭条件）；v0.2.0 已发布（tag `656bbd3`，
 把"已发布"变成"交付闭环"。
 
 **总原则：** 每一项都要有可验证的完成标准；不造假、不冒充、不超范围声称
-（合规红线见 [upwork-profile-entry-en.md](upwork-profile-entry-en.md) 开头声明与
+（合规红线见 [portfolio-entry-en.md](portfolio-entry-en.md) 开头声明与
 [claims-audit-2026-11-15.md](claims-audit-2026-11-15.md)）。
 
 ---
@@ -35,7 +35,7 @@ GLM-5.3-Flash S1 0/4 触发关闭条件）；v0.2.0 已发布（tag `656bbd3`，
 | DBC-01 | 真人交互式走查（新包，非作者） | 用户（安排走查人）+ Claude 备料/归档 | 可与 DBC-02/03 并行 | 高 |
 | DBC-02 | 文档尾差清零 | Claude | 无依赖，立即可做 | 高（建议首项） |
 | DBC-03 | 发布后点击检查 | Claude（GitHub 页面核对可由用户复核） | 依赖 DBC-02 完成 | 高 |
-| DBC-04 | Upwork 发布准备（不实际发布） | Claude 定稿 + 用户执行发布 | 可与 DBC-02/03 并行 | 中 |
+| DBC-04 | 作品集发布准备（不实际发布） | Claude 定稿 + 用户执行发布 | 可与 DBC-02/03 并行 | 中 |
 | DBC-05 | 多环境配置化（dev vs 演示） | Claude | 独立，可并行，低优先 | 低（可选） |
 | DBC-06 | 真实模型演示片段 | — | **暂缓**（依赖已关闭的方向 A） | 暂缓 |
 
@@ -164,9 +164,9 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 ---
 
-## DBC-04 Upwork 发布准备（不实际发布）
+## DBC-04 作品集发布准备（不实际发布）
 
-**目标：** 把 Upwork 作品条目与平台操作步骤准备到"用户拿到即可粘贴发布"的状态；
+**目标：** 把作品集条目与平台操作步骤准备到"用户拿到即可粘贴发布"的状态；
 **本任务不执行任何对外发布**（phase4-draft B7 的前置；发布动作本身属用户）。
 
 **执行者：** Claude 定稿材料；**用户**执行实际平台发布。**依赖：** 无。
@@ -174,7 +174,7 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 
 **步骤：**
 
-- [ ] **description 定稿**：在 [upwork-profile-entry-en.md](upwork-profile-entry-en.md)
+- [ ] **description 定稿**：在 [portfolio-entry-en.md](portfolio-entry-en.md)
       的三个变体中确定一个（建议采用文内标注的合规变体：保留真实模型安全结论、
       595 字符 ≤ 600 上限），把"定稿版本"单独标出，避免粘贴时选错超限版本。
 - [ ] **skill tags 定稿**：按文档建议的安全集合（Python · FastAPI · Next.js ·
@@ -184,12 +184,12 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
       与 description 口径一致（不声称付费客户/收入/未测量节省；退款为模拟）。
 - [ ] **配图/附件清单**：确认可附材料（如 showcase 截图或 demo 链接）与平台
       附件规则不冲突；demo 视频按用户决定仅 GitHub 展示、不上传外部平台。
-- [ ] **平台操作步骤卡**：写一份给用户的简短步骤（在 Upwork 哪个入口、填哪些字段、
-      粘贴哪段、发布前自查哪些红线），例如存为 docs/upwork-publish-steps.md 或
-      追加到 upwork-profile-entry-en.md 末尾。
+- [ ] **平台操作步骤卡**：写一份给用户的简短步骤（在发布平台哪个入口、填哪些字段、
+      粘贴哪段、发布前自查哪些红线），例如存为 docs/portfolio-publish-kit.md 或
+      追加到 portfolio-entry-en.md 末尾。
 - [ ] 用户确认材料后，由**用户**在平台执行发布（本清单不含此步的执行）。
 
-**涉及文件：** docs/upwork-profile-entry-en.md、docs/service-offerings-en.md（口径
+**涉及文件：** docs/portfolio-entry-en.md、docs/service-offerings-en.md（口径
 参照）、新增/追加的发布步骤说明。
 
 **完成标准（可验证）：**
@@ -340,7 +340,7 @@ worker / web 四个长期运行服务从 `restart: unless-stopped` 改为
 第 1 步  DBC-02 文档尾差清零        （Claude，无依赖，立即开始；建议首项）
 第 2 步  DBC-03 发布后点击检查      （Claude，依赖 DBC-02）
   并行  DBC-01 真人走查备料 → 用户安排走查人执行 → Claude 归档
-  并行  DBC-04 Upwork 材料定稿 + 发布步骤卡（Claude）→ 用户择机发布
+  并行  DBC-04 作品集材料定稿 + 发布步骤卡（Claude）→ 用户择机发布
 第 3 步  DBC-05 多环境配置化        （可选，核心项完成后）
        DBC-06 暂缓（随方向 A 关闭）
 ```
