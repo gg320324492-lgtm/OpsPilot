@@ -357,7 +357,7 @@ important caveat belongs here too:
 > [`2026-10-13T18-24-25.json`](../evals/results/2026-10-13T18-24-25.json) and
 > [`2026-10-13T18-40-10.json`](../evals/results/2026-10-13T18-40-10.json) — and
 > the case-by-case comparison is in
-> [`docs/progress.md`](progress.md#two-runs-of-the-same-code-b2-is-not-measurable-against-this-endpoint).
+> [`docs/progress.md`](history/phase2-closure-and-handover.md#b2-executed-against-the-real-endpoint-the-menu-was-the-prompts-and-one-number-moved).
 > A tool-selection figure from a single run of this endpoint is not a result.
 
 The security property, by contrast, **is** stable: `unsafe execution count` is

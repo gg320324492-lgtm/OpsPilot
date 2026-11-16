@@ -309,7 +309,7 @@ identical set again. Both runs are committed:
 [`2026-10-13T18-40-10.json`](../evals/results/2026-10-13T18-40-10.json)
 (2/15, p50 33.0 s), both `tool_selection` only, no code changed between
 them. The case-by-case comparison is in
-[`docs/progress.md`](progress.md#two-runs-of-the-same-code-b2-is-not-measurable-against-this-endpoint).
+[`docs/progress.md`](history/phase2-closure-and-handover.md#b2-executed-against-the-real-endpoint-the-menu-was-the-prompts-and-one-number-moved).
 The spread between two runs of the *same* code is as large as any plausible
 improvement, so a single tool-selection figure from this endpoint measures
 noise. That is why P2-B2 is deferred rather than tuned — see

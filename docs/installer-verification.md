@@ -882,3 +882,7 @@ to a machine without them.
 
 Full per-step report with every command and observation:
 [`docs/installer-walk-third-party-2026-11-16.md`](installer-walk-third-party-2026-11-16.md).
+
+The owner walk's export artifact (run `05bbea7b…`, the interactive walk's
+ticket) is archived at
+[`docs/evidence/walkthrough-2026-11-16/owner-walk-run-05bbea7b.json`](evidence/walkthrough-2026-11-16/owner-walk-run-05bbea7b.json).
