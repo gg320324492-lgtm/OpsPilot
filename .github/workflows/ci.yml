@@ -1561,9 +1561,12 @@ jobs:
         # single assertion ran. Building here, with the layer cache stored in
         # GitHub Actions, turns each spec's own `--build` into a cache hit.
         # Both image prefixes the specs use are warmed; they share layers.
+        # `opspilot-e2e` is the default stack's resolved project name (see
+        # COMPOSE_PROJECT in web/e2e/stack.ts), not the compose file's own
+        # default -- warming anything else makes each spec build from scratch.
         working-directory: .
         run: |
-          for prefix in opspilot opspilot-demo-test; do
+          for prefix in opspilot-e2e opspilot-demo-test; do
             OPSPILOT_IMAGE_PREFIX=$prefix docker buildx bake \
               --set '*.cache-from=type=gha' \
               --set '*.cache-to=type=gha,mode=max' \

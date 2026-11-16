@@ -457,7 +457,11 @@ export async function startStackOrSkip(
     // named project must not share images with the default `opspilot` stack.
     // The tag stays `local` here (the compose default) because this harness
     // passes `--build` and therefore never reuses an image by accident.
-    OPSPILOT_IMAGE_PREFIX: config.composeProject,
+    // The prefix is the resolved project name, not the raw config value: the
+    // default stack has no `composeProject` but still uses `opspilot-e2e`.
+    // Warming the wrong prefix (e.g. `opspilot`) makes every spec rebuild its
+    // images from scratch -- a 30-minute `beforeAll` on a cold runner.
+    OPSPILOT_IMAGE_PREFIX: config.composeProject ?? COMPOSE_PROJECT,
     OPSPILOT_API_HOST_PORT: config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
     OPSPILOT_PG_HOST_PORT:
       config.postgresHostPort === undefined ? undefined : String(config.postgresHostPort),
@@ -474,7 +478,7 @@ export async function startStackOrSkip(
   activeStackOverrides = Object.fromEntries(
     Object.entries({
       COMPOSE_PROJECT_NAME: config.composeProject,
-      OPSPILOT_IMAGE_PREFIX: config.composeProject,
+      OPSPILOT_IMAGE_PREFIX: config.composeProject ?? COMPOSE_PROJECT,
       OPSPILOT_API_HOST_PORT:
         config.apiHostPort === undefined ? undefined : String(config.apiHostPort),
       OPSPILOT_PG_HOST_PORT:
