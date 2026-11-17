@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 import { startStackOrSkip } from "./stack";
 
 /**
- * F4-D accessibility audit (plan §4-D: "Playwright/axe or equivalent checks
+ * F4-D accessibility audit (plan §F4-D: "Playwright/axe or equivalent checks
  * covering landmark, label, button name, dialog, focus order and status
  * announcement").
  *

@@ -1,6 +1,6 @@
 {
   "name": "opspilot-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "productName": "OpsPilot",
   "description": "Electron shell for the OpsPilot dashboard (docs/phase2-plan.md P2-D1, P2-D2)",

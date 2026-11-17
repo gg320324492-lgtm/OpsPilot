@@ -913,7 +913,7 @@ money moved once, and the second caller is being told it did not move.
 
 ## 7. Health and readiness
 
-`GET /health` → `200 {"status":"ok","version":"0.1.0"}`. Process liveness only —
+`GET /health` → `200 {"status":"ok","version":"0.2.2"}`. Process liveness only —
 it touches nothing.
 
 `GET /ready` → checks the database connection (a `SELECT 1`) and that

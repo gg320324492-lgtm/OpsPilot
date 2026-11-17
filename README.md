@@ -24,11 +24,13 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > 79/100; the remaining gap is the real-model gate itself
 > ([`docs/portfolio-acceptance-2026-11-15.md`](docs/portfolio-acceptance-2026-11-15.md)).
 > Installers are verified by independent walkthroughs and released:
-> [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
-> and
+> [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0),
 > [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
 > (the Phase 3 release, with the retrieval fix and the shell's
-> `OPSPILOT_API_HOST_PORT` support). The demo material
+> `OPSPILOT_API_HOST_PORT` support) and
+> [`v0.2.2`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2)
+> (the Phase 4 UI release: HeroUI re-skin, accessibility fixes, the native
+> title bar replaced by the app's own top bar). The demo material
 > ([`docs/showcase.md`](docs/showcase.md)) runs the scripted provider and says
 > so; the real-model evidence lives in the eval reports
 > ([`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md),
@@ -36,15 +38,17 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > The development-era narrative behind this README is
 > [`docs/dev-notes.md`](docs/dev-notes.md).
 
-> **UI, Phase 4 (in progress):** the dashboard is being re-skinned on
+> **UI, Phase 4 (shipped in v0.2.2):** the dashboard is re-skinned on
 > [HeroUI](https://heroui.dev/) 3.2.7 — the same Next.js 16 + React 19 +
 > Tailwind CSS 4 stack, now with one semantic design-token palette
 > ("audit-workbench": graphite surfaces, accent reserved for the action that
 > needs a person, amber/red/green status colours) shared by every screen.
-> No route, API call, permission check or state machine changed. The GIF and
-> screenshots below still show the pre-Phase-4 UI; they are being re-captured
-> on the new one and will be replaced in place (same paths, same scenario).
-> Progress is tracked in [`docs/phase4-plan.md`](docs/phase4-plan.md).
+> No route, API call, permission check or state machine changed. The desktop
+> shell also drops its native title bar: the app's own top bar is the title
+> bar, with the window buttons drawn natively on top of it. The GIF and
+> screenshots below still show the pre-Phase-4 UI; re-capturing them on the
+> new one is outstanding. Progress is tracked in
+> [`docs/phase4-plan.md`](docs/phase4-plan.md).
 
 ## The problem this solves
 
@@ -543,7 +547,7 @@ not make or a value you can recompute from a cited file.
 | CI green | 16 of 16 jobs | run [`39439825308`](https://github.com/gg320324492-lgtm/OpsPilot/actions/runs/39439825308) |
 | Python tests (CI) | 994 passed, 24 skipped — both 3.12 and 3.13 | same run, the `test (py3.12)` / `test (py3.13)` jobs — the run is from commit `f410911`, so it predates the tests added since |
 | Python tests (local) | 1422 passed, 19 skipped — 1441 collected | `pytest` on 2026-11-15, on the tree as it stands; the 4-test platform delta is the Windows-only `test_mcp_stdio_transport.py` process-enumeration tests, which are `skipif(sys.platform != "win32")` and so skip on the Linux runner |
-| Browser walkthrough | 67 passed | same run, the `web-e2e (browser golden path)` job — and run locally on 2026-10-21: **85 passed, 0 skipped** with Docker up, so the twenty-six Compose-backed specs ran rather than skipped, plus eighteen specs added since |
+| Browser walkthrough | 67 passed | same run, the `web-e2e (browser golden path)` job — and run locally on 2026-10-21: **85 passed, 0 skipped** with Docker up, so the twenty-seven Compose-backed specs ran rather than skipped, plus eighteen specs added since |
 | Tools | 9 registered, 3 permission levels | `domain/tools.py::TOOL_REGISTRY` — 7 `READ`, 1 `SAFE_WRITE`, 1 `HIGH_RISK_WRITE` |
 | MCP servers | 3 real MCP servers + `knowledge.search` in-process | [`docs/mcp-contracts.md`](docs/mcp-contracts.md); §4 for the ninth tool |
 | Policy documents | 17 documents → 98 chunks | click **Reindex** on the Knowledge screen; see [`02-knowledge-reindexed.png`](docs/assets/screenshots/02-knowledge-reindexed.png) |
@@ -567,8 +571,8 @@ not make or a value you can recompute from a cited file.
 
 **The browser walkthrough, counted from the tree.** Run locally on 2026-10-21
 with Docker up, the walkthrough was **85 passed, 0 skipped** — the CI run's 67
-plus eighteen specs added since. The twenty-six Compose-backed specs —
-twenty-two that bring up PostgreSQL, migrate, api and worker, and four that bring
+plus eighteen specs added since. The twenty-seven Compose-backed specs —
+twenty-three that bring up PostgreSQL, migrate, api and worker, and four that bring
 up the containerised dashboard — are the ones that need the daemon; the rest of
 the suite runs without it.
 

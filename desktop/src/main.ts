@@ -161,6 +161,86 @@ function emit(progress: Omit<Progress, "seq">): void {
   }
 }
 
+/** The dashboard's own top bar, once the shell has stretched it to title-bar height. */
+const TITLE_BAR_HEIGHT = 48;
+
+/**
+ * What the caption buttons look like before the page has said otherwise.
+ *
+ * The dashboard's light surface, which is what it renders until something puts
+ * a `.dark` class on the root. The real answer is read from the page itself --
+ * see `syncTitleBarOverlay` -- because the theme is the page's decision (a CSS
+ * class), not the operating system's, and guessing from `nativeTheme` put a
+ * dark block over a light nav on first launch.
+ */
+const DEFAULT_TITLE_BAR_COLORS = { color: "#ffffff", symbolColor: "#1a1d21" };
+
+/**
+ * The chrome the shell adds to the dashboard's top bar, injected after load.
+ *
+ * `[data-titlebar]` is the nav's outer element. It becomes the drag region (a
+ * window with no title bar has to be draggable from somewhere) and grows to
+ * the overlay's height so the two line up exactly. The right padding keeps the
+ * language switcher out from under the caption buttons -- but only while the
+ * window is narrow enough for the nav's `max-w-7xl` container to reach them;
+ * past that the container is centred and already clear, and padding it would
+ * shift the nav left of the page content it sits above.
+ */
+const TITLE_BAR_CSS = `
+  [data-titlebar] { -webkit-app-region: drag; height: ${TITLE_BAR_HEIGHT}px; }
+  [data-titlebar] > div { height: 100%; padding-top: 0; padding-bottom: 0; }
+  [data-titlebar] a, [data-titlebar] button { -webkit-app-region: no-drag; }
+  @media (max-width: 1604px) { [data-titlebar] { padding-right: 148px; } }
+`;
+
+/**
+ * Paint the caption-button overlay in the colours the page actually renders.
+ *
+ * The dashboard's theme is a `.dark` class on the root, not the operating
+ * system's preference, so `nativeTheme` is not the source of truth: on a
+ * machine whose OS is dark and whose page renders light, believing
+ * `nativeTheme` put a dark block over a white nav. Reading the computed styles
+ * of the bar (or, on the bootstrap page before the dashboard exists, of the
+ * body) follows whichever theme the page decided on. A colour that cannot be
+ * read -- transparent, or not a colour at all -- keeps the previous one: this
+ * is chrome, and a wrong guess must not paint over content.
+ */
+async function syncTitleBarOverlay(window: BrowserWindow): Promise<void> {
+  if (window.isDestroyed()) {
+    return;
+  }
+  try {
+    const colors = (await window.webContents.executeJavaScript(`(() => {
+      const hex = (value) => {
+        const match = /rgba?\\(([^)]+)\\)/.exec(String(value || ""));
+        if (!match) return null;
+        const parts = match[1].split(",").map((part) => Number(part.trim()));
+        if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return null;
+        if (parts.length > 3 && parts[3] === 0) return null;
+        return "#" + parts.slice(0, 3)
+          .map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0"))
+          .join("");
+      };
+      const bar =
+        document.querySelector("[data-titlebar]") || document.body || document.documentElement;
+      return {
+        color: hex(getComputedStyle(bar).backgroundColor),
+        symbolColor: hex(getComputedStyle(document.documentElement).color),
+      };
+    })()`)) as { color?: unknown; symbolColor?: unknown };
+    if (window.isDestroyed()) {
+      return;
+    }
+    const color = typeof colors.color === "string" ? colors.color : undefined;
+    const symbolColor = typeof colors.symbolColor === "string" ? colors.symbolColor : undefined;
+    if (color !== undefined && symbolColor !== undefined) {
+      window.setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR_HEIGHT });
+    }
+  } catch {
+    // A page that cannot be read keeps the last colours it painted.
+  }
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1180,
@@ -170,10 +250,31 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: "#0f1115",
     title: "OpsPilot",
+    // No native title bar: the dashboard's own top bar is the title bar, so the
+    // window shows one logo and one strip of chrome instead of a dark system
+    // frame above a light app header. The caption buttons stay native, drawn
+    // as an overlay whose colours track the app's light/dark surface.
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      ...DEFAULT_TITLE_BAR_COLORS,
+      height: TITLE_BAR_HEIGHT,
+    },
+    // The application menu is the i18n'd one in `src/menu.ts` (File/Edit/View/
+    // Window), and it stays installed so its accelerators keep working. Its
+    // BAR, though, is hidden by default: a menu strip above the dashboard reads
+    // as chrome the operator did not ask for, and the dashboard inside the
+    // window has its own navigation. Alt still reveals the menu, which is the
+    // Windows convention for a hidden bar -- removing the menu outright would
+    // take the reload and zoom accelerators with it.
+    autoHideMenuBar: true,
     webPreferences: {
       ...SECURE_WEB_PREFERENCES,
       preload: path.join(__dirname, "preload.js"),
     },
+  });
+  window.webContents.on("did-finish-load", () => {
+    void window.webContents.insertCSS(TITLE_BAR_CSS);
+    void syncTitleBarOverlay(window);
   });
   window.once("ready-to-show", () => {
     window.show();

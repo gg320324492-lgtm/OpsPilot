@@ -29,7 +29,7 @@ router = APIRouter(tags=["health"])
 # Reported by ``/health`` -- the package version, so a probe can tell which build
 # answered. Kept as a literal here rather than read from metadata at import time,
 # which would make ``/health`` depend on the installed distribution.
-_VERSION = "0.2.1"
+_VERSION = "0.2.2"
 
 
 @router.get("/health", response_model=HealthResponse)

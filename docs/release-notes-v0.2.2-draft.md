@@ -1,10 +1,9 @@
-# v0.2.2 (working title) — DRAFT
+# v0.2.2 — the Phase 4 UI release
 
-> **Status: DRAFT — not released, no tag cut.** The version number is
-> provisional and is finalized only at the version freeze (F4-E), after CI is
-> green and the F4-D visual-QA audit closes. Until then nothing here is
-> published anywhere. This draft exists so the release body can be reviewed
-> alongside the code it describes.
+> **Status: released 2026-11-17.** This text is the body of the GitHub
+> release. The version freeze (F4-E) bumped all five version locations to
+> 0.2.2 in one commit; the installer beside this file is the one those
+> sources built.
 >
 > Related planning documents: [`phase4-plan.md`](phase4-plan.md) (this is the
 > F4-A/F4-B/F4-C slice), [`f4e-release-checklist.md`](f4e-release-checklist.md)
