@@ -45,9 +45,10 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > needs a person, amber/red/green status colours) shared by every screen.
 > No route, API call, permission check or state machine changed. The desktop
 > shell also drops its native title bar: the app's own top bar is the title
-> bar, with the window buttons drawn natively on top of it. The GIF and
-> screenshots below still show the pre-Phase-4 UI; re-capturing them on the
-> new one is outstanding. Progress is tracked in
+> bar, with the Windows caption buttons drawn natively on top of it. The GIF
+> and screenshots below still show the pre-Phase-4 UI — re-capturing them on
+> the shipped design is the one Phase 4 item left open (see the screenshot
+> note below). The plan lives in
 > [`docs/phase4-plan.md`](docs/phase4-plan.md).
 
 ## The problem this solves
@@ -212,10 +213,11 @@ That is tested by calling the MCP server directly, bypassing the agent.
 ### Watch it run
 
 > **Screenshot note (Phase 4):** the GIF and the ten screenshots below were
-> captured on the pre-HeroUI UI. They still show the correct behaviour and
-> data; the chrome around them (colors, cards, navigation) is being re-captured
-> on the new token set. Do not treat the styling in them as current. They will
-> be replaced in place at these same paths.
+> captured on the pre-HeroUI UI. The behaviour and data in them are current;
+> the chrome around them (colors, cards, navigation) is not. Re-capturing them
+> on the shipped token set, at these same paths, is the one Phase 4 item that
+> is still open — tracked in
+> [`docs/f4e-release-checklist.md`](docs/f4e-release-checklist.md).
 
 ![The golden path end to end on the deterministic provider: the API certifies /ready against the database, the duplicate-charge ticket is submitted and parks at WAITING_APPROVAL, a human approves, and the worker executes the refund exactly once](docs/assets/golden-path.gif)
 
@@ -767,19 +769,20 @@ cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
 
 ### The desktop installer
 
-**[Release `v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)**
-carries the current verified Windows installer `OpsPilot-Setup-0.2.0-x64.exe`
-(130,075,633 bytes, SHA-256
-`2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`) — an
+**[Release `v0.2.2`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2)**
+carries the current Windows installer `OpsPilot-Setup-0.2.2-x64.exe`
+(130,717,329 bytes, SHA-256
+`234853a9a7caf2e197fc531b7c6d3a7c8edce7c4e5b4f3429d4f025d2926f5d6`) — an
 Electron shell that owns the window and the Compose lifecycle and generates its
-own operator token. It requires Docker Desktop; Node is not required. It was
-installed and exercised on Windows by two independent walkers who did not
-build it: the sixteen-check walkthrough of the golden path, then a re-check of
-the port-occupied scenario after the shell learned to follow
-`OPSPILOT_API_HOST_PORT`; both records live in
-[`docs/installer-verification.md`](docs/installer-verification.md). The
-earlier [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
-release and its 2026-11-14 walkthrough record remain valid. The
+own operator token. The shell's window has no native title bar: the dashboard's
+own top bar is the title bar, with the Windows caption buttons drawn natively
+over it in the page's colours. It requires Docker Desktop; Node is not
+required. Verified on Windows by an installed-run check of the running app —
+version, `/health`, the port-override path and the window chrome — recorded in
+[`docs/f4e-release-checklist.md`](docs/f4e-release-checklist.md). The
+[`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
+and [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
+releases and their walkthrough records remain valid for those versions. The
 `desktop-package` CI job builds the installer on every push to `main`. How the
 release was assembled, what a workflow artefact is and is not, and the
 walk-through hand-over notes are in [`docs/dev-notes.md`](docs/dev-notes.md).

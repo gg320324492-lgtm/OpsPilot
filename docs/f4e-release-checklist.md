@@ -15,10 +15,10 @@ session 创建（2026-11-16），列出发版前必须逐项确认的内容。**
 
 | # | 检查项 | 证据 |
 |---|---|---|
-| 0.1 | main 分支 CI 全绿（lint / unit / integration / web-e2e / desktop-package） | 待填：最近一次 green run 链接 |
+| 0.1 | main 分支 CI 全绿（lint / unit / integration / web-e2e / desktop-package） | ✅ b21046d run（2026-11-17，16 job 全 success；5456a9c/c454556 各有一次失败，原因已修复） |
 | 0.2 | F4-D 视觉 QA / 可访问性 / 响应式 / bundle 审计完成，严重问题清零（暂留问题写入冻结报告） | 待填：审计记录链接 |
 | 0.3 | web 全量 Playwright e2e 在干净环境通过（历史参考：122 项，99+6+17 的失败全部由端口占用引起，已修复；以最新全量结果为准） | 待填：e2e 结果记录 |
-| 0.4 | 版本冻结 commit 已确定，所有下述文件指向同一 commit | 待填：commit hash |
+| 0.4 | 版本冻结 commit 已确定，所有下述文件指向同一 commit | ✅ 5456a9c（tag 初指），后移到 b21046d（含 CI 修复） |
 
 ## 1. 版本号统一（五处必须一致）
 
@@ -28,11 +28,11 @@ session 创建（2026-11-16），列出发版前必须逐项确认的内容。**
 
 | # | 位置 | 当前值 | 冻结值 | 核对方式 |
 |---|---|---|---|---|
-| 1.1 | `desktop/package.json` → `"version"` | 0.2.1 | 待定 | `grep '"version"' desktop/package.json` |
-| 1.2 | `web/package.json` → `"version"` | 0.2.1 | 待定 | `grep '"version"' web/package.json` |
-| 1.3 | `pyproject.toml` → `version` | 0.2.1 | 待定 | `grep '^version' pyproject.toml` |
-| 1.4 | `src/opspilot/__init__.py` → `__version__` | 0.2.1 | 待定 | `python -c "import opspilot; print(opspilot.__version__)"` |
-| 1.5 | `src/opspilot/api/routers/health.py` → `_VERSION`（`/health` 返回值） | 0.2.1 | 待定 | `curl -s localhost:8000/health`（包内集成测试断言跟随包版本，见 763c128 提交说明） |
+| 1.1 | `desktop/package.json` → `"version"` | 0.2.1 | 0.2.2 | `grep '"version"' desktop/package.json` |
+| 1.2 | `web/package.json` → `"version"` | 0.2.1 | 0.2.2 | `grep '"version"' web/package.json` |
+| 1.3 | `pyproject.toml` → `version` | 0.2.1 | 0.2.2 | `grep '^version' pyproject.toml` |
+| 1.4 | `src/opspilot/__init__.py` → `__version__` | 0.2.1 | 0.2.2 | `python -c "import opspilot; print(opspilot.__version__)"` |
+| 1.5 | `src/opspilot/api/routers/health.py` → `_VERSION`（`/health` 返回值） | 0.2.1 | 0.2.2 | `curl -s localhost:8000/health`（包内集成测试断言跟随包版本，见 763c128 提交说明） |
 
 附带核对（不要求五处一致，但要求**有意识**）：
 
@@ -84,11 +84,11 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 
 | # | 检查项 | 说明 |
 |---|---|---|
-| 5.1 | README 顶部状态段更新 | Phase 4 完成后，将「in progress / screenshots pending」改为定稿表述；release 链接补本版本 |
-| 5.2 | `The desktop installer` 小节指向新 Release | 文件名、字节数、SHA-256 与实际 asset 一致 |
-| 5.3 | 版本相关示例更新 | `api-contract.md` §health 示例、`app.py` OpenAPI version（与 §1 决定一致） |
+| 5.1 | README 顶部状态段更新 | ✅ Phase 4 标记 shipped；release 链接补 v0.2.2；截图说明改为「re-capture 仍开放」 |
+| 5.2 | `The desktop installer` 小节指向新 Release | ✅ 指向 v0.2.2，文件名/字节数/SHA-256 与 asset 一致 |
+| 5.3 | 版本相关示例更新 | ✅ `api-contract.md` §health 示例与 `app.py` OpenAPI version 均为 0.2.2 |
 | 5.4 | 技术栈描述核对 | 架构图与「Try it」路径无需变化；若 README 其他位置提及 UI 库/样式，确认与 HeroUI 3.2.7 现状一致 |
-| 5.5 | [`docs/progress.md`](progress.md) 增补 Phase 4 结果 | 如实记录：完成项、F4-D 审计结论、暂留问题 |
+| 5.5 | [`docs/progress.md`](progress.md) 增补 Phase 4 结果 | ✅ Phase 4 CI incident 一节已记录根因与修复；HeroUI 落地与 v0.2.2 见执行记录 |
 | 5.6 | `docs/phase4-closeout.md` 生成（phase4-plan §F4-E 要求的冻结后唯一状态说明，文件尚未创建） | 内容：已验证 / 未验证 / 已知限制 / 重开条件（真实用户采用、明确缺陷、真实客户需求、安全问题） |
 | 5.7 | release notes 定稿 | [`release-notes-v0.2.2-draft.md`](release-notes-v0.2.2-draft.md) 去掉 DRAFT 标记与「待更新」项，版本号按 §1 定稿 |
 
