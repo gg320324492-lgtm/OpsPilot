@@ -66,7 +66,7 @@ export function LocaleSwitcher({
   const pathname = usePathname();
 
   return (
-    <nav aria-label={label} className="ml-auto flex items-center gap-1 text-xs">
+    <div role="group" aria-label={label} className="ml-auto flex items-center gap-1 text-xs">
       {locales.map((locale) => {
         const active = locale === current;
         return (
@@ -84,6 +84,6 @@ export function LocaleSwitcher({
           </a>
         );
       })}
-    </nav>
+    </div>
   );
 }

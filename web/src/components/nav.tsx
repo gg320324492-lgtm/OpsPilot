@@ -41,11 +41,10 @@ export async function Nav() {
       <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
         <span className="text-sm font-semibold tracking-tight text-foreground">OpsPilot</span>
         {/*
-          The two landmarks are **siblings, not nested**. A `<nav>` inside a
-          `<nav>` is legal HTML and ambiguous to a screen reader, and it made the
-          main nav's link list include the two language links -- so an
-          accessibility-tree reading of "where can I go" carried two answers
-          that are not destinations.
+          The language control uses role="group" rather than a second `<nav>`:
+          two navigation landmarks made getByRole('navigation') ambiguous (the
+          F4-D audit's P0-4 strict-mode failure), so the main nav is the only
+          navigation landmark on the page.
         */}
         <nav aria-label={t("nav.label")}>
           <NavLinks labels={Object.fromEntries(ROUTES.map((route) => [route.key, t(`nav.${route.key}`)]))} />
