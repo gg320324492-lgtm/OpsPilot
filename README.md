@@ -46,9 +46,7 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > No route, API call, permission check or state machine changed. The desktop
 > shell also drops its native title bar: the app's own top bar is the title
 > bar, with the Windows caption buttons drawn natively on top of it. The GIF
-> and screenshots below still show the pre-Phase-4 UI — re-capturing them on
-> the shipped design is the one Phase 4 item left open (see the screenshot
-> note below). The plan lives in
+> and screenshots below are captured on the shipped design. The plan lives in
 > [`docs/phase4-plan.md`](docs/phase4-plan.md).
 
 ## The problem this solves
@@ -212,19 +210,18 @@ That is tested by calling the MCP server directly, bypassing the agent.
 
 ### Watch it run
 
-> **Screenshot note (Phase 4):** the GIF and the ten screenshots below were
-> captured on the pre-HeroUI UI. The behaviour and data in them are current;
-> the chrome around them (colors, cards, navigation) is not. Re-capturing them
-> on the shipped token set, at these same paths, is the one Phase 4 item that
-> is still open — tracked in
-> [`docs/f4e-release-checklist.md`](docs/f4e-release-checklist.md).
+> **Screenshot note (Phase 4):** the GIF and the ten screenshots below are
+> captured on the shipped (HeroUI) design, from one fake-provider run against
+> the real two-process stack — the same capture the case study documents. The
+> retake is scripted: `scripts/retake_readme_screenshots.mjs` (still shots)
+> and `scripts/retake_gif_from_stack.mjs` (the GIF).
 
 ![The golden path end to end on the deterministic provider: the API certifies /ready against the database, the duplicate-charge ticket is submitted and parks at WAITING_APPROVAL, a human approves, and the worker executes the refund exactly once](docs/assets/golden-path.gif)
 
-*A real run, recorded from `scripts/demo_golden_path.py` on `MODEL_PROVIDER=fake`
+*A real browser run, recorded from the demo stack on `MODEL_PROVIDER=fake`
 — a scripted replay with no API key, so the model's *answers* are the same every
-time. What the recording runs in, and how to reproduce it:
-[`docs/dev-notes.md`](docs/dev-notes.md).*
+time. How to reproduce it: `scripts/retake_gif_from_stack.mjs` (and the
+terminal original, `scripts/record_demo_gif.mjs`, is still in the tree).*
 
 **Browser videos with the same disclosure.** Three walkthroughs of the demo
 paths — approve, reject, and model-failure recovery — recorded from the real
@@ -255,7 +252,7 @@ written up in full in
 
 ![The Tickets form filled with the README's ticket: subject We were charged twice for invoice INV-2026-384, customer billing@acme.example](docs/assets/screenshots/03-ticket-submitted.png)
 
-![The ticket accepted, returning a link to the new run 011b6a81](docs/assets/screenshots/04-ticket-accepted.png)
+![The ticket accepted, returning a link to the new run](docs/assets/screenshots/04-ticket-accepted.png)
 
 **5 — the run parks on the approval gate. This is the whole project in one screen.**
 
@@ -281,7 +278,7 @@ reaches this screen.
 
 ![The Approvals inbox empty: Nothing is waiting for a decision](docs/assets/screenshots/07-approval-decided.png)
 
-![The completed run: 21 steps, terminal status Completed, the customer reply composed against the cited sources, and billing.issue_refund Executed returning REF-10091 with replayed false and its idempotency key](docs/assets/screenshots/08-refund-executed-audited.png)
+![The completed run: 21 steps, terminal status Completed, the customer reply composed against the cited sources, and billing.issue_refund Executed with its idempotency key](docs/assets/screenshots/08-refund-executed-audited.png)
 
 **9 and 10 — the audit trail afterwards**
 

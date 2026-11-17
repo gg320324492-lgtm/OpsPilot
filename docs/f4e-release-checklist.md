@@ -49,12 +49,12 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 
 | # | 检查项 | 说明 |
 |---|---|---|
-| 2.1 | `docs/assets/golden-path.gif` 在新 UI 上重录 | 同一 fake-provider 场景、同一流程（/ready → 提交工单 → WAITING_APPROVAL → 批准 → 幂等执行）；保持原尺寸/体积量级 |
-| 2.2 | `docs/assets/screenshots/01–10` 十张截图重拍 | 同一 fixture、同一 viewport、同一点击顺序；覆盖 dashboard、knowledge 索引、工单提交/受理、run 停在审批、审批中/已决、退款入账审计、runs 列表 |
-| 2.3 | README 中对应 alt 文本核对 | 新 UI 下时间线步数、引用文档数、状态文案若变化，alt 文本同步改（以实际截图内容为准，不沿用旧数字） |
-| 2.4 | 演示视频 `web/public/showcase/demo-path-{a,b,c}.mp4` | 若 F4-D 后 UI 变化影响画面，重录；若仅色板微调且卡片披露仍在，可保留并在此记录决定 |
-| 2.5 | 移除 README 两处「截图待更新」标注 | 仅在 2.1–2.4 完成后执行 |
-| 2.6 | 新旧截图 before/after 留档 | F4-D 审计要求保留对比；存 `docs/assets/` 或审计记录引用的路径 |
+| 2.1 | `docs/assets/golden-path.gif` 在新 UI 上重录 | ✅ `scripts/retake_gif_from_stack.mjs`：demo 栈浏览器走查，44 帧 @4fps，564KB（1440×900），同场景同流程 |
+| 2.2 | `docs/assets/screenshots/01–10` 十张截图重拍 | ✅ `scripts/retake_readme_screenshots.mjs`：demo 栈（0.2.2，fake/duplicate_charge），1440×900，同一点击顺序，run 17e5d0e4 完整走完 |
+| 2.3 | README 中对应 alt 文本核对 | ✅ 逐张核对：run 17e5d0e4 为 21 步/17 步等待/5 chunks/4 tool calls，与 alt 一致；04 的 run id 从 alt 移除（每次运行不同） |
+| 2.4 | 演示视频 `web/public/showcase/demo-path-{a,b,c}.mp4` | 决定：保留。三条视频的场景、点击路径与「scripted provider」披露卡不变，F4-D 仅改色板与卡片样式；重录留待下次内容性改动 |
+| 2.5 | 移除 README 两处「截图待更新」标注 | ✅ 已移除，替换为「captured on the shipped design」与录制脚本说明 |
+| 2.6 | 新旧截图 before/after 留档 | ✅ 旧 UI 十图 + 旧 GIF 存 `docs/assets/screenshots/phase3-archive/`（旧 GIF 自 4011b16 恢复） |
 
 ## 3. e2e 与测试
 
