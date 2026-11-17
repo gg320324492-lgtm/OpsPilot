@@ -583,7 +583,9 @@ export async function startStackOrSkip(
   const build = spawnSync("npm", ["run", "build"], {
     cwd: WEB_DIR,
     stdio: "inherit",
-    timeout: 30000,
+    // A cold runner compiles the app (and now HeroUI) from scratch; 30s was
+    // measured to be too tight there, while a warm build finishes in ~10s.
+    timeout: 300_000,
     env: webEnv,
     shell: process.platform === "win32",
   });
