@@ -32,6 +32,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Spinner } from "@heroui/react";
 import { readJsonSafely } from "@/lib/api/client";
 import { createScopedT } from "@/i18n/format";
 
@@ -89,7 +90,13 @@ export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: str
           disabled={busy}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
         >
-          {busy ? t("knowledge.reindex.reindexing") : t("knowledge.reindex.button")}
+          {busy ? (
+            <>
+              <Spinner size="sm" aria-hidden="true" /> {t("knowledge.reindex.reindexing")}
+            </>
+          ) : (
+            t("knowledge.reindex.button")
+          )}
         </button>
         <span className="text-xs text-muted">
           {t("knowledge.reindex.hint_before")} <code>{t("knowledge.reindex.glob")}</code>{" "}
@@ -103,7 +110,7 @@ export function ReindexButton({ copy, locale }: { copy: ReindexCopy; locale: str
       {failure ? (
         <div
           role="alert"
-          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-foreground  dark:bg-red-950/40 "
+          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-foreground "
         >
           {failure}
         </div>
@@ -128,7 +135,7 @@ function ResultPanel({ result, t }: { result: Result; t: ReturnType<typeof creat
     <div
       className={`rounded-md border px-3 py-2 text-sm ${
         unchanged
-          ? "border-success/40 bg-success/10 text-success  dark:bg-emerald-950/40 "
+          ? "border-success/40 bg-success/10 text-success "
           : "border-separator bg-surface-secondary text-foreground"
       }`}
     >

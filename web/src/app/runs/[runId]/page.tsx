@@ -392,14 +392,14 @@ function Timeline({
               </div>
               <div className="min-w-0 flex-1 pb-4">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="font-mono text-xs text-muted">
+                  <span className="whitespace-nowrap font-mono text-xs text-muted">
                     {step.sequence}
                   </span>
-                  <span className="text-sm font-medium">{step.label}</span>
+                  <span className="whitespace-nowrap text-sm font-medium">{step.label}</span>
                   {/* `step_type` verbatim, through `humanise` and never a label
                       table. See the module docstring. */}
                   <Pill>{humanise(step.step_type)}</Pill>
-                  <span className="text-xs text-muted">
+                  <span className="whitespace-nowrap text-xs text-muted">
                     <Time value={step.at}>{formatClock(step.at)}</Time>
                   </span>
                   <LatencyCell ms={step.latency_ms} stepType={step.step_type} t={t} />

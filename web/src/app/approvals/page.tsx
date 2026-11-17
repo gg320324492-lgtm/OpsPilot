@@ -198,8 +198,8 @@ function StatusFilter({ current, t }: { current: ApprovalStatus; t: TFunction })
           title={t(`approvals.filterHint.${filter.key}`)}
           className={
             current === filter.value
-              ? "rounded-full bg-accent px-2.5 py-1 font-medium text-accent-foreground"
-              : "rounded-full px-2.5 py-1 text-muted hover:bg-surface-secondary"
+              ? "rounded-full border border-accent bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+              : "rounded-full border border-border px-2.5 py-1 text-muted hover:bg-surface-secondary"
           }
         >
           {approvalStatusLabel(filter.value, t)}

@@ -98,17 +98,17 @@ export default async function RunsPage({
           <ErrorPanel error={runs.error} title={t("runs.couldNotLoad")} />
         ) : rows.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
                 <tr className="border-b border-separator text-left text-xs uppercase tracking-wide text-muted">
-                  <th className="py-2 pr-4 font-medium">{t("runs.colRun")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colTicket")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colStatus")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colModel")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colCreated")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colStarted")}</th>
-                  <th className="py-2 pr-4 font-medium">{t("runs.colCompleted")}</th>
-                  <th className="py-2 font-medium">{t("runs.colFailureReason")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colRun")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colTicket")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colStatus")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colModel")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colCreated")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colStarted")}</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">{t("runs.colCompleted")}</th>
+                  <th scope="col" className="py-2 font-medium">{t("runs.colFailureReason")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,9 +226,6 @@ function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
   return (
     <nav aria-label={t("runs.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
       <FilterLink href="/runs" label={t("runs.filterAll")} active={current === undefined} />
-      <span className="px-1 text-muted" aria-hidden="true">
-        |
-      </span>
       {(
         [
           "waiting_approval",
@@ -247,9 +244,6 @@ function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
           active={current === status}
         />
       ))}
-      <span className="px-1 text-muted" aria-hidden="true">
-        |
-      </span>
       {(["failed", "completed"] as const).map((status) => (
         <FilterLink
           key={status}
@@ -269,8 +263,8 @@ function FilterLink({ href, label, active }: { href: string; label: string; acti
       aria-current={active ? "page" : undefined}
       className={
         active
-          ? "rounded-full bg-accent px-2.5 py-1 font-medium text-accent-foreground"
-          : "rounded-full px-2.5 py-1 text-muted hover:bg-surface-secondary"
+          ? "rounded-full border border-accent bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+          : "rounded-full border border-border px-2.5 py-1 text-muted hover:bg-surface-secondary"
       }
     >
       {label}

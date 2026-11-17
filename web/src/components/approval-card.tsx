@@ -282,7 +282,7 @@ function DuplicateNotice({
   t: TFunction;
 }) {
   return (
-    <div className="mb-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-foreground">
+    <div className="mb-3 rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-xs text-foreground">
       <p className="font-semibold">
         {identicalArguments
           ? t("approvalCard.duplicateIdenticalTitle")
