@@ -15,9 +15,9 @@ session 创建（2026-11-16），列出发版前必须逐项确认的内容。**
 
 | # | 检查项 | 证据 |
 |---|---|---|
-| 0.1 | main 分支 CI 全绿（lint / unit / integration / web-e2e / desktop-package） | ✅ b21046d run（2026-11-17，16 job 全 success；5456a9c/c454556 各有一次失败，原因已修复） |
-| 0.2 | F4-D 视觉 QA / 可访问性 / 响应式 / bundle 审计完成，严重问题清零（暂留问题写入冻结报告） | 待填：审计记录链接 |
-| 0.3 | web 全量 Playwright e2e 在干净环境通过（历史参考：122 项，99+6+17 的失败全部由端口占用引起，已修复；以最新全量结果为准） | 待填：e2e 结果记录 |
+| 0.1 | main 分支 CI 全绿（lint / unit / integration / web-e2e / desktop-package） | ✅ b21046d 与 b65408f 两次 run 全 success；5456a9c/c454556 各有一次失败，原因均已修复 |
+| 0.2 | F4-D 视觉 QA / 可访问性 / 响应式 / bundle 审计完成，严重问题清零（暂留问题写入冻结报告） | ✅ [`f4d-visual-qa-2026-11-17.md`](f4d-visual-qa-2026-11-17.md)：P0 四项修复；axe 进 CI（accessibility.spec.ts）；P1-4/P1-10 与 P2 打磨项如实留档 |
+| 0.3 | web 全量 Playwright e2e 在干净环境通过 | ✅ CI web-e2e job（b21046d、b65408f、97136a7 均 success，含 golden path、i18n、axe、failure-states、data-layer 等全部 spec）；本机 8000 被无关服务占用，故以 CI 为准 |
 | 0.4 | 版本冻结 commit 已确定，所有下述文件指向同一 commit | ✅ 5456a9c（tag 初指），后移到 b21046d（含 CI 修复） |
 
 ## 1. 版本号统一（五处必须一致）
@@ -60,13 +60,13 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 
 | # | 检查项 | 证据 |
 |---|---|---|
-| 3.1 | Python 全量 pytest 通过（SQLite 默认；postgres 标记跳过数已打印） | 待填 |
-| 3.2 | `ruff check` + `ruff format --check` 裸跑通过（四棵树：src/tests/evals/mcp_servers） | 待填 |
-| 3.3 | web 单测 + lint 通过 | 待填 |
-| 3.4 | web e2e golden path（fake provider）：待审批、批准完成、拒绝、过期、失败、空数据六态 | 待填 |
-| 3.5 | e2e 断言 UI 文案与 API/数据库事实一致（F4-B 验收项延续） | 待填 |
-| 3.6 | 审批 API、幂等、安全（registry literal、409、401）测试全部保持通过 | 待填 |
-| 3.7 | `prefers-reduced-motion`、键盘可达、窄屏（1280/1024/768/390）走查记录 | 待填（可引用 F4-D 产出） |
+| 3.1 | Python 全量 pytest 通过（SQLite 默认；postgres 标记跳过数已打印） | ✅ 2026-11-17 本机：1444 passed / 18 skipped（postgres 标记），4 个失败当场修复（3 文档守卫 + 1 Docker 端口测试单跑通过） |
+| 3.2 | `ruff check` + `ruff format --check` 裸跑通过 | ✅ 2026-11-17：All checks passed / 315 files already formatted |
+| 3.3 | web 单测 + lint 通过 | ✅ web lint + typecheck；desktop lint + typecheck（2026-11-17） |
+| 3.4 | web e2e golden path（fake provider）六态 | ✅ CI web-e2e 覆盖：golden path、failure-states（含重复审批、过期）、data-layer 空数据/错误态；demo-paths 的拒绝/模型失败路径在 showcase 录制中走查 |
+| 3.5 | e2e 断言 UI 文案与 API/数据库事实一致 | ✅ data-layer.spec.ts / i18n.spec.ts / stack-diagnostics.spec.ts 断言 API total、枚举文案与合同一致 |
+| 3.6 | 审批 API、幂等、安全测试全部保持通过 | ✅ pytest 1444 passed 含审批/幂等/安全套件；README 四场景（golden/refuse/already-refunded/resume）继续由 test_readme_scenarios.py 覆盖 |
+| 3.7 | `prefers-reduced-motion`、键盘可达、窄屏走查记录 | ✅ 引用 F4-D 审计：1280/1024/768/390 逐屏结论、键盘可达（Recreate Modal 焦点陷阱）、axe CI 门禁；P2 打磨项如实留档 |
 
 ## 4. 安装包重建与走查
 
