@@ -185,7 +185,7 @@ function isApprovalStatus(value: string | undefined): value is ApprovalStatus {
 
 function StatusFilter({ current, t }: { current: ApprovalStatus; t: TFunction }) {
   return (
-    <nav aria-label={t("approvals.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
+    <div role="group" aria-label={t("approvals.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
       {FILTERS.map((filter) => (
         <Link
           key={filter.value}
@@ -205,6 +205,6 @@ function StatusFilter({ current, t }: { current: ApprovalStatus; t: TFunction })
           {approvalStatusLabel(filter.value, t)}
         </Link>
       ))}
-    </nav>
+    </div>
   );
 }

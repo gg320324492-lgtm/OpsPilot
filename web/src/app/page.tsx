@@ -165,7 +165,7 @@ export default async function DashboardPage() {
                 : undefined
             }
           >
-            <dl className="space-y-2 text-sm">
+            <div className="space-y-2 text-sm">
               <Row
                 label={t("dashboard.rowInFlight")}
                 value={inFlight}
@@ -194,7 +194,7 @@ export default async function DashboardPage() {
                 error={errors.failed}
                 t={t}
               />
-            </dl>
+            </div>
             <p className="mt-4 text-xs text-muted">
               {t("dashboard.tallyNote_before")}{" "}
               <Link href="/runs" className="underline underline-offset-2">
@@ -395,23 +395,23 @@ function Row({
   if (value === null) {
     return (
       <div className="border-b border-separator pb-2 last:border-0">
-        <dt className="font-medium">{label}</dt>
-        <dd className="mt-0.5">
+        <p className="font-medium">{label}</p>
+        <p className="mt-0.5">
           <p className="text-xs text-danger">{t("dashboard.couldNotCount")}</p>
           <div className="mt-1">
             <ErrorPanel error={error} />
           </div>
-        </dd>
+        </p>
       </div>
     );
   }
   return (
     <div className="flex items-start justify-between gap-4 border-b border-separator pb-2 last:border-0">
       <div>
-        <dt className="font-medium">{label}</dt>
-        <dd className="mt-0.5 text-xs text-muted">{hint}</dd>
+        <p className="font-medium">{label}</p>
+        <p className="mt-0.5 text-xs text-muted">{hint}</p>
       </div>
-      <dd className="text-lg font-semibold tabular-nums">{value}</dd>
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
     </div>
   );
 }

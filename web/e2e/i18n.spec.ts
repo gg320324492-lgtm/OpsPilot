@@ -95,7 +95,7 @@ test.beforeAll(async ({ browser }) => {
   // teardown artefact ("browserContext.close: ENOENT") instead of the thing
   // that actually happened. The budget below is the build's.
   test.setTimeout(1_800_000);
-  stack = await startStackOrSkip("i18n");
+  stack = await startStackOrSkip("i18n", { apiHostPort: 18000 });
   if (stack.skip) {
     return;
   }
@@ -149,13 +149,14 @@ async function chooseLocale(page: Page, label: string, returnTo = "/"): Promise<
 /**
  * The language control, by its own accessible name.
  *
- * The main nav and the switcher are **sibling** landmarks rather than nested
- * ones (`nav.tsx` says why), so the switcher is reachable by its own
- * `aria-label` -- and the label is itself localised, so it is matched in either
+ * The switcher is a `role="group"`, not a second `<nav>` landmark: two
+ * navigation landmarks made `getByRole('navigation')` ambiguous (the F4-D
+ * audit's P0-4), so the main nav is the page's only one. The group keeps its
+ * `aria-label`, which is itself localised, so it is matched in either
  * language.
  */
 function languageSwitcher(page: Page) {
-  return page.getByRole("navigation", { name: /^(Language|语言)$/ });
+  return page.getByRole("group", { name: /^(Language|语言)$/ });
 }
 
 /** Put the browser in a locale without going through the control. */

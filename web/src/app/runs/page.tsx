@@ -224,7 +224,7 @@ function isRunStatus(value: string | undefined): value is (typeof RUN_STATUSES)[
  */
 function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
   return (
-    <nav aria-label={t("runs.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
+    <div role="group" aria-label={t("runs.filterAriaLabel")} className="flex flex-wrap items-center gap-1 text-xs">
       <FilterLink href="/runs" label={t("runs.filterAll")} active={current === undefined} />
       {(
         [
@@ -252,7 +252,7 @@ function StatusFilter({ current, t }: { current?: string; t: TFunction }) {
           active={current === status}
         />
       ))}
-    </nav>
+    </div>
   );
 }
 

@@ -19,7 +19,7 @@ let stack: Awaited<ReturnType<typeof startStackOrSkip>> | null = null;
 
 test.beforeAll(async () => {
   test.setTimeout(1_800_000);
-  stack = await startStackOrSkip("golden-path");
+  stack = await startStackOrSkip("golden-path", { apiHostPort: 18000 });
 });
 
 test.afterAll(() => {
