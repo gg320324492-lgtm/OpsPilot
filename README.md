@@ -768,17 +768,20 @@ cd web && npm ci && npx playwright install --with-deps chromium && npm run e2e
 
 ### The desktop installer
 
-**[Release `v0.2.2`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2)**
-carries the current Windows installer `OpsPilot-Setup-0.2.2-x64.exe`
-(130,717,329 bytes, SHA-256
-`234853a9a7caf2e197fc531b7c6d3a7c8edce7c4e5b4f3429d4f025d2926f5d6`) — an
+**[Release `v0.2.3`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.3)**
+carries the current Windows installer `OpsPilot-Setup-0.2.3-x64.exe`
+(130,717,352 bytes, SHA-256
+`dea49e9f351f6910fcf23901e0f95654978e951f05271998101f9b9307fb6018`) — an
 Electron shell that owns the window and the Compose lifecycle and generates its
 own operator token. The shell's window has no native title bar: the dashboard's
 own top bar is the title bar, with the Windows caption buttons drawn natively
-over it in the page's colours. It requires Docker Desktop; Node is not
-required. Verified on Windows by an installed-run check of the running app —
-version, `/health`, the port-override path and the window chrome — recorded in
-[`docs/f4e-release-checklist.md`](docs/f4e-release-checklist.md). The
+over it in the page's colours, and that bar stays put while a page scrolls. It
+requires Docker Desktop; Node is not required. Verified on Windows by an
+independent installation walk — fresh install, knowledge reindex, the ticket,
+the approval gate, the approved refund, the error state and the data that
+survives a restart — recorded in
+[`docs/installer-verification.md`](docs/installer-verification.md). The
+[`v0.2.2`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2),
 [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
 and [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0)
 releases and their walkthrough records remain valid for those versions. The
