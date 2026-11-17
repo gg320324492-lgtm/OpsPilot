@@ -109,3 +109,35 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 - 外部平台作品集发布 —— 用户既定：另行安排。
 - 任何源码、测试、权限或 API 行为改动 —— 本阶段只允许版本号文件、文档与
   截图资产变更。
+
+---
+
+## 执行记录（v0.2.2，2026-11-17）
+
+**发布 commit：** `5456a9c`（tag `v0.2.2`）。Release：
+https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2
+
+**已完成：**
+
+- 五处版本号同一次 commit 统一为 `0.2.2`（desktop/web package.json、
+  pyproject.toml、`__init__.py`、`health.py`），两处 lockfile 顶层 version
+  同步；`app.py` 的 FastAPI version 与 `api-contract.md` 的示例一并跟上
+  （清单 1.6 / 1.7 不再滞后）。
+- 本地守卫：ruff check / ruff format、pytest（1444 passed；4 个失败已修：
+  3 个文档守卫因新增 axe spec 的计数与章节引用失配、1 个 Docker 端口测试
+  为环境性失败，单跑通过）、web lint+typecheck、desktop lint+typecheck。
+- 安装包：本地 `electron-builder` 构建 `OpsPilot-Setup-0.2.2-x64.exe`
+  （130,717,317 B，SHA-256 `f3d34f4cd31b2032eec17834e8a3ba948a454ba5da88f0ea8568aa7b167ee4f7`），
+  包内校验：`app.asar` 含 `titleBarStyle`、web 资源为 HeroUI 版
+  （`2jrk7q0s-ohl6.css`，485,072 B）、SSR chunk 含 `data-titlebar`。
+- 本机覆盖安装并启动：注册表版本 `0.2.2`，`/health` 返回
+  `{"status":"ok","version":"0.2.2"}`，窗口无原生标题栏、按钮覆盖层与导航同色。
+
+**未完成（如实记录）：**
+
+- 第 2 节 README 截图/GIF 重拍未做：下方 GIF 与十张截图仍是 Phase 4 之前的
+  UI，README 已如实标注「still show the pre-Phase-4 UI」。
+- 第 3 节人工走查未重做：v0.2.2 的验证为程序化核对（版本、资源、接口、
+  窗口截图），没有第二次独立安装走查。
+- 第 0.3 节「干净环境全量 Playwright」以 CI 的 `web-e2e` 为准，而非本机
+  （本机 8000 端口被无关服务占用）。
