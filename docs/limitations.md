@@ -1,6 +1,6 @@
 # Honest Limitations — Phase 1, updated for Phase 2
 
-This file exists because a portfolio project's credibility comes from what it
+This file exists because an open-source project's credibility comes from what it
 refuses to overclaim. Everything below is true of OpsPilot as shipped. Anything
 on this list that a reader would otherwise assume is working is a bug in the
 README, not in this file.

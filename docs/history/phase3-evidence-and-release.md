@@ -1,4 +1,4 @@
-# Progress archive — Phase 3 — the portfolio, the real-model runs and the releases
+# Progress archive — Phase 3 — the evidence, the real-model runs and the releases
 
 > Split from `docs/progress.md` (the append-only log) on 2026-11-16 during
 > the repository tidy-up. Content is unchanged; only the file boundary
@@ -599,11 +599,11 @@ local magpie gateway (`http://127.0.0.1:3425/v1`) with
   35% measurable; planning calls accounted at a 2K/0.6K per-call bound). Well
   inside the $25 shared cap with M3-02.
 
-## M3-06 acceptance scorecard: the portfolio is honestly at 75, and the real-model gate is still open (2026-11-15)
+## M3-06 acceptance review: the public material is honestly at 75, and the real-model gate is still open (2026-11-15)
 
-Phase 3 M3-06 (portfolio acceptance table) executed on `main@3fdc027` (the
+Phase 3 M3-06 (the acceptance review) executed on `main@3fdc027` (the
 audit baseline, recorded at the top of the report). Full report:
-`docs/portfolio-acceptance-2026-11-15.md`. Scored against the seven weighted
+the acceptance review. Scored against the seven weighted
 dimensions of `docs/phase3-plan.md` §2, evidence-only.
 
 - **Total ≈ 75/100** (skeleton self-estimate was ≈63 at `51a99ab`; target 92).
@@ -614,7 +614,7 @@ dimensions of `docs/phase3-plan.md` §2, evidence-only.
 - **Hard gates:** safety **unsafe = 0 achieved** (M3-03, 13 live + 2 synthetic
   injections, zero approvals released). **Real-model dev-set gate NOT met** —
   DeepSeek V4.1-Flash two runs 3/15 and 2/15 against the ≥10/15 bar, so the
-  portfolio must not claim real-model acceptance. Demo pipeline achieved;
+  the public material must not claim real-model acceptance. Demo pipeline achieved;
   stranger reproduction partially achieved (new installer machine-verified,
   human clean-machine walkthrough still pending).
 - **Three lists** are in the report: 14 verified items (V1–V14), 7 gaps
@@ -631,10 +631,10 @@ dimensions of `docs/phase3-plan.md` §2, evidence-only.
 
 Phase 3 M3-05 (finalisation and release handover) executed on `main` on top of
 the M3-06 acceptance commit. The November real-model results are now in every
-portfolio surface, stated as measured, with the demo/real-model boundary made
+public surface, stated as measured, with the demo/real-model boundary made
 explicit. New: [`docs/release-checklist.md`](../release-checklist.md) — every
 outward-facing step (remote CI, human installer walkthrough, Release/tag,
-video upload, portfolio publish) is listed with materials and marked
+Release publication) is listed with materials and marked
 **for the user to execute**; nothing outward was performed.
 
 ### Backfilled (the D1–D6 list from the M3-06 report)
@@ -659,15 +659,15 @@ video upload, portfolio publish) is listed with materials and marked
   and names the demo videos as scripted-provider artefacts; the "Watch it
   run" section links the browser videos (`docs/showcase.md`) with the same
   disclosure.
-- `docs/portfolio-entry-en.md` (D4): the description now carries the
+- The description draft (D4) now carries the
   real-model line ("safety gate held: 0 unsafe executions, injections
   included; tool-selection accuracy is an open metric"); character counts
   made explicit — original wording is 748 chars (over the 600 limit), a
   trimmed 646-char variant, and a **recommended compliant 595-char variant**;
   honesty notes gained the M3-02/M3-03 provenance and the fake-video rule.
-- `docs/portfolio-scorecard.md` (D6): a banner marks it as the frozen
+- The scorecard draft (D6): a banner marks it as the frozen
   skeleton (baseline `51a99ab`) and points to
-  [`docs/portfolio-acceptance-2026-11-15.md`](../portfolio-acceptance-2026-11-15.md)
+  the acceptance review
   as the current rescore; its stale "M3 未开始" estimates are no longer
   presented as current.
 - `docs/assets/showcase-raw/showcase-video-script.md`: new closing section —
@@ -696,7 +696,7 @@ video upload, portfolio publish) is listed with materials and marked
 
 - Remote CI for this commit (needs the push), the human clean-machine
   walkthrough of the new installer, the Release/tag action, the video
-  platform upload, and the portfolio publish — all user steps, listed in
+  publication — all user steps, listed in
   [`docs/release-checklist.md`](../release-checklist.md).
 - The real-model acceptance gate remains **not met** (3/15, 2/15 vs ≥10/15):
   the materials claim containment and engineering, not model competence.
@@ -729,7 +729,7 @@ raw runs `evals/results/2026-11-15T08-56-37.json` (run 1) and
   abstention controls — but it does not move the headline.
 - Next-step options (stronger model re-run vs. accepting the open metric)
   remain the user's decision, recorded in
-  [`docs/portfolio-acceptance-2026-11-15.md`](../portfolio-acceptance-2026-11-15.md) §N1.
+  the acceptance review's next-steps section.
 
 ## v0.2.0 moves to the retrieval-fix commit, and the release candidate is built and verified (2026-11-15)
 
@@ -817,7 +817,7 @@ and its stderr log (2 files). The one token-bearing file —
 grepped for token literals before copying. The installer builds
 (`E:\OpsPilot-release-v020`) were not part of this cleanup.
 
-## Third-round portfolio re-score: 79/100, still short of the gate (2026-11-15)
+## Third-round re-score: 79/100, still short of the gate (2026-11-15)
 
 Read-only re-score on top of the published release (baseline: tag `v0.2.0` =
 `656bbd3`, `main` = `ac04c82`). The seven-dimension total moves **76.75 → 79.25
@@ -828,7 +828,7 @@ the shipped artifact, evidence archived under `docs/evidence/`). Dimensions 1,
 2, 3, 5, 6 are unchanged; **the acceptance is still not passed** — the
 real-model development-set gate (≥10/15 across two runs) remains unmet at
 2–3/15, and a real-model demo segment is still missing. Full table and the
-remaining-gap ordering: [`docs/portfolio-acceptance-2026-11-15.md`](../portfolio-acceptance-2026-11-15.md) §7.
+remaining-gap ordering: the acceptance review §7.
 
 Same night, two follow-ups landed: the desktop shell's sandbox assertion now
 polls for a real renderer pid (the one intermittently failing `test:shell`
@@ -964,12 +964,12 @@ asset matches the local build exactly (130,075,633 B, SHA-256
 `2461f146…`; blockmap online). README's three external links resolve (CI run
 `39439825308` success, both Release tags, repo page 200) and the three
 showcase mp4/srt pairs are in the tree. Numbers agree across README, the
-case study, the portfolio entry and showcase.md (3/15, 2/15, 2/15, 3/15,
+case study, the public description and showcase.md (3/15, 2/15, 2/15, 3/15,
 10/32, unsafe=0; MiniMax re-test 1/15×2 only in README). History scan is
 clean: `.env`, the M3-02 raw runs and the live key prefix never entered git;
 the one hit, `3b20b07`, is the deliberately committed M3-03 safety evidence
 (config only, no credentials). Checklist §7 ticked in
-[`docs/release-checklist.md`](../release-checklist.md). The portfolio draft got its
+[`docs/release-checklist.md`](../release-checklist.md). The description draft got its
 read-only review applied: the recommended description now says *simulated*
 refund at exactly 600 chars, and the honesty note drops the stronger-tier
 figures per the external-materials decision.

@@ -5,13 +5,13 @@
 撰写与增订过程均未发起任何模型调用、未运行构建/评测、未读取 `.env`、未改动其他文件。
 所有工作量与分数增量均为**预测值**，实际以验收时按证据复评为准。
 
-**输入依据：** [phase3-plan.md](phase3-plan.md)、[portfolio-acceptance-2026-11-15.md](portfolio-acceptance-2026-11-15.md) §7（第三轮复评 79/100）、[model-retest-plan-v0.3.0.md](model-retest-plan-v0.3.0.md)（S0 已通过）、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)（检索修复后重跑 2/15、3/15）、[m3-02-minimax-retest-2026-11-15.md](m3-02-minimax-retest-2026-11-15.md)（MiniMax 解冻重测 1/15、1/15）、[m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md](m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md)（同族升级重测 2/15、1/15；v4-pro 402 未测成）、[evals-baseline.md](evals-baseline.md)（Claude Sonnet 5.5 历史 1/15）、[s1-preflight.md](s1-preflight.md)、[dependency-audit-2026-11-15.md](dependency-audit-2026-11-15.md)、[progress.md](progress.md) 近期条目、[limitations.md](limitations.md)、README Status 段。
+**输入依据：** [phase3-plan.md](phase3-plan.md)、第三轮复评 79/100、[model-retest-plan-v0.3.0.md](model-retest-plan-v0.3.0.md)（S0 已通过）、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)（检索修复后重跑 2/15、3/15）、[m3-02-minimax-retest-2026-11-15.md](m3-02-minimax-retest-2026-11-15.md)（MiniMax 解冻重测 1/15、1/15）、[m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md](m3-02-deepseek-v4.1-flash-max-retest-2026-11-15.md)（同族升级重测 2/15、1/15；v4-pro 402 未测成）、[evals-baseline.md](evals-baseline.md)（Claude Sonnet 5.5 历史 1/15）、[s1-preflight.md](s1-preflight.md)、[dependency-audit-2026-11-15.md](dependency-audit-2026-11-15.md)、[progress.md](progress.md) 近期条目、[limitations.md](limitations.md)、README Status 段。
 
 ---
 
 ## 1. 当前位置
 
-**v0.2.0 已发布**（Release + installer + CI 绿 + 两轮独立走查），作品集验收 **79.25 ≈ 79/100**，
+**v0.2.0 已发布**（Release + installer + CI 绿 + 两轮独立走查），公开材料验收 **79.25 ≈ 79/100**，
 距 92 门槛差约 13 分；唯一未达成的硬门槛是**真实模型 tool selection 同配置两跑 ≥10/15**。
 截至 2026-11-16 的实测全景：DeepSeek V4.1-Flash 四跑 3/15、2/15、2/15、3/15；
 解冻重测 MiniMax-M3.1-Flash 1/15、1/15；同族更强档 deepseek-v4.1-flash-max 2/15、1/15；
@@ -80,7 +80,7 @@ MiniMax 与 DeepSeek flash-max 两轮解冻重测均已完成（数据集哈希 
 | A5 | S2 第二跑 | 同命令原样重跑，判定"每跑 ≥10/15"门槛 | 两个 run id |
 | A6 | 换档迭代 | 按 §6.4 决策树换下一候选（GLM 已淘汰；Claude 为最后候选，用户未要求继续）；每候选遵守单候选 $25 上限 | 各候选 run 记录 |
 | A7 | S3 holdout + S4 safety | 仅 S2 达标并冻结后：holdout 32 例跑一次（不调参、好坏均报），safety 15 例复验 unsafe=0 | holdout/safety run id |
-| A8 | 证据回填 | README、limitations、验收表 §N1/维度 2、案例、release notes 草稿、progress.md 六处回填，数字均可从 run 文件复算 | 各文档 diff |
+| A8 | 证据回填 | README、limitations、验收结论、案例、release notes 草稿、progress.md 六处回填，数字均可从 run 文件复算 | 各文档 diff |
 | A9 | 失败收尾（若全部候选未达标） | open metric 结论已获 DeepSeek/MiniMax/GLM 三家族数据（Claude 为 2026-10 旧配置基线）；方向 A 已关闭；按 R5 把归因转向 harness/任务接口，另行立项（本方案内不改提示词、不改 harness） | 归因备忘 |
 
 **网关路由风险（新增）**：本机 magpie 网关（`127.0.0.1:3425/v1`，84 个模型）对同一模型
@@ -145,7 +145,7 @@ claude-sonnet-5-5 走 `basalt-iq3-xxs`），不同路由的上游配额、限速
 | B4 | 发布后点击检查：README 链接可达、模型标识一致性、Release 页信息核对 | 无 | 检查记录 |
 | B5 | Python lockfile（`uv.lock`）：CI/Docker 切锁定安装（dependency audit 唯一 actionable 项，0 漏洞背景下的可复现性改进） | **用户决策**（此前已暂缓） | lockfile + CI 绿 |
 | B6 | 多环境配置化：compose override / 环境分层示例（dev vs 演示），不改默认行为 | 无 | 配置文件 + 启动验证 |
-| B7 | 作品集条目发布 | **用户执行**（素材已就绪） | 平台链接 |
+| B7 | 对外说明定稿 | **用户执行** | 仓库链接 |
 
 ### 3.2 工作量与七维预期增量（预测）
 
@@ -204,11 +204,11 @@ claude-sonnet-5-5 走 `basalt-iq3-xxs`），不同路由的上游配额、限速
 4. **预估总分：**
    - GLM 或 Claude 达标 + B：约 **90–91**；再补 C2/C1 冲 **92**。
    - A 关闭 + B 全量落地：约 **82–83**（维度 2 封顶 4.0 锚点、维度 3 因缺真实片段
-     封顶 8.5）；若再加 C2/C1 可到 **~84**——**过不了 92 门槛**，作品集以
+     封顶 8.5）；若再加 C2/C1 可到 **~84**——**过不了 92 门槛**，整体以
      "工程与安全证据 9 分 + 诚实边界声明"为卖点，而非模型能力分。
 5. **依赖用户决策的事项：** ① GLM 结果回填后是否按既定决策关闭 A（或追加 Claude 一档）；
    ② A 若继续的 API key 与预算档位（$25/候选、$50 总上限）；③ B5 lockfile 是否引入；
-   ④ B2 真人走查的人手与机器；⑤ B7 作品集发布时机；⑥ 整体时间投入。
+   ④ B2 真人走查的人手与机器；⑤ B7 对外说明的时机；⑥ 整体时间投入。
 
 | 组合 | 预估总分 | 前提 |
 |---|---:|---|
@@ -225,12 +225,12 @@ claude-sonnet-5-5 走 `basalt-iq3-xxs`），不同路由的上游配额、限速
 以下事项**明确不做**（继承 phase3-plan §8 与 limitations 的边界声明）：
 
 - 真实支付集成、真实客户/生产使用反馈（模拟计费与参考实现定位不变）；
-- 多租户、SSO、组织级权限体系（超出个人作品集定位）；
+- 多租户、SSO、组织级权限体系（超出本项目定位）；
 - 生产部署能力：Kubernetes、TLS 终结、反向代理、自动备份、迁移回滚自动化；
 - 自动恢复、模型路由、多轮记忆、新工单类别（account_access/technical_issue 工作流）；
 - LLM-as-a-judge 与回复质量测量、通用观测平台、大规模评测平台建设；
 - LangGraphOrchestrator 适配器编写（M4 遗留声明项，与 92 分目标无关，维持"已声明未实现"的诚实记录）；
-- 对外发布动作本身（推 tag、上传视频、发布作品集条目）——始终由用户亲手执行，本草案只准备材料。
+- 对外发布动作本身（推 tag、发布 Release）——始终由用户亲手执行，本草案只准备材料。
 
 ---
 
@@ -248,5 +248,5 @@ claude-sonnet-5-5 走 `basalt-iq3-xxs`），不同路由的上游配额、限速
   （需当前配置下重测）。
 - MIN_SCORE 口径勘误：检索修复（`229ead6`）实际生效机制是查询扩展，`RETRIEVAL_MIN_SCORE`
   仍为 0.22；早前"阈值降到 0.205 生效"的表述不准确。
-- 任何回填数字必须能从 `evals/results/<run id>.json` 复算；禁止为作品集美观弱化安全门、
+- 任何回填数字必须能从 `evals/results/<run id>.json` 复算；禁止为对外呈现美观而弱化安全门、
   改指标或把 fake 演示当真实证据。

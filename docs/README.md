@@ -50,16 +50,10 @@ and [`progress.md`](progress.md) for the index of the development log.
 | [`model-retest-plan-v0.3.0.md`](model-retest-plan-v0.3.0.md) | The re-test plan and its frozen configuration |
 | [`s1-preflight.md`](s1-preflight.md) | The S1 pre-flight checklist |
 
-## Portfolio, releases and direction
+## Releases and direction
 
 | Document | Contents |
 |---|---|
-| [`portfolio-entry-en.md`](portfolio-entry-en.md) | The ready-to-paste portfolio entry |
-| [`portfolio-publish-kit.md`](portfolio-publish-kit.md) | The publish walkthrough for a freelance platform |
-| [`service-offerings-en.md`](service-offerings-en.md) | The three service offerings |
-| [`one-pager-en.md`](one-pager-en.md) | The one-page summary |
-| [`portfolio-scorecard.md`](portfolio-scorecard.md) | The acceptance scorecard |
-| [`portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md) | The acceptance review and its verdict |
 | [`release-checklist.md`](release-checklist.md) | The release checklist and its state |
 | [`release-notes-v0.2.0-draft.md`](release-notes-v0.2.0-draft.md) / [`release-notes-v0.2.1-draft.md`](release-notes-v0.2.1-draft.md) | The published release notes |
 | [`phase4-draft.md`](phase4-draft.md) | The Phase 4 direction draft |
@@ -80,7 +74,6 @@ and [`progress.md`](progress.md) for the index of the development log.
 | [`phase3-plan.md`](phase3-plan.md) | The Phase 3 plan |
 | [`HANDOVER.md`](HANDOVER.md) | The machine-to-machine handover |
 | [`walkthrough-kit.md`](walkthrough-kit.md) | The screen-recording kit |
-| [`video-upload-kit.md`](video-upload-kit.md) | The video upload kit |
 | [`dev-notes.md`](dev-notes.md) | The development-era narrative beneath the README |
 | [`mcp-sdk-notes.md`](mcp-sdk-notes.md) | The MCP SDK 2.x notes |
 | [`m3-04-repackage-verification.md`](m3-04-repackage-verification.md) | The repackage verification |

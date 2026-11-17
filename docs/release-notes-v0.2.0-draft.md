@@ -98,7 +98,7 @@ gates, trace, recovery) on scripted data. The real-model claims above rest
 only on the two eval reports and their committed results files. Do not
 describe the videos as live AI runs — that distinction is part of this
 project's acceptance criteria
-([`docs/portfolio-acceptance-2026-11-15.md`](portfolio-acceptance-2026-11-15.md)).
+(the M3-06 acceptance review).
 
 ### New installer
 

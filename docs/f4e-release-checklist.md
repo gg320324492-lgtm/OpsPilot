@@ -100,13 +100,11 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 | 6.2 | push tag，等待 tag CI 绿 | 参考历史：v0.2.0 tag run success |
 | 6.3 | 创建 GitHub Release，正文用定稿 release notes | 語气沿用 v0.2.1：只写已验证内容 |
 | 6.4 | 上传 installer asset，并在 Release 正文回填字节数与 SHA-256 | `gh release upload v0.2.x <file>` |
-| 6.5 | （可选）若演示视频重录，更新 `docs/video-upload-kit.md` 清单 | 上传平台仍按用户既定决定 |
 
 ## 7. 明确不在本清单范围
 
 - 真实模型重测（tool selection 门槛）—— 属于独立的 v0.3.0 迭代，
   见 [`model-retest-plan-v0.3.0.md`](model-retest-plan-v0.3.0.md)；不阻塞本发布。
-- 外部平台作品集发布 —— 用户既定：另行安排。
 - 任何源码、测试、权限或 API 行为改动 —— 本阶段只允许版本号文件、文档与
   截图资产变更。
 

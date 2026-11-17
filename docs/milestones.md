@@ -1078,7 +1078,7 @@ committed artwork on Windows — the platform the artwork is built on, and the
 half of that pair `docs/limitations.md` §6 records as unchecked. Some of that
 is code and some of it is documentation, and none of it a row above depends
 on: the rows above are about the agent, the deployment, the dashboard, the
-locale and the portfolio, and an application icon is none of those. The CI row
+locale and the public write-up, and an application icon is none of those. The CI row
 quotes a green run of the pushed tree — `39316991857` at `07ef46e` — and the
 runs after it cover the commits that came after it. A DoD that does not say
 which tree it was checked against is a DoD that cannot be re-checked.

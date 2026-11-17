@@ -1,7 +1,7 @@
 # v0.3.0 真实模型重测方案（tool selection 门槛）
 
 **日期：** 2026-11-15。**性质：** 纯规划文档。本文档撰写过程未发起任何真实模型 API 调用、未读取 `.env` 或任何密钥；后续正式调用按本方案执行。
-**上游依据：** [model-validation-plan.md](model-validation-plan.md)（M3-01 冻结配置与预算框架）、[phase3-plan.md](phase3-plan.md) §6（门槛与重测规则）、[m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md)、[portfolio-acceptance-2026-11-15.md](portfolio-acceptance-2026-11-15.md) §N1/R3。
+**上游依据：** [model-validation-plan.md](model-validation-plan.md)（M3-01 冻结配置与预算框架）、[phase3-plan.md](phase3-plan.md) §6（门槛与重测规则）、[m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md)。
 **版本含义：** "v0.3.0" 指下一轮以"真实模型门槛重测"为主题的迭代，版本号在发布时按当时内容定稿。
 
 ---
@@ -37,7 +37,7 @@
 | Q1 | 2–3/15 是这两个模型的能力上限，还是任务/接口的系统性上限？换代际更强的模型，在**完全冻结**的 harness 配置下能否过 10/15？ | S2 开发集两跑 |
 | Q2 | 失败形态（漏前置读取、多提工具、重复提案）是否跨模型家族存在？若更强模型仍 miss 且形态相同，指向接口/提示词设计问题；若形态改变或消失，指向模型判断力。 | 逐例对比（本方案 §5） |
 | Q3 | 更强模型在真实成本与延迟下是否可接受？ | S1 实测 per-call token 与延迟，回填 §6 |
-| Q4 | 作品集叙事需要什么证据？达标 → 回填材料并重评验收表；未达标 → open metric 结论获得第二个模型家族佐证。 | §8 |
+| Q4 | 对外说明需要什么证据？达标 → 回填材料并重评；未达标 → open metric 结论获得第二个模型家族佐证。 | §8 |
 
 ---
 
@@ -225,7 +225,7 @@ anthropic 路线把 provider 换成 `--provider anthropic`、env 换成 `MODEL_P
 | **safety** | **unsafe execution count = 0 是硬门槛**；同时报告 approval-policy compliance、expected-write rate、unexpected-write count |
 | **argument validity** | 诊断指标，不设门槛。B2 修复后历史值为 1.000；若某候选明显低于 1.000，说明其结构化输出遵从有问题，优先排查信封路径而非换提示词 |
 | **run 间一致率** | 诊断指标：两跑提出相同工具集合的 case 比例。低一致率 + 低命中 = 模型判断不稳定；高一致率 + 低命中 = 稳定但错误，后者对 Q2 的归因更有信息量 |
-| **失败处理** | 按 model-validation-plan §4.2：候选不达标 → 换下一候选；所有候选失败 → 升级更强模型属用户决策（成本另议）；**禁止为作品集美观弱化安全门或改指标** |
+| **失败处理** | 按 model-validation-plan §4.2：候选不达标 → 换下一候选；所有候选失败 → 升级更强模型属用户决策（成本另议）；**禁止为对外呈现美观而弱化安全门或改指标** |
 
 ---
 
@@ -311,14 +311,14 @@ anthropic 路线把 provider 换成 `--provider anthropic`、env 换成 `MODEL_P
 
 | 重测结果 | v0.3.0 动作 |
 |---|---|
-| **达标**（S2 两跑 ≥10/15，safety unsafe=0） | v0.3.0 以"真实模型门槛通过"为主题发布。回填：README 与 `docs/case-study-*` 的成绩数字、`docs/limitations.md` 相应条目、`docs/portfolio-acceptance-2026-11-15.md` 重评（维度 2 预计 +9）、`docs/release-notes-v0.3.0-draft.md` 新起草；按 M3-02 口径补录一段真实模型浏览器演示（补 N3 缺口）。**达标声明只在 S2–S4 全部完成后作出** |
+| **达标**（S2 两跑 ≥10/15，safety unsafe=0） | v0.3.0 以"真实模型门槛通过"为主题发布。回填：README 与 `docs/case-study-*` 的成绩数字、`docs/limitations.md` 相应条目、`docs/case-study-*` 与验收表重评（维度 2 预计 +9）、`docs/release-notes-v0.3.0-draft.md` 新起草；按 M3-02 口径补录一段真实模型浏览器演示（补 N3 缺口）。**达标声明只在 S2–S4 全部完成后作出** |
 | **未达标** | v0.3.0 携带其他改进照常规划，open metric 披露更新为"两个模型家族、N 个 run 均未达 10/15，差距归因于工具集合判断力"——这是更强、更诚实的限制声明，不是失败掩盖。是否继续升档（Opus/Fable 档）或转向 harness/接口改进，作为用户决策记录 |
 
 ### 8.3 文档回填清单（达标场景）
 
 1. `README`（或仓库首页）评测数字与"当前限制"段；
 2. `docs/limitations.md` 中 tool-selection 条目改写；
-3. `docs/portfolio-acceptance-2026-11-15.md` §N1 与维度 2 重评；
+3. 对外说明与维度 2 重评；
 4. `docs/case-study-duplicate-charge.md` / `-en.md` 的成绩引用；
 5. 新 release notes 草稿（含模型 id、commit、run id、成本实付）；
 6. `docs/progress.md` 追加重测章节（沿用现有报告体例）。

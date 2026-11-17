@@ -525,7 +525,7 @@ than retrofitted.
 No multi-agent orchestration, no third-party platform integrations, no general
 workflow builder, no multi-tenancy, no enterprise identity. None of these has a
 user asking for them, and each is exactly the kind of scope growth that turns a
-portfolio piece into an unfinishable one.
+public project into an unfinishable one.
 
 Phase 3 is stabilisation and freeze: serious defects, installer compatibility,
 documentation consistency, release tags — then feature development stops until

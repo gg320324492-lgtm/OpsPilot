@@ -35,7 +35,7 @@ committed reports, which are the durable evidence a reader can check.
 | Re-run after retrieval fix, run 2 | `2026-11-15T09-12-41.json` | local-only | TS (15) | 3/15 (0.200) | 1.000 | 0 |
 
 Four development-set runs, one band: **2–3/15** — the ≥10/15 gate is not
-met, and this is the number the README, the release notes, the one-pager and
+met, and this is the number the README, the release notes and
 the acceptance scorecard all quote. The holdout (10/32) and the safety batch
 (unsafe = 0, approval-policy compliance 1.000, expected-write rate 0.250)
 are the committed files anyone can re-read.

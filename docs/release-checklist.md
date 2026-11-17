@@ -18,15 +18,14 @@
 | 真实模型结果 | ✅ 已如实回填（开发集首测 3/15、2/15；检索修复后重跑 2/15、3/15——四跑均未达 10/15；holdout 10/32；safety unsafe=0） | [m3-02-dev-two-runs-2026-11-15.md](m3-02-dev-two-runs-2026-11-15.md)、[m3-02-rerun-after-retrieval-fix-2026-11-15.md](m3-02-rerun-after-retrieval-fix-2026-11-15.md)、[m3-03-holdout-safety-2026-11-15.md](m3-03-holdout-safety-2026-11-15.md) |
 | 新 installer 候选 | ✅ 已从 v0.2.0 tag（`2b96e70`，含 2026-11-15 走查记录与壳跟随 API 端口的修复）干净 checkout 构建并机器校验；独立走查已完成，端口占用场景复核通过 | `desktop/release/OpsPilot-Setup-0.2.0-x64.exe`（130,075,633 B，SHA-256 `2461f146320f221f1a7570565c786b49e8c9a799a826d8ac4eea587726c19332`）；compose 逐字节一致、包内无凭据、packaged-posture 5 passed / 1 skipped（no-token scan） |
 | 线上 Release | ✅ `v0.1.0`、`v0.2.0`、`v0.2.1` 均已发布；v0.2.1 asset `OpsPilot-Setup-0.2.1-x64.exe`（130,567,926 B，SHA-256 `567bec190d0a05d27c9aa29f99db68b3e1b96b32be0ef4a2ef924ee665f676c5`），含 DBC-07/08 修复，升级路径已实测 | <https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.1> |
-| 演示视频 | ✅ 已入库（fake provider，卡片已披露）；**按用户决定仅 GitHub 展示，不上传外部平台** | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
-| 作品集素材 | ✅ 草稿定稿（含合规 description 变体）；**平台发布未做** | [portfolio-entry-en.md](portfolio-entry-en.md)、[service-offerings-en.md](service-offerings-en.md) |
+| 演示视频 | ✅ 已入库（fake provider，卡片已披露）；仅在仓库内展示 | `web/public/showcase/demo-path-{a,b,c}.mp4` + 同名 `.srt`、[showcase.md](showcase.md) |
 | CI | ✅ tag 提交 `656bbd3` success（run 43710760626）；`43fde58` success（43711752333）；发布后 docs 提交至 `fcbf618` 均绿；发布后核验闭环提交 `3ed6d24` success（43744179375）；交互走查归档 `84dc430` success（43746918061）；DBC-07 镜像修复 `99b8a7e` success（43747914946）；DBC-05 演示配置 `ed73e56` success（43749390768）；CI 回填 `7d7d2eb` success（43750047800）；第三方走查归档 `0c47176` success；CI 回填 `0b62de8` success（43752645165）；DBC-08 修复 `7c45429` success（43754867651）；最终回填 `ee6b405` success（43755433751） | `gh run list --repo gg320324492-lgtm/OpsPilot` |
 
 ### 决策记录（2026-11-15，用户确认）
 
 1. **Release 方案 A**：新 tag `v0.2.0`，新旧 Release 并存（最终 tag 指向 `656bbd3`，构建基线为 `2b96e70`）。
 2. **真实模型门槛**：接受现状，按 open metric 如实展示；不换模型重跑（后续可随时重测）。
-3. **演示视频**：仅 GitHub 仓库内展示，不上传 YouTube/B 站等外部媒体库。
+3. **演示视频**：仅在仓库内展示。
 4. **新包真人走查**：发布前安排；**v0.2.0 Release 在走查完成后创建上传**（清单第 3、4 节顺序不变）。
 
 ---
@@ -113,13 +112,9 @@ ruff check && ruff format --check
 旧记录（`565206f7…`）在方案 A 下继续有效，在方案 B 下需在
 [installer-verification.md](installer-verification.md) 注记"asset 已替换"。
 
-## 5. 演示视频上传（按用户决定：仅 GitHub 展示，不上传外部平台）
+## 5. 演示视频
 
-**决策：** 2026-11-15 用户确认演示视频仅保留在仓库内（`web/public/showcase/`
-与 `docs/showcase.md` 入口），不制作 YouTube/B 站等外部媒体库外链。下述步骤
-保留备查，不再作为发布待办。
-
-材料（均在仓库内，无需再加工）：
+演示视频仅保留在仓库内，不做外部媒体库上传。材料（均在仓库内，无需再加工）：
 
 | 项 | 路径 |
 |---|---|
@@ -129,35 +124,9 @@ ruff check && ruff format --check
 | 封面（1000×750） | `web/public/showcase/cover-1000x750.png` |
 | 文案与清单 | [showcase.md](showcase.md)、脚本 [showcase-video-script.md](assets/showcase-raw/showcase-video-script.md) |
 
-步骤：
+如实标注：这些视频是**管线演示（fake model）**；真实模型证据是两份评测报告，
+不是这些视频。不要把视频描述写成"AI 真实运行"。
 
-1. 选平台（YouTube unlisted / B 站 / 自由职业平台媒体库均可）；三个视频可合并为一个
-   合集或分开上传。
-2. 上传视频后，在平台的字幕功能里导入对应 `.srt`（YouTube 支持 SRT 直接上传）。
-3. 标题/简介使用 [showcase.md](showcase.md) 的措辞；**保留 fake provider 披露**
-   （"scripted fake model provider — no external AI calls"），视频首尾卡已印有
-   同样字样，简介里也要写。
-4. 把得到的公开链接回填到 README 的"Watch it run"段或 [showcase.md](showcase.md)
-   （当前 README 指向仓库内文件；若上传平台，建议在 showcase.md 加"在线观看"
-   链接并提交）。
-5. 如实标注：这些视频是**管线演示（fake model）**；真实模型证据是两份评测报告，
-   不是这些视频。不要把视频描述写成"AI 真实运行"。
-
-## 6. 作品集 / 服务页更新【材料已定稿；平台发布待用户执行】
-
-1. 作品条目：按 [portfolio-entry-en.md](portfolio-entry-en.md) 粘贴
-   —— title 66/70 字符、role 99/100 字符；description 用该文档中标好字符数的
-   **合规变体**（595 字符那版，含真实模型 safety 一句；两段超限变体仅作备选，
-   不要超限粘贴）；技能标签用建议安全集 Python · FastAPI · Next.js · RAG ·
-   LLM Integration。
-2. 服务说明：[service-offerings-en.md](service-offerings-en.md) 三类服务可直接
-   改写为自由职业平台的项目目录/专项档案文案；其中"不承诺工期与收益"
-   的边界保留。
-3. 诚实红线（来自该文档"Honesty notes"，发布前自查）：不添加客户名/收入/节省
-   额；保留"refund is simulated / systems are mocks"；不把 fake 视频说成 live；
-   不声称"已通过真实模型验收"（M3-02 门槛未达成，如实表述为 open metric）。
-4. 素材中**不含联系方式**（合成的客户邮箱仅是示例）；如平台需要联系信息，用
-   平台私信功能，不要把个人邮箱写进公开文案。
 
 ## 7. 发布后核验 ✅ 已完成（Claude 预核，2026-11-15；真人点击复核见 DBC-03）
 
@@ -170,7 +139,7 @@ ruff check && ruff format --check
       CI run `39439825308` 存在且 success；`v0.1.0`、`v0.2.0` 两个 Release
       均存在；仓库页 HTTP 200；`web/public/showcase/` 三个 mp4 与三个 srt
       均在。三条外部链接经 `gh api` / `curl` 实取通过。
-- [x] README / 案例研究 / 作品集条目 / showcase.md 四处的模型标识
+- [x] README / 案例研究 / showcase.md 三处的模型标识
       （DeepSeek V4.1-Flash via magpie 网关 `workbuddy/deepseek-v4.1-flash`）、
       评测数字（3/15、2/15、2/15、3/15、10/32、unsafe=0，另 README 单列
       MiniMax 重测 1/15×2）与"fake 演示 vs 真实证据"的区分表述一致。
@@ -189,5 +158,5 @@ ruff check && ruff format --check
 ## 附：本清单未包含、需要用户另行决策的事项
 
 - **真实模型门槛未达标的后续**：换更强模型重测（[model-validation-plan.md](model-validation-plan.md)
-  §2.2 备选）或维持现状如实展示——影响作品集话术，属商业决策，不在本清单内。
+  §2.2 备选）或维持现状如实展示——影响对外表述，属决策事项，不在本清单内。
 - **新包真人走查的排期**（第 3 节）与**发布方案 A/B 的选择**（第 4 节）。

@@ -21,8 +21,7 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > project's own bar (development set 3/15 and 2/15 before the retrieval fix,
 > 2/15 and 3/15 after; holdout 10/32), reported as measured in
 > [`docs/progress.md`](docs/progress.md). The acceptance scorecard stands at
-> 79/100; the remaining gap is the real-model gate itself
-> ([`docs/portfolio-acceptance-2026-11-15.md`](docs/portfolio-acceptance-2026-11-15.md)).
+> 79/100; the remaining gap is the real-model gate itself.
 > Installers are verified by independent walkthroughs and released:
 > [`v0.1.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.1.0),
 > [`v0.2.0`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.0)
@@ -630,11 +629,10 @@ The specification was written before the code, and it is the artifact to review:
 | [limitations.md](docs/limitations.md) | **What this does not do.** Read this one |
 | [milestones.md](docs/milestones.md) | M0–M9 with acceptance criteria per milestone |
 | [phase2-plan.md](docs/phase2-plan.md) | Phase 2's work packages and their acceptance conditions |
-| [phase3-plan.md](docs/phase3-plan.md) | Phase 3's portfolio milestones and the real-model validation plan |
+| [phase3-plan.md](docs/phase3-plan.md) | Phase 3's milestones and the real-model validation plan |
 | [phase4-draft.md](docs/phase4-draft.md) | v0.3.0 direction draft: three candidate directions, effort, score deltas, what needs a decision |
 | [evals-baseline.md](docs/evals-baseline.md) | Every committed eval results file, grouped and read — the index behind the numbers above |
 | [dependency-audit-2026-11-15.md](docs/dependency-audit-2026-11-15.md) | The read-only dependency audit (pip-audit, npm audit, workflows): zero known vulnerabilities |
-| [one-pager-en.md](docs/one-pager-en.md) | A one-page English summary of the project, claims scoped to evidence |
 | [installer-verification.md](docs/installer-verification.md) | How to test the desktop installer without a toolchain |
 | [installer-verification.zh-CN.md](docs/installer-verification.zh-CN.md) | The same procedure in Chinese, for the person running it (the English file is authoritative) |
 | [progress.md](docs/progress.md) | The development-log index; the full log lives in [docs/history/](docs/history/) |
@@ -643,7 +641,7 @@ The specification was written before the code, and it is the artifact to review:
 | [adr/](docs/adr/) | Five architecture decision records |
 
 The full documentation index — every document grouped by role, including the
-evaluation reports, the installer walks, the portfolio materials and the
+evaluation reports, the installer walks and the
 process records — is [docs/README.md](docs/README.md).
 
 ## Running it

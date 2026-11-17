@@ -1,18 +1,18 @@
 # 方向 B（产品化/演示强化）可执行清单 — 2026-11-16
 
 **依据：** [phase4-draft.md](phase4-draft.md) §3（方向 B 定义与 B1–B7 工作项）、
-[portfolio-acceptance-2026-11-15.md](portfolio-acceptance-2026-11-15.md) §7（第三轮复评 79/100）、
+第三轮复评 79/100、
 [installer-interactive-walk-2026-11-15.md](installer-interactive-walk-2026-11-15.md)（真人走查脚本）、
 [release-checklist.md](release-checklist.md)（发布清单与 §7 发布后核验）、
-[portfolio-entry-en.md](portfolio-entry-en.md)（作品集素材与合规红线）。
+
 
 **前提状态（2026-11-16）：** 方向 A 已按用户预案关闭（五个模型家族均远离 10/15，
 GLM-5.3-Flash S1 0/4 触发关闭条件）；v0.2.0 已发布（tag `656bbd3`，CI 绿）；
-作品集验收 79.25 ≈ 79/100，未通过。方向 B 的目标是清掉维度 3/4/7 的收尾缺口，
+验收 79.25 ≈ 79/100，未通过。方向 B 的目标是清掉维度 3/4/7 的收尾缺口，
 把"已发布"变成"交付闭环"。
 
 **总原则：** 每一项都要有可验证的完成标准；不造假、不冒充、不超范围声称
-（合规红线见 [portfolio-entry-en.md](portfolio-entry-en.md) 开头声明与
+（合规红线见
 [claims-audit-2026-11-15.md](claims-audit-2026-11-15.md)）。
 
 ---
@@ -35,7 +35,6 @@ GLM-5.3-Flash S1 0/4 触发关闭条件）；v0.2.0 已发布（tag `656bbd3`，
 | DBC-01 | 真人交互式走查（新包，非作者） | 用户（安排走查人）+ Claude 备料/归档 | 可与 DBC-02/03 并行 | 高 |
 | DBC-02 | 文档尾差清零 | Claude | 无依赖，立即可做 | 高（建议首项） |
 | DBC-03 | 发布后点击检查 | Claude（GitHub 页面核对可由用户复核） | 依赖 DBC-02 完成 | 高 |
-| DBC-04 | 作品集发布准备（不实际发布） | Claude 定稿 + 用户执行发布 | 可与 DBC-02/03 并行 | 中 |
 | DBC-05 | 多环境配置化（dev vs 演示） | Claude | 独立，可并行，低优先 | 低（可选） |
 | DBC-06 | 真实模型演示片段 | — | **暂缓**（依赖已关闭的方向 A） | 暂缓 |
 
@@ -145,7 +144,7 @@ Release 页进入后看到的信息自洽且可达（phase4-draft B4；release-c
       deepseek-v4.1-flash-max、GLM-5.3-Flash、Claude Sonnet 5.5）与各自 run 报告
       中的标识一致，无串写。
 - [ ] **数字一致性**：README Status 段、limitations.md、
-      portfolio-acceptance-2026-11-15.md、release-notes 中的关键数字同源
+      release-notes 中的关键数字同源
       （开发集四跑 3/15、2/15、2/15、3/15；holdout 10/32；safety unsafe=0；
       测试 1422 passed / 19 skipped；arg validity 等），无"同一指标两个数"。
 - [ ] **记录**：核对结果写入一份简短检查记录（可追加到 release-checklist.md §7
@@ -153,7 +152,7 @@ Release 页进入后看到的信息自洽且可达（phase4-draft B4；release-c
 
 **涉及文件：** README.md、docs/release-notes-v0.2.0-draft.md、
 docs/release-checklist.md（或新增检查记录文件）、docs/limitations.md、
-docs/portfolio-acceptance-2026-11-15.md（只读核对）。
+
 
 **完成标准（可验证）：**
 - [ ] 检查记录存在，覆盖上述四类核对，每项有"通过/发现问题"结论；
@@ -163,41 +162,6 @@ docs/portfolio-acceptance-2026-11-15.md（只读核对）。
 **工作量：** 约 0.5–1 小时。**依赖：** DBC-02。
 
 ---
-
-## DBC-04 作品集发布准备（不实际发布）
-
-**目标：** 把作品集条目与平台操作步骤准备到"用户拿到即可粘贴发布"的状态；
-**本任务不执行任何对外发布**（phase4-draft B7 的前置；发布动作本身属用户）。
-
-**执行者：** Claude 定稿材料；**用户**执行实际平台发布。**依赖：** 无。
-**并行性：** 可与 DBC-02/03 并行。
-
-**步骤：**
-
-- [ ] **description 定稿**：在 [portfolio-entry-en.md](portfolio-entry-en.md)
-      的三个变体中确定一个（建议采用文内标注的合规变体：保留真实模型安全结论、
-      595 字符 ≤ 600 上限），把"定稿版本"单独标出，避免粘贴时选错超限版本。
-- [ ] **skill tags 定稿**：按文档建议的安全集合（Python · FastAPI · Next.js ·
-      LLM Prompt Engineering + 第 5 个按实际经验选 RAG 或 LangChain），确认 ≤ 5 个
-      且无过度声称。
-- [ ] **title / role 复核**：title ≤ 70 字符（现 66）、role ≤ 100 字符（现 99），
-      与 description 口径一致（不声称付费客户/收入/未测量节省；退款为模拟）。
-- [ ] **配图/附件清单**：确认可附材料（如 showcase 截图或 demo 链接）与平台
-      附件规则不冲突；demo 视频按用户决定仅 GitHub 展示、不上传外部平台。
-- [ ] **平台操作步骤卡**：写一份给用户的简短步骤（在发布平台哪个入口、填哪些字段、
-      粘贴哪段、发布前自查哪些红线），例如存为 docs/portfolio-publish-kit.md 或
-      追加到 portfolio-entry-en.md 末尾。
-- [ ] 用户确认材料后，由**用户**在平台执行发布（本清单不含此步的执行）。
-
-**涉及文件：** docs/portfolio-entry-en.md、docs/service-offerings-en.md（口径
-参照）、新增/追加的发布步骤说明。
-
-**完成标准（可验证）：**
-- [ ] 存在明确的"定稿"标记（不再有三个变体并存的歧义）；
-- [ ] 定稿 description 字符数 ≤ 600，title/role 在限内，技能标签 ≤ 5；
-- [ ] 发布步骤卡存在，用户可照做；本仓库内无任何自动发布动作发生。
-
-**工作量：** Claude 约 0.5–1 小时；用户发布另计。**依赖：** 无。
 
 ---
 
@@ -340,7 +304,6 @@ worker / web 四个长期运行服务从 `restart: unless-stopped` 改为
 第 1 步  DBC-02 文档尾差清零        （Claude，无依赖，立即开始；建议首项）
 第 2 步  DBC-03 发布后点击检查      （Claude，依赖 DBC-02）
   并行  DBC-01 真人走查备料 → 用户安排走查人执行 → Claude 归档
-  并行  DBC-04 作品集材料定稿 + 发布步骤卡（Claude）→ 用户择机发布
 第 3 步  DBC-05 多环境配置化        （可选，核心项完成后）
        DBC-06 暂缓（随方向 A 关闭）
 ```
