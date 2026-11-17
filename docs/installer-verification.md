@@ -886,3 +886,86 @@ Full per-step report with every command and observation:
 The owner walk's export artifact (run `05bbea7b…`, the interactive walk's
 ticket) is archived at
 [`docs/evidence/walkthrough-2026-11-16/owner-walk-run-05bbea7b.json`](evidence/walkthrough-2026-11-16/owner-walk-run-05bbea7b.json).
+
+---
+
+## v0.2.2 — independent installation walk (2026-11-17)
+
+**Done by:** the project owner, performing a fresh install as an acceptance
+walker rather than as the builder; every UI step was clicked and each state
+was captured in a screenshot handed to the coordinator for adjudication. The
+coordinator performed the uninstall of its own earlier verification copy and
+answered read-only API queries; no code, container or database was changed by
+the coordinator during the walk after installation.
+
+**Installer:** `OpsPilot-Setup-0.2.2-x64.exe`, 130,717,329 bytes, SHA-256
+`234853a9a7caf2e197fc531b7c6d3a7c8edce7c4e5b4f3429d4f025d2926f5d6` —
+verified by the walker with `certutil -hashfile` before installing, matching
+the v0.2.2 Release asset. **Method:** NSIS interactive install to the default
+per-user location (`C:\Users\pc\AppData\Local\Programs\OpsPilot`).
+**Environment:** Windows 11 Pro 10.0.26300, PowerShell 7.6.3, Docker Desktop
+running. Port 8000 is occupied by an unrelated service, so
+`OPSPILOT_API_HOST_PORT=18002` was set for the user before the walk (and
+confirmed by the startup log: "Using the backend already running on
+http://127.0.0.1:18002"). Chinese UI throughout.
+
+### Pre-install cleanup — a stale uninstall entry
+
+The Settings → Apps entry for OpsPilot invoked
+`D:\Users\pc\AppData\Local\Programs\OpsPilot\Uninstall OpsPilot.exe`, which no
+longer exists (Windows showed "Windows cannot find the file"). The installed
+copy was actually under C:. Both `Test-Path` checks were reported by the
+walker: the C: uninstaller existed, the D: directory did not. The coordinator
+stopped leftover OpsPilot processes and ran the C: uninstaller silently
+(exit 0); the C: directory and the registry uninstall entry were then both
+gone. Only after that confirmation did the walker install v0.2.2. **This is
+an environment leftover from earlier D:-drive installs on this machine, not
+a property of the shipped installer** — the fresh install registered the
+correct C: uninstall string.
+
+### Walk results
+
+| Check | Result | Evidence |
+|---|---|---|
+| Fresh install, version | ✅ pass | Registry `OpsPilot 0.2.2`, desktop shortcut present; built-in UI resources verified as the shipped HeroUI build (485 KB CSS with `--accent`/`3b5bdb`, `titleBarStyle` in `app.asar`) |
+| Launch to dashboard | ✅ pass | Native title bar absent; startup log "Checking that Docker is available… → Using the backend already running on http://127.0.0.1:18002 → Starting the dashboard on http://127.0.0.1:3210"; six early `waiting: fetch failed` lines were transient polling before 3210 bound, followed by a clean Chinese 总览 |
+| Knowledge reindex | ✅ pass | "17 个已发现 · 17 个已索引 · 98 个分块已写入"; document table lists 17 files with per-file chunk counts and hashes |
+| Duplicate-charge ticket | ✅ pass | README fill button produced the exact subject/body/email; submit returned ticket `7da23f56` → run `6332a389`, state `received` |
+| Run parks at approval gate | ✅ pass | Run detail: 等待审批, "已挂起。尚未发送任何请求。", 17 steps, classification `duplicate_charge (0.93)`, 5 retrieved chunks, `billing.issue_refund` HIGH_RISK_WRITE with argument snapshot and idempotency key — **not executed** |
+| Approval card and decision | ✅ pass | Approvals page showed the deterministic policy explanation in green ("由策略引擎计算"), the model's justification in grey ("由模型撰写 / 不可信"), arguments snapshot, and Approve/Reject buttons. Walker clicked Approve; pending inbox went to "0 条等待处理"; approval `42da4a0f` persisted with `decided_by=operator` |
+| Refund executed after approval | ✅ pass | Read-only API check: the four tool calls of run `6332a389` include `billing.issue_refund` with status `executed` — the money moved once, after the human decision, from the approved arguments |
+| Repeat approval | ✅ pass | The decided record has no Approve/Reject controls (UI refuses a second decision by omission); the API-layer 409 protection for a direct duplicate decision is covered by `test_readme_scenarios.py` in CI |
+| Error state visible | ✅ pass | Run `6332a389` ends `failed / schema_invalid`, surfaced in the failed-runs headline card, the run list's failure-reason column and the run detail banner with a "re-run from here" affordance |
+| Exit and restart, data retained | ✅ pass | After closing the window and relaunching: 2 run records retained, the approved decision retained (operator, 17:11:05), and the knowledge index still 17 documents / 98 chunks |
+
+### Observations recorded, not hidden
+
+1. **Two runs ended `failed / schema_invalid`.** The second submitted ticket
+   (`cf417e2c` → `20504d23`) failed at classifying, and the approved run
+   (`6332a389`) failed at the final customer-reply stage after the refund had
+   already executed. Cause, established from the worker's fixture semantics:
+   the shipped demo uses `MODEL_PROVIDER=fake`, whose scripted responses are
+   held in a process-global cursor; one worker process can replay that script
+   once. A second ticket, and the resumed post-approval phase of the first,
+   receive the script's final entry where a classification/reply object is
+   expected and fail schema validation. **This is a property of the fake
+   provider's replay cursor, not of the approval gate, the refund idempotency
+   or the state machine** — real-model runs do not use it. The complete,
+   successful end-to-end run on the same code is the one in the README
+   screenshots (run `17e5d0e4`, 21 steps, `replayed: false`), taken with the
+   worker recreated so the fixture replayed from the start. The walk's own
+   screenshots prove the failure is *reported honestly* at every surface.
+2. **The cold start reused an already-running backend stack** from the
+   coordinator's earlier UI verification, so this walk did not re-time the
+   first-ever image build. The `/ready` baseline of ~70 s from the v0.2.1
+   walk stands; this walk records the warm-reuse path instead.
+3. **Six transient `waiting: fetch failed` lines** appeared in the startup
+   log before the dashboard bound on 3210; the page then loaded normally.
+   Logged so a reader does not mistake startup polling for a failure.
+
+**Verdict:** the installer installs cleanly on this machine, the safety gate
+holds (a money-moving tool call waited for and received a human decision),
+the approved refund executed exactly once, the UI is the shipped HeroUI
+design, and all state survives a restart. The two `schema_invalid` runs are
+an artefact of the fake demonstration provider's one-shot replay cursor,
+recorded above with the successful run they contrast with.

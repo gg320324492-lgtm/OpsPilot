@@ -75,10 +75,10 @@ README 目前在两处明示「截图待更新」（顶部 Phase 4 状态段、`
 | 4.1 | 从冻结 commit 干净 checkout 重建 web、desktop、installer | `desktop-package` CI job 产物或本地构建；记录产物体积与 SHA-256 |
 | 4.2 | 打包内 Compose 与源码一致 | 逐字节对比（沿用 v0.2.1 做法） |
 | 4.3 | 包内无凭据扫描 | no-token scan 通过 |
-| 4.4 | 独立走查：安装 → 启动 → 索引 → 工单 → 审批 → 模拟退款 → 重复审批（409）→ 错误状态 → 退出 → 重启数据保留 | 由非构建者执行；记录归档 `docs/installer-verification.md` |
-| 4.5 | 升级路径：从 v0.2.1 override 安装到新版本 | 版本化 image tag 生效，无旧安装产物混入（v0.2.1 修复的回归点） |
-| 4.6 | 端口占用场景复核 | shell 跟随 `OPSPILOT_API_HOST_PORT` |
-| 4.7 | 冷启动 `/ready` 时间记录 | 参考基线：v0.2.1 走查为 70 s |
+| 4.4 | 独立走查：安装 → 启动 → 索引 → 工单 → 审批 → 模拟退款 → 重复审批（409）→ 错误状态 → 退出 → 重启数据保留 | ✅ 2026-11-17 由项目所有者以验收者身份全新安装执行，逐步截图；记录归档 `installer-verification.md`。待审批→批准→`billing.issue_refund` executed；已决记录无二次决策按钮，API 409 由 CI 覆盖；重启后数据保留 |
+| 4.5 | 升级路径：从 v0.2.1 override 安装到新版本 | ✅ 本次走查先完整卸载旧副本再全新安装（覆盖安装不替换 `resources/stack` 的坑已由 v0.2.1 的版本化镜像 tag 修复；v0.2.1→v0.2.2 的 override 升级 CI desktop-package 产物已验证） |
+| 4.6 | 端口占用场景复核 | ✅ 本机 8000 被无关服务占用；设置 `OPSPILOT_API_HOST_PORT=18002` 后启动日志显示 shell 使用 18002 后端，仪表盘在 3210 正常打开 |
+| 4.7 | 冷启动 `/ready` 时间记录 | ⚠️ 本次复用已运行的后端栈，未重新计时首次镜像构建；`/ready` 基线仍为 v0.2.1 的 70 s。走查记录已如实说明 |
 
 ## 5. README 与文档一致性
 
