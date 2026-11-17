@@ -37,7 +37,7 @@ export async function Nav() {
   const [t, locale] = await Promise.all([getT(), getLocale()]);
 
   return (
-    <div data-titlebar className="border-b border-separator bg-surface">
+    <div data-titlebar className="sticky top-0 z-40 border-b border-separator bg-surface">
       <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
         <span className="text-sm font-semibold tracking-tight text-foreground">OpsPilot</span>
         {/*
