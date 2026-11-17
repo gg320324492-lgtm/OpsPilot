@@ -30,7 +30,9 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > `OPSPILOT_API_HOST_PORT` support) and
 > [`v0.2.2`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.2)
 > (the Phase 4 UI release: HeroUI re-skin, accessibility fixes, the native
-> title bar replaced by the app's own top bar). The demo material
+> title bar replaced by the app's own top bar) and
+> [`v0.2.3`](https://github.com/gg320324492-lgtm/OpsPilot/releases/tag/v0.2.3)
+> (the same UI with the app top bar pinned while a page scrolls). The demo material
 > ([`docs/showcase.md`](docs/showcase.md)) runs the scripted provider and says
 > so; the real-model evidence lives in the eval reports
 > ([`docs/m3-02-dev-two-runs-2026-11-15.md`](docs/m3-02-dev-two-runs-2026-11-15.md),
@@ -38,7 +40,7 @@ and retrieval is recorded in an append-only trace — auditable, not re-executab
 > The development-era narrative behind this README is
 > [`docs/dev-notes.md`](docs/dev-notes.md).
 
-> **UI, Phase 4 (shipped in v0.2.2):** the dashboard is re-skinned on
+> **UI, Phase 4 (shipped in v0.2.2, refined in v0.2.3):** the dashboard is re-skinned on
 > [HeroUI](https://heroui.dev/) 3.2.7 — the same Next.js 16 + React 19 +
 > Tailwind CSS 4 stack, now with one semantic design-token palette
 > ("audit-workbench": graphite surfaces, accent reserved for the action that

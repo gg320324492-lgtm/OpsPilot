@@ -131,7 +131,7 @@ def create_app(
     app = FastAPI(
         title=_TITLE,
         description=_DESCRIPTION,
-        version="0.2.2",
+        version="0.2.3",
         dependencies=[Depends(_noop_dependency)],
     )
 
