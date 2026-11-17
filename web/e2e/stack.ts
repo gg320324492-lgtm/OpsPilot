@@ -1128,7 +1128,8 @@ export type DiagnosticLabel =
   | "claim-lease"
   | "i18n"
   | "expired-approval"
-  | "demo-paths";
+  | "demo-paths"
+  | "accessibility";
 
 /** The directory `label`'s capture goes in, relative to `web/`. */
 const DIAGNOSTICS_SUBDIR = ["test-results", "compose-logs"] as const;
